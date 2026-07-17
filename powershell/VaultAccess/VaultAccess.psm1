@@ -200,7 +200,7 @@ function Read-VaultNote {
 
     $resolved = Resolve-VaultRoot -Vault $Vault
     Assert-VaultOperationAllowed -Op Read -Vault $resolved.Name -RelativePath $Path
-    Get-Content -LiteralPath (Resolve-VaultPath -Path $Path -Vault $Vault) -Raw
+    Get-Content -LiteralPath (Resolve-VaultPath -Path $Path -Vault $Vault) -Raw -ErrorAction Stop
 }
 
 function Write-VaultNote {

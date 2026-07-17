@@ -1,0 +1,10 @@
+[
+  { "name": "simple relative path", "path": "Inbox/Note-Loose-Thought.md", "valid": true },
+  { "name": "backslash separators", "path": "Inbox\\Note-Loose-Thought.md", "valid": true },
+  { "name": "dot-dot that stays inside the vault", "path": "Projects/../Test-Vault.md", "valid": true },
+  { "name": "nonexistent relative path still resolves", "path": "Not/Yet/Written.md", "valid": true },
+  { "name": "rooted path rejected", "path": "C:/Windows/win.ini", "valid": false },
+  { "name": "single dot-dot escape rejected", "path": "../outside.md", "valid": false },
+  { "name": "nested dot-dot escape rejected", "path": "Projects/../../outside.md", "valid": false },
+  { "name": "whitespace-only path rejected", "path": "   ", "valid": false }
+]

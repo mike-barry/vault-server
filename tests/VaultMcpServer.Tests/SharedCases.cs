@@ -1,0 +1,39 @@
+using System.Text.Json;
+
+namespace VaultMcpServer.Tests;
+
+/// <summary>
+/// Loads the shared test-case files from tests/cases/. The Pester suite
+/// (powershell/VaultAccess/VaultAccess.Tests.ps1) consumes the same files, so the
+/// mirrored chokepoint semantics are exercised identically on both sides - add a case
+/// there once and both implementations must pass it.
+/// </summary>
+public static class SharedCases
+{
+    private static readonly JsonSerializerOptions Options = new() { PropertyNameCaseInsensitive = true };
+
+    private sealed record WikilinkCase(string Name, string Link, string Outcome, string? Path);
+    private sealed record PathCase(string Name, string Path, bool Valid);
+
+    public static TheoryData<string, string, string, string?> Wikilink()
+    {
+        var data = new TheoryData<string, string, string, string?>();
+        foreach (var c in Load<WikilinkCase>("wikilink-cases.json"))
+            data.Add(c.Name, c.Link, c.Outcome, c.Path);
+        return data;
+    }
+
+    public static TheoryData<string, string, bool> Paths()
+    {
+        var data = new TheoryData<string, string, bool>();
+        foreach (var c in Load<PathCase>("path-cases.json"))
+            data.Add(c.Name, c.Path, c.Valid);
+        return data;
+    }
+
+    private static List<T> Load<T>(string file)
+    {
+        var json = File.ReadAllText(Path.Combine(TestVaultFixture.CasesDir, file));
+        return JsonSerializer.Deserialize<List<T>>(json, Options)!;
+    }
+}

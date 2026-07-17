@@ -2,4 +2,7 @@
   <Folder Name="/src/">
     <Project Path="src/VaultMcpServer/VaultMcpServer.csproj" />
   </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/VaultMcpServer.Tests/VaultMcpServer.Tests.csproj" />
+  </Folder>
 </Solution>

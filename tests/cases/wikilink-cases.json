@@ -1,0 +1,19 @@
+[
+  { "name": "bare wikilink", "link": "[[Gizmo-Reference]]", "outcome": "resolves", "path": "Resources/Gizmo-Reference.md" },
+  { "name": "bare wikilink is case-insensitive", "link": "[[gizmo-reference]]", "outcome": "resolves", "path": "Resources/Gizmo-Reference.md" },
+  { "name": "display text stripped", "link": "[[Gizmo-Reference|the gizmo]]", "outcome": "resolves", "path": "Resources/Gizmo-Reference.md" },
+  { "name": "heading fragment stripped", "link": "[[Gizmo-Reference#Torque Specs]]", "outcome": "resolves", "path": "Resources/Gizmo-Reference.md" },
+  { "name": "heading and display stripped together", "link": "[[Gizmo-Reference#Torque Specs|the torque table]]", "outcome": "resolves", "path": "Resources/Gizmo-Reference.md" },
+  { "name": "path-qualified full path", "link": "[[Resources/Gizmo-Reference]]", "outcome": "resolves", "path": "Resources/Gizmo-Reference.md" },
+  { "name": "path-qualified trailing segments", "link": "[[Widget/Tasks]]", "outcome": "resolves", "path": "Projects/Widget/Tasks.md" },
+  { "name": "path-qualified is case-insensitive", "link": "[[resources/gizmo-reference]]", "outcome": "resolves", "path": "Resources/Gizmo-Reference.md" },
+  { "name": "path-qualified with backslashes normalized", "link": "[[Resources\\Gizmo-Reference]]", "outcome": "resolves", "path": "Resources/Gizmo-Reference.md" },
+  { "name": "unbracketed bare name", "link": "Test-Vault", "outcome": "resolves", "path": "Test-Vault.md" },
+  { "name": "note at vault root", "link": "[[Test-Vault]]", "outcome": "resolves", "path": "Test-Vault.md" },
+  { "name": "qualified path disambiguates duplicates", "link": "[[A/Dupe]]", "outcome": "resolves", "path": "A/Dupe.md" },
+  { "name": "missing note returns nothing", "link": "[[Nonexistent]]", "outcome": "none" },
+  { "name": "wrong folder qualification returns nothing", "link": "[[Wrong/Gizmo-Reference]]", "outcome": "none" },
+  { "name": "duplicate bare name is ambiguous", "link": "[[Dupe]]", "outcome": "ambiguous" },
+  { "name": "empty link is invalid", "link": "[[]]", "outcome": "invalid" },
+  { "name": "whitespace link is invalid", "link": "[[ ]]", "outcome": "invalid" }
+]
