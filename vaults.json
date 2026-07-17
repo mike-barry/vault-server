@@ -1,0 +1,6 @@
+{
+  "default_vault": "personal",
+  "vaults": {
+    "personal": "C:/Repos/MyVault"
+  }
+}
