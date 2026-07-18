@@ -1,4 +1,6 @@
+using Microsoft.AspNetCore.Http;
 using VaultMcpServer.Auth;
+using VaultMcpServer.Tools;
 using VaultMcpServer.Vault;
 
 var builder = WebApplication.CreateBuilder(args);
@@ -18,9 +20,28 @@ var grantsConfigPath = Path.GetFullPath(Path.Combine(
 var grantStore = GrantStore.Load(grantsConfigPath);
 builder.Services.AddSingleton(grantStore);
 
+var toolsDir = Path.GetFullPath(Path.Combine(
+    builder.Environment.ContentRootPath,
+    builder.Configuration["ToolsDirectory"] ?? "../../tools"));
+var scriptToolRegistry = new ScriptToolRegistry(toolsDir);
+builder.Services.AddSingleton(scriptToolRegistry);
+
+var scriptToolRunner = new ScriptToolRunner();
+builder.Services.AddSingleton(scriptToolRunner);
+
+// A directly-constructed, directly-registered instance (rather than AddHttpContextAccessor())
+// so ScriptToolDispatcher can be wired up here, before builder.Build() - the framework
+// still populates HttpContext on it per-request once it's resolvable as IHttpContextAccessor.
+var httpContextAccessor = new HttpContextAccessor();
+builder.Services.AddSingleton<IHttpContextAccessor>(httpContextAccessor);
+
+var scriptToolDispatcher = new ScriptToolDispatcher(scriptToolRegistry, scriptToolRunner, httpContextAccessor);
+
 builder.Services
     .AddMcpServer()
-    .WithHttpTransport(options => options.Stateless = true);
+    .WithHttpTransport(options => options.Stateless = true)
+    .WithListToolsHandler(scriptToolDispatcher.ListToolsAsync)
+    .WithCallToolHandler(scriptToolDispatcher.CallToolAsync);
 
 var app = builder.Build();
 
@@ -31,6 +52,9 @@ app.Logger.LogInformation(
     "Vaults loaded from {Path}: {Vaults} (default: {Default})",
     vaultsConfigPath, string.Join(", ", vaultConfig.Vaults.Keys), vaultConfig.DefaultVault);
 app.Logger.LogInformation("Grants loaded from {Path}", grantsConfigPath);
+app.Logger.LogInformation("Tools loaded from {Path}: {Count}", toolsDir, scriptToolRegistry.Tools.Count);
+
+app.Lifetime.ApplicationStopping.Register(scriptToolRunner.Dispose);
 
 app.Run();
 

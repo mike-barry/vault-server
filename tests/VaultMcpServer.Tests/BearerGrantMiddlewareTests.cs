@@ -11,6 +11,7 @@ namespace VaultMcpServer.Tests;
 /// over HTTP through TestServer, proving the bearer gate actually authenticates and
 /// scopes requests rather than just unit-testing GrantStore in isolation.
 /// </summary>
+[Collection("Program host tests")]
 public sealed class BearerGrantMiddlewareTests : IClassFixture<BearerGrantMiddlewareTests.Fixture>
 {
     private readonly Fixture _fixture;
