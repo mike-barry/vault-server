@@ -1,5 +1,8 @@
+using System.Collections.Concurrent;
 using System.Text.Json;
 using Microsoft.AspNetCore.Http;
+using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Logging.Abstractions;
 using ModelContextProtocol.Protocol;
 using ModelContextProtocol.Server;
 using VaultMcpServer.Auth;
@@ -14,11 +17,32 @@ namespace VaultMcpServer.Tools;
 /// <see cref="BearerGrantMiddleware"/>) only authenticates the caller and scopes the
 /// vault; per-tool read/write authorization happens against the grant it attached to
 /// <c>HttpContext.Items</c>.
+///
+/// Also tracks the <see cref="McpServer"/> for every session that has made a request, so
+/// the `tools/` file watcher (<see cref="ScriptToolsWatcher"/>) can push a
+/// `notifications/tools/list_changed` message after a <see cref="ScriptToolRegistry.Refresh"/>.
+/// Under the host's stateless HTTP transport a session's <c>McpServer</c> is normally torn
+/// down as soon as its one request/response completes, so this is best-effort: a session
+/// that has already finished by the time a refresh happens simply won't receive it, and a
+/// failed send just drops that (dead) session from the tracked set.
 /// </summary>
 public sealed class ScriptToolDispatcher(ScriptToolRegistry registry, ScriptToolRunner runner, IHttpContextAccessor httpContextAccessor)
 {
+    private readonly ConcurrentDictionary<McpServer, byte> _sessions = new();
+
+    // Constructed directly and registered before builder.Build() (see the
+    // httpContextAccessor comment in Program.cs), so no ILogger is resolvable yet at
+    // construction time. Program.cs calls AttachLogger once the service provider exists.
+    private ILogger<ScriptToolDispatcher> _logger = NullLogger<ScriptToolDispatcher>.Instance;
+
+    public void AttachLogger(ILogger<ScriptToolDispatcher> logger) => _logger = logger;
+
+    /// <summary>Number of times <see cref="NotifyToolsListChangedAsync"/> has run - lets tests confirm the <c>tools/</c> watcher calls it after a refresh, independent of whether any session was actually reachable to receive it.</summary>
+    public int NotifyCount { get; private set; }
+
     public ValueTask<ListToolsResult> ListToolsAsync(RequestContext<ListToolsRequestParams> context, CancellationToken cancellationToken)
     {
+        TrackSession(context.Server);
         var tools = registry.Tools
             .Select(t => new Tool { Name = t.Name, Description = t.Description, InputSchema = t.BuildInputSchema() })
             .ToList();
@@ -27,6 +51,7 @@ public sealed class ScriptToolDispatcher(ScriptToolRegistry registry, ScriptTool
 
     public async ValueTask<CallToolResult> CallToolAsync(RequestContext<CallToolRequestParams> context, CancellationToken cancellationToken)
     {
+        TrackSession(context.Server);
         var name = context.Params?.Name ?? "";
         var tool = registry.Tools.FirstOrDefault(t => t.Name == name);
         if (tool is null)
@@ -69,4 +94,35 @@ public sealed class ScriptToolDispatcher(ScriptToolRegistry registry, ScriptTool
         IsError = true,
         Content = [new TextContentBlock { Text = message }],
     };
+
+    private void TrackSession(McpServer? server)
+    {
+        if (server is not null)
+            _sessions[server] = 0;
+    }
+
+    /// <summary>
+    /// Broadcasts `notifications/tools/list_changed` to every session tracked so far.
+    /// Called by <see cref="ScriptToolsWatcher"/> after <see cref="ScriptToolRegistry.Refresh"/>.
+    /// A session whose send fails (its request/response has already completed under the
+    /// stateless transport) is dropped from the tracked set rather than retried.
+    /// </summary>
+    public async Task NotifyToolsListChangedAsync(CancellationToken cancellationToken)
+    {
+        NotifyCount++;
+        foreach (var server in _sessions.Keys)
+        {
+            try
+            {
+                await server.SendMessageAsync(
+                    new JsonRpcNotification { Method = NotificationMethods.ToolListChangedNotification },
+                    cancellationToken);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogDebug(ex, "Dropping a tracked session that could not be notified of a tools list change.");
+                _sessions.TryRemove(server, out _);
+            }
+        }
+    }
 }

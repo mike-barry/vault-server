@@ -48,6 +48,10 @@ var app = builder.Build();
 app.UseMiddleware<BearerGrantMiddleware>();
 app.MapMcp("/mcp");
 
+scriptToolDispatcher.AttachLogger(app.Services.GetRequiredService<ILogger<ScriptToolDispatcher>>());
+var scriptToolsWatcher = new ScriptToolsWatcher(
+    toolsDir, scriptToolRegistry, scriptToolDispatcher, app.Services.GetRequiredService<ILogger<ScriptToolsWatcher>>());
+
 app.Logger.LogInformation(
     "Vaults loaded from {Path}: {Vaults} (default: {Default})",
     vaultsConfigPath, string.Join(", ", vaultConfig.Vaults.Keys), vaultConfig.DefaultVault);
@@ -55,6 +59,7 @@ app.Logger.LogInformation("Grants loaded from {Path}", grantsConfigPath);
 app.Logger.LogInformation("Tools loaded from {Path}: {Count}", toolsDir, scriptToolRegistry.Tools.Count);
 
 app.Lifetime.ApplicationStopping.Register(scriptToolRunner.Dispose);
+app.Lifetime.ApplicationStopping.Register(scriptToolsWatcher.Dispose);
 
 app.Run();
 

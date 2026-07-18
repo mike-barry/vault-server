@@ -9,5 +9,12 @@ public sealed class ScriptToolRegistry(string toolsDir)
 {
     public IReadOnlyList<ScriptTool> Tools { get; private set; } = ScriptToolLoader.Load(toolsDir);
 
-    public void Refresh() => Tools = ScriptToolLoader.Load(toolsDir);
+    /// <summary>Number of times <see cref="Refresh"/> has run, startup load excluded - lets tests confirm the <c>tools/</c> watcher's debounce coalesces a burst of filesystem events into one re-scan.</summary>
+    public int RefreshCount { get; private set; }
+
+    public void Refresh()
+    {
+        Tools = ScriptToolLoader.Load(toolsDir);
+        RefreshCount++;
+    }
 }

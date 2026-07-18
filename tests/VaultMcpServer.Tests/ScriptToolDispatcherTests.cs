@@ -89,6 +89,45 @@ public sealed class ScriptToolDispatcherTests : IClassFixture<ScriptToolDispatch
         Assert.True(result.GetProperty("isError").GetBoolean());
     }
 
+    /// <summary>
+    /// End-to-end proof that the `tools/` file watcher is wired into the real host: a
+    /// script dropped onto disk after startup shows up in `tools/list` without a restart,
+    /// once the watcher's debounce window has elapsed.
+    /// </summary>
+    [Fact]
+    public async Task ToolsList_AfterAddingScriptFileOnDisk_ReflectsTheNewToolOnceDebounced()
+    {
+        using var client = AuthedClient(_fixture, Fixture.AdminToken);
+
+        await File.WriteAllTextAsync(Path.Combine(_fixture.ToolsDir, "farewell.ps1"), """
+            <#
+            .SYNOPSIS
+            Says goodbye.
+            .NOTES
+            OpClass: Read
+            #>
+            Write-Output "bye"
+            """);
+
+        var deadline = DateTime.UtcNow + TimeSpan.FromSeconds(10);
+        List<string> names = [];
+        while (DateTime.UtcNow < deadline)
+        {
+            using var response = await client.PostAsync("/mcp", JsonBody("""{"jsonrpc":"2.0","id":1,"method":"tools/list"}"""));
+            var body = await response.Content.ReadAsStringAsync();
+            using var doc = JsonDocument.Parse(ExtractJsonRpcPayload(body));
+            names = doc.RootElement.GetProperty("result").GetProperty("tools").EnumerateArray()
+                .Select(t => t.GetProperty("name").GetString()!)
+                .ToList();
+            if (names.Contains("farewell"))
+                break;
+            await Task.Delay(200);
+        }
+
+        Assert.Contains("farewell", names);
+        Assert.Contains("greet", names);
+    }
+
     [Fact]
     public async Task ToolsCall_UnknownTool_IsRejectedAsToolError()
     {
@@ -107,6 +146,8 @@ public sealed class ScriptToolDispatcherTests : IClassFixture<ScriptToolDispatch
         public const string ReadOnlyToken = "test-readonly-token";
 
         private readonly string _tempDir = Directory.CreateTempSubdirectory("vault-mcp-tools-dispatch-tests-").FullName;
+
+        public string ToolsDir { get; }
 
         public Fixture()
         {
@@ -127,6 +168,7 @@ public sealed class ScriptToolDispatcherTests : IClassFixture<ScriptToolDispatch
             }));
 
             var toolsDir = Path.Combine(_tempDir, "tools");
+            ToolsDir = toolsDir;
             Directory.CreateDirectory(toolsDir);
             File.WriteAllText(Path.Combine(toolsDir, "greet.ps1"), """
                 <#
