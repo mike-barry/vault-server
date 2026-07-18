@@ -110,6 +110,29 @@ public sealed class VaultAccess(VaultConfig config)
         File.WriteAllText(full, content);
     }
 
+    /// <summary>
+    /// Moves/renames a note from one vault-relative path to another, creating parent
+    /// directories as needed. Throws if the source note does not exist or the
+    /// destination already exists.
+    /// </summary>
+    public void MoveNote(string? vault, string relativePath, string newRelativePath)
+    {
+        var (name, _) = config.Resolve(vault);
+        EnsureAllowed(OpClass.Write, name, relativePath);
+        EnsureAllowed(OpClass.Write, name, newRelativePath);
+
+        var fullOld = ResolvePath(vault, relativePath);
+        var fullNew = ResolvePath(vault, newRelativePath);
+
+        if (!File.Exists(fullOld))
+            throw new FileNotFoundException($"Source note not found: {relativePath}", fullOld);
+        if (File.Exists(fullNew))
+            throw new IOException($"Destination already exists: {newRelativePath}");
+
+        Directory.CreateDirectory(Path.GetDirectoryName(fullNew)!);
+        File.Move(fullOld, fullNew);
+    }
+
     /// <summary>Strips [[ ]] delimiters, |display text, and #heading fragments, normalizing separators to forward slashes.</summary>
     private static string ParseWikilinkTarget(string link)
     {

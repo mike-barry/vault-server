@@ -1,6 +1,7 @@
 {
   "default_vault": "personal",
   "vaults": {
-    "personal": "C:/Repos/MyVault"
+    "personal": "C:/Repos/MyVault",
+    "test": "C:/Repos/vault-mcp-server/test-vault"
   }
 }

@@ -119,3 +119,31 @@ Describe 'Write-VaultNote' {
         Test-Path -LiteralPath (Resolve-VaultPath -Vault scratch -Path 'New-Folder/Nested/Note-Deep.md') | Should -BeTrue
     }
 }
+
+Describe 'Move-VaultNote' {
+    It 'moves a note to a new path' {
+        Write-VaultNote -Vault scratch -Path 'Inbox/Note-Move-Source.md' -Content "# Source`n`nquorvium check.`n"
+        Move-VaultNote -Vault scratch -Path 'Inbox/Note-Move-Source.md' -NewPath 'Inbox/Note-Move-Dest.md'
+
+        Test-Path -LiteralPath (Resolve-VaultPath -Vault scratch -Path 'Inbox/Note-Move-Source.md') | Should -BeFalse
+        Test-Path -LiteralPath (Resolve-VaultPath -Vault scratch -Path 'Inbox/Note-Move-Dest.md') | Should -BeTrue
+        Read-VaultNote -Vault scratch -Path 'Inbox/Note-Move-Dest.md' | Should -Match 'quorvium'
+    }
+
+    It 'creates parent directories' {
+        Write-VaultNote -Vault scratch -Path 'Note-Move-Nested-Source.md' -Content "# Source`n"
+        Move-VaultNote -Vault scratch -Path 'Note-Move-Nested-Source.md' -NewPath 'New-Folder/Nested/Note-Move-Nested-Dest.md'
+
+        Test-Path -LiteralPath (Resolve-VaultPath -Vault scratch -Path 'New-Folder/Nested/Note-Move-Nested-Dest.md') | Should -BeTrue
+    }
+
+    It 'throws on a missing source' {
+        { Move-VaultNote -Vault scratch -Path 'Missing-Source.md' -NewPath 'Missing-Dest.md' } | Should -Throw
+    }
+
+    It 'throws when the destination already exists' {
+        Write-VaultNote -Vault scratch -Path 'Note-Move-Collide-Source.md' -Content "# Source`n"
+        Write-VaultNote -Vault scratch -Path 'Note-Move-Collide-Dest.md' -Content "# Dest`n"
+        { Move-VaultNote -Vault scratch -Path 'Note-Move-Collide-Source.md' -NewPath 'Note-Move-Collide-Dest.md' } | Should -Throw
+    }
+}

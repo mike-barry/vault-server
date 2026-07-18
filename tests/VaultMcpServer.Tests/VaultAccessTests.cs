@@ -90,6 +90,41 @@ public sealed class VaultAccessTests(TestVaultFixture fixture) : IClassFixture<T
         Assert.True(File.Exists(fixture.Vault.ResolvePath("scratch", "New-Folder/Nested/Note-Deep.md")));
     }
 
+    [Fact]
+    public void MoveNote_MovesFileToNewPath()
+    {
+        fixture.Vault.WriteNote("scratch", "Inbox/Note-Move-Source.md", "# Source\n\nquorvium check.\n");
+        fixture.Vault.MoveNote("scratch", "Inbox/Note-Move-Source.md", "Inbox/Note-Move-Dest.md");
+
+        Assert.False(File.Exists(fixture.Vault.ResolvePath("scratch", "Inbox/Note-Move-Source.md")));
+        Assert.True(File.Exists(fixture.Vault.ResolvePath("scratch", "Inbox/Note-Move-Dest.md")));
+        Assert.Contains("quorvium", fixture.Vault.ReadNote("scratch", "Inbox/Note-Move-Dest.md"));
+    }
+
+    [Fact]
+    public void MoveNote_CreatesParentDirectories()
+    {
+        fixture.Vault.WriteNote("scratch", "Note-Move-Nested-Source.md", "# Source\n");
+        fixture.Vault.MoveNote("scratch", "Note-Move-Nested-Source.md", "New-Folder/Nested/Note-Move-Nested-Dest.md");
+
+        Assert.True(File.Exists(fixture.Vault.ResolvePath("scratch", "New-Folder/Nested/Note-Move-Nested-Dest.md")));
+    }
+
+    [Fact]
+    public void MoveNote_MissingSourceThrows()
+    {
+        Assert.Throws<FileNotFoundException>(() => fixture.Vault.MoveNote("scratch", "Missing-Source.md", "Missing-Dest.md"));
+    }
+
+    [Fact]
+    public void MoveNote_ExistingDestinationThrows()
+    {
+        fixture.Vault.WriteNote("scratch", "Note-Move-Collide-Source.md", "# Source\n");
+        fixture.Vault.WriteNote("scratch", "Note-Move-Collide-Dest.md", "# Dest\n");
+
+        Assert.Throws<IOException>(() => fixture.Vault.MoveNote("scratch", "Note-Move-Collide-Source.md", "Note-Move-Collide-Dest.md"));
+    }
+
     public static TheoryData<string, string, string, string?> WikilinkCases => SharedCases.Wikilink();
     public static TheoryData<string, string, bool> PathCases => SharedCases.Paths();
 }

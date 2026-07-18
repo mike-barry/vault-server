@@ -14,6 +14,7 @@
         'Resolve-WikiLink'
         'Read-VaultNote'
         'Write-VaultNote'
+        'Move-VaultNote'
     )
     CmdletsToExport   = @()
     VariablesToExport = @()

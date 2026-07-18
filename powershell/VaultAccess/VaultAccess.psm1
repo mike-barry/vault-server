@@ -225,6 +225,41 @@ function Write-VaultNote {
     [System.IO.File]::WriteAllText($full, $Content)
 }
 
+function Move-VaultNote {
+    <#
+    .SYNOPSIS
+    Moves/renames a note from one vault-relative path to another, creating parent
+    directories as needed. Throws if the source note does not exist or the destination
+    already exists.
+    #>
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)] [string] $Path,
+        [Parameter(Mandatory)] [string] $NewPath,
+        [string] $Vault
+    )
+
+    $resolved = Resolve-VaultRoot -Vault $Vault
+    Assert-VaultOperationAllowed -Op Write -Vault $resolved.Name -RelativePath $Path
+    Assert-VaultOperationAllowed -Op Write -Vault $resolved.Name -RelativePath $NewPath
+
+    $fullOld = Resolve-VaultPath -Path $Path -Vault $Vault
+    $fullNew = Resolve-VaultPath -Path $NewPath -Vault $Vault
+
+    if (-not (Test-Path -LiteralPath $fullOld -PathType Leaf)) {
+        throw "Source note not found: $Path"
+    }
+    if (Test-Path -LiteralPath $fullNew) {
+        throw "Destination already exists: $NewPath"
+    }
+
+    $dir = [System.IO.Path]::GetDirectoryName($fullNew)
+    if (-not (Test-Path -LiteralPath $dir -PathType Container)) {
+        New-Item -ItemType Directory -Path $dir -Force | Out-Null
+    }
+    Move-Item -LiteralPath $fullOld -Destination $fullNew
+}
+
 Export-ModuleMember -Function @(
     'Initialize-VaultAccess'
     'Get-VaultAccessConfig'
@@ -234,4 +269,5 @@ Export-ModuleMember -Function @(
     'Resolve-WikiLink'
     'Read-VaultNote'
     'Write-VaultNote'
+    'Move-VaultNote'
 )
