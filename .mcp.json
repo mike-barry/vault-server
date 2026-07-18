@@ -1,0 +1,11 @@
+{
+  "mcpServers": {
+    "vault-mcp-server": {
+      "type": "http",
+      "url": "http://localhost:5111/mcp",
+      "headers": {
+        "Authorization": "Bearer ${VAULT_MCP_ADMIN_TOKEN}"
+      }
+    }
+  }
+}
