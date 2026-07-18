@@ -23,7 +23,7 @@ builder.Services.AddSingleton<VaultAccess>();
 var grantsConfigPath = Path.GetFullPath(Path.Combine(
     builder.Environment.ContentRootPath,
     builder.Configuration["GrantsConfigPath"] ?? "../../grants.json"));
-var grantStore = GrantStore.Load(grantsConfigPath, opClassRegistry);
+var grantStore = GrantStore.Load(grantsConfigPath, opClassRegistry, vaultConfig);
 builder.Services.AddSingleton(grantStore);
 
 var toolsDir = Path.GetFullPath(Path.Combine(

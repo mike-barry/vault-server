@@ -18,7 +18,7 @@ public sealed class GrantStore
 
     private GrantStore(IReadOnlyList<(byte[] Hash, Grant Grant)> rows) => _rows = rows;
 
-    public static GrantStore Load(string path, OpClassRegistry opClassRegistry)
+    public static GrantStore Load(string path, OpClassRegistry opClassRegistry, VaultConfig vaultConfig)
     {
         if (!File.Exists(path))
             throw new FileNotFoundException($"Grants config not found: {path}", path);
@@ -40,14 +40,20 @@ public sealed class GrantStore
             if (!seenIds.Add(id))
                 throw new InvalidDataException($"{path}: duplicate grant id \"{id}\".");
 
-            var opClasses = ReadStringSet(entry.Value, "opClasses", path, id)
-                .Select(s => opClassRegistry.Canonicalize(s)
-                    ?? throw new InvalidDataException($"{path}: grant \"{id}\" has unknown opClass \"{s}\"."))
-                .ToHashSet(StringComparer.OrdinalIgnoreCase);
+            var opClassesRaw = ReadStringSet(entry.Value, "opClasses", path, id).ToList();
+            var opClasses = IsWildcard(opClassesRaw)
+                ? opClassRegistry.Names.ToHashSet(StringComparer.OrdinalIgnoreCase)
+                : opClassesRaw
+                    .Select(s => opClassRegistry.Canonicalize(s)
+                        ?? throw new InvalidDataException($"{path}: grant \"{id}\" has unknown opClass \"{s}\"."))
+                    .ToHashSet(StringComparer.OrdinalIgnoreCase);
             if (opClasses.Count == 0)
                 throw new InvalidDataException($"{path}: grant \"{id}\" has no opClasses.");
 
-            var vaults = ReadStringSet(entry.Value, "vaults", path, id).ToHashSet(StringComparer.OrdinalIgnoreCase);
+            var vaultsRaw = ReadStringSet(entry.Value, "vaults", path, id).ToList();
+            var vaults = IsWildcard(vaultsRaw)
+                ? vaultConfig.Vaults.Keys.ToHashSet(StringComparer.OrdinalIgnoreCase)
+                : vaultsRaw.ToHashSet(StringComparer.OrdinalIgnoreCase);
             if (vaults.Count == 0)
                 throw new InvalidDataException($"{path}: grant \"{id}\" has no vaults.");
 
@@ -74,6 +80,11 @@ public sealed class GrantStore
     }
 
     private static byte[] Hash(string token) => SHA256.HashData(Encoding.UTF8.GetBytes(token));
+
+    /// <summary>True when a grant row's array is exactly <c>["*"]</c> - expanded at load time
+    /// to the full current set of registry op-classes / configured vaults, rather than being
+    /// validated as a literal name.</summary>
+    private static bool IsWildcard(IReadOnlyList<string> values) => values is [ "*" ];
 
     private static IEnumerable<string> ReadStringSet(JsonElement grant, string property, string path, string id)
     {
