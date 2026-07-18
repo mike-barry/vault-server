@@ -5,6 +5,8 @@ namespace VaultMcpServer.Tests;
 
 public sealed class ScriptToolLoaderTests : IDisposable
 {
+    private static readonly OpClassRegistry OpClasses = OpClassRegistry.Load(Path.Combine(TestVaultFixture.RepoRoot, "op-classes.json"));
+
     private readonly string _tempDir = Directory.CreateTempSubdirectory("vault-mcp-tools-tests-").FullName;
 
     public void Dispose() => Directory.Delete(_tempDir, recursive: true);
@@ -40,14 +42,14 @@ public sealed class ScriptToolLoaderTests : IDisposable
     [Fact]
     public void Load_MissingDirectoryReturnsEmpty()
     {
-        Assert.Empty(ScriptToolLoader.Load(Path.Combine(_tempDir, "no-such-dir")));
+        Assert.Empty(ScriptToolLoader.Load(Path.Combine(_tempDir, "no-such-dir"), OpClasses));
     }
 
     [Fact]
     public void Load_ValidScript_DerivesNameDescriptionOpClassAndParameters()
     {
         WriteScript("rename_note.ps1", ValidScript);
-        var tools = ScriptToolLoader.Load(_tempDir);
+        var tools = ScriptToolLoader.Load(_tempDir, OpClasses);
 
         var tool = Assert.Single(tools);
         Assert.Equal("rename_note", tool.Name);
@@ -74,7 +76,7 @@ public sealed class ScriptToolLoaderTests : IDisposable
         WriteScript("a.ps1", ValidScript);
         WriteScript("b.ps1", ValidScript.Replace("OpClass: Write", "OpClass: Read"));
 
-        var tools = ScriptToolLoader.Load(_tempDir);
+        var tools = ScriptToolLoader.Load(_tempDir, OpClasses);
 
         Assert.Equal(2, tools.Count);
         Assert.Equal(OpClass.Write, tools.Single(t => t.Name == "a").OpClass);
@@ -94,7 +96,7 @@ public sealed class ScriptToolLoaderTests : IDisposable
             Write-Output "agenda"
             """);
 
-        var tool = Assert.Single(ScriptToolLoader.Load(_tempDir));
+        var tool = Assert.Single(ScriptToolLoader.Load(_tempDir, OpClasses));
         Assert.Empty(tool.Parameters);
     }
 
@@ -108,7 +110,7 @@ public sealed class ScriptToolLoaderTests : IDisposable
             #>
             param()
             """);
-        Assert.Throws<InvalidDataException>(() => ScriptToolLoader.Load(_tempDir));
+        Assert.Throws<InvalidDataException>(() => ScriptToolLoader.Load(_tempDir, OpClasses));
     }
 
     [Fact]
@@ -121,7 +123,7 @@ public sealed class ScriptToolLoaderTests : IDisposable
             #>
             param()
             """);
-        Assert.Throws<InvalidDataException>(() => ScriptToolLoader.Load(_tempDir));
+        Assert.Throws<InvalidDataException>(() => ScriptToolLoader.Load(_tempDir, OpClasses));
     }
 
     [Fact]
@@ -136,7 +138,7 @@ public sealed class ScriptToolLoaderTests : IDisposable
             #>
             param()
             """);
-        Assert.Throws<InvalidDataException>(() => ScriptToolLoader.Load(_tempDir));
+        Assert.Throws<InvalidDataException>(() => ScriptToolLoader.Load(_tempDir, OpClasses));
     }
 
     [Fact]
@@ -151,14 +153,14 @@ public sealed class ScriptToolLoaderTests : IDisposable
             #>
             param([string]$Undocumented)
             """);
-        Assert.Throws<InvalidDataException>(() => ScriptToolLoader.Load(_tempDir));
+        Assert.Throws<InvalidDataException>(() => ScriptToolLoader.Load(_tempDir, OpClasses));
     }
 
     [Fact]
     public void Load_NoCommentHelpBlockThrows()
     {
         WriteScript("bad.ps1", "param([string]$X)\nWrite-Output $X\n");
-        Assert.Throws<InvalidDataException>(() => ScriptToolLoader.Load(_tempDir));
+        Assert.Throws<InvalidDataException>(() => ScriptToolLoader.Load(_tempDir, OpClasses));
     }
 
     [Fact]
@@ -173,14 +175,14 @@ public sealed class ScriptToolLoaderTests : IDisposable
             #>
             param($X
             """);
-        Assert.Throws<InvalidDataException>(() => ScriptToolLoader.Load(_tempDir));
+        Assert.Throws<InvalidDataException>(() => ScriptToolLoader.Load(_tempDir, OpClasses));
     }
 
     [Fact]
     public void BuildInputSchema_MatchesJsonSchemaShape()
     {
         WriteScript("rename_note.ps1", ValidScript);
-        var tool = Assert.Single(ScriptToolLoader.Load(_tempDir));
+        var tool = Assert.Single(ScriptToolLoader.Load(_tempDir, OpClasses));
 
         var schema = tool.BuildInputSchema();
         Assert.Equal("object", schema.GetProperty("type").GetString());

@@ -5,6 +5,8 @@ namespace VaultMcpServer.Tests;
 
 public sealed class GrantStoreTests : IDisposable
 {
+    private static readonly OpClassRegistry OpClasses = OpClassRegistry.Load(Path.Combine(TestVaultFixture.RepoRoot, "op-classes.json"));
+
     private readonly string _tempDir = Directory.CreateTempSubdirectory("vault-mcp-grants-tests-").FullName;
 
     public void Dispose() => Directory.Delete(_tempDir, recursive: true);
@@ -26,7 +28,7 @@ public sealed class GrantStoreTests : IDisposable
     [Fact]
     public void Authenticate_KnownTokenReturnsItsGrant()
     {
-        var store = GrantStore.Load(WriteGrants(TwoGrants));
+        var store = GrantStore.Load(WriteGrants(TwoGrants), OpClasses);
 
         var admin = store.Authenticate("admin-token");
         Assert.NotNull(admin);
@@ -47,27 +49,27 @@ public sealed class GrantStoreTests : IDisposable
     [Fact]
     public void Authenticate_UnknownTokenReturnsNull()
     {
-        var store = GrantStore.Load(WriteGrants(TwoGrants));
+        var store = GrantStore.Load(WriteGrants(TwoGrants), OpClasses);
         Assert.Null(store.Authenticate("not-a-real-token"));
     }
 
     [Fact]
     public void Authenticate_EmptyTokenReturnsNull()
     {
-        var store = GrantStore.Load(WriteGrants(TwoGrants));
+        var store = GrantStore.Load(WriteGrants(TwoGrants), OpClasses);
         Assert.Null(store.Authenticate(""));
     }
 
     [Fact]
     public void Load_MissingFileThrows()
     {
-        Assert.Throws<FileNotFoundException>(() => GrantStore.Load(Path.Combine(_tempDir, "absent.json")));
+        Assert.Throws<FileNotFoundException>(() => GrantStore.Load(Path.Combine(_tempDir, "absent.json"), OpClasses));
     }
 
     [Fact]
     public void Load_EmptyObjectThrows()
     {
-        Assert.Throws<InvalidDataException>(() => GrantStore.Load(WriteGrants("{}")));
+        Assert.Throws<InvalidDataException>(() => GrantStore.Load(WriteGrants("{}"), OpClasses));
     }
 
     [Fact]
@@ -79,34 +81,34 @@ public sealed class GrantStoreTests : IDisposable
               "token-b": { "id": "admin", "opClasses": ["Read"], "vaults": ["personal"] }
             }
             """;
-        Assert.Throws<InvalidDataException>(() => GrantStore.Load(WriteGrants(json)));
+        Assert.Throws<InvalidDataException>(() => GrantStore.Load(WriteGrants(json), OpClasses));
     }
 
     [Fact]
     public void Load_UnknownOpClassThrows()
     {
         var json = """{ "token-a": { "id": "admin", "opClasses": ["Delete"], "vaults": ["personal"] } }""";
-        Assert.Throws<InvalidDataException>(() => GrantStore.Load(WriteGrants(json)));
+        Assert.Throws<InvalidDataException>(() => GrantStore.Load(WriteGrants(json), OpClasses));
     }
 
     [Fact]
     public void Load_EmptyOpClassesThrows()
     {
         var json = """{ "token-a": { "id": "admin", "opClasses": [], "vaults": ["personal"] } }""";
-        Assert.Throws<InvalidDataException>(() => GrantStore.Load(WriteGrants(json)));
+        Assert.Throws<InvalidDataException>(() => GrantStore.Load(WriteGrants(json), OpClasses));
     }
 
     [Fact]
     public void Load_EmptyVaultsThrows()
     {
         var json = """{ "token-a": { "id": "admin", "opClasses": ["Read"], "vaults": [] } }""";
-        Assert.Throws<InvalidDataException>(() => GrantStore.Load(WriteGrants(json)));
+        Assert.Throws<InvalidDataException>(() => GrantStore.Load(WriteGrants(json), OpClasses));
     }
 
     [Fact]
     public void Load_MissingIdThrows()
     {
         var json = """{ "token-a": { "opClasses": ["Read"], "vaults": ["personal"] } }""";
-        Assert.Throws<InvalidDataException>(() => GrantStore.Load(WriteGrants(json)));
+        Assert.Throws<InvalidDataException>(() => GrantStore.Load(WriteGrants(json), OpClasses));
     }
 }

@@ -1,3 +1,5 @@
+using VaultMcpServer.Vault;
+
 namespace VaultMcpServer.Tools;
 
 /// <summary>
@@ -5,16 +7,16 @@ namespace VaultMcpServer.Tools;
 /// <see cref="Refresh"/> re-scans the folder - the hook the tools/ file watcher calls to
 /// pick up added, changed, or removed scripts without a restart.
 /// </summary>
-public sealed class ScriptToolRegistry(string toolsDir)
+public sealed class ScriptToolRegistry(string toolsDir, OpClassRegistry opClassRegistry)
 {
-    public IReadOnlyList<ScriptTool> Tools { get; private set; } = ScriptToolLoader.Load(toolsDir);
+    public IReadOnlyList<ScriptTool> Tools { get; private set; } = ScriptToolLoader.Load(toolsDir, opClassRegistry);
 
     /// <summary>Number of times <see cref="Refresh"/> has run, startup load excluded - lets tests confirm the <c>tools/</c> watcher's debounce coalesces a burst of filesystem events into one re-scan.</summary>
     public int RefreshCount { get; private set; }
 
     public void Refresh()
     {
-        Tools = ScriptToolLoader.Load(toolsDir);
+        Tools = ScriptToolLoader.Load(toolsDir, opClassRegistry);
         RefreshCount++;
     }
 }

@@ -1,5 +1,4 @@
 using System.Text.Json;
-using VaultMcpServer.Vault;
 
 namespace VaultMcpServer.Tools;
 
@@ -8,10 +7,11 @@ public sealed record ScriptToolParameter(string Name, string JsonType, bool Requ
 
 /// <summary>
 /// An MCP tool backed by a PowerShell script: name and description from comment-based
-/// help, parameters from the param() block, op class from the ".NOTES" help section. See
-/// <see cref="ScriptToolLoader"/> for how these are derived.
+/// help, parameters from the param() block, op class from the ".NOTES" help section - a
+/// name validated against <see cref="VaultMcpServer.Vault.OpClassRegistry"/> by
+/// <see cref="ScriptToolLoader"/>, which derives these.
 /// </summary>
-public sealed record ScriptTool(string Name, string Description, OpClass OpClass, string ScriptPath, IReadOnlyList<ScriptToolParameter> Parameters)
+public sealed record ScriptTool(string Name, string Description, string OpClass, string ScriptPath, IReadOnlyList<ScriptToolParameter> Parameters)
 {
     /// <summary>Builds the tool's JSON Schema `inputSchema`, as required by the MCP `tools/list` response.</summary>
     public JsonElement BuildInputSchema()

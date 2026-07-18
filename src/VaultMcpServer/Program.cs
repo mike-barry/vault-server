@@ -7,6 +7,12 @@ var builder = WebApplication.CreateBuilder(args);
 
 builder.WebHost.UseUrls("http://localhost:5111");
 
+var opClassesConfigPath = Path.GetFullPath(Path.Combine(
+    builder.Environment.ContentRootPath,
+    builder.Configuration["OpClassesConfigPath"] ?? "../../op-classes.json"));
+var opClassRegistry = OpClassRegistry.Load(opClassesConfigPath);
+builder.Services.AddSingleton(opClassRegistry);
+
 var vaultsConfigPath = Path.GetFullPath(Path.Combine(
     builder.Environment.ContentRootPath,
     builder.Configuration["VaultsConfigPath"] ?? "../../vaults.json"));
@@ -17,13 +23,13 @@ builder.Services.AddSingleton<VaultAccess>();
 var grantsConfigPath = Path.GetFullPath(Path.Combine(
     builder.Environment.ContentRootPath,
     builder.Configuration["GrantsConfigPath"] ?? "../../grants.json"));
-var grantStore = GrantStore.Load(grantsConfigPath);
+var grantStore = GrantStore.Load(grantsConfigPath, opClassRegistry);
 builder.Services.AddSingleton(grantStore);
 
 var toolsDir = Path.GetFullPath(Path.Combine(
     builder.Environment.ContentRootPath,
     builder.Configuration["ToolsDirectory"] ?? "../../tools"));
-var scriptToolRegistry = new ScriptToolRegistry(toolsDir);
+var scriptToolRegistry = new ScriptToolRegistry(toolsDir, opClassRegistry);
 builder.Services.AddSingleton(scriptToolRegistry);
 
 var scriptToolRunner = new ScriptToolRunner();
@@ -52,6 +58,7 @@ scriptToolDispatcher.AttachLogger(app.Services.GetRequiredService<ILogger<Script
 var scriptToolsWatcher = new ScriptToolsWatcher(
     toolsDir, scriptToolRegistry, scriptToolDispatcher, app.Services.GetRequiredService<ILogger<ScriptToolsWatcher>>());
 
+app.Logger.LogInformation("Op classes loaded from {Path}: {OpClasses}", opClassesConfigPath, string.Join(", ", opClassRegistry.Names));
 app.Logger.LogInformation(
     "Vaults loaded from {Path}: {Vaults} (default: {Default})",
     vaultsConfigPath, string.Join(", ", vaultConfig.Vaults.Keys), vaultConfig.DefaultVault);

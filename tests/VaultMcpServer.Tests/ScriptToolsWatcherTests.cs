@@ -1,6 +1,7 @@
 using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.Logging.Abstractions;
 using VaultMcpServer.Tools;
+using VaultMcpServer.Vault;
 
 namespace VaultMcpServer.Tests;
 
@@ -37,6 +38,8 @@ public sealed class ScriptToolsWatcherTests : IDisposable, IClassFixture<ScriptT
         Write-Output "hi $Name"
         """;
 
+    private static readonly OpClassRegistry OpClasses = OpClassRegistry.Load(Path.Combine(TestVaultFixture.RepoRoot, "op-classes.json"));
+
     private readonly string _tempDir = Directory.CreateTempSubdirectory("vault-mcp-watcher-tests-").FullName;
     private readonly ScriptToolRunner _runner;
 
@@ -46,7 +49,7 @@ public sealed class ScriptToolsWatcherTests : IDisposable, IClassFixture<ScriptT
 
     private (ScriptToolRegistry Registry, ScriptToolDispatcher Dispatcher) MakeRegistryAndDispatcher(string toolsDir)
     {
-        var registry = new ScriptToolRegistry(toolsDir);
+        var registry = new ScriptToolRegistry(toolsDir, OpClasses);
         var dispatcher = new ScriptToolDispatcher(registry, _runner, new HttpContextAccessor());
         dispatcher.AttachLogger(NullLogger<ScriptToolDispatcher>.Instance);
         return (registry, dispatcher);

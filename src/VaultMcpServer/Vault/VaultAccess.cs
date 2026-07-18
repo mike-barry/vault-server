@@ -20,7 +20,7 @@ public sealed class VaultAccess(VaultConfig config)
     /// bearer middleware (grants.json); per-path scoping is the phase 2 hook this signature
     /// reserves. Every operation below calls this before touching the file system.
     /// </summary>
-    private static void EnsureAllowed(OpClass op, string vault, string relativePath)
+    private static void EnsureAllowed(string op, string vault, string relativePath)
     {
     }
 

@@ -21,21 +21,21 @@ public static partial class ScriptToolLoader
     [GeneratedRegex(@"^[ \t]*\.(?<tag>[A-Za-z]+)\b[ \t]*(?<arg>\S+)?[ \t]*$", RegexOptions.Multiline)]
     private static partial Regex SectionHeaderRegex();
 
-    [GeneratedRegex(@"OpClass:\s*(Read|Write)", RegexOptions.IgnoreCase)]
+    [GeneratedRegex(@"OpClass:\s*(\S+)", RegexOptions.IgnoreCase)]
     private static partial Regex OpClassRegex();
 
-    public static IReadOnlyList<ScriptTool> Load(string toolsDir)
+    public static IReadOnlyList<ScriptTool> Load(string toolsDir, OpClassRegistry opClassRegistry)
     {
         if (!Directory.Exists(toolsDir))
             return [];
 
         return Directory.EnumerateFiles(toolsDir, "*.ps1", SearchOption.TopDirectoryOnly)
             .OrderBy(p => p, StringComparer.OrdinalIgnoreCase)
-            .Select(LoadOne)
+            .Select(path => LoadOne(path, opClassRegistry))
             .ToList();
     }
 
-    private static ScriptTool LoadOne(string path)
+    private static ScriptTool LoadOne(string path, OpClassRegistry opClassRegistry)
     {
         var name = Path.GetFileNameWithoutExtension(path);
         var text = File.ReadAllText(path);
@@ -49,8 +49,11 @@ public static partial class ScriptToolLoader
             throw new InvalidDataException($"{path}: missing a .SYNOPSIS comment-help entry.");
 
         var opClassMatch = help.Notes is null ? null : OpClassRegex().Match(help.Notes);
-        if (opClassMatch is not { Success: true } || !Enum.TryParse<OpClass>(opClassMatch.Groups[1].Value, ignoreCase: true, out var opClass))
-            throw new InvalidDataException($"{path}: .NOTES must declare \"OpClass: Read\" or \"OpClass: Write\".");
+        var opClass = opClassMatch is { Success: true }
+            ? opClassRegistry.Canonicalize(opClassMatch.Groups[1].Value)
+            : null;
+        if (opClass is null)
+            throw new InvalidDataException($"{path}: .NOTES must declare a valid \"OpClass: <name>\" (one of: {string.Join(", ", opClassRegistry.Names)}).");
 
         var parameters = new List<ScriptToolParameter>();
         foreach (var p in ast.ParamBlock?.Parameters ?? [])

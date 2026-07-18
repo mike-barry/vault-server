@@ -1,11 +1,14 @@
 namespace VaultMcpServer.Vault;
 
 /// <summary>
-/// Operation class a vault operation belongs to. Every tool declares one; grants
-/// authorize per class. Phase 1 has exactly read and write.
+/// Well-known op-class name constants for fixed C# call sites (the chokepoint's internal
+/// Read/Write checks). The authoritative, extensible set of valid op-class names is
+/// data-driven via <see cref="OpClassRegistry"/> (op-classes.json); op-class values
+/// flowing through config/scripts (<c>Grant</c>, <c>ScriptTool</c>) are plain strings
+/// validated against that registry, not this enum-turned-constant-holder.
 /// </summary>
-public enum OpClass
+public static class OpClass
 {
-    Read,
-    Write,
+    public const string Read = "Read";
+    public const string Write = "Write";
 }

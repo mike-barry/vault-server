@@ -18,7 +18,7 @@ public sealed class GrantStore
 
     private GrantStore(IReadOnlyList<(byte[] Hash, Grant Grant)> rows) => _rows = rows;
 
-    public static GrantStore Load(string path)
+    public static GrantStore Load(string path, OpClassRegistry opClassRegistry)
     {
         if (!File.Exists(path))
             throw new FileNotFoundException($"Grants config not found: {path}", path);
@@ -41,10 +41,9 @@ public sealed class GrantStore
                 throw new InvalidDataException($"{path}: duplicate grant id \"{id}\".");
 
             var opClasses = ReadStringSet(entry.Value, "opClasses", path, id)
-                .Select(s => Enum.TryParse<OpClass>(s, ignoreCase: true, out var op)
-                    ? op
-                    : throw new InvalidDataException($"{path}: grant \"{id}\" has unknown opClass \"{s}\"."))
-                .ToHashSet();
+                .Select(s => opClassRegistry.Canonicalize(s)
+                    ?? throw new InvalidDataException($"{path}: grant \"{id}\" has unknown opClass \"{s}\"."))
+                .ToHashSet(StringComparer.OrdinalIgnoreCase);
             if (opClasses.Count == 0)
                 throw new InvalidDataException($"{path}: grant \"{id}\" has no opClasses.");
 
