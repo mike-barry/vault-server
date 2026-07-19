@@ -138,10 +138,50 @@ public sealed class ReadOnlyToolsDispatchTests : IClassFixture<ReadOnlyToolsDisp
         Assert.True(result.GetProperty("isError").GetBoolean());
     }
 
+    [Fact]
+    public async Task Search_ScopedGrant_FindsAMatchInsideItsScopeRoot()
+    {
+        var body = """{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"search","arguments":{"Query":"quorvium"}}}""";
+        var result = await CallToolAsync(_fixture, Fixture.WidgetScopedToken, body);
+
+        Assert.False(result.TryGetProperty("isError", out var isError) && isError.GetBoolean());
+        Assert.Contains("Projects/Widget/Tasks.md", ContentText(result));
+    }
+
+    [Fact]
+    public async Task Search_ScopedGrant_OmitsAMatchOutsideItsScopeRoot()
+    {
+        var body = """{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"search","arguments":{"Query":"quorvium"}}}""";
+        var result = await CallToolAsync(_fixture, Fixture.WidgetScopedToken, body);
+
+        Assert.False(result.TryGetProperty("isError", out var isError) && isError.GetBoolean());
+        Assert.DoesNotContain("Resources/Gizmo-Reference.md", ContentText(result));
+    }
+
+    [Fact]
+    public async Task ReadNote_ScopedGrant_OutOfScopeNote_IsRejectedAsToolError()
+    {
+        var body = """{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"read_note","arguments":{"Note":"Gizmo-Reference"}}}""";
+        var result = await CallToolAsync(_fixture, Fixture.WidgetScopedToken, body);
+
+        Assert.True(result.GetProperty("isError").GetBoolean());
+    }
+
+    [Fact]
+    public async Task ResolveWikilink_ScopedGrant_OutOfScopeNote_ReturnsNotFoundRatherThanLeakingThePath()
+    {
+        var body = """{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"resolve_wikilink","arguments":{"Link":"Gizmo-Reference"}}}""";
+        var result = await CallToolAsync(_fixture, Fixture.WidgetScopedToken, body);
+
+        Assert.False(result.TryGetProperty("isError", out var isError) && isError.GetBoolean());
+        Assert.Contains("Not found", ContentText(result));
+    }
+
     public sealed class Fixture : WebApplicationFactory<Program>
     {
         public const string ReadOnlyToken = "test-readonly-tools-token";
         public const string WriteOnlyToken = "test-writeonly-tools-token";
+        public const string WidgetScopedToken = "test-widget-scoped-tools-token";
 
         private readonly string _tempDir = Directory.CreateTempSubdirectory("vault-mcp-readonly-tools-dispatch-tests-").FullName;
 
@@ -164,6 +204,7 @@ public sealed class ReadOnlyToolsDispatchTests : IClassFixture<ReadOnlyToolsDisp
             {
                 [ReadOnlyToken] = new { id = "readonly-tools", opClasses = new[] { "Read" }, vaults = new[] { "test" }, ttl = "*" },
                 [WriteOnlyToken] = new { id = "writeonly-tools", opClasses = new[] { "Write" }, vaults = new[] { "test" }, ttl = "*" },
+                [WidgetScopedToken] = new { id = "widget-scoped-tools", opClasses = new[] { "Read" }, vaults = new[] { "test" }, ttl = "*", scopeRoots = new[] { "Projects/Widget" } },
             }));
 
             // Points at the real repo tools/ directory (not a temp copy) so each script's own

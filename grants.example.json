@@ -10,5 +10,12 @@
     "opClasses": ["Read"],
     "vaults": ["primary", "test"],
     "ttl": "*"
+  },
+  "REPLACE-WITH-A-LONG-RANDOM-SCOPED-TOKEN": {
+    "id": "scoped-example",
+    "opClasses": ["Read"],
+    "vaults": ["primary"],
+    "ttl": "*",
+    "scopeRoots": ["Projects/Vault-MCP-Server"]
   }
 }

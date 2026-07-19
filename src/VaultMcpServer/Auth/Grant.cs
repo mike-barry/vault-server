@@ -9,7 +9,16 @@ namespace VaultMcpServer.Auth;
 /// Absolute expiry instant computed at load time from the row's <c>ttl</c> (minutes from the
 /// load-time "now"), or <c>null</c> for a <c>"*"</c> (infinite) ttl.
 /// </param>
-public sealed record Grant(string Id, IReadOnlySet<string> OpClasses, IReadOnlySet<string> Vaults, DateTimeOffset? ExpiresAtUtc)
+/// <param name="ScopeRoots">
+/// Folder-prefix roots (vault-relative, forward-slash, canonicalized at load time) the grant
+/// is restricted to, distinct from <paramref name="Vaults"/> - path scope restricts *within*
+/// a vault the grant already has <see cref="Vaults"/> access to. Empty means unscoped: full
+/// access within its granted vaults, the same meaning as a <c>"*"</c> row in
+/// <c>grants.json</c>'s <c>scopeRoots</c> or an omitted <c>scopeRoots</c> field entirely - see
+/// <see cref="GrantStore.Load"/>. Checked via
+/// <see cref="VaultMcpServer.Vault.VaultAccess.IsPathInScope"/>.
+/// </param>
+public sealed record Grant(string Id, IReadOnlySet<string> OpClasses, IReadOnlySet<string> Vaults, DateTimeOffset? ExpiresAtUtc, IReadOnlySet<string> ScopeRoots)
 {
     public bool Allows(string op) => OpClasses.Contains(op);
 

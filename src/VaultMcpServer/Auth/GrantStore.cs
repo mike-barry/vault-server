@@ -80,8 +80,9 @@ public sealed class GrantStore
                 throw new InvalidDataException($"{path}: grant \"{id}\" has no vaults.");
 
             var expiresAtUtc = ReadTtl(entry.Value, path, id, now);
+            var scopeRoots = ReadScopeRoots(entry.Value, path, id);
 
-            rows.Add((Hash(token), new Grant(id, opClasses, vaults, expiresAtUtc)));
+            rows.Add((Hash(token), new Grant(id, opClasses, vaults, expiresAtUtc, scopeRoots)));
         }
 
         if (rows.Count == 0)
@@ -169,5 +170,48 @@ public sealed class GrantStore
                 throw new InvalidDataException($"{path}: grant \"{id}\" has an empty entry in \"{property}\".");
             yield return value;
         }
+    }
+
+    /// <summary>
+    /// Parses a grant row's optional <c>scopeRoots</c>: absent entirely, or exactly
+    /// <c>["*"]</c>, both mean unscoped (returns an empty set - full access within the
+    /// grant's <c>vaults</c>), matching the "no explicit scope means unscoped" convention.
+    /// Unlike <c>opClasses</c>/<c>vaults</c>/<c>ttl</c>, this field is optional rather than
+    /// required: most rows (including every phase-1 row) have no reason to be scoped at all.
+    /// A present, non-wildcard entry must canonicalize as a folder-prefix root (see
+    /// <see cref="Vault.VaultAccess.NormalizeScopeSegments"/>) - rooted, escaping, or empty
+    /// entries fail the grant load fast, the same rigor as an unknown opClass.
+    /// </summary>
+    private static IReadOnlySet<string> ReadScopeRoots(JsonElement grant, string path, string id)
+    {
+        if (!grant.TryGetProperty("scopeRoots", out var prop))
+            return new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        if (prop.ValueKind != JsonValueKind.Array)
+            throw new InvalidDataException($"{path}: grant \"{id}\" has a \"scopeRoots\" that is not an array.");
+
+        var raw = new List<string>();
+        foreach (var item in prop.EnumerateArray())
+        {
+            if (item.GetString() is not { Length: > 0 } value)
+                throw new InvalidDataException($"{path}: grant \"{id}\" has an empty entry in \"scopeRoots\".");
+            raw.Add(value);
+        }
+
+        if (IsWildcard(raw))
+            return new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+        var canonicalized = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var entry in raw)
+        {
+            try
+            {
+                canonicalized.Add(string.Join('/', Vault.VaultAccess.NormalizeScopeSegments(entry)));
+            }
+            catch (ArgumentException ex)
+            {
+                throw new InvalidDataException($"{path}: grant \"{id}\" has an invalid \"scopeRoots\" entry \"{entry}\": {ex.Message}");
+            }
+        }
+        return canonicalized;
     }
 }

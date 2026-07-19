@@ -96,6 +96,55 @@ Describe 'Resolve-VaultPath' {
     }
 }
 
+Describe 'Test-VaultPathInScope' {
+    It '<name>' -TestCases @(
+        Get-Content -LiteralPath (Join-Path $PSScriptRoot '../../tests/cases/scope-cases.json') -Raw |
+            ConvertFrom-Json | ForEach-Object { @{ name = $_.name; path = $_.path; scopeRoots = $_.scopeRoots; outcome = $_.outcome } }
+    ) {
+        switch ($outcome) {
+            'inScope' { Test-VaultPathInScope -Path $path -ScopeRoots $scopeRoots | Should -BeTrue }
+            'outOfScope' { Test-VaultPathInScope -Path $path -ScopeRoots $scopeRoots | Should -BeFalse }
+            'invalid' { { Test-VaultPathInScope -Path $path -ScopeRoots $scopeRoots } | Should -Throw }
+            default { throw "unknown outcome: $outcome" }
+        }
+    }
+}
+
+Describe 'Get-VaultNotePath scoping' {
+    It 'filters to notes under the scope root' {
+        $notes = @(Get-VaultNotePath -ScopeRoots @('Projects/Widget'))
+        $notes | Should -Contain 'Projects/Widget/Widget.md'
+        $notes | Where-Object { $_ -notlike 'Projects/Widget/*' } | Should -BeNullOrEmpty
+    }
+
+    It 'drops out-of-scope notes rather than erroring' {
+        $notes = @(Get-VaultNotePath -ScopeRoots @('Projects/Widget'))
+        $notes | Should -Not -Contain 'Resources/Gizmo-Reference.md'
+    }
+
+    It 'an unscoped call (no ScopeRoots) still returns everything' {
+        @(Get-VaultNotePath).Count | Should -Be 8
+    }
+}
+
+Describe 'Assert-VaultOperationAllowed scoping' {
+    It 'allows an in-scope path' {
+        { Assert-VaultOperationAllowed -Op Read -Vault test -RelativePath 'Projects/Widget/Widget.md' -ScopeRoots @('Projects/Widget') } | Should -Not -Throw
+    }
+
+    It 'throws on an out-of-scope path' {
+        { Assert-VaultOperationAllowed -Op Read -Vault test -RelativePath 'Resources/Gizmo-Reference.md' -ScopeRoots @('Projects/Widget') } | Should -Throw "*outside the grant's scope*"
+    }
+
+    It 'always allows the "." enumeration-gate path, even when scoped' {
+        { Assert-VaultOperationAllowed -Op Read -Vault test -RelativePath '.' -ScopeRoots @('Projects/Widget') } | Should -Not -Throw
+    }
+
+    It 'allows anything when ScopeRoots is empty (unscoped)' {
+        { Assert-VaultOperationAllowed -Op Read -Vault test -RelativePath 'Resources/Gizmo-Reference.md' -ScopeRoots @() } | Should -Not -Throw
+    }
+}
+
 Describe 'Read-VaultNote' {
     It 'reads a note by vault-relative path' {
         Read-VaultNote -Path 'Resources/Gizmo-Reference.md' | Should -Match 'quorvium'
@@ -103,6 +152,14 @@ Describe 'Read-VaultNote' {
 
     It 'throws on a missing note' {
         { Read-VaultNote -Path 'Missing.md' } | Should -Throw
+    }
+
+    It 'reads an in-scope note' {
+        Read-VaultNote -Path 'Projects/Widget/Tasks.md' -ScopeRoots @('Projects/Widget') | Should -Match 'quorvium'
+    }
+
+    It 'throws on an out-of-scope note' {
+        { Read-VaultNote -Path 'Resources/Gizmo-Reference.md' -ScopeRoots @('Projects/Widget') } | Should -Throw
     }
 }
 
@@ -145,5 +202,20 @@ Describe 'Move-VaultNote' {
         Write-VaultNote -Vault scratch -Path 'Note-Move-Collide-Source.md' -Content "# Source`n"
         Write-VaultNote -Vault scratch -Path 'Note-Move-Collide-Dest.md' -Content "# Dest`n"
         { Move-VaultNote -Vault scratch -Path 'Note-Move-Collide-Source.md' -NewPath 'Note-Move-Collide-Dest.md' } | Should -Throw
+    }
+
+    It 'throws when the destination is out of scope' {
+        Write-VaultNote -Vault scratch -Path 'Projects/Widget/Note-Scoped-Move-Source.md' -Content "# Source`n"
+        { Move-VaultNote -Vault scratch -Path 'Projects/Widget/Note-Scoped-Move-Source.md' -NewPath 'Areas/Note-Scoped-Move-Dest.md' -ScopeRoots @('Projects/Widget') } | Should -Throw
+    }
+}
+
+Describe 'Resolve-WikiLink scoping' {
+    It 'does not resolve an out-of-scope note' {
+        Resolve-WikiLink -Link 'Gizmo-Reference' -ScopeRoots @('Projects/Widget') | Should -BeNullOrEmpty
+    }
+
+    It 'resolves an in-scope note' {
+        Resolve-WikiLink -Link 'Widget' -ScopeRoots @('Projects/Widget') | Should -Be 'Projects/Widget/Widget.md'
     }
 }

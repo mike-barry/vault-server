@@ -14,6 +14,7 @@ public static class SharedCases
 
     private sealed record WikilinkCase(string Name, string Link, string Outcome, string? Path);
     private sealed record PathCase(string Name, string Path, bool Valid);
+    private sealed record ScopeCase(string Name, string Path, List<string> ScopeRoots, string Outcome);
 
     public static TheoryData<string, string, string, string?> Wikilink()
     {
@@ -28,6 +29,14 @@ public static class SharedCases
         var data = new TheoryData<string, string, bool>();
         foreach (var c in Load<PathCase>("path-cases.json"))
             data.Add(c.Name, c.Path, c.Valid);
+        return data;
+    }
+
+    public static TheoryData<string, string, List<string>, string> Scope()
+    {
+        var data = new TheoryData<string, string, List<string>, string>();
+        foreach (var c in Load<ScopeCase>("scope-cases.json"))
+            data.Add(c.Name, c.Path, c.ScopeRoots, c.Outcome);
         return data;
     }
 

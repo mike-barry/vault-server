@@ -1,0 +1,18 @@
+[
+  { "name": "unscoped grant allows anything", "path": "Areas/Personal/Health.md", "scopeRoots": [], "outcome": "inScope" },
+  { "name": "path directly under a single-segment root", "path": "Projects/Widget/Widget.md", "scopeRoots": ["Projects"], "outcome": "inScope" },
+  { "name": "path directly under a multi-segment root", "path": "Projects/Vault-MCP-Server/Corpus/Server-Structure.md", "scopeRoots": ["Projects/Vault-MCP-Server"], "outcome": "inScope" },
+  { "name": "path equal to the root plus one segment", "path": "Projects/Vault-MCP-Server/Tasks.md", "scopeRoots": ["Projects/Vault-MCP-Server"], "outcome": "inScope" },
+  { "name": "path under a different top-level folder is out of scope", "path": "Areas/Personal/Health.md", "scopeRoots": ["Projects/Vault-MCP-Server"], "outcome": "outOfScope" },
+  { "name": "sibling folder sharing a string prefix is out of scope", "path": "Projects/Vault-MCP-Server-Old/Notes.md", "scopeRoots": ["Projects/Vault-MCP-Server"], "outcome": "outOfScope" },
+  { "name": "note whose name string-prefixes the root but sits outside it is out of scope", "path": "Projects/Vault-MCP-Server.md", "scopeRoots": ["Projects/Vault-MCP-Server"], "outcome": "outOfScope" },
+  { "name": "path matches when any of several roots contains it", "path": "Areas/Homelab/Servers.md", "scopeRoots": ["Projects/Vault-MCP-Server", "Areas/Homelab"], "outcome": "inScope" },
+  { "name": "path matches none of several roots", "path": "Areas/Personal/Health.md", "scopeRoots": ["Projects/Vault-MCP-Server", "Areas/Homelab"], "outcome": "outOfScope" },
+  { "name": "case-insensitive segment match", "path": "projects/WIDGET/widget.md", "scopeRoots": ["Projects/Widget"], "outcome": "inScope" },
+  { "name": "backslash-separated path normalizes the same as forward-slash", "path": "Projects\\Widget\\Widget.md", "scopeRoots": ["Projects/Widget"], "outcome": "inScope" },
+  { "name": "root with a trailing dot-dot that stays inside the vault normalizes cleanly", "path": "Projects/Widget/Widget.md", "scopeRoots": ["Projects/Foo/../Widget"], "outcome": "inScope" },
+  { "name": "root that escapes the vault is unscopeable", "path": "Projects/Widget/Widget.md", "scopeRoots": ["../outside"], "outcome": "invalid" },
+  { "name": "rooted root path is unscopeable", "path": "Projects/Widget/Widget.md", "scopeRoots": ["C:/Windows"], "outcome": "invalid" },
+  { "name": "empty-string root is unscopeable", "path": "Projects/Widget/Widget.md", "scopeRoots": [""], "outcome": "invalid" },
+  { "name": "one malformed root among otherwise-matching roots still errors", "path": "Projects/Widget/Widget.md", "scopeRoots": ["Projects/Widget", "../outside"], "outcome": "invalid" }
+]

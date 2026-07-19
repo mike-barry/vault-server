@@ -15,6 +15,8 @@
         'Read-VaultNote'
         'Write-VaultNote'
         'Move-VaultNote'
+        'Test-VaultPathInScope'
+        'Assert-VaultOperationAllowed'
     )
     CmdletsToExport   = @()
     VariablesToExport = @()
