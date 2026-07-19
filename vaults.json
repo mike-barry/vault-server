@@ -2,6 +2,6 @@
   "default_vault": "primary",
   "vaults": {
     "primary": "C:/Repos/vault-primary",
-    "test": "C:/Repos/vault-mcp-server/test-vault"
+    "test": "C:/Repos/vault-server/test-vault"
   }
 }
