@@ -144,10 +144,12 @@ public sealed class MintTokenTool(GrantStore grantStore, OpClassRegistry opClass
     /// <see cref="Grant.ScopeRoots"/>'s <c>IReadOnlyDictionary&lt;string, IReadOnlySet&lt;string&gt;&gt;</c>
     /// shape. A whole-vault entry with no subtree (e.g. <c>"primary"</c>, no <c>/</c>) means "no
     /// restriction within this vault", which is represented by an <em>empty</em> set for that
-    /// vault key - never by an empty-string element. (An empty/blank scope-root string is
-    /// malformed input to <c>VaultAccess.NormalizeScopeRoot</c> on the containment-check branch,
-    /// not a "matches everything" sentinel - <c>{"primary": {""}}</c> would fail at grant-load or
-    /// mint-time validation.) If the same mint call names both a whole-vault entry and a subtree
+    /// vault key - never by an empty-string element. Each subtree remainder is canonicalized via
+    /// <see cref="VaultAccess.NormalizeScopeSegments"/> (the same validation
+    /// <see cref="Auth.GrantStore.Load"/> applies to a file-loaded grant's scopeRoots), so a
+    /// rooted, escaping, or empty remainder is rejected here as a mint argument error rather than
+    /// producing a malformed scope root that fails closed later on an unrelated call. If the same
+    /// mint call names both a whole-vault entry and a subtree
     /// entry for the same vault (e.g. <c>"primary"</c> and <c>"primary/Projects/Foo"</c>), the
     /// whole-vault entry wins: it already covers the subtree, so the subtree entry is redundant
     /// and dropped, leaving that vault's set empty. Entries for different vaults never leak into
@@ -169,8 +171,25 @@ public sealed class MintTokenTool(GrantStore grantStore, OpClassRegistry opClass
                 byVault[vaultName] = subtrees;
             }
 
-            if (parts.Length > 1)
-                subtrees.Add(parts[1]);
+            // A subtree remainder must be canonicalized the same way GrantStore.Load canonicalizes
+            // a file-loaded grant's scopeRoots (VaultAccess.NormalizeScopeSegments), so a minted
+            // grant can never carry a rooted ("primary//x"), escaping ("primary/../x"), or empty
+            // ("primary/") scope root - which would otherwise fail closed downstream with a
+            // confusing error on some later, unrelated tool call. An entry with no subtree, or one
+            // that normalizes to the vault root (e.g. a trailing slash), is a whole-vault grant.
+            if (parts.Length > 1 && !string.IsNullOrWhiteSpace(parts[1]))
+            {
+                string canonical;
+                try
+                {
+                    canonical = string.Join('/', VaultAccess.NormalizeScopeSegments(parts[1]));
+                }
+                catch (ArgumentException ex)
+                {
+                    throw new MintArgumentException($"\"scope_roots\" entry \"{root}\" has an invalid subtree \"{parts[1]}\": {ex.Message}");
+                }
+                subtrees.Add(canonical);
+            }
             else
                 wholeVault.Add(vaultName);
         }

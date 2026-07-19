@@ -120,7 +120,7 @@ public sealed class ServerHealthStateTests
         healthState.ReplaceDegraded("ScriptTools", ["script a is broken"]);
         Assert.Single(healthState.Problems);
 
-        healthState.ReplaceDegraded("ScriptTools", []);
+        healthState.ReplaceDegraded("ScriptTools", Array.Empty<string>());
 
         Assert.Empty(healthState.Problems);
     }
@@ -134,7 +134,7 @@ public sealed class ServerHealthStateTests
         healthState.ReplaceDegraded("ScriptTools", ["script a is broken"]);
         healthState.ReplaceDegraded("OtherSource", ["other problem"]);
 
-        healthState.ReplaceDegraded("ScriptTools", []);
+        healthState.ReplaceDegraded("ScriptTools", Array.Empty<string>());
 
         Assert.True(healthState.IsFatallyDegraded);
         Assert.Equal(3, healthState.Problems.Count);
@@ -185,7 +185,7 @@ public sealed class ServerHealthStateTests
         var logger = new CapturingLogger();
         healthState.AttachLogger(logger);
 
-        healthState.ReplaceDegraded("ScriptTools", []);
+        healthState.ReplaceDegraded("ScriptTools", Array.Empty<string>());
 
         var entry = Assert.Single(logger.Entries);
         Assert.Equal(LogLevel.Information, entry.Level);
@@ -233,7 +233,7 @@ public sealed class ServerHealthStateTests
         healthState.ReplaceDegraded("ScriptTools", ["script a is broken", "script b is broken"]);
         Assert.Contains("2 degraded", healthState.InstructionsSummary);
 
-        healthState.ReplaceDegraded("ScriptTools", []);
+        healthState.ReplaceDegraded("ScriptTools", Array.Empty<string>());
         Assert.Equal(string.Empty, healthState.InstructionsSummary);
     }
 

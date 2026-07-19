@@ -240,19 +240,19 @@ Describe 'Resolve-VaultScopeRoots' {
 
 Describe 'Assert-VaultOperationAllowed scoping' {
     It 'allows an in-scope path' {
-        { Assert-VaultOperationAllowed -Op Read -Vault test -RelativePath 'Projects/Widget/Widget.md' -ScopeRoots @('Projects/Widget') } | Should -Not -Throw
+        { Assert-VaultOperationAllowed -Vault test -RelativePath 'Projects/Widget/Widget.md' -ScopeRoots @('Projects/Widget') } | Should -Not -Throw
     }
 
     It 'throws on an out-of-scope path' {
-        { Assert-VaultOperationAllowed -Op Read -Vault test -RelativePath 'Resources/Gizmo-Reference.md' -ScopeRoots @('Projects/Widget') } | Should -Throw "*outside the grant's scope*"
+        { Assert-VaultOperationAllowed -Vault test -RelativePath 'Resources/Gizmo-Reference.md' -ScopeRoots @('Projects/Widget') } | Should -Throw "*outside the grant's scope*"
     }
 
     It 'always allows the "." enumeration-gate path, even when scoped' {
-        { Assert-VaultOperationAllowed -Op Read -Vault test -RelativePath '.' -ScopeRoots @('Projects/Widget') } | Should -Not -Throw
+        { Assert-VaultOperationAllowed -Vault test -RelativePath '.' -ScopeRoots @('Projects/Widget') } | Should -Not -Throw
     }
 
     It 'allows anything when ScopeRoots is empty (unscoped)' {
-        { Assert-VaultOperationAllowed -Op Read -Vault test -RelativePath 'Resources/Gizmo-Reference.md' -ScopeRoots @() } | Should -Not -Throw
+        { Assert-VaultOperationAllowed -Vault test -RelativePath 'Resources/Gizmo-Reference.md' -ScopeRoots @() } | Should -Not -Throw
     }
 }
 

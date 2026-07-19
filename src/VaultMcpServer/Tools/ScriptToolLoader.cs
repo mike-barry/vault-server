@@ -47,7 +47,7 @@ public static partial class ScriptToolLoader
     public static IReadOnlyList<ScriptTool> Load(string toolsDir, OpClassRegistry opClassRegistry, ServerHealthState healthState)
     {
         var tools = new List<ScriptTool>();
-        var problems = new List<string>();
+        var problems = new List<DegradedProblem>();
 
         if (Directory.Exists(toolsDir))
         {
@@ -64,13 +64,12 @@ public static partial class ScriptToolLoader
                 }
                 catch (Exception ex) when (ex is InvalidDataException or IOException)
                 {
-                    // The path is prepended centrally here (rather than embedded per-throw in
-                    // LoadOne) so every problem's Detail has exactly one, predictable
-                    // "{path}: {reason}" shape regardless of which check failed or which
-                    // exception type carried it - ScriptToolDispatcher's BROKEN-prefix listing
-                    // parses the script's base name back out of this Detail string, so the
-                    // shape is load-bearing, not just cosmetics.
-                    problems.Add($"Tool script skipped - {path}: {ex.Message}");
+                    // The path is carried as structured data (DegradedProblem.SubjectPath) so
+                    // ScriptToolDispatcher's BROKEN-prefix listing can recover the script's base
+                    // name without parsing it back out of the Detail string. The path is still
+                    // included in the human-readable Detail for the log line and the listing
+                    // description; it just isn't the machine-readable source of the name anymore.
+                    problems.Add(new DegradedProblem($"Tool script skipped - {path}: {ex.Message}", path));
                 }
             }
         }

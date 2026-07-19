@@ -60,10 +60,8 @@ public sealed class ScriptToolDispatcher(ScriptToolRegistry registry, NativeTool
         // never declares a fixed vault (it takes one as a call-time argument), so there is no
         // clean, non-heuristic way to attribute a vault problem to a specific tool listing.
         var brokenScriptTools = healthState.Problems
-            .Where(p => p.Source == ScriptToolLoader.HealthSource)
-            .Select(p => (Name: ExtractBrokenScriptName(p.Detail), p.Detail))
-            .Where(x => x.Name is not null)
-            .Select(x => new Tool { Name = x.Name!, Description = $"BROKEN: {x.Detail}", InputSchema = EmptyObjectSchema });
+            .Where(p => p.Source == ScriptToolLoader.HealthSource && p.SubjectPath is not null)
+            .Select(p => new Tool { Name = Path.GetFileNameWithoutExtension(p.SubjectPath!), Description = $"BROKEN: {p.Detail}", InputSchema = EmptyObjectSchema });
 
         var tools = nativeRegistry.Tools
             .Select(t => new Tool { Name = t.Name, Description = t.Description, InputSchema = t.InputSchema })
@@ -71,27 +69,6 @@ public sealed class ScriptToolDispatcher(ScriptToolRegistry registry, NativeTool
             .Concat(brokenScriptTools)
             .ToList();
         return ValueTask.FromResult(new ListToolsResult { Tools = tools });
-    }
-
-    /// <summary>
-    /// Recovers a broken script's tool name (its file's base name, matching how a
-    /// successfully-loaded <see cref="ScriptTool.Name"/> is derived) from a
-    /// <see cref="ScriptToolLoader.HealthSource"/> problem's Detail string. Depends on
-    /// <see cref="ScriptToolLoader.Load"/>'s "Tool script skipped - {path}: {reason}" shape,
-    /// where {path} always ends in ".ps1" (the loader only ever scans *.ps1 files) - returns
-    /// null if that shape isn't found rather than guessing, so a Detail string that doesn't
-    /// cleanly identify a script just doesn't produce a synthesized entry.
-    /// </summary>
-    private static string? ExtractBrokenScriptName(string detail)
-    {
-        const string marker = ".ps1:";
-        var markerIndex = detail.IndexOf(marker, StringComparison.OrdinalIgnoreCase);
-        if (markerIndex < 0)
-            return null;
-
-        var pathPart = detail[..markerIndex];
-        var lastSeparator = pathPart.LastIndexOfAny(['\\', '/']);
-        return lastSeparator >= 0 ? pathPart[(lastSeparator + 1)..] : pathPart;
     }
 
     public async ValueTask<CallToolResult> CallToolAsync(RequestContext<CallToolRequestParams> context, CancellationToken cancellationToken)

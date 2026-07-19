@@ -21,8 +21,16 @@ public enum ProblemSeverity
 }
 
 /// <summary>One recorded config problem: how bad it is, what subsystem found it, and a
-/// human-readable detail message safe to put in a log line.</summary>
-public sealed record HealthProblem(ProblemSeverity Severity, string Source, string Detail, DateTimeOffset RecordedAtUtc);
+/// human-readable detail message safe to put in a log line. <paramref name="SubjectPath"/> is
+/// the optional file this problem is about (e.g. the tool script that failed to load) - carried
+/// as structured data so consumers that need the path (the broken-tool listing in
+/// <see cref="Tools.ScriptToolDispatcher"/>) read it directly instead of parsing it back out of
+/// <paramref name="Detail"/>.</summary>
+public sealed record HealthProblem(ProblemSeverity Severity, string Source, string Detail, DateTimeOffset RecordedAtUtc, string? SubjectPath = null);
+
+/// <summary>A single problem to record via <see cref="ServerHealthState.ReplaceDegraded(string, IReadOnlyList{DegradedProblem})"/>:
+/// its human-readable detail plus, optionally, the path of the file it concerns.</summary>
+public sealed record DegradedProblem(string Detail, string? SubjectPath = null);
 
 /// <summary>
 /// Process-wide record of config problems found at startup and by runtime re-scans (the
@@ -138,10 +146,16 @@ public sealed class ServerHealthState(TimeProvider? timeProvider = null)
     /// a replaceable problem can never be Fatal, so <see cref="IsFatallyDegraded"/> is
     /// unaffected by construction.
     /// </summary>
-    public void ReplaceDegraded(string source, IReadOnlyList<string> details)
+    public void ReplaceDegraded(string source, IReadOnlyList<string> details) =>
+        ReplaceDegraded(source, details.Select(d => new DegradedProblem(d)).ToList());
+
+    /// <inheritdoc cref="ReplaceDegraded(string, IReadOnlyList{string})"/>
+    /// <remarks>Structured overload: each <see cref="DegradedProblem"/> may carry the path of
+    /// the file it concerns, preserved onto the recorded <see cref="HealthProblem.SubjectPath"/>.</remarks>
+    public void ReplaceDegraded(string source, IReadOnlyList<DegradedProblem> problems)
     {
         var now = _timeProvider.GetUtcNow();
-        var replacement = details.Select(d => new HealthProblem(ProblemSeverity.Degraded, source, d, now)).ToArray();
+        var replacement = problems.Select(p => new HealthProblem(ProblemSeverity.Degraded, source, p.Detail, now, p.SubjectPath)).ToArray();
         var hadProblems = _currentBySource.TryGetValue(source, out var previous) && previous.Length > 0;
         _currentBySource[source] = replacement;
 

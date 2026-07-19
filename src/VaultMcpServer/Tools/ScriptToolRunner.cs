@@ -16,8 +16,18 @@ public sealed class ScriptToolRunner : IDisposable
 {
     private readonly RunspacePool _pool;
 
-    public ScriptToolRunner()
+    // The authoritative vaults.json path the host resolved at startup (from the VaultsConfigPath
+    // appsetting) - re-asserted into VAULT_MCP_VAULTS_JSON ahead of every invocation (see
+    // WrapperScript) so a value a prior tool script left in that process-wide env var cannot
+    // redirect a later one at an attacker-chosen config. Null only when a caller constructs the
+    // runner without a path (unit tests running scripts that don't touch the vault module), in
+    // which case the wrapper clears the var so the VaultAccess module falls back to its own default.
+    private readonly string? _vaultsJsonPath;
+
+    public ScriptToolRunner(string? vaultsJsonPath = null)
     {
+        _vaultsJsonPath = vaultsJsonPath;
+
         // The (min, max, InitialSessionState, PSHost) overload requires a non-null host, so
         // the initial session state is set via the (InitialSessionState)-only overload
         // instead, with min/max applied after construction. Bypass is required on Windows:
@@ -48,8 +58,22 @@ public sealed class ScriptToolRunner : IDisposable
         param(
             [string] $VaultMcpScriptPath,
             [hashtable] $VaultMcpScopeRoots,
-            [hashtable] $VaultMcpParameters
+            [hashtable] $VaultMcpParameters,
+            [string] $VaultMcpVaultsJsonPath
         )
+        # Runspaces are pooled and reused, and $env: changes are process-wide, so a value a
+        # previous tool script left in VAULT_MCP_VAULTS_JSON (which the VaultAccess module reads
+        # to locate vaults.json) would otherwise persist into this call and could redirect it at
+        # an attacker-chosen config. Re-assert the host's startup value before every invocation:
+        # set it back to the intended path, or clear it when the host started without one (the
+        # production default, where the module falls back to its own repo-relative vaults.json).
+        # Either way a prior tool's mutation cannot survive into this call. (Concurrent tools on
+        # the pool still share process env state; this closes the sequential-reuse vector, which
+        # is the one that persists across calls. Test-Path-guard the removal so clearing an
+        # already-absent var does not write to the error stream and flip the invocation's
+        # HadErrors flag.)
+        if ($VaultMcpVaultsJsonPath) { $env:VAULT_MCP_VAULTS_JSON = $VaultMcpVaultsJsonPath }
+        elseif (Test-Path -LiteralPath Env:\VAULT_MCP_VAULTS_JSON) { Remove-Item -LiteralPath Env:\VAULT_MCP_VAULTS_JSON }
         Set-Variable -Name VaultMcpScopeRoots -Value $VaultMcpScopeRoots -Scope Global
         & $VaultMcpScriptPath @VaultMcpParameters
         """;
@@ -89,7 +113,8 @@ public sealed class ScriptToolRunner : IDisposable
         ps.AddScript(WrapperScript)
             .AddParameter("VaultMcpScriptPath", scriptPath)
             .AddParameter("VaultMcpScopeRoots", scopeRootsTable)
-            .AddParameter("VaultMcpParameters", scriptParameters);
+            .AddParameter("VaultMcpParameters", scriptParameters)
+            .AddParameter("VaultMcpVaultsJsonPath", _vaultsJsonPath ?? "");
 
         await using var registration = cancellationToken.Register(() => ps.Stop());
 

@@ -90,6 +90,49 @@ public sealed class MintTokenToolTests(TestVaultFixture fixture) : IClassFixture
         Assert.Empty(mintedGrant!.ScopeRoots!["test"]);
     }
 
+    [Theory]
+    [InlineData("test/../escape")]  // ".." escaping past the vault root
+    [InlineData("test//rooted")]    // an empty leading segment -> a rooted remainder
+    public async Task InvokeAsync_ScopeRootSubtreeThatCannotBeCanonicalized_IsRejectedAsError(string scopeRoot)
+    {
+        var store = MakeStore();
+        var tool = new MintTokenTool(store, OpClasses, _vaultConfig);
+        var callerGrant = store.Authenticate("admin-token")!;
+
+        var result = await tool.InvokeAsync(
+            Arguments([scopeRoot], ["Read"]),
+            callerGrant,
+            CancellationToken.None);
+
+        // Normalized at mint time (matching GrantStore.Load), so a malformed subtree fails the
+        // mint call cleanly instead of producing an unusable grant that only fails - confusingly -
+        // on some later, unrelated tool call.
+        Assert.True(result.IsError);
+        var text = ((ModelContextProtocol.Protocol.TextContentBlock)result.Content[0]).Text;
+        Assert.Contains("invalid subtree", text);
+    }
+
+    [Fact]
+    public async Task InvokeAsync_ScopeRootSubtreeWithRedundantSegments_IsCanonicalized()
+    {
+        var store = MakeStore();
+        var tool = new MintTokenTool(store, OpClasses, _vaultConfig);
+        var callerGrant = store.Authenticate("admin-token")!;
+
+        var result = await tool.InvokeAsync(
+            Arguments(["test/Projects/./Foo"], ["Read"]),
+            callerGrant,
+            CancellationToken.None);
+
+        Assert.False(result.IsError == true);
+        var text = ((ModelContextProtocol.Protocol.TextContentBlock)result.Content[0]).Text;
+        using var minted = JsonDocument.Parse(text);
+        var token = minted.RootElement.GetProperty("token").GetString()!;
+
+        var mintedGrant = store.Authenticate(token);
+        Assert.Contains("Projects/Foo", mintedGrant!.ScopeRoots!["test"]);
+    }
+
     [Fact]
     public async Task InvokeAsync_WholeVaultAndSubtreeForSameVault_WholeVaultWinsProducingEmptySet()
     {

@@ -28,7 +28,7 @@ public sealed class VaultAccess(VaultConfig config)
     /// is always allowed here even under a scoped grant; per-note filtering happens inside
     /// <see cref="EnumerateNotes"/> after listing, via <see cref="IsPathInScope"/>.
     /// </summary>
-    private static void EnsureAllowed(string op, string vault, string relativePath, IReadOnlyCollection<string>? scopeRoots)
+    private static void EnsureAllowed(string vault, string relativePath, IReadOnlyCollection<string>? scopeRoots)
     {
         if (scopeRoots is not { Count: > 0 })
             return;
@@ -167,7 +167,7 @@ public sealed class VaultAccess(VaultConfig config)
     {
         var (name, root) = config.Resolve(vault);
         var vaultScopeRoots = ResolveVaultScopeRoots(name, scopeRoots);
-        EnsureAllowed(OpClass.Read, name, ".", vaultScopeRoots);
+        EnsureAllowed(name, ".", vaultScopeRoots);
 
         var notes = new List<string>();
         foreach (var file in Directory.EnumerateFiles(root, "*.md", SearchOption.AllDirectories))
@@ -217,7 +217,7 @@ public sealed class VaultAccess(VaultConfig config)
     public string ReadNote(string? vault, string relativePath, IReadOnlyDictionary<string, IReadOnlySet<string>>? scopeRoots = null)
     {
         var (name, _) = config.Resolve(vault);
-        EnsureAllowed(OpClass.Read, name, relativePath, ResolveVaultScopeRoots(name, scopeRoots));
+        EnsureAllowed(name, relativePath, ResolveVaultScopeRoots(name, scopeRoots));
         return File.ReadAllText(ResolvePath(vault, relativePath));
     }
 
@@ -225,7 +225,7 @@ public sealed class VaultAccess(VaultConfig config)
     public void WriteNote(string? vault, string relativePath, string content, IReadOnlyDictionary<string, IReadOnlySet<string>>? scopeRoots = null)
     {
         var (name, _) = config.Resolve(vault);
-        EnsureAllowed(OpClass.Write, name, relativePath, ResolveVaultScopeRoots(name, scopeRoots));
+        EnsureAllowed(name, relativePath, ResolveVaultScopeRoots(name, scopeRoots));
         var full = ResolvePath(vault, relativePath);
         Directory.CreateDirectory(Path.GetDirectoryName(full)!);
         File.WriteAllText(full, content);
@@ -240,8 +240,8 @@ public sealed class VaultAccess(VaultConfig config)
     {
         var (name, _) = config.Resolve(vault);
         var vaultScopeRoots = ResolveVaultScopeRoots(name, scopeRoots);
-        EnsureAllowed(OpClass.Write, name, relativePath, vaultScopeRoots);
-        EnsureAllowed(OpClass.Write, name, newRelativePath, vaultScopeRoots);
+        EnsureAllowed(name, relativePath, vaultScopeRoots);
+        EnsureAllowed(name, newRelativePath, vaultScopeRoots);
 
         var fullOld = ResolvePath(vault, relativePath);
         var fullNew = ResolvePath(vault, newRelativePath);

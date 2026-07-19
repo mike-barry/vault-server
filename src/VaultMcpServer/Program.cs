@@ -67,7 +67,11 @@ var toolsDir = Path.GetFullPath(Path.Combine(
 var scriptToolRegistry = new ScriptToolRegistry(toolsDir, opClassRegistry, healthState);
 builder.Services.AddSingleton(scriptToolRegistry);
 
-var scriptToolRunner = new ScriptToolRunner();
+// Pass the host's resolved vaults.json path so the runner can pin VAULT_MCP_VAULTS_JSON to it
+// ahead of every script invocation - the VaultAccess module reads that env var, and re-asserting
+// the intended path each call stops a prior tool script from redirecting a later one via the
+// process-wide variable.
+var scriptToolRunner = new ScriptToolRunner(vaultsConfigPath);
 builder.Services.AddSingleton(scriptToolRunner);
 
 // Native tools are compiled implementations (not hot-reloaded from disk like script tools).

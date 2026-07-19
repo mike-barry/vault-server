@@ -217,7 +217,6 @@ function Assert-VaultOperationAllowed {
     #>
     [CmdletBinding()]
     param(
-        [Parameter(Mandatory)] [ValidateSet('Read', 'Write')] [string] $Op,
         [Parameter(Mandatory)] [string] $Vault,
         [Parameter(Mandatory)] [string] $RelativePath,
         [AllowNull()] [string[]] $ScopeRoots
@@ -304,7 +303,7 @@ function Get-VaultNotePath {
 
     $resolved = Resolve-VaultRoot -Vault $Vault
     $flatScopeRoots = Resolve-VaultScopeRoots -Vault $resolved.Name -ScopeRoots $ScopeRoots
-    Assert-VaultOperationAllowed -Op Read -Vault $resolved.Name -RelativePath '.' -ScopeRoots $flatScopeRoots
+    Assert-VaultOperationAllowed -Vault $resolved.Name -RelativePath '.' -ScopeRoots $flatScopeRoots
 
     Get-ChildItem -LiteralPath $resolved.Root -Filter '*.md' -File -Recurse -Force |
         ForEach-Object {
@@ -371,7 +370,7 @@ function Read-VaultNote {
 
     $resolved = Resolve-VaultRoot -Vault $Vault
     $flatScopeRoots = Resolve-VaultScopeRoots -Vault $resolved.Name -ScopeRoots $ScopeRoots
-    Assert-VaultOperationAllowed -Op Read -Vault $resolved.Name -RelativePath $Path -ScopeRoots $flatScopeRoots
+    Assert-VaultOperationAllowed -Vault $resolved.Name -RelativePath $Path -ScopeRoots $flatScopeRoots
     Get-Content -LiteralPath (Resolve-VaultPath -Path $Path -Vault $Vault) -Raw -ErrorAction Stop
 }
 
@@ -390,7 +389,7 @@ function Write-VaultNote {
 
     $resolved = Resolve-VaultRoot -Vault $Vault
     $flatScopeRoots = Resolve-VaultScopeRoots -Vault $resolved.Name -ScopeRoots $ScopeRoots
-    Assert-VaultOperationAllowed -Op Write -Vault $resolved.Name -RelativePath $Path -ScopeRoots $flatScopeRoots
+    Assert-VaultOperationAllowed -Vault $resolved.Name -RelativePath $Path -ScopeRoots $flatScopeRoots
     $full = Resolve-VaultPath -Path $Path -Vault $Vault
     $dir = [System.IO.Path]::GetDirectoryName($full)
     if (-not (Test-Path -LiteralPath $dir -PathType Container)) {
@@ -416,8 +415,8 @@ function Move-VaultNote {
 
     $resolved = Resolve-VaultRoot -Vault $Vault
     $flatScopeRoots = Resolve-VaultScopeRoots -Vault $resolved.Name -ScopeRoots $ScopeRoots
-    Assert-VaultOperationAllowed -Op Write -Vault $resolved.Name -RelativePath $Path -ScopeRoots $flatScopeRoots
-    Assert-VaultOperationAllowed -Op Write -Vault $resolved.Name -RelativePath $NewPath -ScopeRoots $flatScopeRoots
+    Assert-VaultOperationAllowed -Vault $resolved.Name -RelativePath $Path -ScopeRoots $flatScopeRoots
+    Assert-VaultOperationAllowed -Vault $resolved.Name -RelativePath $NewPath -ScopeRoots $flatScopeRoots
 
     $fullOld = Resolve-VaultPath -Path $Path -Vault $Vault
     $fullNew = Resolve-VaultPath -Path $NewPath -Vault $Vault
