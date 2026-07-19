@@ -98,17 +98,23 @@ public sealed class GrantStoreTests(TestVaultFixture fixture) : IClassFixture<Te
     }
 
     [Fact]
-    public void Load_EveryRowSkipped_IsDegradedNotFatal()
+    public void Load_EveryRowSkipped_IsFatal()
     {
-        // All rows individually invalid: each records its own Degraded skip, but the file
-        // itself is not Fatal - the server keeps running with an empty (deny-all) store.
+        // All rows individually invalid: each still records its own Degraded skip (the
+        // per-row detail), but a grants.json that parses down to zero usable rows is
+        // functionally indistinguishable from an empty grant table - nobody can
+        // authenticate against it - so it now also records a Fatal problem, same as the
+        // structurally-empty-file case, instead of leaving the server merely Degraded with
+        // callers silently getting plain 401s.
         var (store, healthState) = LoadRows(
             """ "token-a": { "id": "a", "opClasses": ["Nope"], "vaults": ["test"], "ttl": "*", "scopeRoots": { "test": [] } } """,
             """ "token-b": { "id": "b", "opClasses": ["Read"], "vaults": ["gone"], "ttl": "*", "scopeRoots": { "gone": [] } } """);
 
-        Assert.False(healthState.IsFatallyDegraded);
-        Assert.Equal(2, healthState.Problems.Count);
-        Assert.All(healthState.Problems, p => Assert.Equal(ProblemSeverity.Degraded, p.Severity));
+        Assert.True(healthState.IsFatallyDegraded);
+        Assert.Equal(3, healthState.Problems.Count);
+        Assert.Equal(2, healthState.Problems.Count(p => p.Severity == ProblemSeverity.Degraded));
+        var fatal = Assert.Single(healthState.Problems, p => p.Severity == ProblemSeverity.Fatal);
+        Assert.Equal("GrantStore", fatal.Source);
         Assert.Null(store.Authenticate("token-a"));
         Assert.Null(store.Authenticate("token-b"));
     }

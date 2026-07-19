@@ -6,6 +6,7 @@ using Microsoft.Extensions.Logging.Abstractions;
 using ModelContextProtocol.Protocol;
 using ModelContextProtocol.Server;
 using VaultMcpServer.Auth;
+using VaultMcpServer.Health;
 
 namespace VaultMcpServer.Tools;
 
@@ -26,9 +27,16 @@ namespace VaultMcpServer.Tools;
 /// that has already finished by the time a refresh happens simply won't receive it, and a
 /// failed send just drops that (dead) session from the tracked set.
 /// </summary>
-public sealed class ScriptToolDispatcher(ScriptToolRegistry registry, NativeToolRegistry nativeRegistry, ScriptToolRunner runner, IHttpContextAccessor httpContextAccessor)
+public sealed class ScriptToolDispatcher(ScriptToolRegistry registry, NativeToolRegistry nativeRegistry, ScriptToolRunner runner, IHttpContextAccessor httpContextAccessor, ServerHealthState healthState)
 {
     private readonly ConcurrentDictionary<McpServer, byte> _sessions = new();
+
+    /// <summary>Placeholder <c>inputSchema</c> for a synthesized broken-script listing entry - it takes no real parameters since the script never loaded far enough to have any.</summary>
+    private static readonly JsonElement EmptyObjectSchema = JsonSerializer.SerializeToElement(new Dictionary<string, object>
+    {
+        ["type"] = "object",
+        ["properties"] = new Dictionary<string, object>(),
+    });
 
     // Constructed directly and registered before builder.Build() (see the
     // httpContextAccessor comment in Program.cs), so no ILogger is resolvable yet at
@@ -43,11 +51,47 @@ public sealed class ScriptToolDispatcher(ScriptToolRegistry registry, NativeTool
     public ValueTask<ListToolsResult> ListToolsAsync(RequestContext<ListToolsRequestParams> context, CancellationToken cancellationToken)
     {
         TrackSession(context.Server);
+
+        // A script that fails to load produces zero ScriptTool instances - there is nothing
+        // to attach a "BROKEN:" prefix to. Instead, synthesize a listing entry per current
+        // ScriptToolLoader.HealthSource problem, so a broken script still shows up (as
+        // visibly broken) rather than silently vanishing from tools/list. Vault-related
+        // problems (source "VaultConfig") are deliberately NOT reflected here: a ScriptTool
+        // never declares a fixed vault (it takes one as a call-time argument), so there is no
+        // clean, non-heuristic way to attribute a vault problem to a specific tool listing.
+        var brokenScriptTools = healthState.Problems
+            .Where(p => p.Source == ScriptToolLoader.HealthSource)
+            .Select(p => (Name: ExtractBrokenScriptName(p.Detail), p.Detail))
+            .Where(x => x.Name is not null)
+            .Select(x => new Tool { Name = x.Name!, Description = $"BROKEN: {x.Detail}", InputSchema = EmptyObjectSchema });
+
         var tools = nativeRegistry.Tools
             .Select(t => new Tool { Name = t.Name, Description = t.Description, InputSchema = t.InputSchema })
             .Concat(registry.Tools.Select(t => new Tool { Name = t.Name, Description = t.Description, InputSchema = t.BuildInputSchema() }))
+            .Concat(brokenScriptTools)
             .ToList();
         return ValueTask.FromResult(new ListToolsResult { Tools = tools });
+    }
+
+    /// <summary>
+    /// Recovers a broken script's tool name (its file's base name, matching how a
+    /// successfully-loaded <see cref="ScriptTool.Name"/> is derived) from a
+    /// <see cref="ScriptToolLoader.HealthSource"/> problem's Detail string. Depends on
+    /// <see cref="ScriptToolLoader.Load"/>'s "Tool script skipped - {path}: {reason}" shape,
+    /// where {path} always ends in ".ps1" (the loader only ever scans *.ps1 files) - returns
+    /// null if that shape isn't found rather than guessing, so a Detail string that doesn't
+    /// cleanly identify a script just doesn't produce a synthesized entry.
+    /// </summary>
+    private static string? ExtractBrokenScriptName(string detail)
+    {
+        const string marker = ".ps1:";
+        var markerIndex = detail.IndexOf(marker, StringComparison.OrdinalIgnoreCase);
+        if (markerIndex < 0)
+            return null;
+
+        var pathPart = detail[..markerIndex];
+        var lastSeparator = pathPart.LastIndexOfAny(['\\', '/']);
+        return lastSeparator >= 0 ? pathPart[(lastSeparator + 1)..] : pathPart;
     }
 
     public async ValueTask<CallToolResult> CallToolAsync(RequestContext<CallToolRequestParams> context, CancellationToken cancellationToken)
@@ -62,7 +106,14 @@ public sealed class ScriptToolDispatcher(ScriptToolRegistry registry, NativeTool
         if (nativeTool is not null)
         {
             var nativeGrant = httpContextAccessor.HttpContext?.Items[BearerGrantMiddleware.GrantItemKey] as Grant;
-            if (nativeGrant is null || !nativeGrant.Allows(nativeTool.OpClass))
+            if (nativeGrant is null)
+                return ErrorResult($"Grant does not permit {nativeTool.OpClass} operations for tool \"{name}\".");
+
+            // health_check is diagnostics, not a privileged operation: any authenticated
+            // grant can call it regardless of its op classes, so it is special-cased past
+            // the usual grant.Allows(tool.OpClass) check rather than being gated by one.
+            var isHealthCheck = nativeTool.Name == HealthCheckTool.ToolName;
+            if (!isHealthCheck && !nativeGrant.Allows(nativeTool.OpClass))
                 return ErrorResult($"Grant does not permit {nativeTool.OpClass} operations for tool \"{name}\".");
 
             var nativeArguments = context.Params?.Arguments?.ToDictionary(kv => kv.Key, kv => kv.Value)

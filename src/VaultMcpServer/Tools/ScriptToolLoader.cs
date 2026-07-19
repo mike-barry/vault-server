@@ -64,7 +64,13 @@ public static partial class ScriptToolLoader
                 }
                 catch (Exception ex) when (ex is InvalidDataException or IOException)
                 {
-                    problems.Add($"Tool script skipped - {ex.Message}");
+                    // The path is prepended centrally here (rather than embedded per-throw in
+                    // LoadOne) so every problem's Detail has exactly one, predictable
+                    // "{path}: {reason}" shape regardless of which check failed or which
+                    // exception type carried it - ScriptToolDispatcher's BROKEN-prefix listing
+                    // parses the script's base name back out of this Detail string, so the
+                    // shape is load-bearing, not just cosmetics.
+                    problems.Add($"Tool script skipped - {path}: {ex.Message}");
                 }
             }
         }
@@ -80,25 +86,25 @@ public static partial class ScriptToolLoader
 
         var ast = Parser.ParseFile(path, out _, out var parseErrors);
         if (parseErrors.Length > 0)
-            throw new InvalidDataException($"{path}: {string.Join("; ", parseErrors.Select(e => e.Message))}");
+            throw new InvalidDataException(string.Join("; ", parseErrors.Select(e => e.Message)));
 
         var help = ParseCommentHelp(text);
         if (string.IsNullOrWhiteSpace(help.Synopsis))
-            throw new InvalidDataException($"{path}: missing a .SYNOPSIS comment-help entry.");
+            throw new InvalidDataException("missing a .SYNOPSIS comment-help entry.");
 
         var opClassMatch = help.Notes is null ? null : OpClassRegex().Match(help.Notes);
         var opClass = opClassMatch is { Success: true }
             ? opClassRegistry.Canonicalize(opClassMatch.Groups[1].Value)
             : null;
         if (opClass is null)
-            throw new InvalidDataException($"{path}: .NOTES must declare a valid \"OpClass: <name>\" (one of: {string.Join(", ", opClassRegistry.Names)}).");
+            throw new InvalidDataException($".NOTES must declare a valid \"OpClass: <name>\" (one of: {string.Join(", ", opClassRegistry.Names)}).");
 
         var parameters = new List<ScriptToolParameter>();
         foreach (var p in ast.ParamBlock?.Parameters ?? [])
         {
             var paramName = p.Name.VariablePath.UserPath;
             if (!help.Parameters.TryGetValue(paramName, out var description))
-                throw new InvalidDataException($"{path}: parameter \"{paramName}\" is missing a .PARAMETER comment-help entry.");
+                throw new InvalidDataException($"parameter \"{paramName}\" is missing a .PARAMETER comment-help entry.");
             parameters.Add(new ScriptToolParameter(paramName, MapJsonType(p.StaticType), IsMandatory(p), description));
         }
 

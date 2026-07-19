@@ -62,6 +62,7 @@ public sealed class ServerHealthState(TimeProvider? timeProvider = null)
     private readonly ConcurrentDictionary<string, HealthProblem[]> _currentBySource = new(StringComparer.Ordinal);
     private int _fatalCount;
     private volatile ILogger? _logger;
+    private volatile string _instructionsSummary = string.Empty;
 
     /// <summary>True once at least one <see cref="ProblemSeverity.Fatal"/> problem has been
     /// recorded. Read with <see cref="Volatile.Read(ref int)"/> so it observes a concurrent
@@ -92,6 +93,18 @@ public sealed class ServerHealthState(TimeProvider? timeProvider = null)
     /// </summary>
     public void AttachLogger(ILogger logger) => _logger = logger;
 
+    /// <summary>
+    /// A pre-rendered, cached summary of the current problem picture - recomputed once per
+    /// mutation (<see cref="RecordFatal"/>, <see cref="RecordDegraded"/>,
+    /// <see cref="ReplaceDegraded"/>), never assembled on read. Copied verbatim into the MCP
+    /// <c>initialize</c> response's <c>instructions</c> field by <c>Program.cs</c>'s
+    /// <c>ConfigureSessionOptions</c> callback, which runs on every HTTP request under the
+    /// stateless transport and therefore must stay cheap - a plain field read, not a
+    /// recompute. Empty when there are no problems, so callers can treat "empty/absent" and
+    /// "no problems" as the same thing.
+    /// </summary>
+    public string InstructionsSummary => _instructionsSummary;
+
     /// <summary>Records a whole-file failure. <paramref name="source"/> identifies the
     /// subsystem (e.g. "VaultConfig", "OpClassRegistry", "GrantStore"); <paramref name="detail"/>
     /// is the human-readable message - typically the same message the old thrown exception
@@ -101,6 +114,7 @@ public sealed class ServerHealthState(TimeProvider? timeProvider = null)
         _problems.Enqueue(new HealthProblem(ProblemSeverity.Fatal, source, detail, _timeProvider.GetUtcNow()));
         Interlocked.Increment(ref _fatalCount);
         _logger?.LogError("Config problem [Fatal] {Source}: {Detail}", source, detail);
+        RecomputeInstructionsSummary();
     }
 
     /// <summary>Records a per-entry skip that doesn't invalidate the rest of the file it came
@@ -112,6 +126,7 @@ public sealed class ServerHealthState(TimeProvider? timeProvider = null)
     {
         _problems.Enqueue(new HealthProblem(ProblemSeverity.Degraded, source, detail, _timeProvider.GetUtcNow()));
         _logger?.LogWarning("Config problem [Degraded] {Source}: {Detail}", source, detail);
+        RecomputeInstructionsSummary();
     }
 
     /// <summary>
@@ -131,11 +146,38 @@ public sealed class ServerHealthState(TimeProvider? timeProvider = null)
         _currentBySource[source] = replacement;
 
         var logger = _logger;
-        if (logger is null)
+        if (logger is not null)
+        {
+            foreach (var problem in replacement)
+                logger.LogWarning("Config problem [Degraded] {Source}: {Detail}", problem.Source, problem.Detail);
+            if (replacement.Length == 0 && hadProblems)
+                logger.LogInformation("All {Source} problems cleared by a re-scan.", source);
+        }
+
+        RecomputeInstructionsSummary();
+    }
+
+    /// <summary>
+    /// Rebuilds <see cref="InstructionsSummary"/> from the current <see cref="Problems"/> view.
+    /// Called once at the end of every mutation, never from a request path - see
+    /// <see cref="InstructionsSummary"/>'s remarks for why that split matters.
+    /// </summary>
+    private void RecomputeInstructionsSummary()
+    {
+        var problems = Problems;
+        if (problems.Count == 0)
+        {
+            _instructionsSummary = string.Empty;
             return;
-        foreach (var problem in replacement)
-            logger.LogWarning("Config problem [Degraded] {Source}: {Detail}", problem.Source, problem.Detail);
-        if (replacement.Length == 0 && hadProblems)
-            logger.LogInformation("All {Source} problems cleared by a re-scan.", source);
+        }
+
+        var fatalCount = problems.Count(p => p.Severity == ProblemSeverity.Fatal);
+        var degradedCount = problems.Count - fatalCount;
+        var fatalNote = fatalCount > 0
+            ? " While any fatal problem exists, every request is rejected with 503 until it is fixed."
+            : "";
+        _instructionsSummary =
+            $"This vault-mcp-server instance currently has {fatalCount} fatal and {degradedCount} degraded " +
+            $"configuration problem(s) recorded.{fatalNote} Call the health_check tool for full details.";
     }
 }

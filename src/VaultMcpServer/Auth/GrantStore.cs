@@ -123,11 +123,18 @@ public sealed class GrantStore
             }
         }
 
-        // Zero configured rows is a structurally-empty grant table and stays Fatal; a table
-        // whose rows were all individually skipped is not double-reported here - the
-        // per-row Degraded records are the report.
+        // Zero configured rows is a structurally-empty grant table and stays Fatal.
         if (totalEntries == 0)
             throw new InvalidDataException($"{path}: must contain at least one grant.");
+
+        // Every row present but every one of them individually skipped (see the per-row
+        // Degraded records already emitted above) leaves an unusable, effectively-empty
+        // grant table too - functionally indistinguishable from the zero-entries case above
+        // for BearerGrantMiddleware's purposes (nobody can authenticate against it), so it
+        // gets the same Fatal treatment rather than leaving the server merely Degraded and
+        // every caller silently 401ing with no "check the logs" signal.
+        if (rows.Count == 0)
+            throw new InvalidDataException($"{path}: every grant row was skipped as invalid - see the per-row Degraded problems recorded above.");
 
         return new GrantStore(rows, resolvedTimeProvider);
     }

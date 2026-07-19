@@ -78,7 +78,9 @@ builder.Services.AddSingleton(scriptToolRunner);
 // INativeTool only needs a `new` here plus an entry in this list, no dispatcher change.
 var mintTokenTool = new MintTokenTool(grantStore, opClassRegistry, vaultConfig);
 builder.Services.AddSingleton<INativeTool>(mintTokenTool);
-var nativeToolRegistry = new NativeToolRegistry([mintTokenTool]);
+var healthCheckTool = new HealthCheckTool(healthState, vaultConfig);
+builder.Services.AddSingleton<INativeTool>(healthCheckTool);
+var nativeToolRegistry = new NativeToolRegistry([mintTokenTool, healthCheckTool]);
 builder.Services.AddSingleton(nativeToolRegistry);
 
 // A directly-constructed, directly-registered instance (rather than AddHttpContextAccessor())
@@ -87,11 +89,26 @@ builder.Services.AddSingleton(nativeToolRegistry);
 var httpContextAccessor = new HttpContextAccessor();
 builder.Services.AddSingleton<IHttpContextAccessor>(httpContextAccessor);
 
-var scriptToolDispatcher = new ScriptToolDispatcher(scriptToolRegistry, nativeToolRegistry, scriptToolRunner, httpContextAccessor);
+var scriptToolDispatcher = new ScriptToolDispatcher(scriptToolRegistry, nativeToolRegistry, scriptToolRunner, httpContextAccessor, healthState);
 
 builder.Services
     .AddMcpServer()
-    .WithHttpTransport(options => options.Stateless = true)
+    .WithHttpTransport(options =>
+    {
+        options.Stateless = true;
+        // Runs on every HTTP request in stateless mode (a fresh McpServerOptions per
+        // request, so no cross-request race), after BearerGrantMiddleware. Must stay cheap:
+        // it copies healthState's pre-rendered, cached InstructionsSummary rather than
+        // assembling anything from Problems itself - see that property's remarks. Empty
+        // summary (no problems) leaves ServerInstructions null, so an initialize response
+        // says nothing extra while the server is healthy.
+        options.ConfigureSessionOptions = (_, serverOptions, _) =>
+        {
+            var summary = healthState.InstructionsSummary;
+            serverOptions.ServerInstructions = summary.Length > 0 ? summary : null;
+            return Task.CompletedTask;
+        };
+    })
     .WithListToolsHandler(scriptToolDispatcher.ListToolsAsync)
     .WithCallToolHandler(scriptToolDispatcher.CallToolAsync);
 

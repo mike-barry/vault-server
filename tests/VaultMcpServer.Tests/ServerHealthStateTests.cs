@@ -192,6 +192,51 @@ public sealed class ServerHealthStateTests
         Assert.Contains("ScriptTools", entry.Message);
     }
 
+    [Fact]
+    public void InstructionsSummary_NewInstance_IsEmpty()
+    {
+        var healthState = new ServerHealthState();
+
+        Assert.Equal(string.Empty, healthState.InstructionsSummary);
+    }
+
+    [Fact]
+    public void InstructionsSummary_RecordDegraded_RecomputesToANonEmptySummary()
+    {
+        var healthState = new ServerHealthState();
+
+        healthState.RecordDegraded("GrantStore", "a skipped row");
+
+        Assert.NotEmpty(healthState.InstructionsSummary);
+        Assert.Contains("0 fatal and 1 degraded", healthState.InstructionsSummary);
+        Assert.DoesNotContain("503", healthState.InstructionsSummary);
+    }
+
+    [Fact]
+    public void InstructionsSummary_RecordFatal_MentionsThe503Behavior()
+    {
+        var healthState = new ServerHealthState();
+
+        healthState.RecordFatal("VaultConfig", "a whole-file failure");
+
+        Assert.Contains("503", healthState.InstructionsSummary);
+    }
+
+    [Fact]
+    public void InstructionsSummary_ReplaceDegraded_RecomputesOnEveryCall()
+    {
+        var healthState = new ServerHealthState();
+
+        healthState.ReplaceDegraded("ScriptTools", ["script a is broken"]);
+        Assert.Contains("0 fatal and 1 degraded", healthState.InstructionsSummary);
+
+        healthState.ReplaceDegraded("ScriptTools", ["script a is broken", "script b is broken"]);
+        Assert.Contains("2 degraded", healthState.InstructionsSummary);
+
+        healthState.ReplaceDegraded("ScriptTools", []);
+        Assert.Equal(string.Empty, healthState.InstructionsSummary);
+    }
+
     private sealed class CapturingLogger : ILogger
     {
         public List<(LogLevel Level, string Message)> Entries { get; } = [];
