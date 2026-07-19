@@ -27,6 +27,26 @@ $ErrorActionPreference = 'Stop'
 Import-Module (Join-Path $PSScriptRoot '..' 'powershell' 'VaultAccess' 'VaultAccess.psd1') -Force
 
 # ---------------------------------------------------------------------------
+# Refuse under a scoped grant - rename rewrites the link graph vault-wide, so
+# scope-filtered enumeration would either silently mis-rewrite a bare link
+# meant for an out-of-scope twin or leave out-of-scope backlinks dangling with
+# no signal. See Plan-Grant-Tool-Trust-Model's "Scoped-grant mutation safety".
+# The ambient scope map is the same VaultMcpScopeRoots global runspace
+# variable Get-VaultAccessAmbientScopeRoots reads (that helper isn't exported
+# from the module, so it's read directly here); Resolve-VaultScopeRoots - the
+# exported chokepoint primitive - does all of the actual map resolution
+# (null-map/no-grant handling, per-vault lookup, the missing-entry invariant
+# check), so nothing about scope semantics is hand-rolled here.
+# ---------------------------------------------------------------------------
+
+$resolvedVault = Resolve-VaultRoot -Vault $Vault
+$ambientScopeRoots = Get-Variable -Name VaultMcpScopeRoots -Scope Global -ValueOnly -ErrorAction SilentlyContinue
+$vaultScopeRoots = Resolve-VaultScopeRoots -Vault $resolvedVault.Name -ScopeRoots $ambientScopeRoots
+if ($null -ne $vaultScopeRoots -and $vaultScopeRoots.Count -gt 0) {
+    throw "rename_note requires an unscoped Write grant for vault `"$($resolvedVault.Name)`" - the link graph is vault-wide."
+}
+
+# ---------------------------------------------------------------------------
 # Resolve the target note and the destination path
 # ---------------------------------------------------------------------------
 

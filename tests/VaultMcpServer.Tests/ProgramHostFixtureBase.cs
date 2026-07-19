@@ -1,4 +1,7 @@
+using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Mvc.Testing;
+using Microsoft.Extensions.Configuration;
+using Microsoft.Extensions.DependencyInjection;
 
 namespace VaultMcpServer.Tests;
 
@@ -70,6 +73,57 @@ public abstract class ProgramHostFixtureBase : WebApplicationFactory<Program>
         _envVarsSet.Add(name);
     }
 
+    /// <summary>
+    /// Prevention half of the test-isolation guard pair (detection half is
+    /// <see cref="TestVaultCleanGuard"/>, run from <see cref="Dispose"/> below). Targets the
+    /// exact observed failure mode from Vault-MCP-Server/Corpus/Testing.md's "two env vars"
+    /// gotcha: a mutating dispatch test relies entirely on the host's resolved
+    /// <c>VaultsConfigPath</c> and the PowerShell module's <c>$env:VAULT_MCP_VAULTS_JSON</c>
+    /// both pointing under this fixture's temp directory, and when that handoff misfires, the
+    /// tool operates on the repo's real, committed <c>vaults.json</c> instead. Call this
+    /// immediately before invoking a mutating tool call, so a misfire fails fast with a clear
+    /// message rather than quietly mutating the committed fixture.
+    /// </summary>
+    protected void AssertMutationSandboxed()
+    {
+        var config = Services.GetRequiredService<IConfiguration>();
+        var env = Services.GetRequiredService<IWebHostEnvironment>();
+        var hostVaultsConfigPath = Path.GetFullPath(Path.Combine(
+            env.ContentRootPath, config["VaultsConfigPath"] ?? "../../vaults.json"));
+
+        AssertUnderTempDir(hostVaultsConfigPath, "the host's resolved VaultsConfigPath", TempDir);
+        AssertUnderTempDir(Environment.GetEnvironmentVariable("VAULT_MCP_VAULTS_JSON"), "$env:VAULT_MCP_VAULTS_JSON", TempDir);
+    }
+
+    /// <summary>
+    /// Extracted as an internal static helper (rather than inlined in
+    /// <see cref="AssertMutationSandboxed"/>) so it has a unit-testable negative case - see
+    /// <c>ProgramHostFixtureGuardTests</c>, which proves the guard actually throws when a
+    /// resolved path points outside the fixture's temp directory.
+    /// </summary>
+    protected internal static void AssertUnderTempDir(string? actualPath, string label, string tempDir)
+    {
+        if (string.IsNullOrEmpty(actualPath))
+        {
+            throw new InvalidOperationException(
+                $"Test-isolation guard failed: {label} was not set. A mutating tool call would resolve vault " +
+                "config through an undefined path instead of this fixture's temp sandbox - aborting before the call runs.");
+        }
+
+        var full = Path.GetFullPath(actualPath);
+        var tempFull = Path.GetFullPath(tempDir);
+        var isUnder = full.Equals(tempFull, StringComparison.OrdinalIgnoreCase)
+            || full.StartsWith(tempFull + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase);
+
+        if (!isUnder)
+        {
+            throw new InvalidOperationException(
+                $"Test-isolation guard failed: {label} resolved to '{full}', which is outside this fixture's " +
+                $"temp directory '{tempFull}'. A mutating tool would risk escaping the sandbox and mutating the " +
+                "committed test-vault/ on disk - aborting before the tool call runs.");
+        }
+    }
+
     protected static void CopyDirectory(string source, string destination)
     {
         foreach (var file in Directory.EnumerateFiles(source, "*", SearchOption.AllDirectories))
@@ -94,6 +148,11 @@ public abstract class ProgramHostFixtureBase : WebApplicationFactory<Program>
             catch (IOException)
             {
             }
+
+            // Detection half of the test-isolation guard pair - runs after this fixture's own
+            // cleanup so a dirty test-vault/ is reported clearly rather than buried under other
+            // teardown noise. See TestVaultCleanGuard's remarks.
+            TestVaultCleanGuard.AssertCommittedFixtureUntouched();
         }
     }
 }

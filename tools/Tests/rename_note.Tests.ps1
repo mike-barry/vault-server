@@ -26,6 +26,7 @@ Describe 'rename_note' {
 
     AfterEach {
         Remove-Item Env:\VAULT_MCP_VAULTS_JSON -ErrorAction SilentlyContinue
+        Remove-Variable -Name VaultMcpScopeRoots -Scope Global -ErrorAction SilentlyContinue
         Remove-Item -LiteralPath $script:TempRoot -Recurse -Force -ErrorAction SilentlyContinue
     }
 
@@ -100,5 +101,33 @@ Describe 'rename_note' {
     It 'throws when the destination already exists' {
         Set-Content -LiteralPath (Join-Path $script:VaultDir 'Resources/Existing-Collision.md') -Value "# Existing`n"
         { & $script:ScriptPath -Note 'Gizmo-Reference' -NewName 'Existing-Collision' } | Should -Throw
+    }
+
+    It 'refuses under a scoped grant for the target vault, mutating nothing' {
+        $global:VaultMcpScopeRoots = @{ scratch = @('Resources') }
+
+        { & $script:ScriptPath -Note 'Gizmo-Reference' -NewName 'Renamed-Gizmo' } |
+            Should -Throw -ExpectedMessage '*unscoped Write grant for vault "scratch"*'
+
+        Test-Path (Join-Path $script:VaultDir 'Resources/Gizmo-Reference.md') | Should -BeTrue
+        Test-Path (Join-Path $script:VaultDir 'Resources/Renamed-Gizmo.md') | Should -BeFalse
+        $tasks = Get-Content (Join-Path $script:VaultDir 'Projects/Widget/Tasks.md') -Raw
+        $tasks | Should -Match '\[\[Gizmo-Reference\]\]'
+    }
+
+    It 'proceeds when the grant is explicitly unscoped for the target vault (empty root set)' {
+        $global:VaultMcpScopeRoots = @{ scratch = @() }
+
+        & $script:ScriptPath -Note 'Gizmo-Reference' -NewName 'Renamed-Gizmo'
+
+        Test-Path (Join-Path $script:VaultDir 'Resources/Renamed-Gizmo.md') | Should -BeTrue
+    }
+
+    It 'proceeds when there is no ambient scope map at all (no grant in play)' {
+        Remove-Variable -Name VaultMcpScopeRoots -Scope Global -ErrorAction SilentlyContinue
+
+        & $script:ScriptPath -Note 'Gizmo-Reference' -NewName 'Renamed-Gizmo'
+
+        Test-Path (Join-Path $script:VaultDir 'Resources/Renamed-Gizmo.md') | Should -BeTrue
     }
 }

@@ -1,10 +1,16 @@
 namespace VaultMcpServer.Vault;
 
 /// <summary>
-/// The vault-access chokepoint: ALL vault I/O in the C# host flows through this class -
-/// path resolution, wikilink resolution, reads, writes, and the grant check. No other
-/// code touches vault paths directly. The PowerShell counterpart for script tools is
-/// powershell/VaultAccess/VaultAccess.psm1, which mirrors these operations and semantics.
+/// The vault-access chokepoint: path resolution, wikilink resolution, and the grant-scope
+/// check primitives (<see cref="EnsureAllowed"/>, <see cref="IsPathInScope"/>,
+/// <see cref="ResolveVaultScopeRoots"/>, <see cref="NormalizeScopeSegments"/>) live here -
+/// the shared-case-guarded resolution surface plus the scope primitives real callers
+/// (mint, grant load, the elevation tool) use. The PowerShell counterpart for script tools,
+/// powershell/VaultAccess/VaultAccess.psm1, mirrors these operations and semantics and also
+/// carries the full read/write/enumerate/move instance-op surface for tool scripts - the C#
+/// side dropped its caller-less mirror of that half (2026-07-19, see
+/// Plan-Grant-Tool-Trust-Model's "Mirrored chokepoint drift surface"); re-mirror by porting
+/// from the then-current PowerShell implementation when a native vault tool needs it.
 ///
 /// Vault conventions (wikilink forms, filename rules, layout) are encoded only here and
 /// in the PowerShell module; they implement the vault's Document-Conventions.md and
@@ -162,8 +168,14 @@ public sealed class VaultAccess(VaultConfig config)
     /// <see cref="IsPathInScope"/>). Out-of-scope notes are silently dropped from the result,
     /// not surfaced as an error - a search or wikilink resolution built on this enumeration
     /// (see <see cref="ResolveWikilink"/>) sees a naturally scope-filtered result set.
+    ///
+    /// Private: this has no production caller of its own (the read/write/move instance-op
+    /// half it used to sit alongside was dropped 2026-07-19 as caller-less drift liability -
+    /// see the class summary), but <see cref="ResolveWikilink"/> - which *is* kept, as
+    /// shared-case-guarded resolution surface - is built on it, so it stays as minimal
+    /// private support rather than being cut too.
     /// </summary>
-    public IReadOnlyList<string> EnumerateNotes(string? vault, IReadOnlyDictionary<string, IReadOnlySet<string>>? scopeRoots = null)
+    private IReadOnlyList<string> EnumerateNotes(string? vault, IReadOnlyDictionary<string, IReadOnlySet<string>>? scopeRoots = null)
     {
         var (name, root) = config.Resolve(vault);
         var vaultScopeRoots = ResolveVaultScopeRoots(name, scopeRoots);
@@ -213,47 +225,6 @@ public sealed class VaultAccess(VaultConfig config)
             1 => matches[0],
             _ => throw new InvalidOperationException($"Ambiguous wikilink [[{target}]]: {string.Join(", ", matches)}"),
         };
-    }
-
-    public string ReadNote(string? vault, string relativePath, IReadOnlyDictionary<string, IReadOnlySet<string>>? scopeRoots = null)
-    {
-        var (name, _) = config.Resolve(vault);
-        EnsureAllowed(name, relativePath, ResolveVaultScopeRoots(name, scopeRoots));
-        return File.ReadAllText(ResolvePath(vault, relativePath));
-    }
-
-    /// <summary>Writes a note as UTF-8 without BOM, creating parent directories as needed.</summary>
-    public void WriteNote(string? vault, string relativePath, string content, IReadOnlyDictionary<string, IReadOnlySet<string>>? scopeRoots = null)
-    {
-        var (name, _) = config.Resolve(vault);
-        EnsureAllowed(name, relativePath, ResolveVaultScopeRoots(name, scopeRoots));
-        var full = ResolvePath(vault, relativePath);
-        Directory.CreateDirectory(Path.GetDirectoryName(full)!);
-        File.WriteAllText(full, content);
-    }
-
-    /// <summary>
-    /// Moves/renames a note from one vault-relative path to another, creating parent
-    /// directories as needed. Throws if the source note does not exist or the
-    /// destination already exists.
-    /// </summary>
-    public void MoveNote(string? vault, string relativePath, string newRelativePath, IReadOnlyDictionary<string, IReadOnlySet<string>>? scopeRoots = null)
-    {
-        var (name, _) = config.Resolve(vault);
-        var vaultScopeRoots = ResolveVaultScopeRoots(name, scopeRoots);
-        EnsureAllowed(name, relativePath, vaultScopeRoots);
-        EnsureAllowed(name, newRelativePath, vaultScopeRoots);
-
-        var fullOld = ResolvePath(vault, relativePath);
-        var fullNew = ResolvePath(vault, newRelativePath);
-
-        if (!File.Exists(fullOld))
-            throw new FileNotFoundException($"Source note not found: {relativePath}", fullOld);
-        if (File.Exists(fullNew))
-            throw new IOException($"Destination already exists: {newRelativePath}");
-
-        Directory.CreateDirectory(Path.GetDirectoryName(fullNew)!);
-        File.Move(fullOld, fullNew);
     }
 
     /// <summary>Strips [[ ]] delimiters, |display text, and #heading fragments, normalizing separators to forward slashes.</summary>

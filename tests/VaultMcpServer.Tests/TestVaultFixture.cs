@@ -59,6 +59,12 @@ public sealed class TestVaultFixture : IDisposable
         catch (IOException)
         {
         }
+
+        // Detection half of the test-isolation guard pair (see TestVaultCleanGuard's remarks).
+        // This fixture has no PowerShell config handoff to misfire, but its "scratch" copy is a
+        // real mutation target, so the same cheap check catches any accidental write against
+        // `source` instead of `destination` in CopyDirectory or a bad path elsewhere.
+        TestVaultCleanGuard.AssertCommittedFixtureUntouched();
     }
 
     private static string FindRepoRoot()

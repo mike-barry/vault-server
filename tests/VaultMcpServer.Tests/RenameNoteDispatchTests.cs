@@ -45,6 +45,7 @@ public sealed class RenameNoteDispatchTests
     public async Task ToolsCall_WriteGrant_RenamesNoteAndRewritesBacklinks()
     {
         using var fixture = new Fixture();
+        fixture.AssertMutationSandboxedForTest();
         using var client = AuthedClient(fixture, Fixture.WriteToken);
         var body = """{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"rename_note","arguments":{"Note":"Gizmo-Reference","NewName":"Widget-Part-Reference"}}}""";
         using var response = await client.PostAsync("/mcp", JsonBody(body));
@@ -74,6 +75,7 @@ public sealed class RenameNoteDispatchTests
     public async Task ToolsCall_ReadOnlyGrant_IsRejectedAsToolError()
     {
         using var fixture = new Fixture();
+        fixture.AssertMutationSandboxedForTest();
         using var client = AuthedClient(fixture, Fixture.ReadOnlyToken);
         var body = """{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"rename_note","arguments":{"Note":"Gizmo-Reference","NewName":"Should-Not-Rename"}}}""";
         using var response = await client.PostAsync("/mcp", JsonBody(body));
@@ -123,5 +125,13 @@ public sealed class RenameNoteDispatchTests
             // same vaults.json so the in-process script sees the same vault the host does.
             ConfigureEnvironment(vaultsPath, grantsPath, toolsDirectory: toolsDir, vaultMcpVaultsJsonPath: vaultsPath);
         }
+
+        /// <summary>
+        /// Public wrapper over the protected <see cref="ProgramHostFixtureBase.AssertMutationSandboxed"/>
+        /// guard - test methods below call this immediately before dispatching a mutating
+        /// rename_note call, so a misfired config handoff fails fast instead of mutating the
+        /// committed test-vault/.
+        /// </summary>
+        public void AssertMutationSandboxedForTest() => AssertMutationSandboxed();
     }
 }

@@ -49,6 +49,7 @@ public sealed class MultiVaultDispatchTests
     public async Task ToolsCall_OmittingVault_FallsBackToDefaultVault()
     {
         using var fixture = new Fixture();
+        fixture.AssertMutationSandboxedForTest();
         using var client = AuthedClient(fixture, Fixture.BroadToken);
         var body = """{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"rename_note","arguments":{"Note":"Personal-Note","NewName":"Personal-Note-Renamed"}}}""";
         using var response = await client.PostAsync("/mcp", JsonBody(body));
@@ -70,6 +71,7 @@ public sealed class MultiVaultDispatchTests
     public async Task ToolsCall_ExplicitTestVault_ResolvesAgainstTestVaultNotPersonal()
     {
         using var fixture = new Fixture();
+        fixture.AssertMutationSandboxedForTest();
         using var client = AuthedClient(fixture, Fixture.BroadToken);
         var body = """{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"rename_note","arguments":{"vault":"test","Note":"Gizmo-Reference","NewName":"Widget-Part-Reference"}}}""";
         using var response = await client.PostAsync("/mcp", JsonBody(body));
@@ -91,6 +93,7 @@ public sealed class MultiVaultDispatchTests
     public async Task ToolsCall_GrantNotScopedToTestVault_Returns403AndDoesNotMutateTestVault()
     {
         using var fixture = new Fixture();
+        fixture.AssertMutationSandboxedForTest();
         using var client = AuthedClient(fixture, Fixture.PersonalOnlyToken);
         var body = """{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"rename_note","arguments":{"vault":"test","Note":"Gizmo-Reference","NewName":"Should-Not-Rename"}}}""";
         using var response = await client.PostAsync("/mcp", JsonBody(body));
@@ -140,5 +143,11 @@ public sealed class MultiVaultDispatchTests
             // so the in-process script sees the same vaults the host does.
             ConfigureEnvironment(vaultsPath, grantsPath, toolsDirectory: toolsDir, vaultMcpVaultsJsonPath: vaultsPath);
         }
+
+        /// <summary>
+        /// Public wrapper over the protected <see cref="ProgramHostFixtureBase.AssertMutationSandboxed"/>
+        /// guard - see RenameNoteDispatchTests.Fixture's identical wrapper for the rationale.
+        /// </summary>
+        public void AssertMutationSandboxedForTest() => AssertMutationSandboxed();
     }
 }
