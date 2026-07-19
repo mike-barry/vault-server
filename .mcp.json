@@ -1,6 +1,6 @@
 {
   "mcpServers": {
-    "vault-mcp-server": {
+    "vault": {
       "type": "http",
       "url": "http://localhost:5111/mcp",
       "headers": {
