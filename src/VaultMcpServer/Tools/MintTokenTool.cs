@@ -18,6 +18,19 @@ namespace VaultMcpServer.Tools;
 /// here for every parameter, including <c>ttl</c> (always an integer number of minutes,
 /// defaulting to 60 when omitted).
 ///
+/// Attenuation-only minting: every requested dimension must be a subset of the *caller's own
+/// currently-bound* grant (the <see cref="Grant"/> instance <see cref="InvokeAsync"/> receives -
+/// the dispatcher hands it the resolved grant, including any active elevation binding). Op
+/// classes must be a subset of the caller's own; every vault implied by <c>scope_roots</c> must
+/// be one the caller can access; each requested scope root must fall within one of the caller's
+/// own scope roots for that vault (an empty caller root-set for a vault means the caller is
+/// unscoped there, so anything is permitted); and the minted grant's absolute expiry is capped at
+/// the caller's own remaining lifetime (an infinite caller imposes no cap) - see
+/// <see cref="GrantStore.Mint"/>'s <c>maxExpiresAtUtc</c> parameter. This uniformly covers
+/// <c>ManageGrants</c> too: a minted grant may carry it iff the caller does, no special case.
+/// A violation returns an <c>isError: true</c> result naming the dimension and the caller's
+/// actual bound authority, matching the repo's informative-denial convention.
+///
 /// <c>scope_roots</c> entries are folder-prefix strings of the form <c>"&lt;vault&gt;"</c> (the
 /// whole vault) or <c>"&lt;vault&gt;/&lt;folder-prefix&gt;"</c> (a subtree within it) - the
 /// leading path segment names the vault, so the minted grant's <see cref="Grant.Vaults"/> set
@@ -85,6 +98,7 @@ public sealed class MintTokenTool(GrantStore grantStore, OpClassRegistry opClass
             scopeRootsByVault = GroupScopeRootsByVault(scopeRoots);
             opClasses = ReadOpClasses(arguments);
             ttlMinutes = ReadTtl(arguments);
+            ValidateAttenuation(grant, opClasses, vaults, scopeRootsByVault);
         }
         catch (MintArgumentException ex)
         {
@@ -95,7 +109,7 @@ public sealed class MintTokenTool(GrantStore grantStore, OpClassRegistry opClass
         // GroupScopeRootsByVault derives scopeRootsByVault's keys from the same scope_roots
         // entries DeriveVaults derives vaults from, so it always has one entry per vault here -
         // no null/missing-key fallback needed; GrantStore.Mint also checks this defensively.
-        var token = grantStore.Mint(id, opClasses, vaults, scopeRootsByVault, ttlMinutes);
+        var (token, expiresAtUtc, ttlCapped) = grantStore.Mint(id, opClasses, vaults, scopeRootsByVault, ttlMinutes, grant.ExpiresAtUtc);
 
         var responseJson = JsonSerializer.Serialize(new
         {
@@ -105,10 +119,56 @@ public sealed class MintTokenTool(GrantStore grantStore, OpClassRegistry opClass
             vaults,
             scopeRoots,
             ttlMinutes,
+            expiresAtUtc,
+            ttlCapped,
             mintedBy = grant.Id,
         });
         return Task.FromResult(new CallToolResult { Content = [new TextContentBlock { Text = responseJson }] });
     }
+
+    /// <summary>
+    /// Attenuation-only minting: validates every requested dimension against <paramref name="grant"/>
+    /// (the caller's own currently-bound grant), throwing <see cref="MintArgumentException"/> naming
+    /// the first violated dimension and the caller's actual bound authority. TTL is not checked here -
+    /// it is capped, not rejected, inside <see cref="GrantStore.Mint"/> (see its <c>maxExpiresAtUtc</c>
+    /// parameter), since capping needs the store's own "now" to stay consistent with the rest of
+    /// expiry handling.
+    /// </summary>
+    private static void ValidateAttenuation(Grant grant, HashSet<string> opClasses, HashSet<string> vaults, Dictionary<string, IReadOnlySet<string>> scopeRootsByVault)
+    {
+        var missingOpClasses = opClasses.Where(o => !grant.OpClasses.Contains(o)).ToList();
+        if (missingOpClasses.Count > 0)
+            throw new MintArgumentException(
+                $"\"op_class\" requests {FormatSet(missingOpClasses)}, which the caller's own grant \"{grant.Id}\" does not hold " +
+                $"(caller's op classes: {FormatSet(grant.OpClasses)}).");
+
+        var missingVaults = vaults.Where(v => !grant.Vaults.Contains(v)).ToList();
+        if (missingVaults.Count > 0)
+            throw new MintArgumentException(
+                $"\"scope_roots\" names vault{(missingVaults.Count > 1 ? "s" : "")} {FormatSet(missingVaults)} outside the caller's own grant " +
+                $"\"{grant.Id}\" (caller's vaults: {FormatSet(grant.Vaults)}).");
+
+        foreach (var (vaultName, requestedRoots) in scopeRootsByVault)
+        {
+            var callerRoots = VaultAccess.ResolveVaultScopeRoots(vaultName, grant.ScopeRoots);
+            if (callerRoots.Count == 0)
+                continue; // caller is unscoped for this vault - any requested root is permitted.
+
+            if (requestedRoots.Count == 0)
+                throw new MintArgumentException(
+                    $"\"scope_roots\" requests unscoped access to vault \"{vaultName}\", but the caller's own grant \"{grant.Id}\" " +
+                    $"is scoped there to {FormatSet(callerRoots)}.");
+
+            var outOfScope = requestedRoots.Where(r => !VaultAccess.IsPathInScope(r, callerRoots)).ToList();
+            if (outOfScope.Count > 0)
+                throw new MintArgumentException(
+                    $"\"scope_roots\" entr{(outOfScope.Count > 1 ? "ies" : "y")} {FormatSet(outOfScope.Select(r => $"{vaultName}/{r}"))} fall outside " +
+                    $"the caller's own grant \"{grant.Id}\" scope for vault \"{vaultName}\" ({FormatSet(callerRoots)}).");
+        }
+    }
+
+    private static string FormatSet(IEnumerable<string> values) =>
+        string.Join(", ", values.Select(v => $"\"{v}\""));
 
     private static List<string> ReadScopeRoots(IReadOnlyDictionary<string, JsonElement> arguments)
     {

@@ -188,7 +188,10 @@ public sealed class MintTokenDispatchTests : IClassFixture<MintTokenDispatchTest
             var grantsPath = Path.Combine(TempDir, "grants.json");
             File.WriteAllText(grantsPath, JsonSerializer.Serialize(new Dictionary<string, object>
             {
-                [AdminToken] = new { id = "admin", opClasses = new[] { "Read", "Write", "ManageGrants" }, vaults = new[] { "personal" }, ttl = "*", scopeRoots = new Dictionary<string, string[]> { ["personal"] = Array.Empty<string>() } },
+                // True admin (unscoped, every vault, infinite ttl) so attenuation-only minting
+                // never constrains what these dispatch tests can mint - matching the real dev
+                // default binding, which is likewise unscoped/infinite.
+                [AdminToken] = new { id = "admin", opClasses = new[] { "*" }, vaults = new[] { "*" }, ttl = "*", scopeRoots = new Dictionary<string, string[]> { ["*"] = new[] { "*" } } },
                 [ReadOnlyToken] = new { id = "read-only", opClasses = new[] { "Read" }, vaults = new[] { "personal" }, ttl = "*", scopeRoots = new Dictionary<string, string[]> { ["personal"] = Array.Empty<string>() } },
             }));
 

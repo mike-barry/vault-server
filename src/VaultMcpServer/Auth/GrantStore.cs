@@ -294,16 +294,29 @@ public sealed class GrantStore
     /// <c>MintTokenTool</c>) are responsible for validating <paramref name="opClasses"/>,
     /// <paramref name="vaults"/>, and <paramref name="scopeRoots"/> against the registry/config
     /// and for rejecting the <c>"*"</c> wildcard - this method treats them as already-validated,
-    /// concrete sets. <paramref name="scopeRoots"/> is the per-vault shape stored directly on
-    /// <see cref="Grant.ScopeRoots"/> - required, and required to have an entry for every vault
-    /// in <paramref name="vaults"/> (an empty set for a vault means that vault is unscoped, full
-    /// access within it - the same "explicit, never implicit" convention <c>GrantFileLoader</c>
-    /// enforces for file-loaded grants). Checked defensively below rather than merely trusted,
-    /// so a future caller that forgets to populate every vault's entry fails loudly instead of
-    /// producing a grant with a silent full-access gap. Callers (see <c>MintTokenTool</c>) are
-    /// responsible for grouping flat <c>scope_roots</c> entries into this shape.
+    /// concrete sets, and it is also where the attenuation-only minting decision's TTL cap
+    /// (see <c>MintTokenTool</c>) is applied. <paramref name="scopeRoots"/> is the per-vault shape
+    /// stored directly on <see cref="Grant.ScopeRoots"/> - required, and required to have an entry
+    /// for every vault in <paramref name="vaults"/> (an empty set for a vault means that vault is
+    /// unscoped, full access within it - the same "explicit, never implicit" convention
+    /// <c>GrantFileLoader</c> enforces for file-loaded grants). Checked defensively below rather
+    /// than merely trusted, so a future caller that forgets to populate every vault's entry fails
+    /// loudly instead of producing a grant with a silent full-access gap. Callers (see
+    /// <c>MintTokenTool</c>) are responsible for grouping flat <c>scope_roots</c> entries into this
+    /// shape and for validating attenuation (op classes/vaults/scope roots as subsets of the
+    /// caller's own currently-bound grant) - this method only enforces the TTL side of
+    /// attenuation, since it is the one dimension that needs this store's <see cref="_timeProvider"/>
+    /// "now" to compute consistently with the rest of expiry handling.
     /// </summary>
-    public string Mint(string id, IReadOnlySet<string> opClasses, IReadOnlySet<string> vaults, IReadOnlyDictionary<string, IReadOnlySet<string>> scopeRoots, int ttlMinutes)
+    /// <param name="maxExpiresAtUtc">
+    /// The caller's own grant's <see cref="Grant.ExpiresAtUtc"/> - attenuation-only minting caps
+    /// the minted grant's absolute expiry at this value when it is finite (never null means the
+    /// minter is infinite-TTL and imposes no cap). When the nominal expiry computed from
+    /// <paramref name="ttlMinutes"/> would exceed it, the minted grant's actual expiry is clamped
+    /// down to it instead of rejecting the mint outright - the returned <c>TtlCapped</c> flag tells
+    /// the caller (<c>MintTokenTool</c>) this happened so it can report the effective expiry.
+    /// </param>
+    public (string Token, DateTimeOffset ExpiresAtUtc, bool TtlCapped) Mint(string id, IReadOnlySet<string> opClasses, IReadOnlySet<string> vaults, IReadOnlyDictionary<string, IReadOnlySet<string>> scopeRoots, int ttlMinutes, DateTimeOffset? maxExpiresAtUtc = null)
     {
         if (string.IsNullOrWhiteSpace(id))
             throw new ArgumentException("Minted grant id must not be empty.", nameof(id));
@@ -320,10 +333,12 @@ public sealed class GrantStore
             throw new ArgumentOutOfRangeException(nameof(ttlMinutes), ttlMinutes, "ttl must be a positive number of minutes.");
 
         var token = GenerateToken();
-        var expiresAtUtc = _timeProvider.GetUtcNow().AddMinutes(ttlMinutes);
+        var nominalExpiresAtUtc = _timeProvider.GetUtcNow().AddMinutes(ttlMinutes);
+        var ttlCapped = maxExpiresAtUtc is { } cap && nominalExpiresAtUtc > cap;
+        var expiresAtUtc = ttlCapped ? maxExpiresAtUtc!.Value : nominalExpiresAtUtc;
         var grant = new Grant(id, opClasses, vaults, expiresAtUtc, scopeRoots);
         _mintedRows.Add((Hash(token), grant));
-        return token;
+        return (token, expiresAtUtc, ttlCapped);
     }
 
     private static string GenerateToken() => Convert.ToHexString(RandomNumberGenerator.GetBytes(32));

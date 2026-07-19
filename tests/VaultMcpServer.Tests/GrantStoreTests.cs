@@ -545,7 +545,7 @@ public sealed class GrantStoreTests(TestVaultFixture fixture) : IClassFixture<Te
     {
         var store = GrantStore.Load(WriteGrants(TwoGrants), OpClasses, _vaultConfig, new ServerHealthState());
 
-        var token = store.Mint(
+        var (token, _, _) = store.Mint(
             "minted-1",
             new HashSet<string> { OpClass.Read },
             new HashSet<string> { "test" },
@@ -579,7 +579,7 @@ public sealed class GrantStoreTests(TestVaultFixture fixture) : IClassFixture<Te
         var timeProvider = new FixedTimeProvider(DateTimeOffset.UtcNow);
         var store = GrantStore.Load(WriteGrants(TwoGrants), OpClasses, _vaultConfig, new ServerHealthState(), timeProvider);
 
-        var token = store.Mint("minted-1", new HashSet<string> { OpClass.Read }, new HashSet<string> { "test" }, ScopeRoots(("test", "")), ttlMinutes: 1);
+        var (token, _, _) = store.Mint("minted-1", new HashSet<string> { OpClass.Read }, new HashSet<string> { "test" }, ScopeRoots(("test", "")), ttlMinutes: 1);
         Assert.NotNull(store.Authenticate(token));
 
         timeProvider.Now = timeProvider.Now.AddMinutes(10);
@@ -603,8 +603,8 @@ public sealed class GrantStoreTests(TestVaultFixture fixture) : IClassFixture<Te
     {
         var store = GrantStore.Load(WriteGrants(TwoGrants), OpClasses, _vaultConfig, new ServerHealthState());
 
-        var tokenA = store.Mint("minted-a", new HashSet<string> { OpClass.Read }, new HashSet<string> { "test" }, ScopeRoots(("test", "")), ttlMinutes: 30);
-        var tokenB = store.Mint("minted-b", new HashSet<string> { OpClass.Read }, new HashSet<string> { "test" }, ScopeRoots(("test", "")), ttlMinutes: 30);
+        var (tokenA, _, _) = store.Mint("minted-a", new HashSet<string> { OpClass.Read }, new HashSet<string> { "test" }, ScopeRoots(("test", "")), ttlMinutes: 30);
+        var (tokenB, _, _) = store.Mint("minted-b", new HashSet<string> { OpClass.Read }, new HashSet<string> { "test" }, ScopeRoots(("test", "")), ttlMinutes: 30);
 
         Assert.NotEqual(tokenA, tokenB);
         Assert.Equal("minted-a", store.Authenticate(tokenA)!.Id);
