@@ -135,11 +135,15 @@ public sealed class GrantStore
     /// <paramref name="vaults"/>, and <paramref name="scopeRoots"/> against the registry/config
     /// and for rejecting the <c>"*"</c> wildcard - this method treats them as already-validated,
     /// concrete sets. <paramref name="scopeRoots"/> is the per-vault shape stored directly on
-    /// <see cref="Grant.ScopeRoots"/> - <c>null</c> for unscoped-everywhere, or a dictionary
-    /// whose absent keys mean unscoped for that vault; callers (see <c>MintTokenTool</c>) are
+    /// <see cref="Grant.ScopeRoots"/> - required, and required to have an entry for every vault
+    /// in <paramref name="vaults"/> (an empty set for a vault means that vault is unscoped, full
+    /// access within it - the same "explicit, never implicit" convention <c>GrantStore.Load</c>
+    /// enforces for file-loaded grants). Checked defensively below rather than merely trusted,
+    /// so a future caller that forgets to populate every vault's entry fails loudly instead of
+    /// producing a grant with a silent full-access gap. Callers (see <c>MintTokenTool</c>) are
     /// responsible for grouping flat <c>scope_roots</c> entries into this shape.
     /// </summary>
-    public string Mint(string id, IReadOnlySet<string> opClasses, IReadOnlySet<string> vaults, IReadOnlyDictionary<string, IReadOnlySet<string>>? scopeRoots, int ttlMinutes)
+    public string Mint(string id, IReadOnlySet<string> opClasses, IReadOnlySet<string> vaults, IReadOnlyDictionary<string, IReadOnlySet<string>> scopeRoots, int ttlMinutes)
     {
         if (string.IsNullOrWhiteSpace(id))
             throw new ArgumentException("Minted grant id must not be empty.", nameof(id));
@@ -147,6 +151,11 @@ public sealed class GrantStore
             throw new ArgumentException("Minted grant must have at least one op class.", nameof(opClasses));
         if (vaults.Count == 0)
             throw new ArgumentException("Minted grant must have at least one vault.", nameof(vaults));
+        var missingScopeRootsVaults = vaults.Where(v => !scopeRoots.ContainsKey(v)).ToList();
+        if (missingScopeRootsVaults.Count > 0)
+            throw new ArgumentException(
+                $"scopeRoots is missing an entry for vault{(missingScopeRootsVaults.Count > 1 ? "s" : "")} {string.Join(", ", missingScopeRootsVaults.Select(v => $"\"{v}\""))} - every vault the grant can access must have an explicit entry (empty set for full access).",
+                nameof(scopeRoots));
         if (ttlMinutes <= 0)
             throw new ArgumentOutOfRangeException(nameof(ttlMinutes), ttlMinutes, "ttl must be a positive number of minutes.");
 
@@ -223,13 +232,21 @@ public sealed class GrantStore
     }
 
     /// <summary>
-    /// Parses a grant row's optional <c>scopeRoots</c>: an object keyed by vault name, e.g.
-    /// <c>{ "primary": ["Area"], "test": [] }</c>. Absent entirely returns <c>null</c> -
-    /// unscoped for every vault the grant has. A vault key's value being empty or exactly
-    /// <c>["*"]</c> means that vault is unscoped, the same "no explicit scope means unscoped"
-    /// convention as before, now applied per-vault rather than to the whole grant. Unlike
-    /// <c>opClasses</c>/<c>vaults</c>/<c>ttl</c>, this field is optional rather than required:
-    /// most rows (including every phase-1 row) have no reason to be scoped at all.
+    /// Parses a grant row's required <c>scopeRoots</c>: an object keyed by vault name, e.g.
+    /// <c>{ "primary": ["Area"], "test": [] }</c>. Required - and required to cover every vault
+    /// in <paramref name="vaults"/> - the same treatment <c>ttl</c> gets from <see cref="ReadTtl"/>:
+    /// scope must be explicit, so a vault can never silently end up with full access just
+    /// because someone forgot to add a <c>scopeRoots</c> entry for it. A vault key's value being
+    /// empty or exactly <c>["*"]</c> means that vault is explicitly unscoped (full access within
+    /// it) - still a valid, common choice, just no longer the default for an absent key.
+    ///
+    /// The whole-grant wildcard <c>{ "*": ["*"] }</c> - mirroring the <c>"*"</c> convention
+    /// already used by <c>opClasses</c>/<c>vaults</c>/<c>ttl</c> - means "every vault in
+    /// <paramref name="vaults"/>, fully open" and is expanded here at load time into a concrete
+    /// empty-set entry per vault, the same way <c>vaults: ["*"]</c> is expanded to the current
+    /// configured vault set before this method ever runs. It must be the row's only
+    /// <c>scopeRoots</c> key (mixing it with explicit per-vault entries is rejected as
+    /// redundant/ambiguous) and its value must be exactly <c>["*"]</c>.
     ///
     /// A key that isn't one of the grant's own <paramref name="vaults"/> is a load-time error -
     /// scoping a vault the grant can't access at all is nonsensical and almost certainly a typo
@@ -238,12 +255,32 @@ public sealed class GrantStore
     /// <see cref="Vault.VaultAccess.NormalizeScopeSegments"/>) - rooted, escaping, or empty
     /// entries fail the grant load fast, the same rigor as an unknown opClass.
     /// </summary>
-    private static IReadOnlyDictionary<string, IReadOnlySet<string>>? ReadScopeRoots(JsonElement grant, string path, string id, IReadOnlySet<string> vaults)
+    private static IReadOnlyDictionary<string, IReadOnlySet<string>> ReadScopeRoots(JsonElement grant, string path, string id, IReadOnlySet<string> vaults)
     {
         if (!grant.TryGetProperty("scopeRoots", out var prop))
-            return null;
+            throw new InvalidDataException($"{path}: grant \"{id}\" is missing a \"scopeRoots\" object.");
         if (prop.ValueKind != JsonValueKind.Object)
             throw new InvalidDataException($"{path}: grant \"{id}\" has a \"scopeRoots\" that is not an object keyed by vault name.");
+
+        // Whole-grant wildcard: { "*": ["*"] } expands to an explicit, empty (fully open) entry
+        // for every vault the grant has - the scopeRoots equivalent of vaults: ["*"].
+        if (prop.EnumerateObject().Any(p => p.Name == "*"))
+        {
+            if (prop.EnumerateObject().Count() != 1)
+                throw new InvalidDataException($"{path}: grant \"{id}\" mixes the wildcard \"scopeRoots\" key \"*\" with explicit vault entries - use one or the other.");
+
+            var wildcardValue = prop.GetProperty("*");
+            var wildcardRaw = wildcardValue.ValueKind == JsonValueKind.Array
+                ? wildcardValue.EnumerateArray().Select(item => item.GetString() ?? "").ToList()
+                : throw new InvalidDataException($"{path}: grant \"{id}\" has a \"scopeRoots\" entry for vault \"*\" that is not an array.");
+            if (!IsWildcard(wildcardRaw))
+                throw new InvalidDataException($"{path}: grant \"{id}\" has a wildcard \"scopeRoots\" key \"*\" whose value must be exactly [\"*\"].");
+
+            return vaults.ToDictionary(
+                v => v,
+                IReadOnlySet<string> (_) => new HashSet<string>(StringComparer.OrdinalIgnoreCase),
+                StringComparer.OrdinalIgnoreCase);
+        }
 
         var result = new Dictionary<string, IReadOnlySet<string>>(StringComparer.OrdinalIgnoreCase);
         foreach (var vaultEntry in prop.EnumerateObject())
@@ -283,6 +320,11 @@ public sealed class GrantStore
             }
             result[vaultName] = canonicalized;
         }
+
+        var missingVaults = vaults.Where(v => !result.ContainsKey(v)).ToList();
+        if (missingVaults.Count > 0)
+            throw new InvalidDataException($"{path}: grant \"{id}\" is missing a \"scopeRoots\" entry for vault{(missingVaults.Count > 1 ? "s" : "")} {string.Join(", ", missingVaults.Select(v => $"\"{v}\""))}.");
+
         return result;
     }
 }

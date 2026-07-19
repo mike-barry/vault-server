@@ -21,8 +21,8 @@ public sealed class GrantStoreTests(TestVaultFixture fixture) : IClassFixture<Te
 
     private const string TwoGrants = """
         {
-          "admin-token": { "id": "admin", "opClasses": ["Read", "Write"], "vaults": ["personal"], "ttl": "*" },
-          "readonly-token": { "id": "read-only", "opClasses": ["Read"], "vaults": ["personal", "test"], "ttl": "*" }
+          "admin-token": { "id": "admin", "opClasses": ["Read", "Write"], "vaults": ["personal"], "ttl": "*", "scopeRoots": { "personal": [] } },
+          "readonly-token": { "id": "read-only", "opClasses": ["Read"], "vaults": ["personal", "test"], "ttl": "*", "scopeRoots": { "personal": [], "test": [] } }
         }
         """;
 
@@ -116,7 +116,7 @@ public sealed class GrantStoreTests(TestVaultFixture fixture) : IClassFixture<Te
     [Fact]
     public void Load_OpClassesWildcardExpandsToAllRegistryClasses()
     {
-        var json = """{ "token-a": { "id": "admin", "opClasses": ["*"], "vaults": ["test"], "ttl": "*" } }""";
+        var json = """{ "token-a": { "id": "admin", "opClasses": ["*"], "vaults": ["test"], "ttl": "*", "scopeRoots": { "test": [] } } }""";
         var store = GrantStore.Load(WriteGrants(json), OpClasses, _vaultConfig);
 
         var grant = store.Authenticate("token-a");
@@ -128,7 +128,7 @@ public sealed class GrantStoreTests(TestVaultFixture fixture) : IClassFixture<Te
     [Fact]
     public void Load_VaultsWildcardExpandsToAllConfiguredVaults()
     {
-        var json = """{ "token-a": { "id": "admin", "opClasses": ["Read"], "vaults": ["*"], "ttl": "*" } }""";
+        var json = """{ "token-a": { "id": "admin", "opClasses": ["Read"], "vaults": ["*"], "ttl": "*", "scopeRoots": { "*": ["*"] } } }""";
         var store = GrantStore.Load(WriteGrants(json), OpClasses, _vaultConfig);
 
         var grant = store.Authenticate("token-a");
@@ -140,7 +140,7 @@ public sealed class GrantStoreTests(TestVaultFixture fixture) : IClassFixture<Te
     [Fact]
     public void Load_BothWildcardsExpandTogether()
     {
-        var json = """{ "token-a": { "id": "admin", "opClasses": ["*"], "vaults": ["*"], "ttl": "*" } }""";
+        var json = """{ "token-a": { "id": "admin", "opClasses": ["*"], "vaults": ["*"], "ttl": "*", "scopeRoots": { "*": ["*"] } } }""";
         var store = GrantStore.Load(WriteGrants(json), OpClasses, _vaultConfig);
 
         var grant = store.Authenticate("token-a");
@@ -180,7 +180,7 @@ public sealed class GrantStoreTests(TestVaultFixture fixture) : IClassFixture<Te
     [Fact]
     public void Load_WildcardTtlNeverExpires()
     {
-        var json = """{ "token-a": { "id": "admin", "opClasses": ["Read"], "vaults": ["personal"], "ttl": "*" } }""";
+        var json = """{ "token-a": { "id": "admin", "opClasses": ["Read"], "vaults": ["personal"], "ttl": "*", "scopeRoots": { "personal": [] } } }""";
         var store = GrantStore.Load(WriteGrants(json), OpClasses, _vaultConfig);
 
         var grant = store.Authenticate("token-a");
@@ -194,7 +194,7 @@ public sealed class GrantStoreTests(TestVaultFixture fixture) : IClassFixture<Te
     public void Load_NumericTtlComputesExpiryFromLoadTime()
     {
         var loadedAt = new DateTimeOffset(2026, 1, 1, 0, 0, 0, TimeSpan.Zero);
-        var json = """{ "token-a": { "id": "admin", "opClasses": ["Read"], "vaults": ["personal"], "ttl": 30 } }""";
+        var json = """{ "token-a": { "id": "admin", "opClasses": ["Read"], "vaults": ["personal"], "ttl": 30, "scopeRoots": { "personal": [] } } }""";
         var store = GrantStore.Load(WriteGrants(json), OpClasses, _vaultConfig, new FixedTimeProvider(loadedAt));
 
         var grant = store.Authenticate("token-a");
@@ -208,7 +208,7 @@ public sealed class GrantStoreTests(TestVaultFixture fixture) : IClassFixture<Te
         // A grant "loaded" 10 minutes ago with a 1-minute ttl expired 9 minutes ago -
         // deterministic without depending on real elapsed wall-clock time in the test.
         var loadedAt = DateTimeOffset.UtcNow.AddMinutes(-10);
-        var json = """{ "token-a": { "id": "admin", "opClasses": ["Read"], "vaults": ["personal"], "ttl": 1 } }""";
+        var json = """{ "token-a": { "id": "admin", "opClasses": ["Read"], "vaults": ["personal"], "ttl": 1, "scopeRoots": { "personal": [] } } }""";
         var store = GrantStore.Load(WriteGrants(json), OpClasses, _vaultConfig, new FixedTimeProvider(loadedAt));
 
         var grant = store.Authenticate("token-a");
@@ -224,7 +224,7 @@ public sealed class GrantStoreTests(TestVaultFixture fixture) : IClassFixture<Te
         // single source of truth for "is this grant currently usable", so an expired grant
         // must be indistinguishable from an unknown one to this method.
         var timeProvider = new FixedTimeProvider(DateTimeOffset.UtcNow);
-        var json = """{ "token-a": { "id": "admin", "opClasses": ["Read"], "vaults": ["personal"], "ttl": 1 } }""";
+        var json = """{ "token-a": { "id": "admin", "opClasses": ["Read"], "vaults": ["personal"], "ttl": 1, "scopeRoots": { "personal": [] } } }""";
         var store = GrantStore.Load(WriteGrants(json), OpClasses, _vaultConfig, timeProvider);
 
         timeProvider.Now = timeProvider.Now.AddMinutes(10);
@@ -236,7 +236,7 @@ public sealed class GrantStoreTests(TestVaultFixture fixture) : IClassFixture<Te
     public void Authenticate_NotYetExpiredTokenReturnsGrant()
     {
         var timeProvider = new FixedTimeProvider(DateTimeOffset.UtcNow);
-        var json = """{ "token-a": { "id": "admin", "opClasses": ["Read"], "vaults": ["personal"], "ttl": 30 } }""";
+        var json = """{ "token-a": { "id": "admin", "opClasses": ["Read"], "vaults": ["personal"], "ttl": 30, "scopeRoots": { "personal": [] } } }""";
         var store = GrantStore.Load(WriteGrants(json), OpClasses, _vaultConfig, timeProvider);
 
         timeProvider.Now = timeProvider.Now.AddMinutes(5);
@@ -251,7 +251,7 @@ public sealed class GrantStoreTests(TestVaultFixture fixture) : IClassFixture<Te
         // token - it just must never return the grant itself, so it can't be used to authorize
         // a call.
         var timeProvider = new FixedTimeProvider(DateTimeOffset.UtcNow);
-        var json = """{ "token-a": { "id": "admin", "opClasses": ["Read"], "vaults": ["personal"], "ttl": 1 } }""";
+        var json = """{ "token-a": { "id": "admin", "opClasses": ["Read"], "vaults": ["personal"], "ttl": 1, "scopeRoots": { "personal": [] } } }""";
         var store = GrantStore.Load(WriteGrants(json), OpClasses, _vaultConfig, timeProvider);
 
         timeProvider.Now = timeProvider.Now.AddMinutes(10);
@@ -268,14 +268,46 @@ public sealed class GrantStoreTests(TestVaultFixture fixture) : IClassFixture<Te
     }
 
     [Fact]
-    public void Load_OmittedScopeRootsMeansUnscoped()
+    public void Load_MissingScopeRootsFieldThrows()
     {
         var json = """{ "token-a": { "id": "admin", "opClasses": ["Read"], "vaults": ["personal"], "ttl": "*" } }""";
+        Assert.Throws<InvalidDataException>(() => GrantStore.Load(WriteGrants(json), OpClasses, _vaultConfig));
+    }
+
+    [Fact]
+    public void Load_ScopeRootsMissingEntryForAVaultInVaultsThrows()
+    {
+        var json = """{ "token-a": { "id": "admin", "opClasses": ["Read"], "vaults": ["personal", "test"], "ttl": "*", "scopeRoots": { "personal": [] } } }""";
+        Assert.Throws<InvalidDataException>(() => GrantStore.Load(WriteGrants(json), OpClasses, _vaultConfig));
+    }
+
+    [Fact]
+    public void Load_ScopeRootsWildcardKeyGrantsFullAccessToEveryVault()
+    {
+        var json = """{ "token-a": { "id": "admin", "opClasses": ["Read"], "vaults": ["personal", "test"], "ttl": "*", "scopeRoots": { "*": ["*"] } } }""";
         var store = GrantStore.Load(WriteGrants(json), OpClasses, _vaultConfig);
 
         var grant = store.Authenticate("token-a");
         Assert.NotNull(grant);
-        Assert.Null(grant.ScopeRoots);
+        Assert.NotNull(grant.ScopeRoots);
+        Assert.True(grant.ScopeRoots.ContainsKey("personal"));
+        Assert.True(grant.ScopeRoots.ContainsKey("test"));
+        Assert.Empty(grant.ScopeRoots["personal"]);
+        Assert.Empty(grant.ScopeRoots["test"]);
+    }
+
+    [Fact]
+    public void Load_ScopeRootsWildcardKeyMixedWithExplicitVaultEntryThrows()
+    {
+        var json = """{ "token-a": { "id": "admin", "opClasses": ["Read"], "vaults": ["personal"], "ttl": "*", "scopeRoots": { "*": ["*"], "personal": [] } } }""";
+        Assert.Throws<InvalidDataException>(() => GrantStore.Load(WriteGrants(json), OpClasses, _vaultConfig));
+    }
+
+    [Fact]
+    public void Load_ScopeRootsWildcardKeyWithNonWildcardValueThrows()
+    {
+        var json = """{ "token-a": { "id": "admin", "opClasses": ["Read"], "vaults": ["personal"], "ttl": "*", "scopeRoots": { "*": ["Projects/Widget"] } } }""";
+        Assert.Throws<InvalidDataException>(() => GrantStore.Load(WriteGrants(json), OpClasses, _vaultConfig));
     }
 
     [Fact]
@@ -348,14 +380,16 @@ public sealed class GrantStoreTests(TestVaultFixture fixture) : IClassFixture<Te
     [Fact]
     public void Load_ScopeRootsMultiVaultKeepsEachVaultsRootsSeparate()
     {
-        var json = """{ "token-a": { "id": "admin", "opClasses": ["Read"], "vaults": ["personal", "test"], "ttl": "*", "scopeRoots": { "personal": ["Area"] } } }""";
+        var json = """{ "token-a": { "id": "admin", "opClasses": ["Read"], "vaults": ["personal", "test"], "ttl": "*", "scopeRoots": { "personal": ["Area"], "test": [] } } }""";
         var store = GrantStore.Load(WriteGrants(json), OpClasses, _vaultConfig);
 
         var grant = store.Authenticate("token-a");
         Assert.NotNull(grant);
         Assert.NotNull(grant.ScopeRoots);
         Assert.True(grant.ScopeRoots.ContainsKey("personal"));
-        Assert.False(grant.ScopeRoots.ContainsKey("test"));
+        Assert.True(grant.ScopeRoots.ContainsKey("test"));
+        Assert.Equal(new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "Area" }, grant.ScopeRoots["personal"]);
+        Assert.Empty(grant.ScopeRoots["test"]);
     }
 
     [Fact]
@@ -387,7 +421,8 @@ public sealed class GrantStoreTests(TestVaultFixture fixture) : IClassFixture<Te
 
         var admin = store.Authenticate("admin-token");
         Assert.NotNull(admin);
-        Assert.Null(admin.ScopeRoots);
+        Assert.NotNull(admin.ScopeRoots);
+        Assert.Equal(new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "personal" }, admin.ScopeRoots.Keys.ToHashSet(StringComparer.OrdinalIgnoreCase));
     }
 
     [Fact]

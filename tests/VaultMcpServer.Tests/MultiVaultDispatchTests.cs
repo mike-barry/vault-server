@@ -128,8 +128,8 @@ public sealed class MultiVaultDispatchTests
             var grantsPath = Path.Combine(_tempDir, "grants.json");
             File.WriteAllText(grantsPath, JsonSerializer.Serialize(new Dictionary<string, object>
             {
-                [BroadToken] = new { id = "multivault-broad", opClasses = new[] { "Read", "Write" }, vaults = new[] { "personal", "test" }, ttl = "*" },
-                [PersonalOnlyToken] = new { id = "multivault-personal-only", opClasses = new[] { "Read", "Write" }, vaults = new[] { "personal" }, ttl = "*" },
+                [BroadToken] = new { id = "multivault-broad", opClasses = new[] { "Read", "Write" }, vaults = new[] { "personal", "test" }, ttl = "*", scopeRoots = new Dictionary<string, string[]> { ["personal"] = Array.Empty<string>(), ["test"] = Array.Empty<string>() } },
+                [PersonalOnlyToken] = new { id = "multivault-personal-only", opClasses = new[] { "Read", "Write" }, vaults = new[] { "personal" }, ttl = "*", scopeRoots = new Dictionary<string, string[]> { ["personal"] = Array.Empty<string>() } },
             }));
 
             // Points at the real repo tools/ directory (not a temp copy) so rename_note.ps1's

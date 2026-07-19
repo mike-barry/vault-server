@@ -3,13 +3,15 @@
     "id": "admin",
     "opClasses": ["*"],
     "vaults": ["*"],
-    "ttl": "*"
+    "ttl": "*",
+    "scopeRoots": { "*": ["*"] }
   },
   "REPLACE-WITH-A-LONG-RANDOM-READONLY-TOKEN": {
     "id": "read-only",
     "opClasses": ["Read"],
     "vaults": ["primary", "test"],
-    "ttl": "*"
+    "ttl": "*",
+    "scopeRoots": { "primary": [], "test": [] }
   },
   "REPLACE-WITH-A-LONG-RANDOM-SCOPED-TOKEN": {
     "id": "scoped-example",

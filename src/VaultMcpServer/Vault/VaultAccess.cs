@@ -42,24 +42,35 @@ public sealed class VaultAccess(VaultConfig config)
     /// Resolves a grant's per-vault <see cref="Auth.Grant.ScopeRoots"/> map down to the flat,
     /// already-vault-scoped root list for one specific <paramref name="vault"/> - the shape
     /// every other chokepoint function in this class (and <see cref="EnsureAllowed"/>,
-    /// <see cref="IsPathInScope"/>) expects. <paramref name="scopeRootsByVault"/> being
-    /// <c>null</c>, or having no entry for <paramref name="vault"/> (matched case-insensitively),
-    /// both mean unscoped for that vault - returns an empty set, same meaning as an explicit
-    /// empty list. This is where "a scope root configured for one vault must not leak into
-    /// another vault the same grant can access" is enforced: only the entry keyed to
-    /// <paramref name="vault"/> is ever consulted.
+    /// <see cref="IsPathInScope"/>) expects. This is where "a scope root configured for one
+    /// vault must not leak into another vault the same grant can access" is enforced: only the
+    /// entry keyed to <paramref name="vault"/> is ever consulted.
+    ///
+    /// <paramref name="scopeRootsByVault"/> being <c>null</c> means no scope map was supplied to
+    /// this call at all (e.g. a caller with no grant context, such as a test calling this class
+    /// directly) - returns an empty set, same meaning as an explicit empty list. This is
+    /// distinct from a <em>non-null</em> map having no entry for <paramref name="vault"/>, which
+    /// is now a defensive-throw case: every real <see cref="Auth.Grant"/> (whether file-loaded
+    /// via <see cref="Auth.GrantStore.Load"/> or minted via <see cref="Auth.GrantStore.Mint"/>)
+    /// is guaranteed to have a <see cref="Auth.Grant.ScopeRoots"/> entry for every vault it can
+    /// access, so a non-null map missing the queried vault's key means that invariant was
+    /// violated somewhere upstream - it must fail loudly rather than silently falling back to
+    /// full access.
     /// </summary>
     public static IReadOnlySet<string> ResolveVaultScopeRoots(string vault, IReadOnlyDictionary<string, IReadOnlySet<string>>? scopeRootsByVault)
     {
-        if (scopeRootsByVault is not null)
+        if (scopeRootsByVault is null)
+            return EmptyScopeRoots;
+
+        foreach (var (key, roots) in scopeRootsByVault)
         {
-            foreach (var (key, roots) in scopeRootsByVault)
-            {
-                if (string.Equals(key, vault, StringComparison.OrdinalIgnoreCase))
-                    return roots;
-            }
+            if (string.Equals(key, vault, StringComparison.OrdinalIgnoreCase))
+                return roots;
         }
-        return EmptyScopeRoots;
+
+        throw new InvalidOperationException(
+            $"Grant configuration invariant violated: vault \"{vault}\" has no scope-roots entry in a non-null scope-roots map. " +
+            "Every vault a grant can access must have an explicit entry (an empty set for full access) - this should be impossible for any grant built through GrantStore.Load or GrantStore.Mint.");
     }
 
     private static readonly IReadOnlySet<string> EmptyScopeRoots = new HashSet<string>(StringComparer.OrdinalIgnoreCase);

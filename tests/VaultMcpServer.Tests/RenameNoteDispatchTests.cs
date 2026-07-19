@@ -111,8 +111,8 @@ public sealed class RenameNoteDispatchTests
             var grantsPath = Path.Combine(_tempDir, "grants.json");
             File.WriteAllText(grantsPath, JsonSerializer.Serialize(new Dictionary<string, object>
             {
-                [WriteToken] = new { id = "rename-write", opClasses = new[] { "Read", "Write" }, vaults = new[] { "test" }, ttl = "*" },
-                [ReadOnlyToken] = new { id = "rename-readonly", opClasses = new[] { "Read" }, vaults = new[] { "test" }, ttl = "*" },
+                [WriteToken] = new { id = "rename-write", opClasses = new[] { "Read", "Write" }, vaults = new[] { "test" }, ttl = "*", scopeRoots = new Dictionary<string, string[]> { ["test"] = Array.Empty<string>() } },
+                [ReadOnlyToken] = new { id = "rename-readonly", opClasses = new[] { "Read" }, vaults = new[] { "test" }, ttl = "*", scopeRoots = new Dictionary<string, string[]> { ["test"] = Array.Empty<string>() } },
             }));
 
             // Points at the real repo tools/ directory (not a temp copy) so rename_note.ps1's

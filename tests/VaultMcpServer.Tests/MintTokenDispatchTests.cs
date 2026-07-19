@@ -190,8 +190,8 @@ public sealed class MintTokenDispatchTests : IClassFixture<MintTokenDispatchTest
             var grantsPath = Path.Combine(_tempDir, "grants.json");
             File.WriteAllText(grantsPath, JsonSerializer.Serialize(new Dictionary<string, object>
             {
-                [AdminToken] = new { id = "admin", opClasses = new[] { "Read", "Write", "ManageGrants" }, vaults = new[] { "personal" }, ttl = "*" },
-                [ReadOnlyToken] = new { id = "read-only", opClasses = new[] { "Read" }, vaults = new[] { "personal" }, ttl = "*" },
+                [AdminToken] = new { id = "admin", opClasses = new[] { "Read", "Write", "ManageGrants" }, vaults = new[] { "personal" }, ttl = "*", scopeRoots = new Dictionary<string, string[]> { ["personal"] = Array.Empty<string>() } },
+                [ReadOnlyToken] = new { id = "read-only", opClasses = new[] { "Read" }, vaults = new[] { "personal" }, ttl = "*", scopeRoots = new Dictionary<string, string[]> { ["personal"] = Array.Empty<string>() } },
             }));
 
             var toolsDir = Path.Combine(_tempDir, "tools");

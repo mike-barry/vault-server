@@ -24,7 +24,7 @@ public sealed class MintTokenToolTests(TestVaultFixture fixture) : IClassFixture
     {
         var path = Path.Combine(_tempDir, "grants.json");
         File.WriteAllText(path, """
-            { "admin-token": { "id": "admin", "opClasses": ["Read", "Write", "ManageGrants"], "vaults": ["test", "scratch"], "ttl": "*" } }
+            { "admin-token": { "id": "admin", "opClasses": ["Read", "Write", "ManageGrants"], "vaults": ["test", "scratch"], "ttl": "*", "scopeRoots": { "test": [], "scratch": [] } } }
             """);
         return GrantStore.Load(path, OpClasses, _vaultConfig);
     }

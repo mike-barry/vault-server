@@ -91,11 +91,10 @@ public sealed class MintTokenTool(GrantStore grantStore, OpClassRegistry opClass
         }
 
         var id = $"minted-{Guid.NewGuid():N}";
-        // scopeRootsByVault is only ever empty when scopeRoots itself is empty - ReadScopeRoots
-        // rejects that, so this is a defensive null-vs-empty-dict guard, not a live code path.
-        IReadOnlyDictionary<string, IReadOnlySet<string>>? grantScopeRoots =
-            scopeRootsByVault.Count == 0 ? null : scopeRootsByVault;
-        var token = grantStore.Mint(id, opClasses, vaults, grantScopeRoots, ttlMinutes);
+        // GroupScopeRootsByVault derives scopeRootsByVault's keys from the same scope_roots
+        // entries DeriveVaults derives vaults from, so it always has one entry per vault here -
+        // no null/missing-key fallback needed; GrantStore.Mint also checks this defensively.
+        var token = grantStore.Mint(id, opClasses, vaults, scopeRootsByVault, ttlMinutes);
 
         var responseJson = JsonSerializer.Serialize(new
         {

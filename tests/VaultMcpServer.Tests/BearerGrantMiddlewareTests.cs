@@ -46,7 +46,7 @@ public sealed class BearerGrantMiddlewareTests : IClassFixture<BearerGrantMiddle
         try
         {
             var grantsPath = Path.Combine(tempDir, "grants.json");
-            File.WriteAllText(grantsPath, """{ "expiring-token": { "id": "short-lived", "opClasses": ["Read"], "vaults": ["test"], "ttl": 1 } }""");
+            File.WriteAllText(grantsPath, """{ "expiring-token": { "id": "short-lived", "opClasses": ["Read"], "vaults": ["test"], "ttl": 1, "scopeRoots": { "test": [] } } }""");
 
             // Loaded with a 1-minute ttl, then the store's own time source is advanced 10
             // minutes past load - simulating elapsed wall-clock time deterministically, since
@@ -168,8 +168,8 @@ public sealed class BearerGrantMiddlewareTests : IClassFixture<BearerGrantMiddle
             var grantsPath = Path.Combine(_tempDir, "grants.json");
             File.WriteAllText(grantsPath, JsonSerializer.Serialize(new Dictionary<string, object>
             {
-                [AdminToken] = new { id = "admin", opClasses = new[] { "Read", "Write" }, vaults = new[] { "personal" }, ttl = "*" },
-                [ReadOnlyToken] = new { id = "read-only", opClasses = new[] { "Read" }, vaults = new[] { "personal" }, ttl = "*" },
+                [AdminToken] = new { id = "admin", opClasses = new[] { "Read", "Write" }, vaults = new[] { "personal" }, ttl = "*", scopeRoots = new Dictionary<string, string[]> { ["personal"] = Array.Empty<string>() } },
+                [ReadOnlyToken] = new { id = "read-only", opClasses = new[] { "Read" }, vaults = new[] { "personal" }, ttl = "*", scopeRoots = new Dictionary<string, string[]> { ["personal"] = Array.Empty<string>() } },
             }));
 
             Environment.SetEnvironmentVariable("VaultsConfigPath", vaultsPath);

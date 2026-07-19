@@ -202,8 +202,8 @@ public sealed class ReadOnlyToolsDispatchTests : IClassFixture<ReadOnlyToolsDisp
             var grantsPath = Path.Combine(_tempDir, "grants.json");
             File.WriteAllText(grantsPath, JsonSerializer.Serialize(new Dictionary<string, object>
             {
-                [ReadOnlyToken] = new { id = "readonly-tools", opClasses = new[] { "Read" }, vaults = new[] { "test" }, ttl = "*" },
-                [WriteOnlyToken] = new { id = "writeonly-tools", opClasses = new[] { "Write" }, vaults = new[] { "test" }, ttl = "*" },
+                [ReadOnlyToken] = new { id = "readonly-tools", opClasses = new[] { "Read" }, vaults = new[] { "test" }, ttl = "*", scopeRoots = new Dictionary<string, string[]> { ["test"] = Array.Empty<string>() } },
+                [WriteOnlyToken] = new { id = "writeonly-tools", opClasses = new[] { "Write" }, vaults = new[] { "test" }, ttl = "*", scopeRoots = new Dictionary<string, string[]> { ["test"] = Array.Empty<string>() } },
                 [WidgetScopedToken] = new { id = "widget-scoped-tools", opClasses = new[] { "Read" }, vaults = new[] { "test" }, ttl = "*", scopeRoots = new Dictionary<string, string[]> { ["test"] = ["Projects/Widget"] } },
             }));
 

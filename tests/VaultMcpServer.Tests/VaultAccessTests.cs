@@ -97,6 +97,16 @@ public sealed class VaultAccessTests(TestVaultFixture fixture) : IClassFixture<T
             [vault] = roots.ToHashSet(StringComparer.OrdinalIgnoreCase),
         };
 
+    /// <summary>Builds a multi-vault scope-roots map from (vault, roots) pairs - every real
+    /// <see cref="VaultMcpServer.Auth.Grant.ScopeRoots"/> must have an entry for every vault it
+    /// can reach, so tests exercising more than one vault need an explicit entry per vault
+    /// (empty roots meaning that vault is fully unscoped), not an absent key.</summary>
+    private static IReadOnlyDictionary<string, IReadOnlySet<string>> ScopeFor(params (string Vault, string[] Roots)[] entries) =>
+        entries.ToDictionary(
+            e => e.Vault,
+            IReadOnlySet<string> (e) => e.Roots.ToHashSet(StringComparer.OrdinalIgnoreCase),
+            StringComparer.OrdinalIgnoreCase);
+
     [Fact]
     public void EnumerateNotes_ScopedGrant_FiltersToRootFolder()
     {
@@ -115,9 +125,10 @@ public sealed class VaultAccessTests(TestVaultFixture fixture) : IClassFixture<T
     [Fact]
     public void EnumerateNotes_ScopeRootForAnotherVaultDoesNotLeakIntoThisVault()
     {
-        // "scratch" has no entry in this map - only "test" is scoped - so enumerating
-        // "scratch" must see everything, not be restricted by "test"'s scope root.
-        var notes = fixture.Vault.EnumerateNotes("scratch", ScopeFor("test", "Projects/Widget"));
+        // "scratch" has an explicit empty (unscoped) entry in this map - only "test" is
+        // actually scoped - so enumerating "scratch" must see everything, not be restricted by
+        // "test"'s scope root.
+        var notes = fixture.Vault.EnumerateNotes("scratch", ScopeFor(("test", ["Projects/Widget"]), ("scratch", [])));
         Assert.Contains("Resources/Gizmo-Reference.md", notes);
     }
 
@@ -137,8 +148,20 @@ public sealed class VaultAccessTests(TestVaultFixture fixture) : IClassFixture<T
     public void ReadNote_ScopeRootForAnotherVaultDoesNotRestrictThisVault()
     {
         // The grant's map scopes "test" to Projects/Widget, but this read targets "scratch",
-        // which has no entry - it must remain fully unscoped despite the sibling entry.
-        Assert.Contains("quorvium", fixture.Vault.ReadNote("scratch", "Resources/Gizmo-Reference.md", ScopeFor("test", "Projects/Widget")));
+        // which has its own explicit empty entry - it must remain fully unscoped despite the
+        // sibling entry.
+        Assert.Contains("quorvium", fixture.Vault.ReadNote("scratch", "Resources/Gizmo-Reference.md", ScopeFor(("test", ["Projects/Widget"]), ("scratch", []))));
+    }
+
+    [Fact]
+    public void ResolveVaultScopeRoots_NonNullMapMissingVaultKeyThrows()
+    {
+        // Every real Grant.ScopeRoots is guaranteed to have an entry for every vault it can
+        // reach (enforced by GrantStore.Load and GrantStore.Mint), so a non-null map missing
+        // the queried vault's key means that invariant was violated upstream - it must fail
+        // loudly rather than silently falling back to full access.
+        var scopeRoots = ScopeFor("primary", "Projects");
+        Assert.Throws<InvalidOperationException>(() => VaultAccess.ResolveVaultScopeRoots("test", scopeRoots));
     }
 
     [Fact]
