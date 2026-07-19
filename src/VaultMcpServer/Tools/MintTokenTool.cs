@@ -24,12 +24,13 @@ namespace VaultMcpServer.Tools;
 /// (still enforced today by <see cref="Auth.BearerGrantMiddleware"/>'s vault-scope check) is
 /// derived from it, while the remainder of each entry (the part after the leading vault
 /// segment) is grouped per vault into <see cref="Grant.ScopeRoots"/>'s per-vault dictionary
-/// shape for the folder-prefix containment check landing on a parallel branch. A whole-vault
-/// entry (no subtree) produces an <em>empty</em> set for that vault key, not an empty-string
-/// element - an empty/blank scope-root string is malformed input on that branch, not a
-/// "matches everything" sentinel. That branch's enforcement code isn't wired up yet -
-/// <c>scope_roots</c> is accepted and stored, not yet enforced beyond the existing whole-vault
-/// check.
+/// shape for the folder-prefix containment check. A whole-vault entry (no subtree) produces an
+/// <em>empty</em> set for that vault key, not an empty-string element - an empty/blank
+/// scope-root string is malformed input on that branch, not a "matches everything" sentinel.
+/// That containment check is wired up end to end for minted grants: <see cref="ScriptToolDispatcher.CallToolAsync"/>
+/// passes <see cref="Grant.ScopeRoots"/> into <c>ScriptToolRunner</c>, which injects it into the
+/// tool runspace as the <c>VaultMcpScopeRoots</c> global, and the PowerShell
+/// <c>VaultAccess</c> chokepoint functions enforce it against every path they touch.
 /// </summary>
 public sealed class MintTokenTool(GrantStore grantStore, OpClassRegistry opClassRegistry, VaultConfig vaultConfig) : INativeTool
 {

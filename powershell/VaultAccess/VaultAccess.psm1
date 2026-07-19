@@ -157,11 +157,14 @@ function Resolve-VaultScopeRoots {
     Resolves a grant's per-vault $ScopeRoots hashtable down to the flat, already-vault-scoped
     root list for one specific $Vault - the shape every chokepoint function (and
     Assert-VaultOperationAllowed, Test-VaultPathInScope) actually operates on. $ScopeRoots
-    being $null, or having no entry for $Vault (matched case-insensitively), both mean unscoped
-    for that vault - returns an empty array, same meaning as an explicit empty list. Mirrors
-    the C# side's VaultAccess.ResolveVaultScopeRoots. This is where "a scope root configured
-    for one vault must not leak into another vault the same grant can access" is enforced: only
-    the entry keyed to $Vault is ever consulted.
+    being $null means "no grant in play at all" (direct/no-grant callers) - unscoped for every
+    vault, returns an empty array. A non-null $ScopeRoots missing an entry for $Vault (matched
+    case-insensitively) is a grant configuration invariant violation - throws, mirroring the
+    C# side's VaultAccess.ResolveVaultScopeRoots, which throws InvalidOperationException for
+    the same case: every vault a grant can access must have an explicit entry (an empty set for
+    full access). This is where "a scope root configured for one vault must not leak into
+    another vault the same grant can access" is enforced: only the entry keyed to $Vault is
+    ever consulted.
     #>
     [CmdletBinding()]
     param(
@@ -171,7 +174,9 @@ function Resolve-VaultScopeRoots {
 
     if ($null -eq $ScopeRoots) { return @() }
     $key = @($ScopeRoots.Keys) | Where-Object { $_ -ieq $Vault } | Select-Object -First 1
-    if ($null -eq $key) { return @() }
+    if ($null -eq $key) {
+        throw "Grant configuration invariant violated: vault '$Vault' has no scope-roots entry in a non-null scope-roots map. Every vault a grant can access must have an explicit entry (an empty set for full access) - this should be impossible for any grant built through GrantStore.Load or GrantStore.Mint."
+    }
     , @($ScopeRoots[$key])
 }
 

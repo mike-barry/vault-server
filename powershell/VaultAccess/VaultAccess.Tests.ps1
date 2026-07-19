@@ -135,9 +135,9 @@ Describe 'Get-VaultNotePath scoping' {
     }
 
     It 'a scope root configured for a different vault does not leak into this vault' {
-        # Only "scratch" is scoped here; "test" (the vault being enumerated) has no entry,
-        # so it must remain fully unscoped.
-        $notes = @(Get-VaultNotePath -Vault test -ScopeRoots @{ scratch = @('Projects/Widget') })
+        # "test" (the vault being enumerated) has an explicit empty entry - unscoped -
+        # while "scratch" is scoped; the scratch entry must not leak into test.
+        $notes = @(Get-VaultNotePath -Vault test -ScopeRoots @{ test = @(); scratch = @('Projects/Widget') })
         $notes | Should -Contain 'Resources/Gizmo-Reference.md'
     }
 }
@@ -147,8 +147,8 @@ Describe 'Resolve-VaultScopeRoots' {
         @(Resolve-VaultScopeRoots -Vault test -ScopeRoots $null).Count | Should -Be 0
     }
 
-    It 'returns an empty array when the vault has no entry in the map' {
-        @(Resolve-VaultScopeRoots -Vault test -ScopeRoots @{ scratch = @('Projects/Widget') }).Count | Should -Be 0
+    It 'throws when a non-null map has no entry for the vault' {
+        { Resolve-VaultScopeRoots -Vault test -ScopeRoots @{ scratch = @('Projects/Widget') } } | Should -Throw '*Grant configuration invariant violated*'
     }
 
     It 'returns the flat root list for the matching vault, matched case-insensitively' {
@@ -198,7 +198,7 @@ Describe 'Read-VaultNote' {
     }
 
     It 'a scope root configured for a different vault does not restrict this vault' {
-        Read-VaultNote -Vault scratch -Path 'Resources/Gizmo-Reference.md' -ScopeRoots @{ test = @('Projects/Widget') } | Should -Match 'quorvium'
+        Read-VaultNote -Vault scratch -Path 'Resources/Gizmo-Reference.md' -ScopeRoots @{ scratch = @(); test = @('Projects/Widget') } | Should -Match 'quorvium'
     }
 }
 
@@ -259,6 +259,6 @@ Describe 'Resolve-WikiLink scoping' {
     }
 
     It 'a scope root configured for a different vault does not restrict this vault' {
-        Resolve-WikiLink -Vault scratch -Link 'Gizmo-Reference' -ScopeRoots @{ test = @('Projects/Widget') } | Should -Be 'Resources/Gizmo-Reference.md'
+        Resolve-WikiLink -Vault scratch -Link 'Gizmo-Reference' -ScopeRoots @{ scratch = @(); test = @('Projects/Widget') } | Should -Be 'Resources/Gizmo-Reference.md'
     }
 }
