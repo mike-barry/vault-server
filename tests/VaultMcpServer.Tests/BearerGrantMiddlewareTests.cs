@@ -6,6 +6,7 @@ using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.Extensions.Logging.Abstractions;
 using VaultMcpServer.Auth;
+using VaultMcpServer.Health;
 using VaultMcpServer.Vault;
 
 namespace VaultMcpServer.Tests;
@@ -41,7 +42,7 @@ public sealed class BearerGrantMiddlewareTests : IClassFixture<BearerGrantMiddle
     [Fact]
     public async Task ExpiredToken_Returns401DistinctFromUnknownToken()
     {
-        var opClassRegistry = OpClassRegistry.Load(Path.Combine(TestVaultFixture.RepoRoot, "op-classes.json"));
+        var opClassRegistry = OpClassRegistry.Load(Path.Combine(TestVaultFixture.RepoRoot, "op-classes.json"), new ServerHealthState());
         var tempDir = Directory.CreateTempSubdirectory("vault-mcp-middleware-ttl-tests-").FullName;
         try
         {
@@ -53,10 +54,10 @@ public sealed class BearerGrantMiddlewareTests : IClassFixture<BearerGrantMiddle
             // GrantStore.Authenticate checks expiry against the same TimeProvider it was
             // loaded with.
             var timeProvider = new FixedTimeProvider(DateTimeOffset.UtcNow);
-            var grantStore = GrantStore.Load(grantsPath, opClassRegistry, _vaultFixture.Config, timeProvider);
+            var grantStore = GrantStore.Load(grantsPath, opClassRegistry, _vaultFixture.Config, new ServerHealthState(), timeProvider);
             timeProvider.Now = timeProvider.Now.AddMinutes(10);
 
-            var middleware = new BearerGrantMiddleware(_ => Task.CompletedTask, grantStore, NullLogger<BearerGrantMiddleware>.Instance);
+            var middleware = new BearerGrantMiddleware(_ => Task.CompletedTask, grantStore, new ServerHealthState(), NullLogger<BearerGrantMiddleware>.Instance);
 
             var expiredContext = new DefaultHttpContext();
             expiredContext.Request.Headers.Authorization = "Bearer expiring-token";
@@ -91,6 +92,44 @@ public sealed class BearerGrantMiddlewareTests : IClassFixture<BearerGrantMiddle
     {
         using var response = await _fixture.CreateClient().PostAsync("/mcp", JsonBody("{}"));
         Assert.Equal(HttpStatusCode.Unauthorized, response.StatusCode);
+    }
+
+    /// <summary>
+    /// When ServerHealthState is fatally degraded, every request is short-circuited with
+    /// 503 and the same fixed, detail-free body - regardless of whether a token was
+    /// presented at all, so a fatal config error can never look like an auth failure and
+    /// can never leak which file or detail was wrong. Constructs the middleware directly
+    /// (like <see cref="ExpiredToken_Returns401DistinctFromUnknownToken"/> above) rather
+    /// than going through the shared healthy Fixture, since that fixture's whole point is a
+    /// working config.
+    /// </summary>
+    [Fact]
+    public async Task FatallyDegraded_ShortCircuitsEveryRequestWith503RegardlessOfToken()
+    {
+        var opClassRegistry = OpClassRegistry.Load(Path.Combine(TestVaultFixture.RepoRoot, "op-classes.json"), new ServerHealthState());
+        var healthState = new ServerHealthState();
+        healthState.RecordFatal("VaultConfig", "vaults.json: missing or empty \"default_vault\".");
+        var grantStore = GrantStore.Empty();
+        var middleware = new BearerGrantMiddleware(_ => Task.CompletedTask, grantStore, healthState, NullLogger<BearerGrantMiddleware>.Instance);
+
+        var noAuthContext = new DefaultHttpContext { Response = { Body = new MemoryStream() } };
+        await middleware.InvokeAsync(noAuthContext);
+
+        var withAuthContext = new DefaultHttpContext { Response = { Body = new MemoryStream() } };
+        withAuthContext.Request.Headers.Authorization = "Bearer whatever-token";
+        await middleware.InvokeAsync(withAuthContext);
+
+        foreach (var context in new[] { noAuthContext, withAuthContext })
+        {
+            Assert.Equal(StatusCodes.Status503ServiceUnavailable, context.Response.StatusCode);
+            context.Response.Body.Position = 0;
+            var body = await new StreamReader(context.Response.Body).ReadToEndAsync();
+            Assert.Equal(BearerGrantMiddleware.FatalDegradedBody, body);
+            // The body must never mention the recorded problem's own detail - that would
+            // leak config specifics through an unauthenticated endpoint.
+            Assert.DoesNotContain("vaults.json", body, StringComparison.OrdinalIgnoreCase);
+            Assert.DoesNotContain("default_vault", body, StringComparison.OrdinalIgnoreCase);
+        }
     }
 
     [Fact]
@@ -174,6 +213,11 @@ public sealed class BearerGrantMiddlewareTests : IClassFixture<BearerGrantMiddle
 
             Environment.SetEnvironmentVariable("VaultsConfigPath", vaultsPath);
             Environment.SetEnvironmentVariable("GrantsConfigPath", grantsPath);
+            // Redirects Program.cs's FileLoggerProvider into this fixture's temp dir so
+            // test runs don't litter timestamped log files into the repo-root logs/
+            // directory - the real file-sink pipeline still runs, just aimed at a
+            // per-fixture path that the existing temp-dir delete below cleans up.
+            Environment.SetEnvironmentVariable("LogsDirectory", Path.Combine(_tempDir, "logs"));
         }
 
         protected override void Dispose(bool disposing)
@@ -183,6 +227,7 @@ public sealed class BearerGrantMiddlewareTests : IClassFixture<BearerGrantMiddle
             {
                 Environment.SetEnvironmentVariable("VaultsConfigPath", null);
                 Environment.SetEnvironmentVariable("GrantsConfigPath", null);
+                Environment.SetEnvironmentVariable("LogsDirectory", null);
                 try
                 {
                     Directory.Delete(_tempDir, recursive: true);

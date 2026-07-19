@@ -186,6 +186,10 @@ public sealed class ScriptToolDispatcherTests : IClassFixture<ScriptToolDispatch
             Environment.SetEnvironmentVariable("VaultsConfigPath", vaultsPath);
             Environment.SetEnvironmentVariable("GrantsConfigPath", grantsPath);
             Environment.SetEnvironmentVariable("ToolsDirectory", toolsDir);
+            // Redirects Program.cs's FileLoggerProvider into this fixture's temp dir so
+            // test runs don't litter timestamped log files into the repo-root logs/
+            // directory; cleaned up by the temp-dir delete below.
+            Environment.SetEnvironmentVariable("LogsDirectory", Path.Combine(_tempDir, "logs"));
         }
 
         protected override void Dispose(bool disposing)
@@ -196,6 +200,7 @@ public sealed class ScriptToolDispatcherTests : IClassFixture<ScriptToolDispatch
                 Environment.SetEnvironmentVariable("VaultsConfigPath", null);
                 Environment.SetEnvironmentVariable("GrantsConfigPath", null);
                 Environment.SetEnvironmentVariable("ToolsDirectory", null);
+                Environment.SetEnvironmentVariable("LogsDirectory", null);
                 try
                 {
                     Directory.Delete(_tempDir, recursive: true);

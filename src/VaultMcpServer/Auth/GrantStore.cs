@@ -2,6 +2,7 @@ using System.Collections.Concurrent;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
+using VaultMcpServer.Health;
 using VaultMcpServer.Vault;
 
 namespace VaultMcpServer.Auth;
@@ -43,12 +44,50 @@ public sealed class GrantStore
         _timeProvider = timeProvider;
     }
 
+    /// <summary>An inert store with no grants - nobody can authenticate against it, the
+    /// same "deny by default" posture <see cref="Auth.BearerGrantMiddleware"/> already
+    /// applies to an unrecognized token. Used both as the return value of a failed
+    /// <see cref="Load"/> and directly by <c>Program.cs</c> to skip a real grants.json
+    /// parse entirely when an upstream <see cref="OpClassRegistry"/>/<see cref="VaultConfig"/>
+    /// load has already gone fatal - validating real grant rows (vaults/opClasses) against
+    /// an empty upstream registry would otherwise fail every row and pile a second,
+    /// confusing "unknown opClass"/"unknown vault" fatal on top of the real root cause.
+    /// </summary>
+    public static GrantStore Empty(TimeProvider? timeProvider = null) => new([], timeProvider ?? TimeProvider.System);
+
+    /// <param name="healthState">
+    /// Whole-file failures - including a per-row validation failure, which for grants.json
+    /// still fails the whole file in this batch (see <see cref="Empty"/>'s remarks on why
+    /// callers with an already-fatal upstream load should prefer calling it directly
+    /// instead) - are recorded here as a <see cref="ProblemSeverity.Fatal"/> problem
+    /// instead of being thrown; the caller always gets back a usable (if empty, via
+    /// <see cref="Empty"/>) instance. Required, deliberately with no default (and placed
+    /// ahead of the optional <paramref name="timeProvider"/> so it can be): a defaulted
+    /// throwaway instance would let a future production call site compile while silently
+    /// discarding recorded failures - exactly the failure class this health-state redesign
+    /// exists to eliminate. Callers that only exercise the success path (tests) pass a
+    /// fresh local instance.
+    /// </param>
     /// <param name="timeProvider">
     /// Defaults to <see cref="TimeProvider.System"/>. Overridable so tests can control the
     /// "now" a numeric <c>ttl</c> is measured from at load time, without depending on real
     /// elapsed wall-clock time.
     /// </param>
-    public static GrantStore Load(string path, OpClassRegistry opClassRegistry, VaultConfig vaultConfig, TimeProvider? timeProvider = null)
+    public static GrantStore Load(string path, OpClassRegistry opClassRegistry, VaultConfig vaultConfig, ServerHealthState healthState, TimeProvider? timeProvider = null)
+    {
+        var resolvedTimeProvider = timeProvider ?? TimeProvider.System;
+        try
+        {
+            return LoadCore(path, opClassRegistry, vaultConfig, resolvedTimeProvider);
+        }
+        catch (Exception ex) when (ex is FileNotFoundException or InvalidDataException or JsonException)
+        {
+            healthState.RecordFatal("GrantStore", ex.Message);
+            return Empty(resolvedTimeProvider);
+        }
+    }
+
+    private static GrantStore LoadCore(string path, OpClassRegistry opClassRegistry, VaultConfig vaultConfig, TimeProvider resolvedTimeProvider)
     {
         if (!File.Exists(path))
             throw new FileNotFoundException($"Grants config not found: {path}", path);
@@ -57,7 +96,6 @@ public sealed class GrantStore
         if (doc.RootElement.ValueKind != JsonValueKind.Object)
             throw new InvalidDataException($"{path}: root must be an object keyed by bearer token.");
 
-        var resolvedTimeProvider = timeProvider ?? TimeProvider.System;
         var now = resolvedTimeProvider.GetUtcNow();
         var rows = new List<(byte[] Hash, Grant Grant)>();
         var seenIds = new HashSet<string>(StringComparer.OrdinalIgnoreCase);

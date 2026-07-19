@@ -1,5 +1,6 @@
 using System.Text.Json;
 using VaultMcpServer.Auth;
+using VaultMcpServer.Health;
 using VaultMcpServer.Tools;
 using VaultMcpServer.Vault;
 
@@ -13,7 +14,7 @@ namespace VaultMcpServer.Tests;
 /// </summary>
 public sealed class MintTokenToolTests(TestVaultFixture fixture) : IClassFixture<TestVaultFixture>, IDisposable
 {
-    private static readonly OpClassRegistry OpClasses = OpClassRegistry.Load(Path.Combine(TestVaultFixture.RepoRoot, "op-classes.json"));
+    private static readonly OpClassRegistry OpClasses = OpClassRegistry.Load(Path.Combine(TestVaultFixture.RepoRoot, "op-classes.json"), new ServerHealthState());
 
     private readonly string _tempDir = Directory.CreateTempSubdirectory("vault-mcp-mint-tool-tests-").FullName;
     private readonly VaultConfig _vaultConfig = fixture.Config;
@@ -26,7 +27,7 @@ public sealed class MintTokenToolTests(TestVaultFixture fixture) : IClassFixture
         File.WriteAllText(path, """
             { "admin-token": { "id": "admin", "opClasses": ["Read", "Write", "ManageGrants"], "vaults": ["test", "scratch"], "ttl": "*", "scopeRoots": { "test": [], "scratch": [] } } }
             """);
-        return GrantStore.Load(path, OpClasses, _vaultConfig);
+        return GrantStore.Load(path, OpClasses, _vaultConfig, new ServerHealthState());
     }
 
     private static Dictionary<string, JsonElement> Arguments(IEnumerable<string> scopeRoots, IEnumerable<string> opClass) =>

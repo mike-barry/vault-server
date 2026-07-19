@@ -1,4 +1,5 @@
 using System.Text.Json;
+using VaultMcpServer.Health;
 
 namespace VaultMcpServer.Vault;
 
@@ -12,7 +13,34 @@ public sealed class VaultConfig
     public required IReadOnlyDictionary<string, string> Vaults { get; init; }
     public required string DefaultVault { get; init; }
 
-    public static VaultConfig Load(string path)
+    /// <summary>An inert config with no vaults - nobody can resolve a vault against it.
+    /// Returned by <see cref="Load"/> in place of throwing when vaults.json is missing,
+    /// unparseable, or structurally invalid.</summary>
+    private static VaultConfig Empty => new() { Vaults = new Dictionary<string, string>(), DefaultVault = string.Empty };
+
+    /// <param name="healthState">
+    /// Whole-file failures (missing file, bad JSON, missing/empty "default_vault", empty or
+    /// invalid "vaults") are recorded here as a <see cref="ProblemSeverity.Fatal"/> problem
+    /// instead of being thrown - the caller always gets back a usable (if empty) instance.
+    /// Required, deliberately with no default: a defaulted throwaway instance would let a
+    /// future production call site compile while silently discarding recorded failures -
+    /// exactly the failure class this health-state redesign exists to eliminate. Callers
+    /// that only exercise the success path (tests) pass a fresh local instance.
+    /// </param>
+    public static VaultConfig Load(string path, ServerHealthState healthState)
+    {
+        try
+        {
+            return LoadCore(path);
+        }
+        catch (Exception ex) when (ex is FileNotFoundException or InvalidDataException or DirectoryNotFoundException or JsonException)
+        {
+            healthState.RecordFatal("VaultConfig", ex.Message);
+            return Empty;
+        }
+    }
+
+    private static VaultConfig LoadCore(string path)
     {
         if (!File.Exists(path))
             throw new FileNotFoundException($"Vault config not found: {path}", path);

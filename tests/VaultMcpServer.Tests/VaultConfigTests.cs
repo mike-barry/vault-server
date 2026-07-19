@@ -1,3 +1,4 @@
+using VaultMcpServer.Health;
 using VaultMcpServer.Vault;
 
 namespace VaultMcpServer.Tests;
@@ -46,35 +47,65 @@ public sealed class VaultConfigLoadTests : IDisposable
     [Fact]
     public void Load_MissingFileThrows()
     {
-        Assert.Throws<FileNotFoundException>(() => VaultConfig.Load(Path.Combine(_tempDir, "absent.json")));
+        var healthState = new ServerHealthState();
+        var config = VaultConfig.Load(Path.Combine(_tempDir, "absent.json"), healthState);
+
+        AssertFatalAndEmpty(healthState, config);
     }
 
     [Fact]
     public void Load_MissingDefaultVaultThrows()
     {
         var path = WriteConfig($$"""{ "vaults": { "a": {{JsonPath(_tempDir)}} } }""");
-        Assert.Throws<InvalidDataException>(() => VaultConfig.Load(path));
+        var healthState = new ServerHealthState();
+        var config = VaultConfig.Load(path, healthState);
+
+        AssertFatalAndEmpty(healthState, config);
     }
 
     [Fact]
     public void Load_DefaultNotInVaultsThrows()
     {
         var path = WriteConfig($$"""{ "default_vault": "b", "vaults": { "a": {{JsonPath(_tempDir)}} } }""");
-        Assert.Throws<InvalidDataException>(() => VaultConfig.Load(path));
+        var healthState = new ServerHealthState();
+        var config = VaultConfig.Load(path, healthState);
+
+        AssertFatalAndEmpty(healthState, config);
     }
 
     [Fact]
     public void Load_EmptyVaultsThrows()
     {
         var path = WriteConfig("""{ "default_vault": "a", "vaults": {} }""");
-        Assert.Throws<InvalidDataException>(() => VaultConfig.Load(path));
+        var healthState = new ServerHealthState();
+        var config = VaultConfig.Load(path, healthState);
+
+        AssertFatalAndEmpty(healthState, config);
     }
 
     [Fact]
     public void Load_NonexistentRootThrows()
     {
         var path = WriteConfig($$"""{ "default_vault": "a", "vaults": { "a": {{JsonPath(Path.Combine(_tempDir, "no-such-dir"))}} } }""");
-        Assert.Throws<DirectoryNotFoundException>(() => VaultConfig.Load(path));
+        var healthState = new ServerHealthState();
+        var config = VaultConfig.Load(path, healthState);
+
+        AssertFatalAndEmpty(healthState, config);
+    }
+
+    /// <summary>Shared assertion for every whole-file-failure case above: the load no
+    /// longer throws - it records a Fatal problem from source "VaultConfig" and returns an
+    /// inert config with no resolvable vaults.</summary>
+    private static void AssertFatalAndEmpty(ServerHealthState healthState, VaultConfig config)
+    {
+        Assert.True(healthState.IsFatallyDegraded);
+        var problem = Assert.Single(healthState.Problems);
+        Assert.Equal(ProblemSeverity.Fatal, problem.Severity);
+        Assert.Equal("VaultConfig", problem.Source);
+        Assert.NotEmpty(problem.Detail);
+
+        Assert.Empty(config.Vaults);
+        Assert.Throws<ArgumentException>(() => config.Resolve(null));
     }
 
     private static string JsonPath(string path) => System.Text.Json.JsonSerializer.Serialize(path);

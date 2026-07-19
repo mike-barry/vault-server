@@ -1,5 +1,6 @@
 using System.Text;
 using System.Text.Json;
+using VaultMcpServer.Health;
 
 namespace VaultMcpServer.Auth;
 
@@ -17,13 +18,33 @@ namespace VaultMcpServer.Auth;
 /// and - for a tools/call - the tool name, vault argument, and full arguments. A
 /// tools/call naming a vault outside the grant's <see cref="Grant.Vaults"/> is rejected
 /// with 403, the same as an unrecognized token.
+///
+/// Before any of that, checks <see cref="ServerHealthState.IsFatallyDegraded"/> and, if set,
+/// short-circuits every request (regardless of token) with 503 and a fixed generic body -
+/// deliberately the same text for every request and every underlying error, so it can never
+/// leak which config file or which detail is broken. Normal 401/403 semantics are unchanged
+/// once the server is healthy again.
 /// </summary>
-public sealed class BearerGrantMiddleware(RequestDelegate next, GrantStore grantStore, ILogger<BearerGrantMiddleware> logger)
+public sealed class BearerGrantMiddleware(RequestDelegate next, GrantStore grantStore, ServerHealthState healthState, ILogger<BearerGrantMiddleware> logger)
 {
     public const string GrantItemKey = "Grant";
 
+    /// <summary>
+    /// Fixed, detail-free body returned for every request while <see cref="ServerHealthState.IsFatallyDegraded"/>
+    /// is true. Intentionally says nothing about which file or which validation failed -
+    /// see <see cref="ServerHealthState.Problems"/> (via the logs) for that.
+    /// </summary>
+    public const string FatalDegradedBody =
+        "A fatal server configuration error is preventing this server from operating. Check the server logs for details.";
+
     public async Task InvokeAsync(HttpContext context)
     {
+        if (healthState.IsFatallyDegraded)
+        {
+            await Reject(context, StatusCodes.Status503ServiceUnavailable, FatalDegradedBody);
+            return;
+        }
+
         var header = context.Request.Headers["Authorization"].ToString();
         if (!header.StartsWith("Bearer ", StringComparison.Ordinal))
         {

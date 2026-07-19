@@ -1,4 +1,5 @@
 using System.Text.Json;
+using VaultMcpServer.Health;
 
 namespace VaultMcpServer.Vault;
 
@@ -16,7 +17,36 @@ public sealed class OpClassRegistry
 
     public IReadOnlyCollection<string> Names => (IReadOnlyCollection<string>)_names;
 
-    public static OpClassRegistry Load(string path)
+    /// <summary>An inert registry with no op-classes - every <see cref="IsValid"/> check
+    /// fails and <see cref="Canonicalize"/> never matches. op-classes.json stays
+    /// all-or-nothing: there is no per-row skip for this file, so a whole-file failure
+    /// always produces this empty set rather than a partial one.</summary>
+    private static OpClassRegistry Empty => new(new HashSet<string>(StringComparer.OrdinalIgnoreCase));
+
+    /// <param name="healthState">
+    /// Whole-file failures (missing file, bad JSON, non-array root, a row missing "name",
+    /// a duplicate name, or an empty array) are recorded here as a
+    /// <see cref="ProblemSeverity.Fatal"/> problem instead of being thrown - the caller
+    /// always gets back a usable (if empty) instance. Required, deliberately with no
+    /// default: a defaulted throwaway instance would let a future production call site
+    /// compile while silently discarding recorded failures - exactly the failure class this
+    /// health-state redesign exists to eliminate. Callers that only exercise the success
+    /// path (tests) pass a fresh local instance.
+    /// </param>
+    public static OpClassRegistry Load(string path, ServerHealthState healthState)
+    {
+        try
+        {
+            return LoadCore(path);
+        }
+        catch (Exception ex) when (ex is FileNotFoundException or InvalidDataException or JsonException)
+        {
+            healthState.RecordFatal("OpClassRegistry", ex.Message);
+            return Empty;
+        }
+    }
+
+    private static OpClassRegistry LoadCore(string path)
     {
         if (!File.Exists(path))
             throw new FileNotFoundException($"Op-class registry not found: {path}", path);

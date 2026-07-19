@@ -144,6 +144,10 @@ public sealed class MultiVaultDispatchTests
             // from the C# host's VaultsConfigPath above, both pointed at the same vaults.json
             // so the in-process script sees the same vaults the host does.
             Environment.SetEnvironmentVariable("VAULT_MCP_VAULTS_JSON", vaultsPath);
+            // Redirects Program.cs's FileLoggerProvider into this fixture's temp dir so
+            // test runs don't litter timestamped log files into the repo-root logs/
+            // directory; cleaned up by the temp-dir delete below.
+            Environment.SetEnvironmentVariable("LogsDirectory", Path.Combine(_tempDir, "logs"));
         }
 
         private static void CopyDirectory(string source, string destination)
@@ -165,6 +169,7 @@ public sealed class MultiVaultDispatchTests
                 Environment.SetEnvironmentVariable("GrantsConfigPath", null);
                 Environment.SetEnvironmentVariable("ToolsDirectory", null);
                 Environment.SetEnvironmentVariable("VAULT_MCP_VAULTS_JSON", null);
+                Environment.SetEnvironmentVariable("LogsDirectory", null);
                 try
                 {
                     Directory.Delete(_tempDir, recursive: true);
