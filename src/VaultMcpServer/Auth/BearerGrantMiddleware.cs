@@ -125,7 +125,7 @@ public sealed class BearerGrantMiddleware(RequestDelegate next, GrantStore grant
                 if (p.TryGetProperty("arguments", out var a))
                 {
                     arguments = a.GetRawText();
-                    vault = a.TryGetProperty("vault", out var v) && v.ValueKind == JsonValueKind.String ? v.GetString() : null;
+                    vault = TryGetPropertyIgnoreCase(a, "vault", out var v) && v.ValueKind == JsonValueKind.String ? v.GetString() : null;
                 }
             }
             return (method, tool, vault, arguments);
@@ -134,5 +134,25 @@ public sealed class BearerGrantMiddleware(RequestDelegate next, GrantStore grant
         {
             return (null, null, null, null);
         }
+    }
+
+    /// <summary>
+    /// Looks up a JSON object property by name, case-insensitively. Tool-argument property
+    /// names are client-schema-cased (e.g. PowerShell script tools expose "Vault", not
+    /// "vault"), unlike the JSON-RPC envelope's protocol-defined lowercase field names.
+    /// </summary>
+    private static bool TryGetPropertyIgnoreCase(JsonElement obj, string name, out JsonElement value)
+    {
+        foreach (var property in obj.EnumerateObject())
+        {
+            if (string.Equals(property.Name, name, StringComparison.OrdinalIgnoreCase))
+            {
+                value = property.Value;
+                return true;
+            }
+        }
+
+        value = default;
+        return false;
     }
 }

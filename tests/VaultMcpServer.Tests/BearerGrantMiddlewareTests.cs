@@ -162,6 +162,26 @@ public sealed class BearerGrantMiddlewareTests : IClassFixture<BearerGrantMiddle
         Assert.Equal(HttpStatusCode.Forbidden, response.StatusCode);
     }
 
+    /// <summary>
+    /// The vault-scope peek must match the "vault" argument property case-insensitively:
+    /// script-tool schemas expose parameter names verbatim from their PowerShell param()
+    /// blocks (capitalized "Vault"), so a schema-conformant client using that casing must
+    /// still hit the informative 403 gate rather than falling through to the vaguer
+    /// op-class/path-scope denial one layer down.
+    /// </summary>
+    [Theory]
+    [InlineData("vault")]
+    [InlineData("Vault")]
+    public async Task ToolCallNamingOutOfScopeVault_Returns403_RegardlessOfArgumentCasing(string vaultPropertyName)
+    {
+        using var client = _fixture.CreateClient();
+        client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", Fixture.ReadOnlyToken);
+        var body = """{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"rename_note","arguments":{"VAULT_PROPERTY":"not-configured","from":"a","to":"b"}}}""".Replace("VAULT_PROPERTY", vaultPropertyName);
+        using var response = await client.PostAsync("/mcp", JsonBody(body));
+
+        Assert.Equal(HttpStatusCode.Forbidden, response.StatusCode);
+    }
+
     [Fact]
     public async Task ToolCallNamingInScopeVault_IsNotRejectedByTheGate()
     {
