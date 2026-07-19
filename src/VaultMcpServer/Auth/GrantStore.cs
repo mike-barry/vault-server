@@ -133,9 +133,12 @@ public sealed class GrantStore
     /// <c>MintTokenTool</c>) are responsible for validating <paramref name="opClasses"/>,
     /// <paramref name="vaults"/>, and <paramref name="scopeRoots"/> against the registry/config
     /// and for rejecting the <c>"*"</c> wildcard - this method treats them as already-validated,
-    /// concrete sets.
+    /// concrete sets. <paramref name="scopeRoots"/> is the per-vault shape stored directly on
+    /// <see cref="Grant.ScopeRoots"/> - <c>null</c> for unscoped-everywhere, or a dictionary
+    /// whose absent keys mean unscoped for that vault; callers (see <c>MintTokenTool</c>) are
+    /// responsible for grouping flat <c>scope_roots</c> entries into this shape.
     /// </summary>
-    public string Mint(string id, IReadOnlySet<string> opClasses, IReadOnlySet<string> vaults, IReadOnlyList<string> scopeRoots, int ttlMinutes)
+    public string Mint(string id, IReadOnlySet<string> opClasses, IReadOnlySet<string> vaults, IReadOnlyDictionary<string, IReadOnlySet<string>>? scopeRoots, int ttlMinutes)
     {
         if (string.IsNullOrWhiteSpace(id))
             throw new ArgumentException("Minted grant id must not be empty.", nameof(id));

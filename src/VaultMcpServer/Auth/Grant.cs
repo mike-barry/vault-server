@@ -10,16 +10,18 @@ namespace VaultMcpServer.Auth;
 /// load-time "now"), or <c>null</c> for a <c>"*"</c> (infinite) ttl.
 /// </param>
 /// <param name="ScopeRoots">
-/// Folder-prefix scope roots (e.g. <c>"primary"</c> for a whole vault, or
-/// <c>"primary/Projects/Foo"</c> for a subtree), set on grants minted by
-/// <see cref="GrantStore.Mint"/> - <c>null</c> for file-loaded <c>grants.json</c> rows, which
-/// carry no sub-vault scoping concept. Not enforced by <c>EnsureAllowed</c>/
+/// Per-vault folder-prefix scope roots, set on grants minted by <see cref="GrantStore.Mint"/> -
+/// <c>null</c> means unscoped everywhere (including for file-loaded <c>grants.json</c> rows,
+/// which carry no sub-vault scoping concept). A vault key absent from the dictionary means
+/// unscoped for that specific vault; an empty set for a vault means no folder is in scope for
+/// it. Folder-prefix values are relative to the vault root (e.g. <c>"Projects/Foo"</c> under key
+/// <c>"primary"</c>) - a parallel branch (not yet merged) adds a
+/// <c>VaultAccess.ResolveVaultScopeRoots</c> helper for resolving a given vault's effective
+/// scope list from this shape. Not enforced by <c>EnsureAllowed</c>/
 /// <c>Assert-VaultOperationAllowed</c> yet - that containment check is a parallel, in-flight
-/// change; this field only carries the data until that check lands. Integration note: the
-/// field name/shape here (<c>IReadOnlyList&lt;string&gt;?</c>) may need reconciling with
-/// however that change shapes the same concept on <c>Grant</c>/<c>grants.json</c>.
+/// change; this field only carries the data until that check lands.
 /// </param>
-public sealed record Grant(string Id, IReadOnlySet<string> OpClasses, IReadOnlySet<string> Vaults, DateTimeOffset? ExpiresAtUtc, IReadOnlyList<string>? ScopeRoots = null)
+public sealed record Grant(string Id, IReadOnlySet<string> OpClasses, IReadOnlySet<string> Vaults, DateTimeOffset? ExpiresAtUtc, IReadOnlyDictionary<string, IReadOnlySet<string>>? ScopeRoots = null)
 {
     public bool Allows(string op) => OpClasses.Contains(op);
 

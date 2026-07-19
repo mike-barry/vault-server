@@ -1,3 +1,4 @@
+using System.Linq;
 using System.Text.Json;
 using ModelContextProtocol.Protocol;
 using VaultMcpServer.Auth;
@@ -21,8 +22,9 @@ namespace VaultMcpServer.Tools;
 /// whole vault) or <c>"&lt;vault&gt;/&lt;folder-prefix&gt;"</c> (a subtree within it) - the
 /// leading path segment names the vault, so the minted grant's <see cref="Grant.Vaults"/> set
 /// (still enforced today by <see cref="Auth.BearerGrantMiddleware"/>'s vault-scope check) is
-/// derived from it, while the full entries are also carried on <see cref="Grant.ScopeRoots"/>
-/// for the folder-prefix containment check landing on a parallel branch. That branch's
+/// derived from it, while the remainder of each entry (the part after the leading vault
+/// segment) is grouped per vault into <see cref="Grant.ScopeRoots"/>'s per-vault dictionary
+/// shape for the folder-prefix containment check landing on a parallel branch. That branch's
 /// enforcement code isn't wired up yet - <c>scope_roots</c> is accepted and stored, not yet
 /// enforced beyond the existing whole-vault check.
 /// </summary>
@@ -71,10 +73,12 @@ public sealed class MintTokenTool(GrantStore grantStore, OpClassRegistry opClass
         HashSet<string> vaults;
         int ttlMinutes;
 
+        Dictionary<string, IReadOnlySet<string>> scopeRootsByVault;
         try
         {
             scopeRoots = ReadScopeRoots(arguments);
             vaults = DeriveVaults(scopeRoots);
+            scopeRootsByVault = GroupScopeRootsByVault(scopeRoots);
             opClasses = ReadOpClasses(arguments);
             ttlMinutes = ReadTtl(arguments);
         }
@@ -84,7 +88,11 @@ public sealed class MintTokenTool(GrantStore grantStore, OpClassRegistry opClass
         }
 
         var id = $"minted-{Guid.NewGuid():N}";
-        var token = grantStore.Mint(id, opClasses, vaults, scopeRoots, ttlMinutes);
+        // scopeRootsByVault is only ever empty when scopeRoots itself is empty - ReadScopeRoots
+        // rejects that, so this is a defensive null-vs-empty-dict guard, not a live code path.
+        IReadOnlyDictionary<string, IReadOnlySet<string>>? grantScopeRoots =
+            scopeRootsByVault.Count == 0 ? null : scopeRootsByVault;
+        var token = grantStore.Mint(id, opClasses, vaults, grantScopeRoots, ttlMinutes);
 
         var responseJson = JsonSerializer.Serialize(new
         {
@@ -120,6 +128,34 @@ public sealed class MintTokenTool(GrantStore grantStore, OpClassRegistry opClass
             vaults.Add(vaultName);
         }
         return vaults;
+    }
+
+    /// <summary>
+    /// Splits each vault-prefixed <c>scope_roots</c> entry on its leading path segment (the
+    /// vault name) and groups the remainders into a per-vault set, matching
+    /// <see cref="Grant.ScopeRoots"/>'s <c>IReadOnlyDictionary&lt;string, IReadOnlySet&lt;string&gt;&gt;</c>
+    /// shape. A whole-vault entry with no subtree (e.g. <c>"primary"</c>, no <c>/</c>) contributes
+    /// the empty-string prefix, which matches every path under that vault. Entries for different
+    /// vaults never leak into each other's set - e.g. <c>"primary/Projects/Foo"</c> and
+    /// <c>"test/Areas/Bar"</c> produce two separate single-entry sets, one per vault key.
+    /// </summary>
+    private static Dictionary<string, IReadOnlySet<string>> GroupScopeRootsByVault(List<string> scopeRoots)
+    {
+        var byVault = new Dictionary<string, HashSet<string>>(StringComparer.OrdinalIgnoreCase);
+        foreach (var root in scopeRoots)
+        {
+            var parts = root.Split('/', 2);
+            var vaultName = parts[0];
+            var subtree = parts.Length > 1 ? parts[1] : string.Empty;
+
+            if (!byVault.TryGetValue(vaultName, out var subtrees))
+            {
+                subtrees = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+                byVault[vaultName] = subtrees;
+            }
+            subtrees.Add(subtree);
+        }
+        return byVault.ToDictionary(kv => kv.Key, kv => (IReadOnlySet<string>)kv.Value, StringComparer.OrdinalIgnoreCase);
     }
 
     private HashSet<string> ReadOpClasses(IReadOnlyDictionary<string, JsonElement> arguments)
