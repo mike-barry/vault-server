@@ -1,6 +1,8 @@
 <Solution>
   <Folder Name="/src/">
     <Project Path="src/VaultMcpServer/VaultMcpServer.csproj" />
+    <Project Path="src/VaultWatcher/VaultWatcher.csproj" />
+    <Project Path="src/VaultShared/VaultShared.csproj" />
   </Folder>
   <Folder Name="/tests/">
     <Project Path="tests/VaultMcpServer.Tests/VaultMcpServer.Tests.csproj" />
