@@ -47,7 +47,7 @@ public sealed class ScriptToolRunner : IDisposable
     private const string WrapperScript = """
         param(
             [string] $VaultMcpScriptPath,
-            [string[]] $VaultMcpScopeRoots,
+            [hashtable] $VaultMcpScopeRoots,
             [hashtable] $VaultMcpParameters
         )
         Set-Variable -Name VaultMcpScopeRoots -Value $VaultMcpScopeRoots -Scope Global
@@ -55,18 +55,22 @@ public sealed class ScriptToolRunner : IDisposable
         """;
 
     /// <param name="scopeRoots">
-    /// The calling grant's folder-prefix path-scope roots (null/empty for an unscoped grant).
-    /// Not a script parameter - a tool script's own <c>param()</c> block is exposed verbatim
-    /// as its MCP input schema (see <c>ScriptToolLoader</c>), so a client-controllable
-    /// "ScopeRoots" argument would let a caller override its own grant's scope. Instead this
-    /// is injected as a global-scope runspace variable (<c>VaultMcpScopeRoots</c>) by
-    /// <see cref="WrapperScript"/>, invisible to the script's own parameter surface. The
+    /// The calling grant's per-vault folder-prefix path-scope roots (null/empty for a grant
+    /// unscoped everywhere; a vault absent from the map is unscoped for that vault - see
+    /// <see cref="Auth.Grant.ScopeRoots"/>). Not a script parameter - a tool script's own
+    /// <c>param()</c> block is exposed verbatim as its MCP input schema (see
+    /// <c>ScriptToolLoader</c>), so a client-controllable "ScopeRoots" argument would let a
+    /// caller override its own grant's scope. Instead this is injected as a global-scope
+    /// runspace variable (<c>VaultMcpScopeRoots</c>) by <see cref="WrapperScript"/>, invisible
+    /// to the script's own parameter surface, as a hashtable keyed by vault name (mirroring
+    /// the dictionary shape one-for-one so the PowerShell side's <c>Resolve-VaultScopeRoots</c>
+    /// can pick out the entry for whichever vault a chokepoint call is actually targeting). The
     /// VaultAccess module's chokepoint functions default their own <c>-ScopeRoots</c>
     /// parameter to this variable's value when the caller (a tool script) doesn't pass one
     /// explicitly, so path-scope enforcement applies without every tool script needing to
     /// plumb it through by hand.
     /// </param>
-    public async Task<ScriptToolExecution> InvokeAsync(string scriptPath, IReadOnlyDictionary<string, object?> parameters, CancellationToken cancellationToken, IReadOnlyCollection<string>? scopeRoots = null)
+    public async Task<ScriptToolExecution> InvokeAsync(string scriptPath, IReadOnlyDictionary<string, object?> parameters, CancellationToken cancellationToken, IReadOnlyDictionary<string, IReadOnlySet<string>>? scopeRoots = null)
     {
         using var ps = PowerShell.Create();
         ps.RunspacePool = _pool;
@@ -75,9 +79,16 @@ public sealed class ScriptToolRunner : IDisposable
         foreach (var (name, value) in parameters)
             scriptParameters[name] = value;
 
+        var scopeRootsTable = new Hashtable(StringComparer.OrdinalIgnoreCase);
+        if (scopeRoots is not null)
+        {
+            foreach (var (vault, roots) in scopeRoots)
+                scopeRootsTable[vault] = roots.ToArray();
+        }
+
         ps.AddScript(WrapperScript)
             .AddParameter("VaultMcpScriptPath", scriptPath)
-            .AddParameter("VaultMcpScopeRoots", scopeRoots?.ToArray() ?? [])
+            .AddParameter("VaultMcpScopeRoots", scopeRootsTable)
             .AddParameter("VaultMcpParameters", scriptParameters);
 
         await using var registration = cancellationToken.Register(() => ps.Stop());

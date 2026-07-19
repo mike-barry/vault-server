@@ -275,56 +275,86 @@ public sealed class GrantStoreTests(TestVaultFixture fixture) : IClassFixture<Te
 
         var grant = store.Authenticate("token-a");
         Assert.NotNull(grant);
-        Assert.Empty(grant.ScopeRoots);
+        Assert.Null(grant.ScopeRoots);
     }
 
     [Fact]
-    public void Load_ScopeRootsWildcardMeansUnscoped()
+    public void Load_ScopeRootsVaultWildcardMeansThatVaultIsUnscoped()
     {
-        var json = """{ "token-a": { "id": "admin", "opClasses": ["Read"], "vaults": ["personal"], "ttl": "*", "scopeRoots": ["*"] } }""";
+        var json = """{ "token-a": { "id": "admin", "opClasses": ["Read"], "vaults": ["personal"], "ttl": "*", "scopeRoots": { "personal": ["*"] } } }""";
         var store = GrantStore.Load(WriteGrants(json), OpClasses, _vaultConfig);
 
         var grant = store.Authenticate("token-a");
         Assert.NotNull(grant);
-        Assert.Empty(grant.ScopeRoots);
+        Assert.NotNull(grant.ScopeRoots);
+        Assert.True(grant.ScopeRoots.ContainsKey("personal"));
+        Assert.Empty(grant.ScopeRoots["personal"]);
     }
 
     [Fact]
     public void Load_ScopeRootsCanonicalizesEntries()
     {
-        var json = """{ "token-a": { "id": "admin", "opClasses": ["Read"], "vaults": ["personal"], "ttl": "*", "scopeRoots": ["Projects\\Widget", "Areas/./Homelab"] } }""";
+        var json = """{ "token-a": { "id": "admin", "opClasses": ["Read"], "vaults": ["personal"], "ttl": "*", "scopeRoots": { "personal": ["Projects\\Widget", "Areas/./Homelab"] } } }""";
         var store = GrantStore.Load(WriteGrants(json), OpClasses, _vaultConfig);
 
         var grant = store.Authenticate("token-a");
         Assert.NotNull(grant);
-        Assert.Equal(new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "Projects/Widget", "Areas/Homelab" }, grant.ScopeRoots);
+        Assert.NotNull(grant.ScopeRoots);
+        Assert.Equal(new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "Projects/Widget", "Areas/Homelab" }, grant.ScopeRoots["personal"]);
     }
 
     [Fact]
     public void Load_ScopeRootsRootedEntryThrows()
     {
-        var json = """{ "token-a": { "id": "admin", "opClasses": ["Read"], "vaults": ["personal"], "ttl": "*", "scopeRoots": ["C:/Windows"] } }""";
+        var json = """{ "token-a": { "id": "admin", "opClasses": ["Read"], "vaults": ["personal"], "ttl": "*", "scopeRoots": { "personal": ["C:/Windows"] } } }""";
         Assert.Throws<InvalidDataException>(() => GrantStore.Load(WriteGrants(json), OpClasses, _vaultConfig));
     }
 
     [Fact]
     public void Load_ScopeRootsEscapingEntryThrows()
     {
-        var json = """{ "token-a": { "id": "admin", "opClasses": ["Read"], "vaults": ["personal"], "ttl": "*", "scopeRoots": ["../outside"] } }""";
+        var json = """{ "token-a": { "id": "admin", "opClasses": ["Read"], "vaults": ["personal"], "ttl": "*", "scopeRoots": { "personal": ["../outside"] } } }""";
         Assert.Throws<InvalidDataException>(() => GrantStore.Load(WriteGrants(json), OpClasses, _vaultConfig));
     }
 
     [Fact]
     public void Load_ScopeRootsEmptyEntryThrows()
     {
-        var json = """{ "token-a": { "id": "admin", "opClasses": ["Read"], "vaults": ["personal"], "ttl": "*", "scopeRoots": [""] } }""";
+        var json = """{ "token-a": { "id": "admin", "opClasses": ["Read"], "vaults": ["personal"], "ttl": "*", "scopeRoots": { "personal": [""] } } }""";
         Assert.Throws<InvalidDataException>(() => GrantStore.Load(WriteGrants(json), OpClasses, _vaultConfig));
     }
 
     [Fact]
-    public void Load_ScopeRootsNotAnArrayThrows()
+    public void Load_ScopeRootsNotAnObjectThrows()
     {
-        var json = """{ "token-a": { "id": "admin", "opClasses": ["Read"], "vaults": ["personal"], "ttl": "*", "scopeRoots": "Projects/Widget" } }""";
+        var json = """{ "token-a": { "id": "admin", "opClasses": ["Read"], "vaults": ["personal"], "ttl": "*", "scopeRoots": ["Projects/Widget"] } }""";
         Assert.Throws<InvalidDataException>(() => GrantStore.Load(WriteGrants(json), OpClasses, _vaultConfig));
+    }
+
+    [Fact]
+    public void Load_ScopeRootsVaultEntryNotAnArrayThrows()
+    {
+        var json = """{ "token-a": { "id": "admin", "opClasses": ["Read"], "vaults": ["personal"], "ttl": "*", "scopeRoots": { "personal": "Projects/Widget" } } }""";
+        Assert.Throws<InvalidDataException>(() => GrantStore.Load(WriteGrants(json), OpClasses, _vaultConfig));
+    }
+
+    [Fact]
+    public void Load_ScopeRootsVaultNotInGrantsVaultsThrows()
+    {
+        var json = """{ "token-a": { "id": "admin", "opClasses": ["Read"], "vaults": ["personal"], "ttl": "*", "scopeRoots": { "test": ["Projects/Widget"] } } }""";
+        Assert.Throws<InvalidDataException>(() => GrantStore.Load(WriteGrants(json), OpClasses, _vaultConfig));
+    }
+
+    [Fact]
+    public void Load_ScopeRootsMultiVaultKeepsEachVaultsRootsSeparate()
+    {
+        var json = """{ "token-a": { "id": "admin", "opClasses": ["Read"], "vaults": ["personal", "test"], "ttl": "*", "scopeRoots": { "personal": ["Area"] } } }""";
+        var store = GrantStore.Load(WriteGrants(json), OpClasses, _vaultConfig);
+
+        var grant = store.Authenticate("token-a");
+        Assert.NotNull(grant);
+        Assert.NotNull(grant.ScopeRoots);
+        Assert.True(grant.ScopeRoots.ContainsKey("personal"));
+        Assert.False(grant.ScopeRoots.ContainsKey("test"));
     }
 }

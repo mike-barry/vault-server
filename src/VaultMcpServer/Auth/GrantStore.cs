@@ -80,7 +80,7 @@ public sealed class GrantStore
                 throw new InvalidDataException($"{path}: grant \"{id}\" has no vaults.");
 
             var expiresAtUtc = ReadTtl(entry.Value, path, id, now);
-            var scopeRoots = ReadScopeRoots(entry.Value, path, id);
+            var scopeRoots = ReadScopeRoots(entry.Value, path, id, vaults);
 
             rows.Add((Hash(token), new Grant(id, opClasses, vaults, expiresAtUtc, scopeRoots)));
         }
@@ -173,45 +173,66 @@ public sealed class GrantStore
     }
 
     /// <summary>
-    /// Parses a grant row's optional <c>scopeRoots</c>: absent entirely, or exactly
-    /// <c>["*"]</c>, both mean unscoped (returns an empty set - full access within the
-    /// grant's <c>vaults</c>), matching the "no explicit scope means unscoped" convention.
-    /// Unlike <c>opClasses</c>/<c>vaults</c>/<c>ttl</c>, this field is optional rather than
-    /// required: most rows (including every phase-1 row) have no reason to be scoped at all.
-    /// A present, non-wildcard entry must canonicalize as a folder-prefix root (see
+    /// Parses a grant row's optional <c>scopeRoots</c>: an object keyed by vault name, e.g.
+    /// <c>{ "primary": ["Area"], "test": [] }</c>. Absent entirely returns <c>null</c> -
+    /// unscoped for every vault the grant has. A vault key's value being empty or exactly
+    /// <c>["*"]</c> means that vault is unscoped, the same "no explicit scope means unscoped"
+    /// convention as before, now applied per-vault rather than to the whole grant. Unlike
+    /// <c>opClasses</c>/<c>vaults</c>/<c>ttl</c>, this field is optional rather than required:
+    /// most rows (including every phase-1 row) have no reason to be scoped at all.
+    ///
+    /// A key that isn't one of the grant's own <paramref name="vaults"/> is a load-time error -
+    /// scoping a vault the grant can't access at all is nonsensical and almost certainly a typo
+    /// or stale config, so it fails fast rather than silently doing nothing. A present,
+    /// non-wildcard entry must canonicalize as a folder-prefix root (see
     /// <see cref="Vault.VaultAccess.NormalizeScopeSegments"/>) - rooted, escaping, or empty
     /// entries fail the grant load fast, the same rigor as an unknown opClass.
     /// </summary>
-    private static IReadOnlySet<string> ReadScopeRoots(JsonElement grant, string path, string id)
+    private static IReadOnlyDictionary<string, IReadOnlySet<string>>? ReadScopeRoots(JsonElement grant, string path, string id, IReadOnlySet<string> vaults)
     {
         if (!grant.TryGetProperty("scopeRoots", out var prop))
-            return new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-        if (prop.ValueKind != JsonValueKind.Array)
-            throw new InvalidDataException($"{path}: grant \"{id}\" has a \"scopeRoots\" that is not an array.");
+            return null;
+        if (prop.ValueKind != JsonValueKind.Object)
+            throw new InvalidDataException($"{path}: grant \"{id}\" has a \"scopeRoots\" that is not an object keyed by vault name.");
 
-        var raw = new List<string>();
-        foreach (var item in prop.EnumerateArray())
+        var result = new Dictionary<string, IReadOnlySet<string>>(StringComparer.OrdinalIgnoreCase);
+        foreach (var vaultEntry in prop.EnumerateObject())
         {
-            if (item.GetString() is not { Length: > 0 } value)
-                throw new InvalidDataException($"{path}: grant \"{id}\" has an empty entry in \"scopeRoots\".");
-            raw.Add(value);
-        }
+            var vaultName = vaultEntry.Name;
+            if (!vaults.Contains(vaultName))
+                throw new InvalidDataException($"{path}: grant \"{id}\" has \"scopeRoots\" for vault \"{vaultName}\", which is not in its \"vaults\".");
 
-        if (IsWildcard(raw))
-            return new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            if (vaultEntry.Value.ValueKind != JsonValueKind.Array)
+                throw new InvalidDataException($"{path}: grant \"{id}\" has a \"scopeRoots\" entry for vault \"{vaultName}\" that is not an array.");
 
-        var canonicalized = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-        foreach (var entry in raw)
-        {
-            try
+            var raw = new List<string>();
+            foreach (var item in vaultEntry.Value.EnumerateArray())
             {
-                canonicalized.Add(string.Join('/', Vault.VaultAccess.NormalizeScopeSegments(entry)));
+                if (item.GetString() is not { Length: > 0 } value)
+                    throw new InvalidDataException($"{path}: grant \"{id}\" has an empty entry in \"scopeRoots\" for vault \"{vaultName}\".");
+                raw.Add(value);
             }
-            catch (ArgumentException ex)
+
+            if (IsWildcard(raw))
             {
-                throw new InvalidDataException($"{path}: grant \"{id}\" has an invalid \"scopeRoots\" entry \"{entry}\": {ex.Message}");
+                result[vaultName] = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+                continue;
             }
+
+            var canonicalized = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            foreach (var entry in raw)
+            {
+                try
+                {
+                    canonicalized.Add(string.Join('/', Vault.VaultAccess.NormalizeScopeSegments(entry)));
+                }
+                catch (ArgumentException ex)
+                {
+                    throw new InvalidDataException($"{path}: grant \"{id}\" has an invalid \"scopeRoots\" entry \"{entry}\" for vault \"{vaultName}\": {ex.Message}");
+                }
+            }
+            result[vaultName] = canonicalized;
         }
-        return canonicalized;
+        return result;
     }
 }

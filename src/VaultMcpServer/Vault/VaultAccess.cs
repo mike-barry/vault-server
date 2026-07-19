@@ -39,6 +39,32 @@ public sealed class VaultAccess(VaultConfig config)
     }
 
     /// <summary>
+    /// Resolves a grant's per-vault <see cref="Auth.Grant.ScopeRoots"/> map down to the flat,
+    /// already-vault-scoped root list for one specific <paramref name="vault"/> - the shape
+    /// every other chokepoint function in this class (and <see cref="EnsureAllowed"/>,
+    /// <see cref="IsPathInScope"/>) expects. <paramref name="scopeRootsByVault"/> being
+    /// <c>null</c>, or having no entry for <paramref name="vault"/> (matched case-insensitively),
+    /// both mean unscoped for that vault - returns an empty set, same meaning as an explicit
+    /// empty list. This is where "a scope root configured for one vault must not leak into
+    /// another vault the same grant can access" is enforced: only the entry keyed to
+    /// <paramref name="vault"/> is ever consulted.
+    /// </summary>
+    public static IReadOnlySet<string> ResolveVaultScopeRoots(string vault, IReadOnlyDictionary<string, IReadOnlySet<string>>? scopeRootsByVault)
+    {
+        if (scopeRootsByVault is not null)
+        {
+            foreach (var (key, roots) in scopeRootsByVault)
+            {
+                if (string.Equals(key, vault, StringComparison.OrdinalIgnoreCase))
+                    return roots;
+            }
+        }
+        return EmptyScopeRoots;
+    }
+
+    private static readonly IReadOnlySet<string> EmptyScopeRoots = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>
     /// Splits a folder-prefix scope root or candidate vault-relative path into normalized,
     /// case-preserved segments - resolving "." and ".." and rejecting rooted paths, root
     /// escapes, and empty/whitespace input. Shared by <see cref="Auth.GrantStore.Load"/> (to
@@ -126,10 +152,11 @@ public sealed class VaultAccess(VaultConfig config)
     /// not surfaced as an error - a search or wikilink resolution built on this enumeration
     /// (see <see cref="ResolveWikilink"/>) sees a naturally scope-filtered result set.
     /// </summary>
-    public IReadOnlyList<string> EnumerateNotes(string? vault, IReadOnlyCollection<string>? scopeRoots = null)
+    public IReadOnlyList<string> EnumerateNotes(string? vault, IReadOnlyDictionary<string, IReadOnlySet<string>>? scopeRoots = null)
     {
         var (name, root) = config.Resolve(vault);
-        EnsureAllowed(OpClass.Read, name, ".", scopeRoots);
+        var vaultScopeRoots = ResolveVaultScopeRoots(name, scopeRoots);
+        EnsureAllowed(OpClass.Read, name, ".", vaultScopeRoots);
 
         var notes = new List<string>();
         foreach (var file in Directory.EnumerateFiles(root, "*.md", SearchOption.AllDirectories))
@@ -137,7 +164,7 @@ public sealed class VaultAccess(VaultConfig config)
             var relative = Path.GetRelativePath(root, file).Replace('\\', '/');
             if (relative.Split('/')[..^1].Any(IsHiddenSegment))
                 continue;
-            if (scopeRoots is { Count: > 0 } && !IsPathInScope(relative, scopeRoots))
+            if (vaultScopeRoots.Count > 0 && !IsPathInScope(relative, vaultScopeRoots))
                 continue;
             notes.Add(relative);
         }
@@ -150,7 +177,7 @@ public sealed class VaultAccess(VaultConfig config)
     /// segments), and either with #heading and/or |display suffixes, which are ignored.
     /// Returns null when nothing matches; throws when the link is ambiguous.
     /// </summary>
-    public string? ResolveWikilink(string? vault, string link, IReadOnlyCollection<string>? scopeRoots = null)
+    public string? ResolveWikilink(string? vault, string link, IReadOnlyDictionary<string, IReadOnlySet<string>>? scopeRoots = null)
     {
         var target = ParseWikilinkTarget(link);
         if (target.Length == 0)
@@ -176,18 +203,18 @@ public sealed class VaultAccess(VaultConfig config)
         };
     }
 
-    public string ReadNote(string? vault, string relativePath, IReadOnlyCollection<string>? scopeRoots = null)
+    public string ReadNote(string? vault, string relativePath, IReadOnlyDictionary<string, IReadOnlySet<string>>? scopeRoots = null)
     {
         var (name, _) = config.Resolve(vault);
-        EnsureAllowed(OpClass.Read, name, relativePath, scopeRoots);
+        EnsureAllowed(OpClass.Read, name, relativePath, ResolveVaultScopeRoots(name, scopeRoots));
         return File.ReadAllText(ResolvePath(vault, relativePath));
     }
 
     /// <summary>Writes a note as UTF-8 without BOM, creating parent directories as needed.</summary>
-    public void WriteNote(string? vault, string relativePath, string content, IReadOnlyCollection<string>? scopeRoots = null)
+    public void WriteNote(string? vault, string relativePath, string content, IReadOnlyDictionary<string, IReadOnlySet<string>>? scopeRoots = null)
     {
         var (name, _) = config.Resolve(vault);
-        EnsureAllowed(OpClass.Write, name, relativePath, scopeRoots);
+        EnsureAllowed(OpClass.Write, name, relativePath, ResolveVaultScopeRoots(name, scopeRoots));
         var full = ResolvePath(vault, relativePath);
         Directory.CreateDirectory(Path.GetDirectoryName(full)!);
         File.WriteAllText(full, content);
@@ -198,11 +225,12 @@ public sealed class VaultAccess(VaultConfig config)
     /// directories as needed. Throws if the source note does not exist or the
     /// destination already exists.
     /// </summary>
-    public void MoveNote(string? vault, string relativePath, string newRelativePath, IReadOnlyCollection<string>? scopeRoots = null)
+    public void MoveNote(string? vault, string relativePath, string newRelativePath, IReadOnlyDictionary<string, IReadOnlySet<string>>? scopeRoots = null)
     {
         var (name, _) = config.Resolve(vault);
-        EnsureAllowed(OpClass.Write, name, relativePath, scopeRoots);
-        EnsureAllowed(OpClass.Write, name, newRelativePath, scopeRoots);
+        var vaultScopeRoots = ResolveVaultScopeRoots(name, scopeRoots);
+        EnsureAllowed(OpClass.Write, name, relativePath, vaultScopeRoots);
+        EnsureAllowed(OpClass.Write, name, newRelativePath, vaultScopeRoots);
 
         var fullOld = ResolvePath(vault, relativePath);
         var fullNew = ResolvePath(vault, newRelativePath);

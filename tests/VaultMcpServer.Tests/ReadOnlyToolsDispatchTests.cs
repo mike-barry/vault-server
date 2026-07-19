@@ -204,7 +204,7 @@ public sealed class ReadOnlyToolsDispatchTests : IClassFixture<ReadOnlyToolsDisp
             {
                 [ReadOnlyToken] = new { id = "readonly-tools", opClasses = new[] { "Read" }, vaults = new[] { "test" }, ttl = "*" },
                 [WriteOnlyToken] = new { id = "writeonly-tools", opClasses = new[] { "Write" }, vaults = new[] { "test" }, ttl = "*" },
-                [WidgetScopedToken] = new { id = "widget-scoped-tools", opClasses = new[] { "Read" }, vaults = new[] { "test" }, ttl = "*", scopeRoots = new[] { "Projects/Widget" } },
+                [WidgetScopedToken] = new { id = "widget-scoped-tools", opClasses = new[] { "Read" }, vaults = new[] { "test" }, ttl = "*", scopeRoots = new Dictionary<string, string[]> { ["test"] = ["Projects/Widget"] } },
             }));
 
             // Points at the real repo tools/ directory (not a temp copy) so each script's own

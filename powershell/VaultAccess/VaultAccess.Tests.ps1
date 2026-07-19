@@ -99,12 +99,20 @@ Describe 'Resolve-VaultPath' {
 Describe 'Test-VaultPathInScope' {
     It '<name>' -TestCases @(
         Get-Content -LiteralPath (Join-Path $PSScriptRoot '../../tests/cases/scope-cases.json') -Raw |
-            ConvertFrom-Json | ForEach-Object { @{ name = $_.name; path = $_.path; scopeRoots = $_.scopeRoots; outcome = $_.outcome } }
+            ConvertFrom-Json | ForEach-Object { @{ name = $_.name; vault = $_.vault; path = $_.path; scopeRoots = $_.scopeRoots; outcome = $_.outcome } }
     ) {
+        # scopeRoots is the grant's per-vault map (a PSCustomObject from ConvertFrom-Json,
+        # keyed by vault name); convert to a hashtable so Resolve-VaultScopeRoots - which
+        # mirrors the C# side's dictionary-keyed lookup - can pick out $vault's own entry,
+        # proving a root configured for a different vault never leaks into this one.
+        $scopeRootsTable = @{}
+        $scopeRoots.PSObject.Properties | ForEach-Object { $scopeRootsTable[$_.Name] = $_.Value }
+        $flatScopeRoots = Resolve-VaultScopeRoots -Vault $vault -ScopeRoots $scopeRootsTable
+
         switch ($outcome) {
-            'inScope' { Test-VaultPathInScope -Path $path -ScopeRoots $scopeRoots | Should -BeTrue }
-            'outOfScope' { Test-VaultPathInScope -Path $path -ScopeRoots $scopeRoots | Should -BeFalse }
-            'invalid' { { Test-VaultPathInScope -Path $path -ScopeRoots $scopeRoots } | Should -Throw }
+            'inScope' { Test-VaultPathInScope -Path $path -ScopeRoots $flatScopeRoots | Should -BeTrue }
+            'outOfScope' { Test-VaultPathInScope -Path $path -ScopeRoots $flatScopeRoots | Should -BeFalse }
+            'invalid' { { Test-VaultPathInScope -Path $path -ScopeRoots $flatScopeRoots } | Should -Throw }
             default { throw "unknown outcome: $outcome" }
         }
     }
@@ -112,18 +120,45 @@ Describe 'Test-VaultPathInScope' {
 
 Describe 'Get-VaultNotePath scoping' {
     It 'filters to notes under the scope root' {
-        $notes = @(Get-VaultNotePath -ScopeRoots @('Projects/Widget'))
+        $notes = @(Get-VaultNotePath -ScopeRoots @{ test = @('Projects/Widget') })
         $notes | Should -Contain 'Projects/Widget/Widget.md'
         $notes | Where-Object { $_ -notlike 'Projects/Widget/*' } | Should -BeNullOrEmpty
     }
 
     It 'drops out-of-scope notes rather than erroring' {
-        $notes = @(Get-VaultNotePath -ScopeRoots @('Projects/Widget'))
+        $notes = @(Get-VaultNotePath -ScopeRoots @{ test = @('Projects/Widget') })
         $notes | Should -Not -Contain 'Resources/Gizmo-Reference.md'
     }
 
     It 'an unscoped call (no ScopeRoots) still returns everything' {
         @(Get-VaultNotePath).Count | Should -Be 8
+    }
+
+    It 'a scope root configured for a different vault does not leak into this vault' {
+        # Only "scratch" is scoped here; "test" (the vault being enumerated) has no entry,
+        # so it must remain fully unscoped.
+        $notes = @(Get-VaultNotePath -Vault test -ScopeRoots @{ scratch = @('Projects/Widget') })
+        $notes | Should -Contain 'Resources/Gizmo-Reference.md'
+    }
+}
+
+Describe 'Resolve-VaultScopeRoots' {
+    It 'returns an empty array when ScopeRoots is null' {
+        @(Resolve-VaultScopeRoots -Vault test -ScopeRoots $null).Count | Should -Be 0
+    }
+
+    It 'returns an empty array when the vault has no entry in the map' {
+        @(Resolve-VaultScopeRoots -Vault test -ScopeRoots @{ scratch = @('Projects/Widget') }).Count | Should -Be 0
+    }
+
+    It 'returns the flat root list for the matching vault, matched case-insensitively' {
+        @(Resolve-VaultScopeRoots -Vault TEST -ScopeRoots @{ test = @('Projects/Widget') }) | Should -Be @('Projects/Widget')
+    }
+
+    It 'does not leak a different vault''s roots into the resolved vault' {
+        $roots = @(Resolve-VaultScopeRoots -Vault test -ScopeRoots @{ test = @('Projects/Widget'); scratch = @('Areas/Homelab') })
+        $roots | Should -Be @('Projects/Widget')
+        $roots | Should -Not -Contain 'Areas/Homelab'
     }
 }
 
@@ -155,11 +190,15 @@ Describe 'Read-VaultNote' {
     }
 
     It 'reads an in-scope note' {
-        Read-VaultNote -Path 'Projects/Widget/Tasks.md' -ScopeRoots @('Projects/Widget') | Should -Match 'quorvium'
+        Read-VaultNote -Path 'Projects/Widget/Tasks.md' -ScopeRoots @{ test = @('Projects/Widget') } | Should -Match 'quorvium'
     }
 
     It 'throws on an out-of-scope note' {
-        { Read-VaultNote -Path 'Resources/Gizmo-Reference.md' -ScopeRoots @('Projects/Widget') } | Should -Throw
+        { Read-VaultNote -Path 'Resources/Gizmo-Reference.md' -ScopeRoots @{ test = @('Projects/Widget') } } | Should -Throw
+    }
+
+    It 'a scope root configured for a different vault does not restrict this vault' {
+        Read-VaultNote -Vault scratch -Path 'Resources/Gizmo-Reference.md' -ScopeRoots @{ test = @('Projects/Widget') } | Should -Match 'quorvium'
     }
 }
 
@@ -206,16 +245,20 @@ Describe 'Move-VaultNote' {
 
     It 'throws when the destination is out of scope' {
         Write-VaultNote -Vault scratch -Path 'Projects/Widget/Note-Scoped-Move-Source.md' -Content "# Source`n"
-        { Move-VaultNote -Vault scratch -Path 'Projects/Widget/Note-Scoped-Move-Source.md' -NewPath 'Areas/Note-Scoped-Move-Dest.md' -ScopeRoots @('Projects/Widget') } | Should -Throw
+        { Move-VaultNote -Vault scratch -Path 'Projects/Widget/Note-Scoped-Move-Source.md' -NewPath 'Areas/Note-Scoped-Move-Dest.md' -ScopeRoots @{ scratch = @('Projects/Widget') } } | Should -Throw
     }
 }
 
 Describe 'Resolve-WikiLink scoping' {
     It 'does not resolve an out-of-scope note' {
-        Resolve-WikiLink -Link 'Gizmo-Reference' -ScopeRoots @('Projects/Widget') | Should -BeNullOrEmpty
+        Resolve-WikiLink -Link 'Gizmo-Reference' -ScopeRoots @{ test = @('Projects/Widget') } | Should -BeNullOrEmpty
     }
 
     It 'resolves an in-scope note' {
-        Resolve-WikiLink -Link 'Widget' -ScopeRoots @('Projects/Widget') | Should -Be 'Projects/Widget/Widget.md'
+        Resolve-WikiLink -Link 'Widget' -ScopeRoots @{ test = @('Projects/Widget') } | Should -Be 'Projects/Widget/Widget.md'
+    }
+
+    It 'a scope root configured for a different vault does not restrict this vault' {
+        Resolve-WikiLink -Vault scratch -Link 'Gizmo-Reference' -ScopeRoots @{ test = @('Projects/Widget') } | Should -Be 'Resources/Gizmo-Reference.md'
     }
 }
