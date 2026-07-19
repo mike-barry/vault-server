@@ -4,10 +4,14 @@ using System.Text.Json;
 namespace VaultMcpServer.Auth;
 
 /// <summary>
-/// Deny-by-default bearer-token gate in front of every request. Looks the presented token
-/// up in the injected <see cref="GrantStore"/>, rejects a missing or unknown token with
-/// 401, and attaches the matched grant to <c>HttpContext.Items[GrantItemKey]</c> for
-/// downstream tool dispatch to enforce per-tool op class against.
+/// Deny-by-default bearer-token gate in front of every request. Looks the presented token up
+/// in the injected <see cref="GrantStore"/> via <see cref="GrantStore.Authenticate"/> (which
+/// treats an expired grant as a non-match) and rejects a missing, unknown, or expired token
+/// with 401 - consulting <see cref="GrantStore.GetAuthFailureReason"/> only to pick a distinct
+/// rejection message so "unknown" and "expired" can be told apart - and attaches the matched
+/// grant to
+/// <c>HttpContext.Items[GrantItemKey]</c> for downstream tool dispatch to enforce per-tool op
+/// class against.
 ///
 /// Writes one audit log line per request: grant id (never the token), JSON-RPC method,
 /// and - for a tools/call - the tool name, vault argument, and full arguments. A
@@ -31,7 +35,13 @@ public sealed class BearerGrantMiddleware(RequestDelegate next, GrantStore grant
         var grant = grantStore.Authenticate(token);
         if (grant is null)
         {
-            await Reject(context, StatusCodes.Status401Unauthorized, "Unknown bearer token.");
+            // Authenticate already excludes expired grants; consult the failure reason purely
+            // to pick the right 401 message - it plays no role in the authorization decision
+            // above.
+            var message = grantStore.GetAuthFailureReason(token) == AuthFailureReason.Expired
+                ? "Expired bearer token."
+                : "Unknown bearer token.";
+            await Reject(context, StatusCodes.Status401Unauthorized, message);
             return;
         }
 

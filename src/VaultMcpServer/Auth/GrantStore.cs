@@ -5,6 +5,16 @@ using VaultMcpServer.Vault;
 
 namespace VaultMcpServer.Auth;
 
+/// <summary>Why a presented bearer token failed <see cref="GrantStore.Authenticate"/>.</summary>
+public enum AuthFailureReason
+{
+    /// <summary>No grant row matched the token.</summary>
+    Unknown,
+
+    /// <summary>A grant row matched, but its <c>ttl</c> has elapsed.</summary>
+    Expired,
+}
+
 /// <summary>
 /// Loads grants.json - the bearer-token grant table - and authenticates presented tokens
 /// against it. Tokens are hashed (SHA-256) at load and never retained or logged in the
@@ -15,10 +25,20 @@ namespace VaultMcpServer.Auth;
 public sealed class GrantStore
 {
     private readonly IReadOnlyList<(byte[] Hash, Grant Grant)> _rows;
+    private readonly TimeProvider _timeProvider;
 
-    private GrantStore(IReadOnlyList<(byte[] Hash, Grant Grant)> rows) => _rows = rows;
+    private GrantStore(IReadOnlyList<(byte[] Hash, Grant Grant)> rows, TimeProvider timeProvider)
+    {
+        _rows = rows;
+        _timeProvider = timeProvider;
+    }
 
-    public static GrantStore Load(string path, OpClassRegistry opClassRegistry, VaultConfig vaultConfig)
+    /// <param name="timeProvider">
+    /// Defaults to <see cref="TimeProvider.System"/>. Overridable so tests can control the
+    /// "now" a numeric <c>ttl</c> is measured from at load time, without depending on real
+    /// elapsed wall-clock time.
+    /// </param>
+    public static GrantStore Load(string path, OpClassRegistry opClassRegistry, VaultConfig vaultConfig, TimeProvider? timeProvider = null)
     {
         if (!File.Exists(path))
             throw new FileNotFoundException($"Grants config not found: {path}", path);
@@ -27,6 +47,8 @@ public sealed class GrantStore
         if (doc.RootElement.ValueKind != JsonValueKind.Object)
             throw new InvalidDataException($"{path}: root must be an object keyed by bearer token.");
 
+        var resolvedTimeProvider = timeProvider ?? TimeProvider.System;
+        var now = resolvedTimeProvider.GetUtcNow();
         var rows = new List<(byte[] Hash, Grant Grant)>();
         var seenIds = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         foreach (var entry in doc.RootElement.EnumerateObject())
@@ -57,17 +79,41 @@ public sealed class GrantStore
             if (vaults.Count == 0)
                 throw new InvalidDataException($"{path}: grant \"{id}\" has no vaults.");
 
-            rows.Add((Hash(token), new Grant(id, opClasses, vaults)));
+            var expiresAtUtc = ReadTtl(entry.Value, path, id, now);
+
+            rows.Add((Hash(token), new Grant(id, opClasses, vaults, expiresAtUtc)));
         }
 
         if (rows.Count == 0)
             throw new InvalidDataException($"{path}: must contain at least one grant.");
 
-        return new GrantStore(rows);
+        return new GrantStore(rows, resolvedTimeProvider);
     }
 
-    /// <summary>Authenticates a presented bearer token, returning the matching grant or null.</summary>
+    /// <summary>
+    /// Authenticates a presented bearer token, returning the matching grant or null. An expired
+    /// grant (see <see cref="Grant.IsExpired"/>) is treated as a non-match, same as an unknown
+    /// token - this is the sole authorization decision point. Use
+    /// <see cref="GetAuthFailureReason"/> to distinguish "unknown" from "expired" for
+    /// diagnostics once this returns null.
+    /// </summary>
     public Grant? Authenticate(string presentedToken)
+    {
+        var match = FindMatch(presentedToken);
+        return match is null || match.IsExpired(_timeProvider.GetUtcNow()) ? null : match;
+    }
+
+    /// <summary>
+    /// Diagnostic lookup for why <see cref="Authenticate"/> returned null: whether the token was
+    /// unrecognized or matched an expired grant. Returns a reason, never a grant, so it cannot be
+    /// used to authorize a call.
+    /// </summary>
+    public AuthFailureReason GetAuthFailureReason(string presentedToken) =>
+        FindMatch(presentedToken) is { } match && match.IsExpired(_timeProvider.GetUtcNow())
+            ? AuthFailureReason.Expired
+            : AuthFailureReason.Unknown;
+
+    private Grant? FindMatch(string presentedToken)
     {
         var presentedHash = Hash(presentedToken);
         Grant? match = null;
@@ -85,6 +131,33 @@ public sealed class GrantStore
     /// to the full current set of registry op-classes / configured vaults, rather than being
     /// validated as a literal name.</summary>
     private static bool IsWildcard(IReadOnlyList<string> values) => values is [ "*" ];
+
+    /// <summary>
+    /// Parses a grant row's required <c>ttl</c>: <c>"*"</c> for infinite (returns null), or an
+    /// integer number of minutes from <paramref name="now"/> (fractional values are rejected -
+    /// <see cref="JsonElement.TryGetInt32"/> only succeeds for a whole number).
+    /// </summary>
+    private static DateTimeOffset? ReadTtl(JsonElement grant, string path, string id, DateTimeOffset now)
+    {
+        if (!grant.TryGetProperty("ttl", out var prop))
+            throw new InvalidDataException($"{path}: grant \"{id}\" is missing a \"ttl\" value.");
+
+        if (prop.ValueKind == JsonValueKind.String)
+        {
+            if (prop.GetString() != "*")
+                throw new InvalidDataException($"{path}: grant \"{id}\" has an invalid \"ttl\" - expected \"*\" or an integer number of minutes.");
+            return null;
+        }
+
+        if (prop.ValueKind == JsonValueKind.Number && prop.TryGetInt32(out var minutes))
+        {
+            if (minutes <= 0)
+                throw new InvalidDataException($"{path}: grant \"{id}\" has a non-positive \"ttl\" of {minutes} minutes.");
+            return now.AddMinutes(minutes);
+        }
+
+        throw new InvalidDataException($"{path}: grant \"{id}\" has an invalid \"ttl\" - expected \"*\" or an integer number of minutes.");
+    }
 
     private static IEnumerable<string> ReadStringSet(JsonElement grant, string property, string path, string id)
     {

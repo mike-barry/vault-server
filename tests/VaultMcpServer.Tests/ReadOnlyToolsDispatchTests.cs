@@ -162,8 +162,8 @@ public sealed class ReadOnlyToolsDispatchTests : IClassFixture<ReadOnlyToolsDisp
             var grantsPath = Path.Combine(_tempDir, "grants.json");
             File.WriteAllText(grantsPath, JsonSerializer.Serialize(new Dictionary<string, object>
             {
-                [ReadOnlyToken] = new { id = "readonly-tools", opClasses = new[] { "Read" }, vaults = new[] { "test" } },
-                [WriteOnlyToken] = new { id = "writeonly-tools", opClasses = new[] { "Write" }, vaults = new[] { "test" } },
+                [ReadOnlyToken] = new { id = "readonly-tools", opClasses = new[] { "Read" }, vaults = new[] { "test" }, ttl = "*" },
+                [WriteOnlyToken] = new { id = "writeonly-tools", opClasses = new[] { "Write" }, vaults = new[] { "test" }, ttl = "*" },
             }));
 
             // Points at the real repo tools/ directory (not a temp copy) so each script's own
