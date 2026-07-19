@@ -66,9 +66,12 @@ public sealed class ScriptToolsWatcher : IDisposable
         }
         catch (Exception ex)
         {
-            // A refresh can throw the same validation errors ScriptToolLoader raises at
-            // startup (e.g. a script mid-save with an incomplete comment-help block).
-            // Log and keep the previously-loaded tool set rather than crashing the watcher.
+            // Per-script validation problems no longer throw - ScriptToolLoader skips the
+            // script and records the problem into ServerHealthState's replaceable
+            // ScriptTools set (which also logs, via the attached logger). This catch is a
+            // safety net for anything unexpected (e.g. an IO failure enumerating the
+            // folder itself): log and keep the previously-loaded tool set rather than
+            // crashing the watcher.
             _logger.LogWarning(ex, "Failed to refresh script tools after a tools directory change; keeping the previous tool set.");
             return;
         }

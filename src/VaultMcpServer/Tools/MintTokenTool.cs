@@ -126,7 +126,12 @@ public sealed class MintTokenTool(GrantStore grantStore, OpClassRegistry opClass
         foreach (var root in scopeRoots)
         {
             var vaultName = root.Split('/', 2)[0];
-            if (!vaultConfig.Vaults.Keys.Any(v => v.Equals(vaultName, StringComparison.OrdinalIgnoreCase)))
+            // A vault skipped at config load (root missing on disk) is configured but not
+            // mintable-against: minting is an operation targeting the vault now, unlike a
+            // grants.json row, which stays valid while the vault is broken.
+            if (vaultConfig.SkippedVaults.ContainsKey(vaultName))
+                throw new MintArgumentException($"\"scope_roots\" entry \"{root}\" names vault \"{vaultName}\", which is configured but currently unavailable: {vaultConfig.SkippedVaults[vaultName]}.");
+            if (!vaultConfig.Vaults.ContainsKey(vaultName))
                 throw new MintArgumentException($"\"scope_roots\" entry \"{root}\" names an unknown vault \"{vaultName}\".");
             vaults.Add(vaultName);
         }

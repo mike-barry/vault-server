@@ -1,5 +1,6 @@
 using System.Management.Automation.Language;
 using System.Text.RegularExpressions;
+using VaultMcpServer.Health;
 using VaultMcpServer.Vault;
 
 namespace VaultMcpServer.Tools;
@@ -10,11 +11,22 @@ namespace VaultMcpServer.Tools;
 /// descriptions, and op class come from a leading `&lt;# ... #&gt;` comment-based-help
 /// block (`.SYNOPSIS`, `.PARAMETER &lt;name&gt;`, `.NOTES` containing "OpClass: Read" or
 /// "OpClass: Write"); the parameter list, types, and required/optional status come from
-/// static AST parsing of the script's `param()` block. Fails fast on any script missing
-/// required help - same rigor as <c>GrantStore</c>/<c>VaultConfig</c> validation.
+/// static AST parsing of the script's `param()` block.
+///
+/// A script that fails validation (parse error, missing `.SYNOPSIS`, missing/invalid
+/// `.NOTES` op class, an undocumented parameter) loads zero tools from that file and is
+/// reported as a Degraded problem; the rest of the folder loads normally. Because this
+/// runs on every re-scan (startup and each <see cref="ScriptToolsWatcher"/>-triggered
+/// <see cref="ScriptToolRegistry.Refresh"/>), problems are recorded via
+/// <see cref="ServerHealthState.ReplaceDegraded"/> under <see cref="HealthSource"/> - each
+/// scan replaces the previous scan's set, so a fixed script stops appearing as a problem
+/// and a newly-broken one appears.
 /// </summary>
 public static partial class ScriptToolLoader
 {
+    /// <summary>The <see cref="ServerHealthState"/> source key this loader's replaceable per-script problem set is recorded under.</summary>
+    public const string HealthSource = "ScriptTools";
+
     [GeneratedRegex(@"<#(.*?)#>", RegexOptions.Singleline)]
     private static partial Regex HelpBlockRegex();
 
@@ -24,15 +36,41 @@ public static partial class ScriptToolLoader
     [GeneratedRegex(@"OpClass:\s*(\S+)", RegexOptions.IgnoreCase)]
     private static partial Regex OpClassRegex();
 
-    public static IReadOnlyList<ScriptTool> Load(string toolsDir, OpClassRegistry opClassRegistry)
+    /// <param name="healthState">
+    /// Receives this scan's per-script problem set via
+    /// <see cref="ServerHealthState.ReplaceDegraded"/> - replaced wholesale on every call,
+    /// including with an empty set when every script (or a missing/empty folder) is clean,
+    /// so a previous scan's problems don't outlive the scripts that caused them. Required,
+    /// deliberately with no default, same as the other loaders: a defaulted throwaway
+    /// instance would silently discard recorded problems.
+    /// </param>
+    public static IReadOnlyList<ScriptTool> Load(string toolsDir, OpClassRegistry opClassRegistry, ServerHealthState healthState)
     {
-        if (!Directory.Exists(toolsDir))
-            return [];
+        var tools = new List<ScriptTool>();
+        var problems = new List<string>();
 
-        return Directory.EnumerateFiles(toolsDir, "*.ps1", SearchOption.TopDirectoryOnly)
-            .OrderBy(p => p, StringComparer.OrdinalIgnoreCase)
-            .Select(path => LoadOne(path, opClassRegistry))
-            .ToList();
+        if (Directory.Exists(toolsDir))
+        {
+            foreach (var path in Directory.EnumerateFiles(toolsDir, "*.ps1", SearchOption.TopDirectoryOnly).OrderBy(p => p, StringComparer.OrdinalIgnoreCase))
+            {
+                // Per-script skip-and-report: a script failing validation loads zero tools
+                // from that file; the rest of the folder loads normally. IOException is
+                // included for a file locked mid-save by an editor - the save completing
+                // fires another watcher event, and that re-scan picks the script up (and
+                // clears the transient problem).
+                try
+                {
+                    tools.Add(LoadOne(path, opClassRegistry));
+                }
+                catch (Exception ex) when (ex is InvalidDataException or IOException)
+                {
+                    problems.Add($"Tool script skipped - {ex.Message}");
+                }
+            }
+        }
+
+        healthState.ReplaceDegraded(HealthSource, problems);
+        return tools;
     }
 
     private static ScriptTool LoadOne(string path, OpClassRegistry opClassRegistry)

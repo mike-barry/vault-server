@@ -20,12 +20,27 @@ public sealed class GrantStoreTests(TestVaultFixture fixture) : IClassFixture<Te
         return path;
     }
 
+    // The fixture's VaultConfig configures vaults "test" (default) and "scratch" - every row
+    // here names those, since GrantStore.Load now validates each row's vaults against the
+    // configured set.
     private const string TwoGrants = """
         {
-          "admin-token": { "id": "admin", "opClasses": ["Read", "Write"], "vaults": ["personal"], "ttl": "*", "scopeRoots": { "personal": [] } },
-          "readonly-token": { "id": "read-only", "opClasses": ["Read"], "vaults": ["personal", "test"], "ttl": "*", "scopeRoots": { "personal": [], "test": [] } }
+          "admin-token": { "id": "admin", "opClasses": ["Read", "Write"], "vaults": ["test"], "ttl": "*", "scopeRoots": { "test": [] } },
+          "readonly-token": { "id": "read-only", "opClasses": ["Read"], "vaults": ["test", "scratch"], "ttl": "*", "scopeRoots": { "test": [], "scratch": [] } }
         }
         """;
+
+    /// <summary>A known-good row loaded alongside each bad row in the row-skip tests, proving a skip is per-row, not whole-file.</summary>
+    private const string GoodRow = """ "good-token": { "id": "good", "opClasses": ["Read"], "vaults": ["test"], "ttl": "*", "scopeRoots": { "test": [] } } """;
+
+    /// <summary>Loads a grants.json built from the given rows (each a `"token": {...}` fragment) against the fixture config and a fresh health state.</summary>
+    private (GrantStore Store, ServerHealthState HealthState) LoadRows(params string[] rows)
+    {
+        var json = "{\n" + string.Join(",\n", rows) + "\n}";
+        var healthState = new ServerHealthState();
+        var store = GrantStore.Load(WriteGrants(json), OpClasses, _vaultConfig, healthState);
+        return (store, healthState);
+    }
 
     [Fact]
     public void Authenticate_KnownTokenReturnsItsGrant()
@@ -37,15 +52,15 @@ public sealed class GrantStoreTests(TestVaultFixture fixture) : IClassFixture<Te
         Assert.Equal("admin", admin.Id);
         Assert.True(admin.Allows(OpClass.Read));
         Assert.True(admin.Allows(OpClass.Write));
-        Assert.True(admin.CanAccessVault("personal"));
-        Assert.False(admin.CanAccessVault("test"));
+        Assert.True(admin.CanAccessVault("test"));
+        Assert.False(admin.CanAccessVault("scratch"));
 
         var readOnly = store.Authenticate("readonly-token");
         Assert.NotNull(readOnly);
         Assert.Equal("read-only", readOnly.Id);
         Assert.True(readOnly.Allows(OpClass.Read));
         Assert.False(readOnly.Allows(OpClass.Write));
-        Assert.True(readOnly.CanAccessVault("test"));
+        Assert.True(readOnly.CanAccessVault("scratch"));
     }
 
     [Fact]
@@ -63,7 +78,7 @@ public sealed class GrantStoreTests(TestVaultFixture fixture) : IClassFixture<Te
     }
 
     [Fact]
-    public void Load_MissingFileThrows()
+    public void Load_MissingFileIsFatal()
     {
         var healthState = new ServerHealthState();
         var store = GrantStore.Load(Path.Combine(_tempDir, "absent.json"), OpClasses, _vaultConfig, healthState: healthState);
@@ -72,8 +87,10 @@ public sealed class GrantStoreTests(TestVaultFixture fixture) : IClassFixture<Te
     }
 
     [Fact]
-    public void Load_EmptyObjectThrows()
+    public void Load_EmptyObjectIsFatal()
     {
+        // Zero configured rows is a structurally-empty grant table - still whole-file Fatal,
+        // unlike a table whose rows were individually skipped.
         var healthState = new ServerHealthState();
         var store = GrantStore.Load(WriteGrants("{}"), OpClasses, _vaultConfig, healthState: healthState);
 
@@ -81,58 +98,119 @@ public sealed class GrantStoreTests(TestVaultFixture fixture) : IClassFixture<Te
     }
 
     [Fact]
-    public void Load_DuplicateIdThrows()
+    public void Load_EveryRowSkipped_IsDegradedNotFatal()
     {
-        var json = """
-            {
-              "token-a": { "id": "admin", "opClasses": ["Read"], "vaults": ["personal"] },
-              "token-b": { "id": "admin", "opClasses": ["Read"], "vaults": ["personal"] }
-            }
-            """;
-        var healthState = new ServerHealthState();
-        var store = GrantStore.Load(WriteGrants(json), OpClasses, _vaultConfig, healthState: healthState);
+        // All rows individually invalid: each records its own Degraded skip, but the file
+        // itself is not Fatal - the server keeps running with an empty (deny-all) store.
+        var (store, healthState) = LoadRows(
+            """ "token-a": { "id": "a", "opClasses": ["Nope"], "vaults": ["test"], "ttl": "*", "scopeRoots": { "test": [] } } """,
+            """ "token-b": { "id": "b", "opClasses": ["Read"], "vaults": ["gone"], "ttl": "*", "scopeRoots": { "gone": [] } } """);
 
-        AssertFatalAndEmpty(healthState, store);
+        Assert.False(healthState.IsFatallyDegraded);
+        Assert.Equal(2, healthState.Problems.Count);
+        Assert.All(healthState.Problems, p => Assert.Equal(ProblemSeverity.Degraded, p.Severity));
+        Assert.Null(store.Authenticate("token-a"));
+        Assert.Null(store.Authenticate("token-b"));
     }
 
     [Fact]
-    public void Load_UnknownOpClassThrows()
+    public void Load_DuplicateId_SkipsSecondRowKeepsFirst()
     {
-        var json = """{ "token-a": { "id": "admin", "opClasses": ["Delete"], "vaults": ["personal"] } }""";
-        var healthState = new ServerHealthState();
-        var store = GrantStore.Load(WriteGrants(json), OpClasses, _vaultConfig, healthState: healthState);
+        var (store, healthState) = LoadRows(
+            """ "token-a": { "id": "admin", "opClasses": ["Read"], "vaults": ["test"], "ttl": "*", "scopeRoots": { "test": [] } } """,
+            """ "token-b": { "id": "admin", "opClasses": ["Read"], "vaults": ["test"], "ttl": "*", "scopeRoots": { "test": [] } } """,
+            GoodRow);
 
-        AssertFatalAndEmpty(healthState, store);
+        AssertSingleRowSkipped(healthState, store);
+        Assert.NotNull(store.Authenticate("token-a"));
+        Assert.Null(store.Authenticate("token-b"));
     }
 
     [Fact]
-    public void Load_EmptyOpClassesThrows()
+    public void Load_UnknownOpClass_SkipsRow()
     {
-        var json = """{ "token-a": { "id": "admin", "opClasses": [], "vaults": ["personal"] } }""";
-        var healthState = new ServerHealthState();
-        var store = GrantStore.Load(WriteGrants(json), OpClasses, _vaultConfig, healthState: healthState);
+        var (store, healthState) = LoadRows(
+            """ "token-a": { "id": "admin", "opClasses": ["Delete"], "vaults": ["test"], "ttl": "*", "scopeRoots": { "test": [] } } """,
+            GoodRow);
 
-        AssertFatalAndEmpty(healthState, store);
+        AssertSingleRowSkipped(healthState, store, expectedDetailFragment: "unknown opClass");
     }
 
     [Fact]
-    public void Load_EmptyVaultsThrows()
+    public void Load_EmptyOpClasses_SkipsRow()
     {
-        var json = """{ "token-a": { "id": "admin", "opClasses": ["Read"], "vaults": [] } }""";
-        var healthState = new ServerHealthState();
-        var store = GrantStore.Load(WriteGrants(json), OpClasses, _vaultConfig, healthState: healthState);
+        var (store, healthState) = LoadRows(
+            """ "token-a": { "id": "admin", "opClasses": [], "vaults": ["test"], "ttl": "*", "scopeRoots": { "test": [] } } """,
+            GoodRow);
 
-        AssertFatalAndEmpty(healthState, store);
+        AssertSingleRowSkipped(healthState, store);
     }
 
     [Fact]
-    public void Load_MissingIdThrows()
+    public void Load_EmptyVaults_SkipsRow()
     {
-        var json = """{ "token-a": { "opClasses": ["Read"], "vaults": ["personal"] } }""";
-        var healthState = new ServerHealthState();
-        var store = GrantStore.Load(WriteGrants(json), OpClasses, _vaultConfig, healthState: healthState);
+        var (store, healthState) = LoadRows(
+            """ "token-a": { "id": "admin", "opClasses": ["Read"], "vaults": [], "ttl": "*", "scopeRoots": {} } """,
+            GoodRow);
 
-        AssertFatalAndEmpty(healthState, store);
+        AssertSingleRowSkipped(healthState, store);
+    }
+
+    [Fact]
+    public void Load_UnknownVault_SkipsRow()
+    {
+        // The new check this batch adds: a row naming a vault absent from the configured
+        // vault set (e.g. after a vault rename) skips rather than loading silently inert.
+        var (store, healthState) = LoadRows(
+            """ "token-a": { "id": "admin", "opClasses": ["Read"], "vaults": ["renamed-away"], "ttl": "*", "scopeRoots": { "renamed-away": [] } } """,
+            GoodRow);
+
+        AssertSingleRowSkipped(healthState, store, expectedDetailFragment: "unknown vault \"renamed-away\"");
+    }
+
+    [Fact]
+    public void Load_RowNamingASkippedVaultStillLoads()
+    {
+        // A vault whose root is missing on disk is per-entry skipped by VaultConfig but is
+        // still CONFIGURED - a grant referencing it stays valid (the vault being broken is
+        // the vault's problem, not the grant's), so the grant works again without a grants
+        // reload once the root is restored and the server restarts.
+        var config = LoadConfigWithBrokenVault();
+
+        var json = """{ "token-a": { "id": "admin", "opClasses": ["Read"], "vaults": ["broken"], "ttl": "*", "scopeRoots": { "broken": [] } } }""";
+        var healthState = new ServerHealthState();
+        var store = GrantStore.Load(WriteGrants(json), OpClasses, config, healthState);
+
+        Assert.DoesNotContain(healthState.Problems, p => p.Source == "GrantStore");
+        var grant = store.Authenticate("token-a");
+        Assert.NotNull(grant);
+        Assert.True(grant.CanAccessVault("broken"));
+    }
+
+    [Fact]
+    public void Load_VaultsWildcardExpandsAcrossSkippedVaultsToo()
+    {
+        // "*" expands against the FULL configured set, skipped vaults included, so a grant's
+        // effective vault set stays stable while a vault root is temporarily broken.
+        var config = LoadConfigWithBrokenVault();
+
+        var json = """{ "token-a": { "id": "admin", "opClasses": ["Read"], "vaults": ["*"], "ttl": "*", "scopeRoots": { "*": ["*"] } } }""";
+        var store = GrantStore.Load(WriteGrants(json), OpClasses, config, new ServerHealthState());
+
+        var grant = store.Authenticate("token-a");
+        Assert.NotNull(grant);
+        Assert.True(grant.CanAccessVault("ok"));
+        Assert.True(grant.CanAccessVault("broken"));
+    }
+
+    [Fact]
+    public void Load_MissingId_SkipsRow()
+    {
+        var (store, healthState) = LoadRows(
+            """ "token-a": { "opClasses": ["Read"], "vaults": ["test"], "ttl": "*", "scopeRoots": { "test": [] } } """,
+            GoodRow);
+
+        AssertSingleRowSkipped(healthState, store);
     }
 
     [Fact]
@@ -155,7 +233,7 @@ public sealed class GrantStoreTests(TestVaultFixture fixture) : IClassFixture<Te
 
         var grant = store.Authenticate("token-a");
         Assert.NotNull(grant);
-        foreach (var vault in _vaultConfig.Vaults.Keys)
+        foreach (var vault in _vaultConfig.ConfiguredVaultNames)
             Assert.True(grant.CanAccessVault(vault));
     }
 
@@ -168,53 +246,53 @@ public sealed class GrantStoreTests(TestVaultFixture fixture) : IClassFixture<Te
         var grant = store.Authenticate("token-a");
         Assert.NotNull(grant);
         Assert.Equal(OpClasses.Names.Count, grant.OpClasses.Count);
-        Assert.Equal(_vaultConfig.Vaults.Count, grant.Vaults.Count);
+        Assert.Equal(_vaultConfig.ConfiguredVaultNames.Count, grant.Vaults.Count);
     }
 
     [Fact]
-    public void Load_MissingTtlThrows()
+    public void Load_MissingTtl_SkipsRow()
     {
-        var json = """{ "token-a": { "id": "admin", "opClasses": ["Read"], "vaults": ["personal"] } }""";
-        var healthState = new ServerHealthState();
-        var store = GrantStore.Load(WriteGrants(json), OpClasses, _vaultConfig, healthState: healthState);
+        var (store, healthState) = LoadRows(
+            """ "token-a": { "id": "admin", "opClasses": ["Read"], "vaults": ["test"], "scopeRoots": { "test": [] } } """,
+            GoodRow);
 
-        AssertFatalAndEmpty(healthState, store);
+        AssertSingleRowSkipped(healthState, store, expectedDetailFragment: "ttl");
     }
 
     [Fact]
-    public void Load_InvalidTtlStringThrows()
+    public void Load_InvalidTtlString_SkipsRow()
     {
-        var json = """{ "token-a": { "id": "admin", "opClasses": ["Read"], "vaults": ["personal"], "ttl": "forever" } }""";
-        var healthState = new ServerHealthState();
-        var store = GrantStore.Load(WriteGrants(json), OpClasses, _vaultConfig, healthState: healthState);
+        var (store, healthState) = LoadRows(
+            """ "token-a": { "id": "admin", "opClasses": ["Read"], "vaults": ["test"], "ttl": "forever", "scopeRoots": { "test": [] } } """,
+            GoodRow);
 
-        AssertFatalAndEmpty(healthState, store);
+        AssertSingleRowSkipped(healthState, store, expectedDetailFragment: "ttl");
     }
 
     [Fact]
-    public void Load_FractionalTtlThrows()
+    public void Load_FractionalTtl_SkipsRow()
     {
-        var json = """{ "token-a": { "id": "admin", "opClasses": ["Read"], "vaults": ["personal"], "ttl": 5.5 } }""";
-        var healthState = new ServerHealthState();
-        var store = GrantStore.Load(WriteGrants(json), OpClasses, _vaultConfig, healthState: healthState);
+        var (store, healthState) = LoadRows(
+            """ "token-a": { "id": "admin", "opClasses": ["Read"], "vaults": ["test"], "ttl": 5.5, "scopeRoots": { "test": [] } } """,
+            GoodRow);
 
-        AssertFatalAndEmpty(healthState, store);
+        AssertSingleRowSkipped(healthState, store, expectedDetailFragment: "ttl");
     }
 
     [Fact]
-    public void Load_NonPositiveTtlThrows()
+    public void Load_NonPositiveTtl_SkipsRow()
     {
-        var json = """{ "token-a": { "id": "admin", "opClasses": ["Read"], "vaults": ["personal"], "ttl": 0 } }""";
-        var healthState = new ServerHealthState();
-        var store = GrantStore.Load(WriteGrants(json), OpClasses, _vaultConfig, healthState: healthState);
+        var (store, healthState) = LoadRows(
+            """ "token-a": { "id": "admin", "opClasses": ["Read"], "vaults": ["test"], "ttl": 0, "scopeRoots": { "test": [] } } """,
+            GoodRow);
 
-        AssertFatalAndEmpty(healthState, store);
+        AssertSingleRowSkipped(healthState, store, expectedDetailFragment: "ttl");
     }
 
     [Fact]
     public void Load_WildcardTtlNeverExpires()
     {
-        var json = """{ "token-a": { "id": "admin", "opClasses": ["Read"], "vaults": ["personal"], "ttl": "*", "scopeRoots": { "personal": [] } } }""";
+        var json = """{ "token-a": { "id": "admin", "opClasses": ["Read"], "vaults": ["test"], "ttl": "*", "scopeRoots": { "test": [] } } }""";
         var store = GrantStore.Load(WriteGrants(json), OpClasses, _vaultConfig, new ServerHealthState());
 
         var grant = store.Authenticate("token-a");
@@ -228,7 +306,7 @@ public sealed class GrantStoreTests(TestVaultFixture fixture) : IClassFixture<Te
     public void Load_NumericTtlComputesExpiryFromLoadTime()
     {
         var loadedAt = new DateTimeOffset(2026, 1, 1, 0, 0, 0, TimeSpan.Zero);
-        var json = """{ "token-a": { "id": "admin", "opClasses": ["Read"], "vaults": ["personal"], "ttl": 30, "scopeRoots": { "personal": [] } } }""";
+        var json = """{ "token-a": { "id": "admin", "opClasses": ["Read"], "vaults": ["test"], "ttl": 30, "scopeRoots": { "test": [] } } }""";
         var store = GrantStore.Load(WriteGrants(json), OpClasses, _vaultConfig, new ServerHealthState(), new FixedTimeProvider(loadedAt));
 
         var grant = store.Authenticate("token-a");
@@ -242,7 +320,7 @@ public sealed class GrantStoreTests(TestVaultFixture fixture) : IClassFixture<Te
         // A grant "loaded" 10 minutes ago with a 1-minute ttl expired 9 minutes ago -
         // deterministic without depending on real elapsed wall-clock time in the test.
         var loadedAt = DateTimeOffset.UtcNow.AddMinutes(-10);
-        var json = """{ "token-a": { "id": "admin", "opClasses": ["Read"], "vaults": ["personal"], "ttl": 1, "scopeRoots": { "personal": [] } } }""";
+        var json = """{ "token-a": { "id": "admin", "opClasses": ["Read"], "vaults": ["test"], "ttl": 1, "scopeRoots": { "test": [] } } }""";
         var store = GrantStore.Load(WriteGrants(json), OpClasses, _vaultConfig, new ServerHealthState(), new FixedTimeProvider(loadedAt));
 
         var grant = store.Authenticate("token-a");
@@ -258,7 +336,7 @@ public sealed class GrantStoreTests(TestVaultFixture fixture) : IClassFixture<Te
         // single source of truth for "is this grant currently usable", so an expired grant
         // must be indistinguishable from an unknown one to this method.
         var timeProvider = new FixedTimeProvider(DateTimeOffset.UtcNow);
-        var json = """{ "token-a": { "id": "admin", "opClasses": ["Read"], "vaults": ["personal"], "ttl": 1, "scopeRoots": { "personal": [] } } }""";
+        var json = """{ "token-a": { "id": "admin", "opClasses": ["Read"], "vaults": ["test"], "ttl": 1, "scopeRoots": { "test": [] } } }""";
         var store = GrantStore.Load(WriteGrants(json), OpClasses, _vaultConfig, new ServerHealthState(), timeProvider);
 
         timeProvider.Now = timeProvider.Now.AddMinutes(10);
@@ -270,7 +348,7 @@ public sealed class GrantStoreTests(TestVaultFixture fixture) : IClassFixture<Te
     public void Authenticate_NotYetExpiredTokenReturnsGrant()
     {
         var timeProvider = new FixedTimeProvider(DateTimeOffset.UtcNow);
-        var json = """{ "token-a": { "id": "admin", "opClasses": ["Read"], "vaults": ["personal"], "ttl": 30, "scopeRoots": { "personal": [] } } }""";
+        var json = """{ "token-a": { "id": "admin", "opClasses": ["Read"], "vaults": ["test"], "ttl": 30, "scopeRoots": { "test": [] } } }""";
         var store = GrantStore.Load(WriteGrants(json), OpClasses, _vaultConfig, new ServerHealthState(), timeProvider);
 
         timeProvider.Now = timeProvider.Now.AddMinutes(5);
@@ -285,7 +363,7 @@ public sealed class GrantStoreTests(TestVaultFixture fixture) : IClassFixture<Te
         // token - it just must never return the grant itself, so it can't be used to authorize
         // a call.
         var timeProvider = new FixedTimeProvider(DateTimeOffset.UtcNow);
-        var json = """{ "token-a": { "id": "admin", "opClasses": ["Read"], "vaults": ["personal"], "ttl": 1, "scopeRoots": { "personal": [] } } }""";
+        var json = """{ "token-a": { "id": "admin", "opClasses": ["Read"], "vaults": ["test"], "ttl": 1, "scopeRoots": { "test": [] } } }""";
         var store = GrantStore.Load(WriteGrants(json), OpClasses, _vaultConfig, new ServerHealthState(), timeProvider);
 
         timeProvider.Now = timeProvider.Now.AddMinutes(10);
@@ -302,158 +380,158 @@ public sealed class GrantStoreTests(TestVaultFixture fixture) : IClassFixture<Te
     }
 
     [Fact]
-    public void Load_MissingScopeRootsFieldThrows()
+    public void Load_MissingScopeRootsField_SkipsRow()
     {
-        var json = """{ "token-a": { "id": "admin", "opClasses": ["Read"], "vaults": ["personal"], "ttl": "*" } }""";
-        var healthState = new ServerHealthState();
-        var store = GrantStore.Load(WriteGrants(json), OpClasses, _vaultConfig, healthState: healthState);
+        var (store, healthState) = LoadRows(
+            """ "token-a": { "id": "admin", "opClasses": ["Read"], "vaults": ["test"], "ttl": "*" } """,
+            GoodRow);
 
-        AssertFatalAndEmpty(healthState, store);
+        AssertSingleRowSkipped(healthState, store, expectedDetailFragment: "scopeRoots");
     }
 
     [Fact]
-    public void Load_ScopeRootsMissingEntryForAVaultInVaultsThrows()
+    public void Load_ScopeRootsMissingEntryForAVaultInVaults_SkipsRow()
     {
-        var json = """{ "token-a": { "id": "admin", "opClasses": ["Read"], "vaults": ["personal", "test"], "ttl": "*", "scopeRoots": { "personal": [] } } }""";
-        var healthState = new ServerHealthState();
-        var store = GrantStore.Load(WriteGrants(json), OpClasses, _vaultConfig, healthState: healthState);
+        var (store, healthState) = LoadRows(
+            """ "token-a": { "id": "admin", "opClasses": ["Read"], "vaults": ["test", "scratch"], "ttl": "*", "scopeRoots": { "test": [] } } """,
+            GoodRow);
 
-        AssertFatalAndEmpty(healthState, store);
+        AssertSingleRowSkipped(healthState, store, expectedDetailFragment: "scopeRoots");
     }
 
     [Fact]
     public void Load_ScopeRootsWildcardKeyGrantsFullAccessToEveryVault()
     {
-        var json = """{ "token-a": { "id": "admin", "opClasses": ["Read"], "vaults": ["personal", "test"], "ttl": "*", "scopeRoots": { "*": ["*"] } } }""";
+        var json = """{ "token-a": { "id": "admin", "opClasses": ["Read"], "vaults": ["test", "scratch"], "ttl": "*", "scopeRoots": { "*": ["*"] } } }""";
         var store = GrantStore.Load(WriteGrants(json), OpClasses, _vaultConfig, new ServerHealthState());
 
         var grant = store.Authenticate("token-a");
         Assert.NotNull(grant);
         Assert.NotNull(grant.ScopeRoots);
-        Assert.True(grant.ScopeRoots.ContainsKey("personal"));
         Assert.True(grant.ScopeRoots.ContainsKey("test"));
-        Assert.Empty(grant.ScopeRoots["personal"]);
+        Assert.True(grant.ScopeRoots.ContainsKey("scratch"));
         Assert.Empty(grant.ScopeRoots["test"]);
+        Assert.Empty(grant.ScopeRoots["scratch"]);
     }
 
     [Fact]
-    public void Load_ScopeRootsWildcardKeyMixedWithExplicitVaultEntryThrows()
+    public void Load_ScopeRootsWildcardKeyMixedWithExplicitVaultEntry_SkipsRow()
     {
-        var json = """{ "token-a": { "id": "admin", "opClasses": ["Read"], "vaults": ["personal"], "ttl": "*", "scopeRoots": { "*": ["*"], "personal": [] } } }""";
-        var healthState = new ServerHealthState();
-        var store = GrantStore.Load(WriteGrants(json), OpClasses, _vaultConfig, healthState: healthState);
+        var (store, healthState) = LoadRows(
+            """ "token-a": { "id": "admin", "opClasses": ["Read"], "vaults": ["test"], "ttl": "*", "scopeRoots": { "*": ["*"], "test": [] } } """,
+            GoodRow);
 
-        AssertFatalAndEmpty(healthState, store);
+        AssertSingleRowSkipped(healthState, store, expectedDetailFragment: "scopeRoots");
     }
 
     [Fact]
-    public void Load_ScopeRootsWildcardKeyWithNonWildcardValueThrows()
+    public void Load_ScopeRootsWildcardKeyWithNonWildcardValue_SkipsRow()
     {
-        var json = """{ "token-a": { "id": "admin", "opClasses": ["Read"], "vaults": ["personal"], "ttl": "*", "scopeRoots": { "*": ["Projects/Widget"] } } }""";
-        var healthState = new ServerHealthState();
-        var store = GrantStore.Load(WriteGrants(json), OpClasses, _vaultConfig, healthState: healthState);
+        var (store, healthState) = LoadRows(
+            """ "token-a": { "id": "admin", "opClasses": ["Read"], "vaults": ["test"], "ttl": "*", "scopeRoots": { "*": ["Projects/Widget"] } } """,
+            GoodRow);
 
-        AssertFatalAndEmpty(healthState, store);
+        AssertSingleRowSkipped(healthState, store, expectedDetailFragment: "scopeRoots");
     }
 
     [Fact]
     public void Load_ScopeRootsVaultWildcardMeansThatVaultIsUnscoped()
     {
-        var json = """{ "token-a": { "id": "admin", "opClasses": ["Read"], "vaults": ["personal"], "ttl": "*", "scopeRoots": { "personal": ["*"] } } }""";
+        var json = """{ "token-a": { "id": "admin", "opClasses": ["Read"], "vaults": ["test"], "ttl": "*", "scopeRoots": { "test": ["*"] } } }""";
         var store = GrantStore.Load(WriteGrants(json), OpClasses, _vaultConfig, new ServerHealthState());
 
         var grant = store.Authenticate("token-a");
         Assert.NotNull(grant);
         Assert.NotNull(grant.ScopeRoots);
-        Assert.True(grant.ScopeRoots.ContainsKey("personal"));
-        Assert.Empty(grant.ScopeRoots["personal"]);
+        Assert.True(grant.ScopeRoots.ContainsKey("test"));
+        Assert.Empty(grant.ScopeRoots["test"]);
     }
 
     [Fact]
     public void Load_ScopeRootsCanonicalizesEntries()
     {
-        var json = """{ "token-a": { "id": "admin", "opClasses": ["Read"], "vaults": ["personal"], "ttl": "*", "scopeRoots": { "personal": ["Projects\\Widget", "Areas/./Homelab"] } } }""";
+        var json = """{ "token-a": { "id": "admin", "opClasses": ["Read"], "vaults": ["test"], "ttl": "*", "scopeRoots": { "test": ["Projects\\Widget", "Areas/./Homelab"] } } }""";
         var store = GrantStore.Load(WriteGrants(json), OpClasses, _vaultConfig, new ServerHealthState());
 
         var grant = store.Authenticate("token-a");
         Assert.NotNull(grant);
         Assert.NotNull(grant.ScopeRoots);
-        Assert.Equal(new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "Projects/Widget", "Areas/Homelab" }, grant.ScopeRoots["personal"]);
+        Assert.Equal(new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "Projects/Widget", "Areas/Homelab" }, grant.ScopeRoots["test"]);
     }
 
     [Fact]
-    public void Load_ScopeRootsRootedEntryThrows()
+    public void Load_ScopeRootsRootedEntry_SkipsRow()
     {
-        var json = """{ "token-a": { "id": "admin", "opClasses": ["Read"], "vaults": ["personal"], "ttl": "*", "scopeRoots": { "personal": ["C:/Windows"] } } }""";
-        var healthState = new ServerHealthState();
-        var store = GrantStore.Load(WriteGrants(json), OpClasses, _vaultConfig, healthState: healthState);
+        var (store, healthState) = LoadRows(
+            """ "token-a": { "id": "admin", "opClasses": ["Read"], "vaults": ["test"], "ttl": "*", "scopeRoots": { "test": ["C:/Windows"] } } """,
+            GoodRow);
 
-        AssertFatalAndEmpty(healthState, store);
+        AssertSingleRowSkipped(healthState, store, expectedDetailFragment: "scopeRoots");
     }
 
     [Fact]
-    public void Load_ScopeRootsEscapingEntryThrows()
+    public void Load_ScopeRootsEscapingEntry_SkipsRow()
     {
-        var json = """{ "token-a": { "id": "admin", "opClasses": ["Read"], "vaults": ["personal"], "ttl": "*", "scopeRoots": { "personal": ["../outside"] } } }""";
-        var healthState = new ServerHealthState();
-        var store = GrantStore.Load(WriteGrants(json), OpClasses, _vaultConfig, healthState: healthState);
+        var (store, healthState) = LoadRows(
+            """ "token-a": { "id": "admin", "opClasses": ["Read"], "vaults": ["test"], "ttl": "*", "scopeRoots": { "test": ["../outside"] } } """,
+            GoodRow);
 
-        AssertFatalAndEmpty(healthState, store);
+        AssertSingleRowSkipped(healthState, store, expectedDetailFragment: "scopeRoots");
     }
 
     [Fact]
-    public void Load_ScopeRootsEmptyEntryThrows()
+    public void Load_ScopeRootsEmptyEntry_SkipsRow()
     {
-        var json = """{ "token-a": { "id": "admin", "opClasses": ["Read"], "vaults": ["personal"], "ttl": "*", "scopeRoots": { "personal": [""] } } }""";
-        var healthState = new ServerHealthState();
-        var store = GrantStore.Load(WriteGrants(json), OpClasses, _vaultConfig, healthState: healthState);
+        var (store, healthState) = LoadRows(
+            """ "token-a": { "id": "admin", "opClasses": ["Read"], "vaults": ["test"], "ttl": "*", "scopeRoots": { "test": [""] } } """,
+            GoodRow);
 
-        AssertFatalAndEmpty(healthState, store);
+        AssertSingleRowSkipped(healthState, store, expectedDetailFragment: "scopeRoots");
     }
 
     [Fact]
-    public void Load_ScopeRootsNotAnObjectThrows()
+    public void Load_ScopeRootsNotAnObject_SkipsRow()
     {
-        var json = """{ "token-a": { "id": "admin", "opClasses": ["Read"], "vaults": ["personal"], "ttl": "*", "scopeRoots": ["Projects/Widget"] } }""";
-        var healthState = new ServerHealthState();
-        var store = GrantStore.Load(WriteGrants(json), OpClasses, _vaultConfig, healthState: healthState);
+        var (store, healthState) = LoadRows(
+            """ "token-a": { "id": "admin", "opClasses": ["Read"], "vaults": ["test"], "ttl": "*", "scopeRoots": ["Projects/Widget"] } """,
+            GoodRow);
 
-        AssertFatalAndEmpty(healthState, store);
+        AssertSingleRowSkipped(healthState, store, expectedDetailFragment: "scopeRoots");
     }
 
     [Fact]
-    public void Load_ScopeRootsVaultEntryNotAnArrayThrows()
+    public void Load_ScopeRootsVaultEntryNotAnArray_SkipsRow()
     {
-        var json = """{ "token-a": { "id": "admin", "opClasses": ["Read"], "vaults": ["personal"], "ttl": "*", "scopeRoots": { "personal": "Projects/Widget" } } }""";
-        var healthState = new ServerHealthState();
-        var store = GrantStore.Load(WriteGrants(json), OpClasses, _vaultConfig, healthState: healthState);
+        var (store, healthState) = LoadRows(
+            """ "token-a": { "id": "admin", "opClasses": ["Read"], "vaults": ["test"], "ttl": "*", "scopeRoots": { "test": "Projects/Widget" } } """,
+            GoodRow);
 
-        AssertFatalAndEmpty(healthState, store);
+        AssertSingleRowSkipped(healthState, store, expectedDetailFragment: "scopeRoots");
     }
 
     [Fact]
-    public void Load_ScopeRootsVaultNotInGrantsVaultsThrows()
+    public void Load_ScopeRootsVaultNotInGrantsVaults_SkipsRow()
     {
-        var json = """{ "token-a": { "id": "admin", "opClasses": ["Read"], "vaults": ["personal"], "ttl": "*", "scopeRoots": { "test": ["Projects/Widget"] } } }""";
-        var healthState = new ServerHealthState();
-        var store = GrantStore.Load(WriteGrants(json), OpClasses, _vaultConfig, healthState: healthState);
+        var (store, healthState) = LoadRows(
+            """ "token-a": { "id": "admin", "opClasses": ["Read"], "vaults": ["test"], "ttl": "*", "scopeRoots": { "scratch": ["Projects/Widget"] } } """,
+            GoodRow);
 
-        AssertFatalAndEmpty(healthState, store);
+        AssertSingleRowSkipped(healthState, store, expectedDetailFragment: "scopeRoots");
     }
 
     [Fact]
     public void Load_ScopeRootsMultiVaultKeepsEachVaultsRootsSeparate()
     {
-        var json = """{ "token-a": { "id": "admin", "opClasses": ["Read"], "vaults": ["personal", "test"], "ttl": "*", "scopeRoots": { "personal": ["Area"], "test": [] } } }""";
+        var json = """{ "token-a": { "id": "admin", "opClasses": ["Read"], "vaults": ["test", "scratch"], "ttl": "*", "scopeRoots": { "test": ["Area"], "scratch": [] } } }""";
         var store = GrantStore.Load(WriteGrants(json), OpClasses, _vaultConfig, new ServerHealthState());
 
         var grant = store.Authenticate("token-a");
         Assert.NotNull(grant);
         Assert.NotNull(grant.ScopeRoots);
-        Assert.True(grant.ScopeRoots.ContainsKey("personal"));
         Assert.True(grant.ScopeRoots.ContainsKey("test"));
-        Assert.Equal(new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "Area" }, grant.ScopeRoots["personal"]);
-        Assert.Empty(grant.ScopeRoots["test"]);
+        Assert.True(grant.ScopeRoots.ContainsKey("scratch"));
+        Assert.Equal(new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "Area" }, grant.ScopeRoots["test"]);
+        Assert.Empty(grant.ScopeRoots["scratch"]);
     }
 
     [Fact]
@@ -481,12 +559,12 @@ public sealed class GrantStoreTests(TestVaultFixture fixture) : IClassFixture<Te
     public void Mint_DoesNotAffectFileLoadedGrants()
     {
         var store = GrantStore.Load(WriteGrants(TwoGrants), OpClasses, _vaultConfig, new ServerHealthState());
-        store.Mint("minted-1", new HashSet<string> { OpClass.Read }, new HashSet<string> { "test" }, ScopeRoots(("test", "")), ttlMinutes: 30);
+        store.Mint("minted-1", new HashSet<string> { OpClass.Read }, new HashSet<string> { "scratch" }, ScopeRoots(("scratch", "")), ttlMinutes: 30);
 
         var admin = store.Authenticate("admin-token");
         Assert.NotNull(admin);
         Assert.NotNull(admin.ScopeRoots);
-        Assert.Equal(new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "personal" }, admin.ScopeRoots.Keys.ToHashSet(StringComparer.OrdinalIgnoreCase));
+        Assert.Equal(new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "test" }, admin.ScopeRoots.Keys.ToHashSet(StringComparer.OrdinalIgnoreCase));
     }
 
     [Fact]
@@ -535,12 +613,11 @@ public sealed class GrantStoreTests(TestVaultFixture fixture) : IClassFixture<Te
             store.Mint("minted-1", new HashSet<string> { OpClass.Read }, new HashSet<string> { "test" }, ScopeRoots(("test", "")), ttlMinutes: 0));
     }
 
-    /// <summary>Shared assertion for every whole-file-failure case above: the load no
-    /// longer throws - it records a Fatal problem from source "GrantStore" and returns an
-    /// inert store nobody can authenticate against. Per-row validation failures still fail
-    /// the whole file in this batch (see <see cref="GrantStore"/>'s remarks), so this covers
-    /// both a structurally-broken grants.json and a single bad row within an otherwise
-    /// valid one.</summary>
+    /// <summary>Shared assertion for the remaining whole-file-failure cases (missing file,
+    /// structurally-empty table): the load records a Fatal problem from source "GrantStore"
+    /// and returns an inert store nobody can authenticate against. Per-row validation
+    /// failures no longer land here - they skip just their row; see
+    /// <see cref="AssertSingleRowSkipped"/>.</summary>
     private static void AssertFatalAndEmpty(ServerHealthState healthState, GrantStore store)
     {
         Assert.True(healthState.IsFatallyDegraded);
@@ -551,6 +628,40 @@ public sealed class GrantStoreTests(TestVaultFixture fixture) : IClassFixture<Te
 
         Assert.Null(store.Authenticate("admin-token"));
         Assert.Null(store.Authenticate("readonly-token"));
+    }
+
+    /// <summary>Shared assertion for every row-level skip case: exactly one Degraded problem
+    /// from source "GrantStore" (never Fatal - the server stays fully operational), the bad
+    /// "token-a" row does not authenticate, and the known-good row loaded normally.</summary>
+    private static void AssertSingleRowSkipped(ServerHealthState healthState, GrantStore store, string? expectedDetailFragment = null)
+    {
+        Assert.False(healthState.IsFatallyDegraded);
+        var problem = Assert.Single(healthState.Problems);
+        Assert.Equal(ProblemSeverity.Degraded, problem.Severity);
+        Assert.Equal("GrantStore", problem.Source);
+        Assert.NotEmpty(problem.Detail);
+        if (expectedDetailFragment is not null)
+            Assert.Contains(expectedDetailFragment, problem.Detail);
+
+        Assert.NotNull(store.Authenticate("good-token"));
+    }
+
+    /// <summary>Loads a VaultConfig with a healthy vault "ok" (also the default) and a vault "broken" whose root does not exist - the per-entry-skip shape the skipped-vault grant tests need.</summary>
+    private VaultConfig LoadConfigWithBrokenVault()
+    {
+        var configPath = Path.Combine(_tempDir, "vaults.json");
+        File.WriteAllText(configPath, System.Text.Json.JsonSerializer.Serialize(new
+        {
+            default_vault = "ok",
+            vaults = new Dictionary<string, string>
+            {
+                ["ok"] = _tempDir,
+                ["broken"] = Path.Combine(_tempDir, "no-such-vault-root"),
+            },
+        }));
+        var config = VaultConfig.Load(configPath, new ServerHealthState());
+        Assert.Single(config.SkippedVaults);
+        return config;
     }
 
     /// <summary>Builds the per-vault <see cref="Grant.ScopeRoots"/> dictionary shape from (vault, subtree) pairs, grouping subtrees under their vault key.</summary>

@@ -48,12 +48,13 @@ public sealed class ScriptToolsWatcherTests : IDisposable, IClassFixture<ScriptT
 
     public void Dispose() => Directory.Delete(_tempDir, recursive: true);
 
-    private (ScriptToolRegistry Registry, ScriptToolDispatcher Dispatcher) MakeRegistryAndDispatcher(string toolsDir)
+    private (ScriptToolRegistry Registry, ScriptToolDispatcher Dispatcher, ServerHealthState HealthState) MakeRegistryAndDispatcher(string toolsDir)
     {
-        var registry = new ScriptToolRegistry(toolsDir, OpClasses);
+        var healthState = new ServerHealthState();
+        var registry = new ScriptToolRegistry(toolsDir, OpClasses, healthState);
         var dispatcher = new ScriptToolDispatcher(registry, new NativeToolRegistry([]), _runner, new HttpContextAccessor());
         dispatcher.AttachLogger(NullLogger<ScriptToolDispatcher>.Instance);
-        return (registry, dispatcher);
+        return (registry, dispatcher, healthState);
     }
 
     private static async Task WaitUntilAsync(Func<bool> condition, TimeSpan timeout)
@@ -71,7 +72,7 @@ public sealed class ScriptToolsWatcherTests : IDisposable, IClassFixture<ScriptT
     [Fact]
     public async Task AddingScript_RefreshesRegistryAndNotifies()
     {
-        var (registry, dispatcher) = MakeRegistryAndDispatcher(_tempDir);
+        var (registry, dispatcher, _) = MakeRegistryAndDispatcher(_tempDir);
         using var watcher = new ScriptToolsWatcher(_tempDir, registry, dispatcher, NullLogger<ScriptToolsWatcher>.Instance);
         Assert.Empty(registry.Tools);
 
@@ -87,7 +88,7 @@ public sealed class ScriptToolsWatcherTests : IDisposable, IClassFixture<ScriptT
     {
         var scriptPath = Path.Combine(_tempDir, "greet.ps1");
         await File.WriteAllTextAsync(scriptPath, ValidScript);
-        var (registry, dispatcher) = MakeRegistryAndDispatcher(_tempDir);
+        var (registry, dispatcher, _) = MakeRegistryAndDispatcher(_tempDir);
         using var watcher = new ScriptToolsWatcher(_tempDir, registry, dispatcher, NullLogger<ScriptToolsWatcher>.Instance);
         Assert.Equal("Greets someone.", registry.Tools[0].Description);
 
@@ -97,11 +98,42 @@ public sealed class ScriptToolsWatcherTests : IDisposable, IClassFixture<ScriptT
     }
 
     [Fact]
+    public async Task BreakingThenFixingScript_ReplacesTheRecordedProblemSetAtRuntime()
+    {
+        // End-to-end through the watcher: a script broken by an edit shows up as a Degraded
+        // ScriptTools problem after the triggered re-scan (while the rest of the folder
+        // keeps its tools), and fixing it clears the problem on the next re-scan - the
+        // replaceable-per-source behavior the health_check batch will consume.
+        var scriptPath = Path.Combine(_tempDir, "greet.ps1");
+        await File.WriteAllTextAsync(scriptPath, ValidScript);
+        await File.WriteAllTextAsync(Path.Combine(_tempDir, "other.ps1"), ValidScript);
+        var (registry, dispatcher, healthState) = MakeRegistryAndDispatcher(_tempDir);
+        using var watcher = new ScriptToolsWatcher(_tempDir, registry, dispatcher, NullLogger<ScriptToolsWatcher>.Instance);
+        Assert.Equal(2, registry.Tools.Count);
+        Assert.Empty(healthState.Problems);
+
+        await File.WriteAllTextAsync(scriptPath, "param([string]$X)\nWrite-Output $X\n");
+
+        await WaitUntilAsync(() => healthState.Problems.Count == 1, TimeSpan.FromSeconds(5));
+        Assert.False(healthState.IsFatallyDegraded);
+        var problem = Assert.Single(healthState.Problems);
+        Assert.Equal(ProblemSeverity.Degraded, problem.Severity);
+        Assert.Equal(ScriptToolLoader.HealthSource, problem.Source);
+        Assert.Contains("greet.ps1", problem.Detail);
+        Assert.Equal("other", Assert.Single(registry.Tools).Name);
+
+        await File.WriteAllTextAsync(scriptPath, ValidScript);
+
+        await WaitUntilAsync(() => healthState.Problems.Count == 0, TimeSpan.FromSeconds(5));
+        Assert.Equal(2, registry.Tools.Count);
+    }
+
+    [Fact]
     public async Task DeletingScript_RefreshesRegistryToEmpty()
     {
         var scriptPath = Path.Combine(_tempDir, "greet.ps1");
         await File.WriteAllTextAsync(scriptPath, ValidScript);
-        var (registry, dispatcher) = MakeRegistryAndDispatcher(_tempDir);
+        var (registry, dispatcher, _) = MakeRegistryAndDispatcher(_tempDir);
         using var watcher = new ScriptToolsWatcher(_tempDir, registry, dispatcher, NullLogger<ScriptToolsWatcher>.Instance);
         Assert.Single(registry.Tools);
 
@@ -113,7 +145,7 @@ public sealed class ScriptToolsWatcherTests : IDisposable, IClassFixture<ScriptT
     [Fact]
     public async Task RapidSuccessiveWrites_DebounceToASingleRefresh()
     {
-        var (registry, dispatcher) = MakeRegistryAndDispatcher(_tempDir);
+        var (registry, dispatcher, _) = MakeRegistryAndDispatcher(_tempDir);
         using var watcher = new ScriptToolsWatcher(_tempDir, registry, dispatcher, NullLogger<ScriptToolsWatcher>.Instance);
         var scriptPath = Path.Combine(_tempDir, "greet.ps1");
 
@@ -134,7 +166,7 @@ public sealed class ScriptToolsWatcherTests : IDisposable, IClassFixture<ScriptT
     public void MissingToolsDirectory_DoesNotThrowAndStaysEmpty()
     {
         var missingDir = Path.Combine(_tempDir, "no-such-dir");
-        var (registry, dispatcher) = MakeRegistryAndDispatcher(missingDir);
+        var (registry, dispatcher, _) = MakeRegistryAndDispatcher(missingDir);
 
         using var watcher = new ScriptToolsWatcher(missingDir, registry, dispatcher, NullLogger<ScriptToolsWatcher>.Instance);
 
@@ -144,7 +176,7 @@ public sealed class ScriptToolsWatcherTests : IDisposable, IClassFixture<ScriptT
     [Fact]
     public async Task Dispose_StopsWatchingFurtherChanges()
     {
-        var (registry, dispatcher) = MakeRegistryAndDispatcher(_tempDir);
+        var (registry, dispatcher, _) = MakeRegistryAndDispatcher(_tempDir);
         var watcher = new ScriptToolsWatcher(_tempDir, registry, dispatcher, NullLogger<ScriptToolsWatcher>.Instance);
         watcher.Dispose();
 

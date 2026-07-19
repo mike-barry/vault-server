@@ -6,10 +6,11 @@ namespace VaultMcpServer.Health;
 public enum ProblemSeverity
 {
     /// <summary>A per-entry skip - one grants.json row, one vaults.json entry, one tool
-    /// script - that doesn't affect the rest of that file. Nothing consumes this severity
-    /// yet in this batch (no loader downgrades a validation failure to per-entry-skip
-    /// here); the recording API exists now so a later batch can start using it without
-    /// another surface change.</summary>
+    /// script - that doesn't affect the rest of that file. Recorded either append-only
+    /// (<see cref="ServerHealthState.RecordDegraded"/>, for startup-only loads that never
+    /// re-run) or as a replaceable per-source set
+    /// (<see cref="ServerHealthState.ReplaceDegraded"/>, for sources that re-scan at
+    /// runtime and must be able to clear a fixed problem).</summary>
     Degraded,
 
     /// <summary>Whole-file failure of vaults.json, grants.json, or op-classes.json - the
@@ -24,36 +25,72 @@ public enum ProblemSeverity
 public sealed record HealthProblem(ProblemSeverity Severity, string Source, string Detail, DateTimeOffset RecordedAtUtc);
 
 /// <summary>
-/// Process-wide record of config problems found at startup (and, in a later batch, by a
-/// file-watcher thread) - the server's replacement for hard-stopping on bad config. A
+/// Process-wide record of config problems found at startup and by runtime re-scans (the
+/// tools/ file watcher) - the server's replacement for hard-stopping on bad config. A
 /// config loader that would previously have thrown now calls <see cref="RecordFatal"/> or
 /// <see cref="RecordDegraded"/> instead and returns an inert/empty instance, so the process
 /// always starts; <see cref="BearerGrantMiddleware"/> consults <see cref="IsFatallyDegraded"/>
 /// to short-circuit every request with 503 while any fatal problem is outstanding.
 ///
-/// Recording can happen at startup (the main thread, before the DI container exists) and
-/// later from a file-watcher thread (a later batch), so the backing collection is
-/// thread-safe and lock-free for both appends and enumeration.
+/// Two backing collections, matching the two lifetimes a problem can have:
+/// <list type="bullet">
+/// <item>An append-only queue for startup-load problems (<see cref="RecordFatal"/> /
+/// <see cref="RecordDegraded"/>). vaults.json, op-classes.json, and grants.json load
+/// exactly once per process, so their problems never need to be retracted.</item>
+/// <item>A keyed, replaceable per-source set (<see cref="ReplaceDegraded"/>) for sources
+/// that re-scan at runtime - today the script-tool loader, whose per-script problems are
+/// recomputed on every tools/ re-scan: a fixed script must stop appearing as a problem and
+/// a newly-broken one must appear, which an append-only queue cannot express. Replaceable
+/// sets are Degraded-only by construction, so they can never influence
+/// <see cref="IsFatallyDegraded"/>.</item>
+/// </list>
+/// <see cref="Problems"/> returns the coherent current picture across both - the view a
+/// later batch renders into the health_check tool response and initialize instructions.
 ///
-/// Deliberately just a recording/enumeration surface for now - no cached summary string.
-/// A later batch renders <see cref="Problems"/> into the health_check tool response and the
-/// initialize instructions text; <see cref="Problems"/> returning a stable, iterable
-/// snapshot is what that summary will be built from, so adding it later doesn't need
-/// another change here.
+/// Recording can happen at startup (the main thread, before the DI container exists) and
+/// from the tools/ file-watcher thread, so both collections are thread-safe.
+///
+/// Problems recorded before the host is built are flushed to the logger once by
+/// <c>Program.cs</c>; problems recorded after <see cref="AttachLogger"/> has been called
+/// (runtime re-scans) are logged as they are recorded, so nothing depends on a second
+/// flush pass.
 /// </summary>
 public sealed class ServerHealthState(TimeProvider? timeProvider = null)
 {
     private readonly TimeProvider _timeProvider = timeProvider ?? TimeProvider.System;
     private readonly ConcurrentQueue<HealthProblem> _problems = new();
+    private readonly ConcurrentDictionary<string, HealthProblem[]> _currentBySource = new(StringComparer.Ordinal);
     private int _fatalCount;
+    private volatile ILogger? _logger;
 
     /// <summary>True once at least one <see cref="ProblemSeverity.Fatal"/> problem has been
     /// recorded. Read with <see cref="Volatile.Read(ref int)"/> so it observes a concurrent
-    /// <see cref="RecordFatal"/> from another thread without needing a lock.</summary>
+    /// <see cref="RecordFatal"/> from another thread without needing a lock. Replaceable
+    /// per-source sets (<see cref="ReplaceDegraded"/>) never contribute - they are
+    /// Degraded-only.</summary>
     public bool IsFatallyDegraded => Volatile.Read(ref _fatalCount) > 0;
 
-    /// <summary>A point-in-time snapshot of every problem recorded so far, oldest first.</summary>
-    public IReadOnlyCollection<HealthProblem> Problems => _problems.ToArray();
+    /// <summary>
+    /// A point-in-time snapshot of the current problem picture: every append-only startup
+    /// problem (oldest first), followed by each replaceable source's <em>current</em>
+    /// problem set (sources in ordinal order). A source whose last
+    /// <see cref="ReplaceDegraded"/> call passed an empty set contributes nothing - its
+    /// earlier problems are gone from this view, which is the point of the replaceable
+    /// bucket.
+    /// </summary>
+    public IReadOnlyCollection<HealthProblem> Problems =>
+        _problems
+            .ToArray()
+            .Concat(_currentBySource.OrderBy(kv => kv.Key, StringComparer.Ordinal).SelectMany(kv => kv.Value))
+            .ToArray();
+
+    /// <summary>
+    /// Hooks up runtime logging once the host (and therefore an <see cref="ILogger"/>) exists.
+    /// <c>Program.cs</c> calls this immediately <em>after</em> flushing the startup-recorded
+    /// problems, so everything recorded before this call is logged exactly once by the flush
+    /// and everything recorded after (watcher re-scans) is logged here at record time.
+    /// </summary>
+    public void AttachLogger(ILogger logger) => _logger = logger;
 
     /// <summary>Records a whole-file failure. <paramref name="source"/> identifies the
     /// subsystem (e.g. "VaultConfig", "OpClassRegistry", "GrantStore"); <paramref name="detail"/>
@@ -63,10 +100,42 @@ public sealed class ServerHealthState(TimeProvider? timeProvider = null)
     {
         _problems.Enqueue(new HealthProblem(ProblemSeverity.Fatal, source, detail, _timeProvider.GetUtcNow()));
         Interlocked.Increment(ref _fatalCount);
+        _logger?.LogError("Config problem [Fatal] {Source}: {Detail}", source, detail);
     }
 
-    /// <summary>Records a per-entry skip that doesn't invalidate the rest of the file it
-    /// came from. Not yet called by any loader in this batch - see the type doc.</summary>
-    public void RecordDegraded(string source, string detail) =>
+    /// <summary>Records a per-entry skip that doesn't invalidate the rest of the file it came
+    /// from, append-only - for startup-only loads (vaults.json entries, grants.json rows)
+    /// that never re-run within a process lifetime. A source that re-scans at runtime should
+    /// use <see cref="ReplaceDegraded"/> instead, so a later scan can retract a fixed
+    /// problem.</summary>
+    public void RecordDegraded(string source, string detail)
+    {
         _problems.Enqueue(new HealthProblem(ProblemSeverity.Degraded, source, detail, _timeProvider.GetUtcNow()));
+        _logger?.LogWarning("Config problem [Degraded] {Source}: {Detail}", source, detail);
+    }
+
+    /// <summary>
+    /// Replaces <paramref name="source"/>'s current Degraded problem set wholesale - the
+    /// recording surface for anything recomputed by a runtime re-scan (today: per-script
+    /// problems from the tools/ loader). Passing an empty <paramref name="details"/> clears
+    /// the source's problems from <see cref="Problems"/> entirely - a re-scan that found
+    /// nothing wrong retracts whatever the previous scan reported. Always Degraded severity:
+    /// a replaceable problem can never be Fatal, so <see cref="IsFatallyDegraded"/> is
+    /// unaffected by construction.
+    /// </summary>
+    public void ReplaceDegraded(string source, IReadOnlyList<string> details)
+    {
+        var now = _timeProvider.GetUtcNow();
+        var replacement = details.Select(d => new HealthProblem(ProblemSeverity.Degraded, source, d, now)).ToArray();
+        var hadProblems = _currentBySource.TryGetValue(source, out var previous) && previous.Length > 0;
+        _currentBySource[source] = replacement;
+
+        var logger = _logger;
+        if (logger is null)
+            return;
+        foreach (var problem in replacement)
+            logger.LogWarning("Config problem [Degraded] {Source}: {Detail}", problem.Source, problem.Detail);
+        if (replacement.Length == 0 && hadProblems)
+            logger.LogInformation("All {Source} problems cleared by a re-scan.", source);
+    }
 }

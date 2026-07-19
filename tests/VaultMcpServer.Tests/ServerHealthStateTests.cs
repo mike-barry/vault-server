@@ -1,3 +1,4 @@
+using Microsoft.Extensions.Logging;
 using VaultMcpServer.Health;
 
 namespace VaultMcpServer.Tests;
@@ -82,6 +83,123 @@ public sealed class ServerHealthStateTests
 
         Assert.True(healthState.IsFatallyDegraded);
         Assert.Equal(2, healthState.Problems.Count);
+    }
+
+    [Fact]
+    public void ReplaceDegraded_ProblemsAppearInProblemsView()
+    {
+        var healthState = new ServerHealthState();
+
+        healthState.ReplaceDegraded("ScriptTools", ["script a is broken", "script b is broken"]);
+
+        Assert.False(healthState.IsFatallyDegraded);
+        Assert.Equal(2, healthState.Problems.Count);
+        Assert.All(healthState.Problems, p =>
+        {
+            Assert.Equal(ProblemSeverity.Degraded, p.Severity);
+            Assert.Equal("ScriptTools", p.Source);
+        });
+    }
+
+    [Fact]
+    public void ReplaceDegraded_SecondCallReplacesNotAppends()
+    {
+        var healthState = new ServerHealthState();
+        healthState.ReplaceDegraded("ScriptTools", ["script a is broken"]);
+
+        healthState.ReplaceDegraded("ScriptTools", ["script b is broken"]);
+
+        var problem = Assert.Single(healthState.Problems);
+        Assert.Equal("script b is broken", problem.Detail);
+    }
+
+    [Fact]
+    public void ReplaceDegraded_EmptySetClearsTheSourcesProblems()
+    {
+        var healthState = new ServerHealthState();
+        healthState.ReplaceDegraded("ScriptTools", ["script a is broken"]);
+        Assert.Single(healthState.Problems);
+
+        healthState.ReplaceDegraded("ScriptTools", []);
+
+        Assert.Empty(healthState.Problems);
+    }
+
+    [Fact]
+    public void ReplaceDegraded_DoesNotDisturbOtherSourcesOrTheAppendOnlyQueue()
+    {
+        var healthState = new ServerHealthState();
+        healthState.RecordDegraded("GrantStore", "a skipped row");
+        healthState.RecordFatal("VaultConfig", "a whole-file failure");
+        healthState.ReplaceDegraded("ScriptTools", ["script a is broken"]);
+        healthState.ReplaceDegraded("OtherSource", ["other problem"]);
+
+        healthState.ReplaceDegraded("ScriptTools", []);
+
+        Assert.True(healthState.IsFatallyDegraded);
+        Assert.Equal(3, healthState.Problems.Count);
+        Assert.DoesNotContain(healthState.Problems, p => p.Source == "ScriptTools");
+        Assert.Contains(healthState.Problems, p => p.Source == "OtherSource");
+        Assert.Contains(healthState.Problems, p => p.Source == "GrantStore");
+        Assert.Contains(healthState.Problems, p => p.Source == "VaultConfig");
+    }
+
+    [Fact]
+    public void ReplaceDegraded_NeverAffectsIsFatallyDegraded()
+    {
+        var healthState = new ServerHealthState();
+
+        healthState.ReplaceDegraded("ScriptTools", ["one", "two", "three"]);
+
+        Assert.False(healthState.IsFatallyDegraded);
+    }
+
+    [Fact]
+    public void AttachLogger_ProblemsRecordedAfterAttachAreLogged()
+    {
+        // The runtime-logging path: Program.cs flushes startup problems itself, then attaches
+        // the logger; anything recorded after that (watcher re-scans) must reach ILogger at
+        // record time.
+        var healthState = new ServerHealthState();
+        healthState.RecordDegraded("GrantStore", "recorded before attach - flushed by Program.cs, not by us");
+        var logger = new CapturingLogger();
+
+        healthState.AttachLogger(logger);
+        Assert.Empty(logger.Entries);
+
+        healthState.ReplaceDegraded("ScriptTools", ["script a is broken"]);
+        healthState.RecordDegraded("SomeSource", "a runtime skip");
+        healthState.RecordFatal("SomeSource", "a runtime fatal");
+
+        Assert.Equal(3, logger.Entries.Count);
+        Assert.Contains(logger.Entries, e => e.Level == LogLevel.Warning && e.Message.Contains("script a is broken"));
+        Assert.Contains(logger.Entries, e => e.Level == LogLevel.Warning && e.Message.Contains("a runtime skip"));
+        Assert.Contains(logger.Entries, e => e.Level == LogLevel.Error && e.Message.Contains("a runtime fatal"));
+    }
+
+    [Fact]
+    public void AttachLogger_ClearingAProblemSetLogsTheClear()
+    {
+        var healthState = new ServerHealthState();
+        healthState.ReplaceDegraded("ScriptTools", ["script a is broken"]);
+        var logger = new CapturingLogger();
+        healthState.AttachLogger(logger);
+
+        healthState.ReplaceDegraded("ScriptTools", []);
+
+        var entry = Assert.Single(logger.Entries);
+        Assert.Equal(LogLevel.Information, entry.Level);
+        Assert.Contains("ScriptTools", entry.Message);
+    }
+
+    private sealed class CapturingLogger : ILogger
+    {
+        public List<(LogLevel Level, string Message)> Entries { get; } = [];
+
+        public IDisposable? BeginScope<TState>(TState state) where TState : notnull => null;
+        public bool IsEnabled(LogLevel logLevel) => true;
+        public void Log<TState>(LogLevel logLevel, EventId eventId, TState state, Exception? exception, Func<TState, Exception?, string> formatter) =>
+            Entries.Add((logLevel, formatter(state, exception)));
     }
 
     /// <summary>

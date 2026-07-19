@@ -64,7 +64,7 @@ builder.Services.AddSingleton(grantStore);
 var toolsDir = Path.GetFullPath(Path.Combine(
     builder.Environment.ContentRootPath,
     builder.Configuration["ToolsDirectory"] ?? "../../tools"));
-var scriptToolRegistry = new ScriptToolRegistry(toolsDir, opClassRegistry);
+var scriptToolRegistry = new ScriptToolRegistry(toolsDir, opClassRegistry, healthState);
 builder.Services.AddSingleton(scriptToolRegistry);
 
 var scriptToolRunner = new ScriptToolRunner();
@@ -115,6 +115,11 @@ foreach (var problem in healthState.Problems)
 }
 if (healthState.IsFatallyDegraded)
     app.Logger.LogError("Server is fatally degraded - every request will be rejected with 503 until this is fixed and the server is restarted.");
+
+// From here on, problems recorded at runtime (the tools/ watcher's re-scans replacing the
+// ScriptTools problem set) log themselves at record time - attached only AFTER the flush
+// above so nothing recorded during startup is logged twice.
+healthState.AttachLogger(app.Logger);
 
 app.Logger.LogInformation("Op classes loaded from {Path}: {OpClasses}", opClassesConfigPath, string.Join(", ", opClassRegistry.Names));
 app.Logger.LogInformation(

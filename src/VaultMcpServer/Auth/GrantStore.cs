@@ -23,6 +23,12 @@ public enum AuthFailureReason
 /// clear; authentication compares hashes with <see cref="CryptographicOperations.FixedTimeEquals"/>
 /// against every row, with no early exit, so lookup time does not leak which row (if any)
 /// matched.
+///
+/// Row-level validation failures (bad ttl, bad/missing scopeRoots, unknown opClass,
+/// unknown vault, duplicate id, ...) skip just that row - recorded as a Degraded problem
+/// naming the grant - while every other row loads normally. Only whole-file failures
+/// (missing file, unparseable JSON, wrong root shape, an entirely empty grant table)
+/// remain Fatal.
 /// </summary>
 public sealed class GrantStore
 {
@@ -50,18 +56,18 @@ public sealed class GrantStore
     /// <see cref="Load"/> and directly by <c>Program.cs</c> to skip a real grants.json
     /// parse entirely when an upstream <see cref="OpClassRegistry"/>/<see cref="VaultConfig"/>
     /// load has already gone fatal - validating real grant rows (vaults/opClasses) against
-    /// an empty upstream registry would otherwise fail every row and pile a second,
-    /// confusing "unknown opClass"/"unknown vault" fatal on top of the real root cause.
+    /// an empty upstream registry would otherwise fail every row and pile a stack of
+    /// confusing "unknown opClass"/"unknown vault" skips on top of the real root cause.
     /// </summary>
     public static GrantStore Empty(TimeProvider? timeProvider = null) => new([], timeProvider ?? TimeProvider.System);
 
     /// <param name="healthState">
-    /// Whole-file failures - including a per-row validation failure, which for grants.json
-    /// still fails the whole file in this batch (see <see cref="Empty"/>'s remarks on why
-    /// callers with an already-fatal upstream load should prefer calling it directly
-    /// instead) - are recorded here as a <see cref="ProblemSeverity.Fatal"/> problem
+    /// Whole-file failures (missing file, unparseable JSON, a non-object root, an empty
+    /// grant table) are recorded here as a <see cref="ProblemSeverity.Fatal"/> problem
     /// instead of being thrown; the caller always gets back a usable (if empty, via
-    /// <see cref="Empty"/>) instance. Required, deliberately with no default (and placed
+    /// <see cref="Empty"/>) instance. A row-level validation failure records a
+    /// <see cref="ProblemSeverity.Degraded"/> problem naming the grant and skips just that
+    /// row - every other row still loads. Required, deliberately with no default (and placed
     /// ahead of the optional <paramref name="timeProvider"/> so it can be): a defaulted
     /// throwaway instance would let a future production call site compile while silently
     /// discarding recorded failures - exactly the failure class this health-state redesign
@@ -78,7 +84,7 @@ public sealed class GrantStore
         var resolvedTimeProvider = timeProvider ?? TimeProvider.System;
         try
         {
-            return LoadCore(path, opClassRegistry, vaultConfig, resolvedTimeProvider);
+            return LoadCore(path, opClassRegistry, vaultConfig, healthState, resolvedTimeProvider);
         }
         catch (Exception ex) when (ex is FileNotFoundException or InvalidDataException or JsonException)
         {
@@ -87,7 +93,7 @@ public sealed class GrantStore
         }
     }
 
-    private static GrantStore LoadCore(string path, OpClassRegistry opClassRegistry, VaultConfig vaultConfig, TimeProvider resolvedTimeProvider)
+    private static GrantStore LoadCore(string path, OpClassRegistry opClassRegistry, VaultConfig vaultConfig, ServerHealthState healthState, TimeProvider resolvedTimeProvider)
     {
         if (!File.Exists(path))
             throw new FileNotFoundException($"Grants config not found: {path}", path);
@@ -99,44 +105,80 @@ public sealed class GrantStore
         var now = resolvedTimeProvider.GetUtcNow();
         var rows = new List<(byte[] Hash, Grant Grant)>();
         var seenIds = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var totalEntries = 0;
         foreach (var entry in doc.RootElement.EnumerateObject())
         {
-            var token = entry.Name;
-            if (string.IsNullOrWhiteSpace(token))
-                throw new InvalidDataException($"{path}: empty token.");
-
-            if (!entry.Value.TryGetProperty("id", out var idProp) || idProp.GetString() is not { Length: > 0 } id)
-                throw new InvalidDataException($"{path}: a grant is missing a non-empty \"id\".");
-            if (!seenIds.Add(id))
-                throw new InvalidDataException($"{path}: duplicate grant id \"{id}\".");
-
-            var opClassesRaw = ReadStringSet(entry.Value, "opClasses", path, id).ToList();
-            var opClasses = IsWildcard(opClassesRaw)
-                ? opClassRegistry.Names.ToHashSet(StringComparer.OrdinalIgnoreCase)
-                : opClassesRaw
-                    .Select(s => opClassRegistry.Canonicalize(s)
-                        ?? throw new InvalidDataException($"{path}: grant \"{id}\" has unknown opClass \"{s}\"."))
-                    .ToHashSet(StringComparer.OrdinalIgnoreCase);
-            if (opClasses.Count == 0)
-                throw new InvalidDataException($"{path}: grant \"{id}\" has no opClasses.");
-
-            var vaultsRaw = ReadStringSet(entry.Value, "vaults", path, id).ToList();
-            var vaults = IsWildcard(vaultsRaw)
-                ? vaultConfig.Vaults.Keys.ToHashSet(StringComparer.OrdinalIgnoreCase)
-                : vaultsRaw.ToHashSet(StringComparer.OrdinalIgnoreCase);
-            if (vaults.Count == 0)
-                throw new InvalidDataException($"{path}: grant \"{id}\" has no vaults.");
-
-            var expiresAtUtc = ReadTtl(entry.Value, path, id, now);
-            var scopeRoots = ReadScopeRoots(entry.Value, path, id, vaults);
-
-            rows.Add((Hash(token), new Grant(id, opClasses, vaults, expiresAtUtc, scopeRoots)));
+            totalEntries++;
+            // Row-level skip-and-report: any InvalidDataException from this row's validation
+            // (the same checks that used to fail the whole file) records a Degraded problem
+            // and moves on to the next row. Only the pre-loop structural checks above stay
+            // whole-file Fatal.
+            try
+            {
+                rows.Add(LoadRow(entry, path, opClassRegistry, vaultConfig, seenIds, now));
+            }
+            catch (InvalidDataException ex)
+            {
+                healthState.RecordDegraded("GrantStore", $"Grant row skipped - {ex.Message}");
+            }
         }
 
-        if (rows.Count == 0)
+        // Zero configured rows is a structurally-empty grant table and stays Fatal; a table
+        // whose rows were all individually skipped is not double-reported here - the
+        // per-row Degraded records are the report.
+        if (totalEntries == 0)
             throw new InvalidDataException($"{path}: must contain at least one grant.");
 
         return new GrantStore(rows, resolvedTimeProvider);
+    }
+
+    private static (byte[] Hash, Grant Grant) LoadRow(JsonProperty entry, string path, OpClassRegistry opClassRegistry, VaultConfig vaultConfig, HashSet<string> seenIds, DateTimeOffset now)
+    {
+        var token = entry.Name;
+        if (string.IsNullOrWhiteSpace(token))
+            throw new InvalidDataException($"{path}: empty token.");
+
+        if (!entry.Value.TryGetProperty("id", out var idProp) || idProp.GetString() is not { Length: > 0 } id)
+            throw new InvalidDataException($"{path}: a grant is missing a non-empty \"id\".");
+        if (!seenIds.Add(id))
+            throw new InvalidDataException($"{path}: duplicate grant id \"{id}\".");
+
+        var opClassesRaw = ReadStringSet(entry.Value, "opClasses", path, id).ToList();
+        var opClasses = IsWildcard(opClassesRaw)
+            ? opClassRegistry.Names.ToHashSet(StringComparer.OrdinalIgnoreCase)
+            : opClassesRaw
+                .Select(s => opClassRegistry.Canonicalize(s)
+                    ?? throw new InvalidDataException($"{path}: grant \"{id}\" has unknown opClass \"{s}\"."))
+                .ToHashSet(StringComparer.OrdinalIgnoreCase);
+        if (opClasses.Count == 0)
+            throw new InvalidDataException($"{path}: grant \"{id}\" has no opClasses.");
+
+        var vaultsRaw = ReadStringSet(entry.Value, "vaults", path, id).ToList();
+        // "*" expands against the FULL configured set - resolvable and per-entry-skipped
+        // vaults alike (see VaultConfig.ConfiguredVaultNames) - and an explicit vault name
+        // is valid as long as it is configured, even if its root is currently broken: the
+        // vault being skipped is the vault's problem, not the grant's, so grants stay
+        // stable while a vault root is temporarily missing. A name absent from the
+        // configured set entirely skips the row - this is what catches a vault rename
+        // leaving a grant silently inert.
+        var vaults = IsWildcard(vaultsRaw)
+            ? vaultConfig.ConfiguredVaultNames.ToHashSet(StringComparer.OrdinalIgnoreCase)
+            : vaultsRaw.ToHashSet(StringComparer.OrdinalIgnoreCase);
+        if (!IsWildcard(vaultsRaw))
+        {
+            foreach (var vault in vaults)
+            {
+                if (!vaultConfig.IsConfigured(vault))
+                    throw new InvalidDataException($"{path}: grant \"{id}\" names unknown vault \"{vault}\" - not in the configured vault set.");
+            }
+        }
+        if (vaults.Count == 0)
+            throw new InvalidDataException($"{path}: grant \"{id}\" has no vaults.");
+
+        var expiresAtUtc = ReadTtl(entry.Value, path, id, now);
+        var scopeRoots = ReadScopeRoots(entry.Value, path, id, vaults);
+
+        return (Hash(token), new Grant(id, opClasses, vaults, expiresAtUtc, scopeRoots));
     }
 
     /// <summary>
@@ -286,12 +328,12 @@ public sealed class GrantStore
     /// <c>scopeRoots</c> key (mixing it with explicit per-vault entries is rejected as
     /// redundant/ambiguous) and its value must be exactly <c>["*"]</c>.
     ///
-    /// A key that isn't one of the grant's own <paramref name="vaults"/> is a load-time error -
+    /// A key that isn't one of the grant's own <paramref name="vaults"/> is a row-level error -
     /// scoping a vault the grant can't access at all is nonsensical and almost certainly a typo
-    /// or stale config, so it fails fast rather than silently doing nothing. A present,
+    /// or stale config, so the row skips rather than silently doing nothing. A present,
     /// non-wildcard entry must canonicalize as a folder-prefix root (see
     /// <see cref="Vault.VaultAccess.NormalizeScopeSegments"/>) - rooted, escaping, or empty
-    /// entries fail the grant load fast, the same rigor as an unknown opClass.
+    /// entries skip the row, the same rigor as an unknown opClass.
     /// </summary>
     private static IReadOnlyDictionary<string, IReadOnlySet<string>> ReadScopeRoots(JsonElement grant, string path, string id, IReadOnlySet<string> vaults)
     {
