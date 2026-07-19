@@ -86,11 +86,14 @@ public sealed class ScriptToolDispatcher(ScriptToolRegistry registry, NativeTool
             if (nativeGrant is null)
                 return ErrorResult($"Grant does not permit {nativeTool.OpClass} operations for tool \"{name}\".");
 
-            // health_check is diagnostics, not a privileged operation: any authenticated
-            // grant can call it regardless of its op classes, so it is special-cased past
-            // the usual grant.Allows(tool.OpClass) check rather than being gated by one.
-            var isHealthCheck = nativeTool.Name == HealthCheckTool.ToolName;
-            if (!isHealthCheck && !nativeGrant.Allows(nativeTool.OpClass))
+            // Two native tools are gated by something other than an op class, so they are
+            // special-cased past the usual grant.Allows(tool.OpClass) check by name:
+            // health_check is diagnostics (a right of connection for any authenticated grant),
+            // and request_elevation is gated by the caller's per-grant canRequestElevation opt-in,
+            // enforced inside the tool itself (which returns an informative error when it is not
+            // set). Both declare OpClass "" so they could never satisfy an op-class check anyway.
+            var isOpClassExempt = nativeTool.Name is HealthCheckTool.ToolName or ElevationRequestTool.ToolName;
+            if (!isOpClassExempt && !nativeGrant.Allows(nativeTool.OpClass))
                 return ErrorResult($"Grant does not permit {nativeTool.OpClass} operations for tool \"{name}\".");
 
             var nativeArguments = context.Params?.Arguments?.ToDictionary(kv => kv.Key, kv => kv.Value)

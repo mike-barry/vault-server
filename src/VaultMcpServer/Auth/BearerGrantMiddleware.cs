@@ -5,29 +5,35 @@ using VaultMcpServer.Health;
 namespace VaultMcpServer.Auth;
 
 /// <summary>
-/// Deny-by-default bearer-token gate in front of every request. Looks the presented token up
-/// in the injected <see cref="GrantStore"/> via <see cref="GrantStore.Authenticate"/> (which
-/// treats an expired grant as a non-match) and rejects a missing, unknown, or expired token
-/// with 401 - consulting <see cref="GrantStore.GetAuthFailureReason"/> only to pick a distinct
-/// rejection message so "unknown" and "expired" can be told apart - and attaches the matched
-/// grant to
-/// <c>HttpContext.Items[GrantItemKey]</c> for downstream tool dispatch to enforce per-tool op
-/// class against.
+/// Localhost bearer-token gate in front of every request. Resolves the presented token to a grant
+/// via <see cref="GrantStore.ResolveLocalhostGrant"/>, which never errors: a token matching a real
+/// grant row, minted grant, or active elevation binding resolves to that authority, the localhost
+/// selector token binds to the configured default grant, and a blank, unrecognized, or expired
+/// token degrades to the built-in minimum-access floor rather than a 401. This is the fail-closed
+/// localhost model (the server binds <c>localhost:5111</c> only) - a subagent with a missing or
+/// mangled token runs harmless instead of failing hard. The resolved grant is attached to
+/// <c>HttpContext.Items[GrantItemKey]</c> for downstream op-class enforcement, and the principal's
+/// token-hash to <c>HttpContext.Items[PrincipalTokenHashItemKey]</c> so the elevation tool can
+/// rebind it without the raw token reaching a tool.
 ///
-/// Writes one audit log line per request: grant id (never the token), JSON-RPC method,
-/// and - for a tools/call - the tool name, vault argument, and full arguments. A
-/// tools/call naming a vault outside the grant's <see cref="Grant.Vaults"/> is rejected
-/// with 403, the same as an unrecognized token.
+/// Writes one audit log line per request: grant id (never the token), JSON-RPC method, and - for a
+/// tools/call - the tool name, vault argument, and full arguments. A tools/call naming a vault
+/// outside the grant's <see cref="Grant.Vaults"/> is still rejected with 403 (the minimum-access
+/// floor has no vaults, so it 403s on any vault content while health_check and request_elevation,
+/// which name no vault, pass through).
 ///
 /// Before any of that, checks <see cref="ServerHealthState.IsFatallyDegraded"/> and, if set,
 /// short-circuits every request (regardless of token) with 503 and a fixed generic body -
 /// deliberately the same text for every request and every underlying error, so it can never
-/// leak which config file or which detail is broken. Normal 401/403 semantics are unchanged
-/// once the server is healthy again.
+/// leak which config file or which detail is broken. That 503 gate is unchanged.
 /// </summary>
 public sealed class BearerGrantMiddleware(RequestDelegate next, GrantStore grantStore, ServerHealthState healthState, ILogger<BearerGrantMiddleware> logger)
 {
     public const string GrantItemKey = "Grant";
+
+    /// <summary>Items key for the presented token's hash (see <see cref="GrantStore.HashKey"/>) -
+    /// the elevation tool reads it to rebind the principal without ever seeing the raw token.</summary>
+    public const string PrincipalTokenHashItemKey = "PrincipalTokenHash";
 
     /// <summary>
     /// Fixed, detail-free body returned for every request while <see cref="ServerHealthState.IsFatallyDegraded"/>
@@ -45,26 +51,13 @@ public sealed class BearerGrantMiddleware(RequestDelegate next, GrantStore grant
             return;
         }
 
+        // Extract the bearer token (empty when the header is missing or malformed - a blank token,
+        // which the localhost floor handles, not a 401). ResolveLocalhostGrant never returns null.
         var header = context.Request.Headers["Authorization"].ToString();
-        if (!header.StartsWith("Bearer ", StringComparison.Ordinal))
-        {
-            await Reject(context, StatusCodes.Status401Unauthorized, "Missing or malformed Authorization header.");
-            return;
-        }
-
-        var token = header["Bearer ".Length..].Trim();
-        var grant = grantStore.Authenticate(token);
-        if (grant is null)
-        {
-            // Authenticate already excludes expired grants; consult the failure reason purely
-            // to pick the right 401 message - it plays no role in the authorization decision
-            // above.
-            var message = grantStore.GetAuthFailureReason(token) == AuthFailureReason.Expired
-                ? "Expired bearer token."
-                : "Unknown bearer token.";
-            await Reject(context, StatusCodes.Status401Unauthorized, message);
-            return;
-        }
+        var token = header.StartsWith("Bearer ", StringComparison.Ordinal)
+            ? header["Bearer ".Length..].Trim()
+            : "";
+        var grant = grantStore.ResolveLocalhostGrant(token);
 
         var (method, tool, vault, arguments) = await PeekJsonRpcCall(context.Request);
 
@@ -82,6 +75,7 @@ public sealed class BearerGrantMiddleware(RequestDelegate next, GrantStore grant
             grant.Id, method, tool, vault, arguments);
 
         context.Items[GrantItemKey] = grant;
+        context.Items[PrincipalTokenHashItemKey] = GrantStore.HashKey(token);
         await next(context);
     }
 

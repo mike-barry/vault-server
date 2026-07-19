@@ -59,7 +59,12 @@ public abstract class ProgramHostFixtureBase : WebApplicationFactory<Program>
             SetEnvironmentVariable("VAULT_MCP_VAULTS_JSON", vaultMcpVaultsJsonPath);
     }
 
-    private void SetEnvironmentVariable(string name, string value)
+    /// <summary>Sets a process-global env var and tracks it for disposal cleanup. Derived
+    /// fixtures use it for extra settings beyond the config paths (e.g. the
+    /// <c>LocalhostAuth__*</c> / <c>Elevation__*</c> sections), which ASP.NET Core folds into
+    /// <c>WebApplicationBuilder.Configuration</c> synchronously - the same reason the config paths
+    /// are set this way rather than via ConfigureAppConfiguration.</summary>
+    protected void SetEnvironmentVariable(string name, string value)
     {
         Environment.SetEnvironmentVariable(name, value);
         _envVarsSet.Add(name);

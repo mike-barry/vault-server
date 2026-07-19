@@ -50,6 +50,19 @@ namespace VaultMcpServer.Auth;
 /// </param>
 public sealed record Grant(string Id, IReadOnlySet<string> OpClasses, IReadOnlySet<string> Vaults, DateTimeOffset? ExpiresAtUtc, IReadOnlyDictionary<string, IReadOnlySet<string>> ScopeRoots)
 {
+    /// <summary>
+    /// Whether a session bound to this grant may request an elevation rebind (see
+    /// <see cref="GrantStore"/>'s binding table and the <c>request_elevation</c> tool).
+    /// A deliberate per-grant opt-in, defaulting to <c>false</c> - self-escalation is denied
+    /// unless a grant explicitly allows it. Runtime-minted grants (<see cref="GrantStore.Mint"/>)
+    /// never set it, so an automated subagent can never self-escalate; a file-loaded token row or
+    /// token-less named grant opts in via a <c>"canRequestElevation": true</c> field, and the
+    /// built-in minimum-access floor (<see cref="GrantStore.MinimumGrant"/>) sets it so a floored
+    /// session can still ask to be elevated with approval. Init-only so the many existing positional
+    /// <c>new Grant(...)</c> sites stay unchanged and only opt-in construction sets it.
+    /// </summary>
+    public bool CanRequestElevation { get; init; }
+
     public bool Allows(string op) => OpClasses.Contains(op);
 
     public bool CanAccessVault(string vault) => Vaults.Contains(vault);

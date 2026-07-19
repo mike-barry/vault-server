@@ -5,18 +5,42 @@ using VaultMcpServer.Vault;
 namespace VaultMcpServer.Auth;
 
 /// <summary>
+/// The parsed contents of grants.json: the token-keyed authenticatable rows plus the token-less
+/// named grants. Named grants (e.g. <c>admin</c>) carry no token and cannot authenticate a
+/// request directly - they exist only as rebind targets for elevation and as the default-binding
+/// target for the localhost selector token (see <see cref="GrantStore"/> and
+/// <see cref="LocalhostAuthOptions"/>).
+/// </summary>
+public sealed record GrantFileContents(
+    IReadOnlyList<(byte[] Hash, Grant Grant)> TokenRows,
+    IReadOnlyDictionary<string, Grant> NamedGrants)
+{
+    /// <summary>An empty parse result - the whole-file-failure return, mirroring the empty row
+    /// list the loader returned before named grants existed.</summary>
+    public static GrantFileContents Empty { get; } =
+        new([], new Dictionary<string, Grant>(StringComparer.OrdinalIgnoreCase));
+}
+
+/// <summary>
 /// Parses and validates grants.json into the <c>(token-hash, grant)</c> rows a
-/// <see cref="GrantStore"/> authenticates against. Everything here is startup-only: it runs once
-/// when the host loads config and never again. Split out of <see cref="GrantStore"/> so the
-/// runtime store (authentication, minting, expiry) stays free of the JSON parser and its
+/// <see cref="GrantStore"/> authenticates against, plus the token-less named grants it uses as
+/// rebind and default-binding targets. Everything here is startup-only: it runs once when the
+/// host loads config and never again. Split out of <see cref="GrantStore"/> so the runtime store
+/// (authentication, minting, expiry, elevation binding) stays free of the JSON parser and its
 /// dependency on <see cref="Vault.VaultAccess"/> for scope-root canonicalization - the two have
 /// no shared state and entirely different lifetimes.
+///
+/// A row is a <em>named grant</em> when it carries <c>"named": true</c> - it has no token (its
+/// object key is ignored as a token; the <c>id</c> field names it), so it never joins the
+/// authenticatable rows. Every other row is a token-keyed grant, hashed and authenticatable as
+/// before. Grant ids are unique across both kinds. Both may carry an optional
+/// <c>"canRequestElevation": true</c> opt-in (default false).
 ///
 /// Row-level validation failures (bad ttl, bad/missing scopeRoots, unknown opClass, unknown
 /// vault, duplicate id, ...) skip just that row - recorded as a Degraded problem naming the
 /// grant - while every other row loads normally. Only whole-file failures (missing file,
 /// unparseable JSON, wrong root shape, an entirely empty grant table) are Fatal; on one, this
-/// records the Fatal problem and returns an empty row list so the process still starts.
+/// records the Fatal problem and returns an empty result so the process still starts.
 /// </summary>
 public static class GrantFileLoader
 {
@@ -32,7 +56,7 @@ public static class GrantFileLoader
     /// (<see cref="GrantStore.Load"/>) supplies it from its <see cref="TimeProvider"/> so tests can
     /// control it without depending on real elapsed wall-clock time.
     /// </param>
-    public static IReadOnlyList<(byte[] Hash, Grant Grant)> Load(string path, OpClassRegistry opClassRegistry, VaultConfig vaultConfig, ServerHealthState healthState, DateTimeOffset now)
+    public static GrantFileContents Load(string path, OpClassRegistry opClassRegistry, VaultConfig vaultConfig, ServerHealthState healthState, DateTimeOffset now)
     {
         try
         {
@@ -41,11 +65,11 @@ public static class GrantFileLoader
         catch (Exception ex) when (ex is FileNotFoundException or InvalidDataException or JsonException)
         {
             healthState.RecordFatal("GrantStore", ex.Message);
-            return [];
+            return GrantFileContents.Empty;
         }
     }
 
-    private static IReadOnlyList<(byte[] Hash, Grant Grant)> LoadCore(string path, OpClassRegistry opClassRegistry, VaultConfig vaultConfig, ServerHealthState healthState, DateTimeOffset now)
+    private static GrantFileContents LoadCore(string path, OpClassRegistry opClassRegistry, VaultConfig vaultConfig, ServerHealthState healthState, DateTimeOffset now)
     {
         if (!File.Exists(path))
             throw new FileNotFoundException($"Grants config not found: {path}", path);
@@ -55,6 +79,7 @@ public static class GrantFileLoader
             throw new InvalidDataException($"{path}: root must be an object keyed by bearer token.");
 
         var rows = new List<(byte[] Hash, Grant Grant)>();
+        var namedGrants = new Dictionary<string, Grant>(StringComparer.OrdinalIgnoreCase);
         var seenIds = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         var totalEntries = 0;
         foreach (var entry in doc.RootElement.EnumerateObject())
@@ -66,7 +91,11 @@ public static class GrantFileLoader
             // whole-file Fatal.
             try
             {
-                rows.Add(LoadRow(entry, path, opClassRegistry, vaultConfig, seenIds, now));
+                var grant = LoadRow(entry, path, opClassRegistry, vaultConfig, seenIds, now);
+                if (IsNamedGrant(entry.Value))
+                    namedGrants[grant.Id] = grant;
+                else
+                    rows.Add((GrantStore.Hash(entry.Name), grant));
             }
             catch (InvalidDataException ex)
             {
@@ -81,19 +110,30 @@ public static class GrantFileLoader
         // Every row present but every one of them individually skipped (see the per-row
         // Degraded records already emitted above) leaves an unusable, effectively-empty
         // grant table too - functionally indistinguishable from the zero-entries case above
-        // for BearerGrantMiddleware's purposes (nobody can authenticate against it), so it
-        // gets the same Fatal treatment rather than leaving the server merely Degraded and
-        // every caller silently 401ing with no "check the logs" signal.
-        if (rows.Count == 0)
+        // for BearerGrantMiddleware's purposes (nothing loaded at all), so it gets the same
+        // Fatal treatment rather than leaving the server merely Degraded with no "check the
+        // logs" signal. Named grants count as loaded content: a file of only named grants is
+        // usable via the localhost selector's default binding.
+        if (rows.Count == 0 && namedGrants.Count == 0)
             throw new InvalidDataException($"{path}: every grant row was skipped as invalid - see the per-row Degraded problems recorded above.");
 
-        return rows;
+        return new GrantFileContents(rows, namedGrants);
     }
 
-    private static (byte[] Hash, Grant Grant) LoadRow(JsonProperty entry, string path, OpClassRegistry opClassRegistry, VaultConfig vaultConfig, HashSet<string> seenIds, DateTimeOffset now)
+    /// <summary>A row is a token-less named grant when it carries <c>"named": true</c>.</summary>
+    private static bool IsNamedGrant(JsonElement grant) =>
+        grant.TryGetProperty("named", out var named) && named.ValueKind == JsonValueKind.True;
+
+    /// <summary>
+    /// Validates and builds one grant from its row. A token-keyed row's object key
+    /// (<paramref name="entry"/>.Name) is its bearer token; a named grant's key is ignored (its
+    /// <c>id</c> field identifies it). The returned <see cref="Grant"/> is hashed and stored by
+    /// the caller according to which kind it is.
+    /// </summary>
+    private static Grant LoadRow(JsonProperty entry, string path, OpClassRegistry opClassRegistry, VaultConfig vaultConfig, HashSet<string> seenIds, DateTimeOffset now)
     {
-        var token = entry.Name;
-        if (string.IsNullOrWhiteSpace(token))
+        var isNamed = IsNamedGrant(entry.Value);
+        if (!isNamed && string.IsNullOrWhiteSpace(entry.Name))
             throw new InvalidDataException($"{path}: empty token.");
 
         if (!entry.Value.TryGetProperty("id", out var idProp) || idProp.GetString() is not { Length: > 0 } id)
@@ -135,8 +175,24 @@ public static class GrantFileLoader
 
         var expiresAtUtc = ReadTtl(entry.Value, path, id, now);
         var scopeRoots = ReadScopeRoots(entry.Value, path, id, vaults);
+        var canRequestElevation = ReadCanRequestElevation(entry.Value, path, id);
 
-        return (GrantStore.Hash(token), new Grant(id, opClasses, vaults, expiresAtUtc, scopeRoots));
+        return new Grant(id, opClasses, vaults, expiresAtUtc, scopeRoots) { CanRequestElevation = canRequestElevation };
+    }
+
+    /// <summary>Parses the optional <c>canRequestElevation</c> opt-in - a boolean, defaulting to
+    /// false when absent. Any non-boolean value skips the row, the same rigor as the other
+    /// fields.</summary>
+    private static bool ReadCanRequestElevation(JsonElement grant, string path, string id)
+    {
+        if (!grant.TryGetProperty("canRequestElevation", out var prop))
+            return false;
+        return prop.ValueKind switch
+        {
+            JsonValueKind.True => true,
+            JsonValueKind.False => false,
+            _ => throw new InvalidDataException($"{path}: grant \"{id}\" has a non-boolean \"canRequestElevation\" value."),
+        };
     }
 
     /// <summary>True when a grant row's array is exactly <c>["*"]</c> - expanded at load time

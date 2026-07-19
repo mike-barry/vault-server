@@ -1,0 +1,201 @@
+using VaultMcpServer.Auth;
+using VaultMcpServer.Health;
+using VaultMcpServer.Vault;
+
+namespace VaultMcpServer.Tests;
+
+/// <summary>
+/// Unit coverage for the Batch A auth changes on <see cref="GrantStore"/>: token-less named
+/// grants parsed from grants.json, the localhost selector/minimum-floor resolution
+/// (<see cref="GrantStore.ResolveLocalhostGrant"/>), and the elevation binding table
+/// (rebind-with-TTL and lazy revert inside <see cref="GrantStore.Authenticate"/>). Every test
+/// builds its own store from a temp grants.json (like <c>GrantStoreTests</c>); binding tests use
+/// <see cref="FixedTimeProvider"/> to drive TTL expiry without real wall-clock time. Anything that
+/// mutates a store's binding table gets its own fresh store, never a shared one.
+/// </summary>
+public sealed class GrantStoreBindingTests(TestVaultFixture fixture) : IClassFixture<TestVaultFixture>, IDisposable
+{
+    private static readonly OpClassRegistry OpClasses = OpClassRegistry.Load(Path.Combine(TestVaultFixture.RepoRoot, "op-classes.json"), new ServerHealthState());
+
+    private readonly string _tempDir = Directory.CreateTempSubdirectory("vault-mcp-binding-tests-").FullName;
+    private readonly VaultConfig _vaultConfig = fixture.Config;
+
+    public void Dispose() => Directory.Delete(_tempDir, recursive: true);
+
+    private GrantStore Load(string json, TimeProvider? timeProvider = null, LocalhostAuthOptions? localhostOptions = null)
+    {
+        var path = Path.Combine(_tempDir, "grants.json");
+        File.WriteAllText(path, json);
+        return GrantStore.Load(path, OpClasses, _vaultConfig, new ServerHealthState(), timeProvider, localhostOptions);
+    }
+
+    // A token-keyed opt-in caller row plus a token-less named "elevated" grant with broader access.
+    private const string CallerAndNamedTarget = """
+        {
+          "caller-token": { "id": "caller", "opClasses": ["Read"], "vaults": ["test"], "ttl": "*", "scopeRoots": { "test": [] }, "canRequestElevation": true },
+          "elevated": { "named": true, "id": "elevated", "opClasses": ["Read", "Write"], "vaults": ["test", "scratch"], "ttl": "*", "scopeRoots": { "test": [], "scratch": [] } }
+        }
+        """;
+
+    [Fact]
+    public void NamedGrant_IsNotAuthenticatableByAnyToken()
+    {
+        var store = Load(CallerAndNamedTarget);
+
+        // The named grant's object key ("elevated") is not a bearer token - presenting it must not
+        // authenticate, and neither does its id.
+        Assert.Null(store.Authenticate("elevated"));
+        Assert.NotNull(store.Authenticate("caller-token"));
+    }
+
+    [Fact]
+    public void TryGetNamedGrant_FindsNamedTarget_NotTokenRows()
+    {
+        var store = Load(CallerAndNamedTarget);
+
+        Assert.True(store.TryGetNamedGrant("elevated", out var named));
+        Assert.Equal("elevated", named.Id);
+        Assert.True(named.Allows("Write"));
+
+        // A token-keyed grant is not a named-grant elevation target.
+        Assert.False(store.TryGetNamedGrant("caller", out _));
+    }
+
+    [Fact]
+    public void Load_DuplicateIdAcrossTokenAndNamedGrant_SkipsSecond()
+    {
+        var healthState = new ServerHealthState();
+        var path = Path.Combine(_tempDir, "grants.json");
+        File.WriteAllText(path, """
+            {
+              "some-token": { "id": "admin", "opClasses": ["Read"], "vaults": ["test"], "ttl": "*", "scopeRoots": { "test": [] } },
+              "admin": { "named": true, "id": "admin", "opClasses": ["*"], "vaults": ["*"], "ttl": "*", "scopeRoots": { "*": ["*"] } }
+            }
+            """);
+        var store = GrantStore.Load(path, OpClasses, _vaultConfig, healthState);
+
+        // The second "admin" (the named grant) is the duplicate and is skipped; the token row wins.
+        Assert.Single(healthState.Problems, p => p.Severity == ProblemSeverity.Degraded);
+        Assert.NotNull(store.Authenticate("some-token"));
+        Assert.False(store.TryGetNamedGrant("admin", out _));
+    }
+
+    [Fact]
+    public void Load_CanRequestElevationFlag_ParsesAndDefaultsFalse()
+    {
+        var store = Load(CallerAndNamedTarget);
+        Assert.True(store.Authenticate("caller-token")!.CanRequestElevation);
+
+        var noFlag = Load("""{ "t": { "id": "plain", "opClasses": ["Read"], "vaults": ["test"], "ttl": "*", "scopeRoots": { "test": [] } } }""");
+        Assert.False(noFlag.Authenticate("t")!.CanRequestElevation);
+    }
+
+    [Fact]
+    public void ResolveLocalhostGrant_RealTokenResolvesToItsGrant()
+    {
+        var store = Load(CallerAndNamedTarget);
+        var grant = store.ResolveLocalhostGrant("caller-token");
+        Assert.Equal("caller", grant.Id);
+    }
+
+    [Fact]
+    public void ResolveLocalhostGrant_SelectorTokenBindsToConfiguredDefaultNamedGrant()
+    {
+        var store = Load(CallerAndNamedTarget, localhostOptions: new LocalhostAuthOptions("the-selector", DefaultGrantId: "elevated"));
+
+        var grant = store.ResolveLocalhostGrant("the-selector");
+        Assert.Equal("elevated", grant.Id);
+    }
+
+    [Fact]
+    public void ResolveLocalhostGrant_SelectorWithNoDefaultConfigured_FloorsToMinimum()
+    {
+        // DefaultGrantId absent => the selector is just another unrecognized token => minimum.
+        var store = Load(CallerAndNamedTarget, localhostOptions: new LocalhostAuthOptions("the-selector"));
+        Assert.Equal(GrantStore.MinimumGrant.Id, store.ResolveLocalhostGrant("the-selector").Id);
+    }
+
+    [Theory]
+    [InlineData("")]
+    [InlineData("totally-unknown-token")]
+    public void ResolveLocalhostGrant_BlankOrUnknownTokenFloorsToMinimum(string token)
+    {
+        var store = Load(CallerAndNamedTarget, localhostOptions: new LocalhostAuthOptions("the-selector", DefaultGrantId: "elevated"));
+
+        var grant = store.ResolveLocalhostGrant(token);
+        Assert.Equal(GrantStore.MinimumGrant.Id, grant.Id);
+        Assert.Empty(grant.OpClasses);
+        Assert.Empty(grant.Vaults);
+        Assert.True(grant.CanRequestElevation);
+    }
+
+    [Fact]
+    public void ResolveLocalhostGrant_StrictMode_OnlyExpectedTokenSelectsDefault()
+    {
+        var store = Load(CallerAndNamedTarget, localhostOptions: new LocalhostAuthOptions(
+            SelectorToken: "the-selector", ExpectedLocalhostToken: "strict-only", DefaultGrantId: "elevated"));
+
+        // In strict mode the expected token replaces the well-known selector as the one that binds.
+        Assert.Equal("elevated", store.ResolveLocalhostGrant("strict-only").Id);
+        Assert.Equal(GrantStore.MinimumGrant.Id, store.ResolveLocalhostGrant("the-selector").Id);
+    }
+
+    [Fact]
+    public void RebindToNamedGrant_MakesAuthenticateReturnTheElevatedGrant()
+    {
+        var store = Load(CallerAndNamedTarget);
+
+        store.RebindToNamedGrant(GrantStore.HashKey("caller-token"), "elevated", DateTimeOffset.UtcNow.AddMinutes(10));
+
+        var grant = store.Authenticate("caller-token");
+        Assert.NotNull(grant);
+        Assert.Equal("elevated", grant.Id);
+        Assert.True(grant.Allows("Write")); // the base "caller" grant is Read-only - proving the rebind took effect
+    }
+
+    [Fact]
+    public void RebindToNamedGrant_RevertsToBaseGrantAfterTtlExpires()
+    {
+        var timeProvider = new FixedTimeProvider(DateTimeOffset.UtcNow);
+        var store = Load(CallerAndNamedTarget, timeProvider);
+
+        store.RebindToNamedGrant(GrantStore.HashKey("caller-token"), "elevated", timeProvider.Now.AddMinutes(5));
+        Assert.Equal("elevated", store.Authenticate("caller-token")!.Id);
+
+        timeProvider.Now = timeProvider.Now.AddMinutes(10);
+
+        // Pointer revert: the base "caller" grant is resolved again, and the elevated authority is gone.
+        var reverted = store.Authenticate("caller-token");
+        Assert.NotNull(reverted);
+        Assert.Equal("caller", reverted.Id);
+        Assert.False(reverted.Allows("Write"));
+    }
+
+    [Fact]
+    public void RebindToNamedGrant_UnknownTarget_Throws()
+    {
+        var store = Load(CallerAndNamedTarget);
+        Assert.Throws<ArgumentException>(() =>
+            store.RebindToNamedGrant(GrantStore.HashKey("caller-token"), "no-such-grant", DateTimeOffset.UtcNow.AddMinutes(10)));
+    }
+
+    [Fact]
+    public void RebindToMintedGrant_BindsAFreshScopedGrantWithoutANewToken()
+    {
+        var store = Load(CallerAndNamedTarget);
+
+        var opClasses = (IReadOnlySet<string>)new HashSet<string> { "Read" };
+        var vaults = (IReadOnlySet<string>)new HashSet<string> { "test" };
+        var scopeRoots = new Dictionary<string, IReadOnlySet<string>> { ["test"] = new HashSet<string> { "Projects/Foo" } };
+
+        store.RebindToMintedGrant(GrantStore.HashKey("caller-token"), "elevated-abc", opClasses, vaults, scopeRoots, DateTimeOffset.UtcNow.AddMinutes(10));
+
+        var grant = store.Authenticate("caller-token");
+        Assert.NotNull(grant);
+        Assert.Equal("elevated-abc", grant.Id);
+        Assert.Equal(new HashSet<string> { "Projects/Foo" }, grant.ScopeRoots["test"]);
+
+        // A minted elevation target is not a valid named-grant target for a later request.
+        Assert.False(store.TryGetNamedGrant("elevated-abc", out _));
+    }
+}

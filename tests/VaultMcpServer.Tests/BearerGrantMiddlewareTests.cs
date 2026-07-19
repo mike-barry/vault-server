@@ -29,18 +29,14 @@ public sealed class BearerGrantMiddlewareTests : IClassFixture<BearerGrantMiddle
     }
 
     /// <summary>
-    /// Unlike the other tests in this class, this one constructs GrantStore/BearerGrantMiddleware
-    /// directly rather than going through WebApplicationFactory/Program - Program.cs has no seam
-    /// to inject a fake TimeProvider into its GrantStore.Load call, so an HTTP-level integration
-    /// test can't deterministically produce an already-expired grant. Driving the middleware
-    /// directly against a GrantStore loaded with a settable FixedTimeProvider - then advancing
-    /// it past the grant's ttl - gets a deterministic "expired" case without depending on real
-    /// elapsed wall-clock time. This exercises the middleware's unknown-vs-expired message
-    /// distinction; the underlying Authenticate-level exclusion is covered directly in
-    /// GrantStoreTests.
+    /// Under the fail-closed localhost floor (Batch A), an expired token and an unknown token no
+    /// longer 401 - both degrade to the built-in minimum-access grant, so the session runs
+    /// harmless rather than hard-failing (a subagent with a stale/mangled token stays recoverable).
+    /// Constructs the middleware directly, capturing the grant it attaches, with a FixedTimeProvider
+    /// so the "expired" case is deterministic without real elapsed wall-clock time.
     /// </summary>
     [Fact]
-    public async Task ExpiredToken_Returns401DistinctFromUnknownToken()
+    public async Task ExpiredOrUnknownToken_FloorsToMinimumAccessNot401()
     {
         var opClassRegistry = OpClassRegistry.Load(Path.Combine(TestVaultFixture.RepoRoot, "op-classes.json"), new ServerHealthState());
         var tempDir = Directory.CreateTempSubdirectory("vault-mcp-middleware-ttl-tests-").FullName;
@@ -49,37 +45,25 @@ public sealed class BearerGrantMiddlewareTests : IClassFixture<BearerGrantMiddle
             var grantsPath = Path.Combine(tempDir, "grants.json");
             File.WriteAllText(grantsPath, """{ "expiring-token": { "id": "short-lived", "opClasses": ["Read"], "vaults": ["test"], "ttl": 1, "scopeRoots": { "test": [] } } }""");
 
-            // Loaded with a 1-minute ttl, then the store's own time source is advanced 10
-            // minutes past load - simulating elapsed wall-clock time deterministically, since
-            // GrantStore.Authenticate checks expiry against the same TimeProvider it was
-            // loaded with.
             var timeProvider = new FixedTimeProvider(DateTimeOffset.UtcNow);
             var grantStore = GrantStore.Load(grantsPath, opClassRegistry, _vaultFixture.Config, new ServerHealthState(), timeProvider);
-            timeProvider.Now = timeProvider.Now.AddMinutes(10);
+            timeProvider.Now = timeProvider.Now.AddMinutes(10); // the 1-minute grant is now expired
 
-            var middleware = new BearerGrantMiddleware(_ => Task.CompletedTask, grantStore, new ServerHealthState(), NullLogger<BearerGrantMiddleware>.Instance);
+            Grant? expiredGrant = null;
+            Grant? unknownGrant = null;
 
-            var expiredContext = new DefaultHttpContext();
+            var expiredContext = new DefaultHttpContext { Response = { Body = new MemoryStream() } };
             expiredContext.Request.Headers.Authorization = "Bearer expiring-token";
-            expiredContext.Response.Body = new MemoryStream();
-            await middleware.InvokeAsync(expiredContext);
+            await new BearerGrantMiddleware(c => { expiredGrant = c.Items[BearerGrantMiddleware.GrantItemKey] as Grant; return Task.CompletedTask; }, grantStore, new ServerHealthState(), NullLogger<BearerGrantMiddleware>.Instance).InvokeAsync(expiredContext);
 
-            var unknownContext = new DefaultHttpContext();
+            var unknownContext = new DefaultHttpContext { Response = { Body = new MemoryStream() } };
             unknownContext.Request.Headers.Authorization = "Bearer not-a-real-token";
-            unknownContext.Response.Body = new MemoryStream();
-            await middleware.InvokeAsync(unknownContext);
+            await new BearerGrantMiddleware(c => { unknownGrant = c.Items[BearerGrantMiddleware.GrantItemKey] as Grant; return Task.CompletedTask; }, grantStore, new ServerHealthState(), NullLogger<BearerGrantMiddleware>.Instance).InvokeAsync(unknownContext);
 
-            Assert.Equal(StatusCodes.Status401Unauthorized, expiredContext.Response.StatusCode);
-            Assert.Equal(StatusCodes.Status401Unauthorized, unknownContext.Response.StatusCode);
-
-            expiredContext.Response.Body.Position = 0;
-            unknownContext.Response.Body.Position = 0;
-            var expiredBody = await new StreamReader(expiredContext.Response.Body).ReadToEndAsync();
-            var unknownBody = await new StreamReader(unknownContext.Response.Body).ReadToEndAsync();
-
-            Assert.Contains("Expired", expiredBody, StringComparison.OrdinalIgnoreCase);
-            Assert.Contains("Unknown", unknownBody, StringComparison.OrdinalIgnoreCase);
-            Assert.NotEqual(expiredBody, unknownBody);
+            Assert.NotEqual(StatusCodes.Status401Unauthorized, expiredContext.Response.StatusCode);
+            Assert.NotEqual(StatusCodes.Status401Unauthorized, unknownContext.Response.StatusCode);
+            Assert.Equal(GrantStore.MinimumGrant.Id, expiredGrant?.Id);
+            Assert.Equal(GrantStore.MinimumGrant.Id, unknownGrant?.Id);
         }
         finally
         {
@@ -87,11 +71,21 @@ public sealed class BearerGrantMiddlewareTests : IClassFixture<BearerGrantMiddle
         }
     }
 
+    /// <summary>A missing Authorization header is a blank token: it floors to minimum access
+    /// rather than 401, and the principal token-hash is still stashed for the elevation tool.</summary>
     [Fact]
-    public async Task MissingAuthorizationHeader_Returns401()
+    public async Task MissingAuthorizationHeader_FloorsToMinimumAccess()
     {
-        using var response = await _fixture.CreateClient().PostAsync("/mcp", JsonBody("{}"));
-        Assert.Equal(HttpStatusCode.Unauthorized, response.StatusCode);
+        var opClassRegistry = OpClassRegistry.Load(Path.Combine(TestVaultFixture.RepoRoot, "op-classes.json"), new ServerHealthState());
+        var grantStore = GrantStore.Empty();
+
+        Grant? grant = null;
+        var context = new DefaultHttpContext { Response = { Body = new MemoryStream() } };
+        await new BearerGrantMiddleware(c => { grant = c.Items[BearerGrantMiddleware.GrantItemKey] as Grant; return Task.CompletedTask; }, grantStore, new ServerHealthState(), NullLogger<BearerGrantMiddleware>.Instance).InvokeAsync(context);
+
+        Assert.NotEqual(StatusCodes.Status401Unauthorized, context.Response.StatusCode);
+        Assert.Equal(GrantStore.MinimumGrant.Id, grant?.Id);
+        Assert.NotNull(context.Items[BearerGrantMiddleware.PrincipalTokenHashItemKey]);
     }
 
     /// <summary>
@@ -133,12 +127,17 @@ public sealed class BearerGrantMiddlewareTests : IClassFixture<BearerGrantMiddle
     }
 
     [Fact]
-    public async Task UnknownToken_Returns401()
+    public async Task UnknownToken_IsNotRejectedByTheGate_FloorsToMinimum()
     {
+        // An unrecognized localhost token degrades to the minimum-access floor rather than 401,
+        // so the gate does not reject it (the ping reaches the MCP handler).
         using var client = _fixture.CreateClient();
         client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", "not-a-real-token");
-        using var response = await client.PostAsync("/mcp", JsonBody("{}"));
-        Assert.Equal(HttpStatusCode.Unauthorized, response.StatusCode);
+        client.DefaultRequestHeaders.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
+        client.DefaultRequestHeaders.Accept.Add(new MediaTypeWithQualityHeaderValue("text/event-stream"));
+        using var response = await client.PostAsync("/mcp", JsonBody("""{"jsonrpc":"2.0","id":1,"method":"ping"}"""));
+
+        Assert.NotEqual(HttpStatusCode.Unauthorized, response.StatusCode);
     }
 
     [Fact]

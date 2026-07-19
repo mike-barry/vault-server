@@ -33,6 +33,23 @@ public sealed class GrantStore
 {
     private readonly IReadOnlyList<(byte[] Hash, Grant Grant)> _rows;
     private readonly TimeProvider _timeProvider;
+    private readonly LocalhostAuthOptions _localhostOptions;
+
+    /// <summary>
+    /// Token-less named grants (e.g. <c>admin</c>) parsed from grants.json - the rebind and
+    /// default-binding targets. Immutable and keyed by grant id; distinct from
+    /// <see cref="_rows"/> since they carry no token and can never authenticate a request
+    /// directly. Elevation grants freshly minted for a rebind (see
+    /// <see cref="RebindToMintedGrant"/>) also register here so a live binding can resolve their
+    /// id, but those are never valid targets for a <em>new</em> named-grant elevation request -
+    /// use <see cref="TryGetNamedGrant"/> for that.
+    /// </summary>
+    private readonly ConcurrentDictionary<string, Grant> _grantsById;
+
+    /// <summary>The subset of <see cref="_grantsById"/> ids that came from grants.json as named
+    /// grants (not elevation-minted at runtime) - the only ids a new elevation request may name
+    /// as a target.</summary>
+    private readonly HashSet<string> _namedGrantIds;
 
     /// <summary>
     /// Grants minted at runtime via <see cref="Mint"/> - distinct from the file-loaded
@@ -44,15 +61,55 @@ public sealed class GrantStore
     private readonly ConcurrentBag<(byte[] Hash, Grant Grant)> _mintedRows = new();
 
     /// <summary>
+    /// The token-to-grant elevation binding table (the locked "binding shape"): a token-hash key
+    /// (hex, see <see cref="HashKey"/>) to a <c>(grant id, expiresAt)</c> binding, mutated only by
+    /// elevation (<see cref="RebindToNamedGrant"/>/<see cref="RebindToMintedGrant"/>) and consulted
+    /// - and lazily reverted on expiry - inside <see cref="Authenticate"/>, the single
+    /// authorization decision point. A binding is a pointer to an id, so expiry is a pointer revert
+    /// to the principal's base binding, not un-mutation of any grant; grants stay immutable. The
+    /// selector's default binding is <em>not</em> stored here - it is resolved fresh per request in
+    /// <see cref="ResolveLocalhostGrant"/> from <see cref="LocalhostAuthOptions"/>.
+    /// </summary>
+    private readonly ConcurrentDictionary<string, (string GrantId, DateTimeOffset ExpiresAt)> _bindings = new();
+
+    /// <summary>
+    /// The built-in minimum-access floor: what an unrecognized, blank, or expired localhost token
+    /// degrades to (see <see cref="ResolveLocalhostGrant"/>). No op classes and no vaults - so no
+    /// Read/Write/ManageGrants and no vault content - but callable tools that bypass the op-class
+    /// check by name still work: <c>health_check</c> (diagnostics as a right of connection) and
+    /// <c>request_elevation</c>. It opts into elevation so a floored session can ask to be
+    /// elevated with approval - the whole point of a fail-closed floor that stays recoverable.
+    /// </summary>
+    public static Grant MinimumGrant { get; } = new(
+        "minimum-access",
+        new HashSet<string>(StringComparer.OrdinalIgnoreCase),
+        new HashSet<string>(StringComparer.OrdinalIgnoreCase),
+        ExpiresAtUtc: null,
+        new Dictionary<string, IReadOnlySet<string>>(StringComparer.OrdinalIgnoreCase))
+    { CanRequestElevation = true };
+
+    /// <summary>
     /// Builds a store over an already-parsed set of <c>(token-hash, grant)</c> rows - the output
     /// of <see cref="GrantFileLoader.Load"/>. <paramref name="timeProvider"/> defaults to
     /// <see cref="TimeProvider.System"/>; override it so tests can control the "now" that grant
-    /// expiry (and a minted grant's TTL) is measured against.
+    /// expiry (and a minted grant's TTL) is measured against. <paramref name="namedGrants"/> are
+    /// the token-less rebind/default-binding targets (empty when none); <paramref name="localhostOptions"/>
+    /// governs the localhost selector/floor fallback (see <see cref="ResolveLocalhostGrant"/>),
+    /// defaulting to the permissive-minimum posture.
     /// </summary>
-    public GrantStore(IReadOnlyList<(byte[] Hash, Grant Grant)> rows, TimeProvider? timeProvider = null)
+    public GrantStore(
+        IReadOnlyList<(byte[] Hash, Grant Grant)> rows,
+        TimeProvider? timeProvider = null,
+        IReadOnlyDictionary<string, Grant>? namedGrants = null,
+        LocalhostAuthOptions? localhostOptions = null)
     {
         _rows = rows;
         _timeProvider = timeProvider ?? TimeProvider.System;
+        _localhostOptions = localhostOptions ?? LocalhostAuthOptions.Default;
+        _grantsById = new ConcurrentDictionary<string, Grant>(
+            namedGrants ?? new Dictionary<string, Grant>(StringComparer.OrdinalIgnoreCase),
+            StringComparer.OrdinalIgnoreCase);
+        _namedGrantIds = new HashSet<string>(_grantsById.Keys, StringComparer.OrdinalIgnoreCase);
     }
 
     /// <summary>An inert store with no grants - nobody can authenticate against it, the
@@ -73,24 +130,148 @@ public sealed class GrantStore
     /// <see cref="GrantFileLoader"/> for the whole-file-Fatal / per-row-Degraded split. Callers that
     /// already hold parsed rows can bypass this and use the constructor.
     /// </summary>
-    public static GrantStore Load(string path, OpClassRegistry opClassRegistry, VaultConfig vaultConfig, ServerHealthState healthState, TimeProvider? timeProvider = null)
+    public static GrantStore Load(string path, OpClassRegistry opClassRegistry, VaultConfig vaultConfig, ServerHealthState healthState, TimeProvider? timeProvider = null, LocalhostAuthOptions? localhostOptions = null)
     {
         var resolvedTimeProvider = timeProvider ?? TimeProvider.System;
-        var rows = GrantFileLoader.Load(path, opClassRegistry, vaultConfig, healthState, resolvedTimeProvider.GetUtcNow());
-        return new GrantStore(rows, resolvedTimeProvider);
+        var contents = GrantFileLoader.Load(path, opClassRegistry, vaultConfig, healthState, resolvedTimeProvider.GetUtcNow());
+        return new GrantStore(contents.TokenRows, resolvedTimeProvider, contents.NamedGrants, localhostOptions);
     }
 
     /// <summary>
-    /// Authenticates a presented bearer token, returning the matching grant or null. An expired
-    /// grant (see <see cref="Grant.IsExpired"/>) is treated as a non-match, same as an unknown
-    /// token - this is the sole authorization decision point. Use
-    /// <see cref="GetAuthFailureReason"/> to distinguish "unknown" from "expired" for
-    /// diagnostics once this returns null.
+    /// Authenticates a presented bearer token, returning the matching grant or null. This is the
+    /// sole authorization decision point, resolving authority in order:
+    /// <list type="number">
+    /// <item>an active elevation binding for this token (the binding table) - consulted here and
+    /// lazily reverted on expiry, so a rebind wins over the token's base grant until it lapses;</item>
+    /// <item>the token's base grant - a file-loaded row or a runtime-minted grant, excluding an
+    /// expired one (treated as a non-match, same as an unknown token).</item>
+    /// </list>
+    /// Returns null when neither applies - an unknown, blank, or expired token. Callers gating a
+    /// localhost request use <see cref="ResolveLocalhostGrant"/> instead, which layers the
+    /// selector/minimum-floor fallback on top of this and never returns null. Use
+    /// <see cref="GetAuthFailureReason"/> to distinguish "unknown" from "expired" for diagnostics
+    /// once this returns null.
     /// </summary>
     public Grant? Authenticate(string presentedToken)
     {
+        var now = _timeProvider.GetUtcNow();
+
+        var bound = ResolveActiveBinding(presentedToken, now);
+        if (bound is not null)
+            return bound;
+
         var match = FindMatch(presentedToken);
-        return match is null || match.IsExpired(_timeProvider.GetUtcNow()) ? null : match;
+        return match is null || match.IsExpired(now) ? null : match;
+    }
+
+    /// <summary>
+    /// Resolves the grant a localhost request runs as - the fail-closed fallthrough that never
+    /// errors, since the server is localhost-only. First tries <see cref="Authenticate"/> (an
+    /// active binding or the token's real base grant); if that finds nothing, applies the localhost
+    /// policy: a token equal to the effective selector (the strict expected token when configured,
+    /// else the well-known selector) binds to the configured default named grant, and everything
+    /// else - blank, unrecognized, expired, or the selector when no dev default is configured -
+    /// degrades to the built-in <see cref="MinimumGrant"/>. Always returns a grant.
+    /// </summary>
+    public Grant ResolveLocalhostGrant(string presentedToken)
+    {
+        var authenticated = Authenticate(presentedToken);
+        if (authenticated is not null)
+            return authenticated;
+
+        var selector = _localhostOptions.EffectiveSelectorToken;
+        if (!string.IsNullOrEmpty(presentedToken)
+            && !string.IsNullOrEmpty(selector)
+            && CryptographicOperations.FixedTimeEquals(Hash(presentedToken), Hash(selector))
+            && _localhostOptions.DefaultGrantId is { Length: > 0 } defaultId
+            && _grantsById.TryGetValue(defaultId, out var defaultGrant)
+            && !defaultGrant.IsExpired(_timeProvider.GetUtcNow()))
+        {
+            return defaultGrant;
+        }
+
+        return MinimumGrant;
+    }
+
+    /// <summary>
+    /// Looks up a token-less named grant by id (the only valid targets for a new named-grant
+    /// elevation request). Excludes runtime elevation-minted grants that also live in the by-id
+    /// registry, and an expired named grant.
+    /// </summary>
+    public bool TryGetNamedGrant(string id, out Grant grant)
+    {
+        if (_namedGrantIds.Contains(id)
+            && _grantsById.TryGetValue(id, out var found)
+            && !found.IsExpired(_timeProvider.GetUtcNow()))
+        {
+            grant = found;
+            return true;
+        }
+        grant = null!;
+        return false;
+    }
+
+    /// <summary>The hex token-hash key the elevation binding table is keyed by. The middleware
+    /// computes it from the presented bearer token and stashes it for the elevation tool, so the
+    /// raw token never needs to reach a tool.</summary>
+    public static string HashKey(string token) => Convert.ToHexString(Hash(token));
+
+    /// <summary>
+    /// Rebinds the principal identified by <paramref name="tokenHashKey"/> (see
+    /// <see cref="HashKey"/>) to the named grant <paramref name="grantId"/> until
+    /// <paramref name="expiresAt"/>. The caller (the elevation tool, post-approval) has already
+    /// validated the target via <see cref="TryGetNamedGrant"/>. On expiry the binding is lazily
+    /// reverted inside <see cref="Authenticate"/>, restoring the token's base grant.
+    /// </summary>
+    public void RebindToNamedGrant(string tokenHashKey, string grantId, DateTimeOffset expiresAt)
+    {
+        if (!_namedGrantIds.Contains(grantId))
+            throw new ArgumentException($"Unknown named grant \"{grantId}\".", nameof(grantId));
+        _bindings[tokenHashKey] = (grantId, expiresAt);
+    }
+
+    /// <summary>
+    /// Registers a freshly-minted scoped grant as a runtime elevation target and rebinds the
+    /// principal identified by <paramref name="tokenHashKey"/> to it until
+    /// <paramref name="expiresAt"/>. Unlike <see cref="Mint"/> this issues no new bearer token -
+    /// the caller's existing token resolves to the new authority for the binding's life, then
+    /// reverts. The grant is <em>not</em> a valid target for a later named-grant elevation
+    /// request. Op classes/vaults/scope roots are treated as already-validated concrete sets, same
+    /// contract as <see cref="Mint"/>.
+    /// </summary>
+    public Grant RebindToMintedGrant(string tokenHashKey, string id, IReadOnlySet<string> opClasses, IReadOnlySet<string> vaults, IReadOnlyDictionary<string, IReadOnlySet<string>> scopeRoots, DateTimeOffset expiresAt)
+    {
+        var grant = new Grant(id, opClasses, vaults, expiresAt, scopeRoots);
+        _grantsById[id] = grant;
+        _bindings[tokenHashKey] = (id, expiresAt);
+        return grant;
+    }
+
+    /// <summary>
+    /// Consults the elevation binding table for <paramref name="presentedToken"/>, returning the
+    /// bound grant when a binding is active, or null when there is none (or it has lapsed - reverted
+    /// lazily here). Kept private and called only from <see cref="Authenticate"/> so the binding is
+    /// never a second, competing authorization path.
+    /// </summary>
+    private Grant? ResolveActiveBinding(string presentedToken, DateTimeOffset now)
+    {
+        var key = HashKey(presentedToken);
+        if (!_bindings.TryGetValue(key, out var binding))
+            return null;
+
+        if (now >= binding.ExpiresAt)
+        {
+            // Pointer revert to the base binding: drop the entry so future requests fall through
+            // to the token's real grant (or the localhost floor).
+            _bindings.TryRemove(key, out _);
+            return null;
+        }
+
+        if (_grantsById.TryGetValue(binding.GrantId, out var grant) && !grant.IsExpired(now))
+            return grant;
+
+        // The target grant vanished or expired underneath the binding - treat as no binding.
+        return null;
     }
 
     /// <summary>

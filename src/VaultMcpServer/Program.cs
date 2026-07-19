@@ -49,6 +49,16 @@ builder.Services.AddSingleton<VaultAccess>();
 var grantsConfigPath = Path.GetFullPath(Path.Combine(
     builder.Environment.ContentRootPath,
     builder.Configuration["GrantsConfigPath"] ?? "../../grants.json"));
+
+// Localhost auth policy (see LocalhostAuthOptions / GrantStore.ResolveLocalhostGrant): the
+// well-known non-secret selector token, an optional strict expected-token override, and the
+// named grant the selector binds to on this machine (the dev default - absent means the selector
+// floors to minimum access, i.e. the switchover to a live dev default is a later batch).
+var localhostAuthOptions = new LocalhostAuthOptions(
+    SelectorToken: builder.Configuration["LocalhostAuth:SelectorToken"] is { Length: > 0 } sel ? sel : LocalhostAuthOptions.DefaultSelectorToken,
+    ExpectedLocalhostToken: builder.Configuration["LocalhostAuth:ExpectedLocalhostToken"] is { Length: > 0 } exp ? exp : null,
+    DefaultGrantId: builder.Configuration["LocalhostAuth:DefaultGrantId"] is { Length: > 0 } def ? def : null);
+
 GrantStore grantStore;
 if (healthState.IsFatallyDegraded)
 {
@@ -57,7 +67,7 @@ if (healthState.IsFatallyDegraded)
 }
 else
 {
-    grantStore = GrantStore.Load(grantsConfigPath, opClassRegistry, vaultConfig, healthState);
+    grantStore = GrantStore.Load(grantsConfigPath, opClassRegistry, vaultConfig, healthState, localhostOptions: localhostAuthOptions);
 }
 builder.Services.AddSingleton(grantStore);
 
@@ -74,6 +84,13 @@ builder.Services.AddSingleton(scriptToolRegistry);
 var scriptToolRunner = new ScriptToolRunner(vaultsConfigPath);
 builder.Services.AddSingleton(scriptToolRunner);
 
+// A directly-constructed, directly-registered instance (rather than AddHttpContextAccessor())
+// so ScriptToolDispatcher and the elevation tool can be wired up here, before builder.Build() -
+// the framework still populates HttpContext on it per-request once it's resolvable as
+// IHttpContextAccessor.
+var httpContextAccessor = new HttpContextAccessor();
+builder.Services.AddSingleton<IHttpContextAccessor>(httpContextAccessor);
+
 // Native tools are compiled implementations (not hot-reloaded from disk like script tools).
 // Constructed directly here - like scriptToolRegistry/scriptToolRunner above - because
 // ScriptToolDispatcher needs the registry synchronously, before builder.Build() produces a
@@ -84,14 +101,21 @@ var mintTokenTool = new MintTokenTool(grantStore, opClassRegistry, vaultConfig);
 builder.Services.AddSingleton<INativeTool>(mintTokenTool);
 var healthCheckTool = new HealthCheckTool(healthState, vaultConfig);
 builder.Services.AddSingleton<INativeTool>(healthCheckTool);
-var nativeToolRegistry = new NativeToolRegistry([mintTokenTool, healthCheckTool]);
-builder.Services.AddSingleton(nativeToolRegistry);
 
-// A directly-constructed, directly-registered instance (rather than AddHttpContextAccessor())
-// so ScriptToolDispatcher can be wired up here, before builder.Build() - the framework
-// still populates HttpContext on it per-request once it's resolvable as IHttpContextAccessor.
-var httpContextAccessor = new HttpContextAccessor();
-builder.Services.AddSingleton<IHttpContextAccessor>(httpContextAccessor);
+// Elevation: the pluggable approval seam, shipped as a config-selected stub. Only "auto-deny"
+// exists today - the honest default so nothing can escalate merely because no approver was set
+// up. Constructed here (before builder.Build()) like the tools; its logger is attached post-build.
+var autoDenyApprover = new AutoDenyElevationApprover();
+builder.Services.AddSingleton<IElevationApprover>(autoDenyApprover);
+var elevationOptions = new ElevationOptions(
+    DefaultTtlMinutes: builder.Configuration.GetValue("Elevation:DefaultTtlMinutes", 15),
+    MaxRequestsPerMinute: builder.Configuration.GetValue("Elevation:MaxRequestsPerMinute", 5));
+var elevationRequestTool = new ElevationRequestTool(
+    grantStore, autoDenyApprover, httpContextAccessor, opClassRegistry, vaultConfig, elevationOptions, TimeProvider.System);
+builder.Services.AddSingleton<INativeTool>(elevationRequestTool);
+
+var nativeToolRegistry = new NativeToolRegistry([mintTokenTool, healthCheckTool, elevationRequestTool]);
+builder.Services.AddSingleton(nativeToolRegistry);
 
 var scriptToolDispatcher = new ScriptToolDispatcher(scriptToolRegistry, nativeToolRegistry, scriptToolRunner, httpContextAccessor, healthState);
 
@@ -122,6 +146,7 @@ app.UseMiddleware<BearerGrantMiddleware>();
 app.MapMcp("/mcp");
 
 scriptToolDispatcher.AttachLogger(app.Services.GetRequiredService<ILogger<ScriptToolDispatcher>>());
+autoDenyApprover.AttachLogger(app.Services.GetRequiredService<ILogger<AutoDenyElevationApprover>>());
 var scriptToolsWatcher = new ScriptToolsWatcher(
     toolsDir, scriptToolRegistry, scriptToolDispatcher, app.Services.GetRequiredService<ILogger<ScriptToolsWatcher>>());
 
