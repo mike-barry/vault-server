@@ -7,6 +7,7 @@ using ModelContextProtocol.Protocol;
 using ModelContextProtocol.Server;
 using VaultMcpServer.Auth;
 using VaultMcpServer.Health;
+using VaultMcpServer.Vault;
 
 namespace VaultMcpServer.Tools;
 
@@ -27,9 +28,14 @@ namespace VaultMcpServer.Tools;
 /// that has already finished by the time a refresh happens simply won't receive it, and a
 /// failed send just drops that (dead) session from the tracked set.
 /// </summary>
-public sealed class ScriptToolDispatcher(ScriptToolRegistry registry, NativeToolRegistry nativeRegistry, ScriptToolRunner runner, IHttpContextAccessor httpContextAccessor, ServerHealthState healthState)
+public sealed class ScriptToolDispatcher(ScriptToolRegistry registry, NativeToolRegistry nativeRegistry, ScriptToolRunner runner, IHttpContextAccessor httpContextAccessor, ServerHealthState healthState, VaultConfig vaultConfig)
 {
     private readonly ConcurrentDictionary<McpServer, byte> _sessions = new();
+
+    /// <summary>The script-tool parameter name that targets a vault. Matched case-insensitively -
+    /// a schema exposes it verbatim from its PowerShell param() block ("Vault"), the same reason
+    /// <see cref="BearerGrantMiddleware"/>'s body-peek looks it up case-insensitively.</summary>
+    private const string VaultParameterName = "vault";
 
     /// <summary>Placeholder <c>inputSchema</c> for a synthesized broken-script listing entry - it takes no real parameters since the script never loaded far enough to have any.</summary>
     private static readonly JsonElement EmptyObjectSchema = JsonSerializer.SerializeToElement(new Dictionary<string, object>
@@ -109,11 +115,55 @@ public sealed class ScriptToolDispatcher(ScriptToolRegistry registry, NativeTool
         if (grant is null || !grant.Allows(tool.OpClass))
             return ErrorResult($"Grant does not permit {tool.OpClass} operations for tool \"{name}\".");
 
+        // Authoritative vault-membership enforcement, alongside the op-class check above and off
+        // the same deserialized arguments the runner will use. The middleware's body-peek (see
+        // BearerGrantMiddleware) already rejects an out-of-scope named vault early with a 403, but
+        // that peek is best-effort: it can be skipped by an omitted vault arg (which then resolves
+        // to the default vault), a non-first batch element, or a chunked/malformed body it could
+        // not parse. Re-checking here - the effective vault is the call's vault argument when
+        // present, else the configured default vault - is the one that cannot be bypassed. Only
+        // tools that take a Vault parameter target a vault; native tools returned above, and a
+        // script tool with no Vault parameter is out of scope of this check.
+        if (ToolTakesVaultParameter(tool))
+        {
+            var effectiveVault = ResolveEffectiveVault(context.Params?.Arguments);
+            if (!grant.CanAccessVault(effectiveVault))
+                return ErrorResult($"Grant \"{grant.Id}\" is not scoped to vault \"{effectiveVault}\".");
+        }
+
         var arguments = ConvertArguments(context.Params?.Arguments);
         var execution = await runner.InvokeAsync(tool.ScriptPath, arguments, cancellationToken, grant.ScopeRoots);
         return execution.HadErrors
             ? ErrorResult(execution.ErrorText)
             : new CallToolResult { Content = [new TextContentBlock { Text = execution.OutputText }] };
+    }
+
+    /// <summary>Whether <paramref name="tool"/> declares a vault-targeting parameter (see
+    /// <see cref="VaultParameterName"/>) - the tools this dispatcher's membership check applies to.</summary>
+    private static bool ToolTakesVaultParameter(ScriptTool tool) =>
+        tool.Parameters.Any(p => string.Equals(p.Name, VaultParameterName, StringComparison.OrdinalIgnoreCase));
+
+    /// <summary>
+    /// The vault a call effectively targets: the string <c>vault</c> argument when present
+    /// (looked up case-insensitively, since the schema casing comes from the param() block), else
+    /// the configured default vault. A blank value is treated as absent, matching
+    /// <see cref="VaultConfig.Resolve"/>'s own null/blank-to-default handling.
+    /// </summary>
+    private string ResolveEffectiveVault(IDictionary<string, JsonElement>? arguments)
+    {
+        if (arguments is not null)
+        {
+            foreach (var (key, value) in arguments)
+            {
+                if (string.Equals(key, VaultParameterName, StringComparison.OrdinalIgnoreCase)
+                    && value.ValueKind == JsonValueKind.String
+                    && value.GetString() is { Length: > 0 } named)
+                {
+                    return named;
+                }
+            }
+        }
+        return vaultConfig.DefaultVault;
     }
 
     private static IReadOnlyDictionary<string, object?> ConvertArguments(IDictionary<string, JsonElement>? arguments)

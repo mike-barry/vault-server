@@ -7,7 +7,12 @@ using VaultMcpServer.Vault;
 
 var builder = WebApplication.CreateBuilder(args);
 
-builder.WebHost.UseUrls("http://localhost:5111");
+// The Kestrel listener bind, an appsetting like the path settings below - resolved straight off
+// IConfiguration with a code default so an unset value preserves the historical
+// http://localhost:5111 behavior. Plain HTTP only; the localhost auth floor (see
+// BearerGrantMiddleware / GrantStore) is the trust model here, not TLS. A comma-separated list is
+// honored, matching UseUrls' own semantics.
+builder.WebHost.UseUrls(builder.Configuration["ListenUrls"] ?? "http://localhost:5111");
 
 // File sink for ILogger, wired into the standard logging builder now so appsettings'
 // "Logging" section governs its level filtering exactly like the console provider - no
@@ -117,7 +122,7 @@ builder.Services.AddSingleton<INativeTool>(elevationRequestTool);
 var nativeToolRegistry = new NativeToolRegistry([mintTokenTool, healthCheckTool, elevationRequestTool]);
 builder.Services.AddSingleton(nativeToolRegistry);
 
-var scriptToolDispatcher = new ScriptToolDispatcher(scriptToolRegistry, nativeToolRegistry, scriptToolRunner, httpContextAccessor, healthState);
+var scriptToolDispatcher = new ScriptToolDispatcher(scriptToolRegistry, nativeToolRegistry, scriptToolRunner, httpContextAccessor, healthState, vaultConfig);
 
 builder.Services
     .AddMcpServer()

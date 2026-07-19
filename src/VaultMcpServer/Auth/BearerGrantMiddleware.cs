@@ -1,3 +1,4 @@
+using System.Net;
 using System.Text;
 using System.Text.Json;
 using VaultMcpServer.Health;
@@ -43,6 +44,14 @@ public sealed class BearerGrantMiddleware(RequestDelegate next, GrantStore grant
     public const string FatalDegradedBody =
         "A fatal server configuration error is preventing this server from operating. Check the server logs for details.";
 
+    /// <summary>
+    /// Fixed, detail-free body returned with a 401 when a non-loopback request fails to
+    /// authenticate. Deliberately says nothing about why (unknown vs expired token): the
+    /// server-side audit log carries that (via <see cref="GrantStore.GetAuthFailureReason"/>),
+    /// but the response must never be an oracle a remote caller can probe.
+    /// </summary>
+    public const string UnauthorizedBody = "Unauthorized.";
+
     public async Task InvokeAsync(HttpContext context)
     {
         if (healthState.IsFatallyDegraded)
@@ -52,12 +61,41 @@ public sealed class BearerGrantMiddleware(RequestDelegate next, GrantStore grant
         }
 
         // Extract the bearer token (empty when the header is missing or malformed - a blank token,
-        // which the localhost floor handles, not a 401). ResolveLocalhostGrant never returns null.
+        // which the localhost floor handles, not a 401).
         var header = context.Request.Headers["Authorization"].ToString();
         var token = header.StartsWith("Bearer ", StringComparison.Ordinal)
             ? header["Bearer ".Length..].Trim()
             : "";
-        var grant = grantStore.ResolveLocalhostGrant(token);
+
+        // The selector->default binding and the minimum-access floor are a localhost-only
+        // convenience (the server's whole trust model is that it binds loopback). Only apply them
+        // to a request whose remote address is loopback; a null RemoteIpAddress is treated as
+        // non-loopback (fail closed). A non-loopback request must present a real token that
+        // Authenticate accepts - there is no floor and no selector for it - otherwise it gets a
+        // fixed generic 401 with no Expired-vs-Unknown oracle in the body.
+        var remoteIp = context.Connection.RemoteIpAddress;
+        var isLoopback = remoteIp is not null && IPAddress.IsLoopback(remoteIp);
+
+        Grant grant;
+        if (isLoopback)
+        {
+            grant = grantStore.ResolveLocalhostGrant(token);
+        }
+        else
+        {
+            var authenticated = grantStore.Authenticate(token);
+            if (authenticated is null)
+            {
+                // GetAuthFailureReason is diagnostic-only and stays server-side (the log line),
+                // never the response body. Same audit shape as the vault-scope rejection below.
+                logger.LogWarning(
+                    "Audit: grant=(none) remoteIp={RemoteIp} reason={Reason} result=rejected-non-loopback",
+                    remoteIp, grantStore.GetAuthFailureReason(token));
+                await Reject(context, StatusCodes.Status401Unauthorized, UnauthorizedBody);
+                return;
+            }
+            grant = authenticated;
+        }
 
         var (method, tool, vault, arguments) = await PeekJsonRpcCall(context.Request);
 

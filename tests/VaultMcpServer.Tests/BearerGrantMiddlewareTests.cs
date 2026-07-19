@@ -53,10 +53,12 @@ public sealed class BearerGrantMiddlewareTests : IClassFixture<BearerGrantMiddle
             Grant? unknownGrant = null;
 
             var expiredContext = new DefaultHttpContext { Response = { Body = new MemoryStream() } };
+            expiredContext.Connection.RemoteIpAddress = IPAddress.Loopback;
             expiredContext.Request.Headers.Authorization = "Bearer expiring-token";
             await new BearerGrantMiddleware(c => { expiredGrant = c.Items[BearerGrantMiddleware.GrantItemKey] as Grant; return Task.CompletedTask; }, grantStore, new ServerHealthState(), NullLogger<BearerGrantMiddleware>.Instance).InvokeAsync(expiredContext);
 
             var unknownContext = new DefaultHttpContext { Response = { Body = new MemoryStream() } };
+            unknownContext.Connection.RemoteIpAddress = IPAddress.Loopback;
             unknownContext.Request.Headers.Authorization = "Bearer not-a-real-token";
             await new BearerGrantMiddleware(c => { unknownGrant = c.Items[BearerGrantMiddleware.GrantItemKey] as Grant; return Task.CompletedTask; }, grantStore, new ServerHealthState(), NullLogger<BearerGrantMiddleware>.Instance).InvokeAsync(unknownContext);
 
@@ -81,6 +83,7 @@ public sealed class BearerGrantMiddlewareTests : IClassFixture<BearerGrantMiddle
 
         Grant? grant = null;
         var context = new DefaultHttpContext { Response = { Body = new MemoryStream() } };
+        context.Connection.RemoteIpAddress = IPAddress.Loopback;
         await new BearerGrantMiddleware(c => { grant = c.Items[BearerGrantMiddleware.GrantItemKey] as Grant; return Task.CompletedTask; }, grantStore, new ServerHealthState(), NullLogger<BearerGrantMiddleware>.Instance).InvokeAsync(context);
 
         Assert.NotEqual(StatusCodes.Status401Unauthorized, context.Response.StatusCode);

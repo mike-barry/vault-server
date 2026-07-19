@@ -1,5 +1,9 @@
+using System.Net;
+using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Hosting;
+using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc.Testing;
+using Microsoft.AspNetCore.TestHost;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 
@@ -27,9 +31,50 @@ public abstract class ProgramHostFixtureBase : WebApplicationFactory<Program>
 
     protected string TempDir { get; }
 
+    /// <summary>The header a test can set to simulate a specific client remote address (see
+    /// <see cref="RemoteIpStartupFilter"/>); absent means the request is presented as loopback.</summary>
+    public const string RemoteIpHeader = "X-Test-Remote-Ip";
+
     protected ProgramHostFixtureBase(string tempDirPrefix)
     {
         TempDir = Directory.CreateTempSubdirectory(tempDirPrefix).FullName;
+    }
+
+    /// <summary>
+    /// TestServer does not populate <c>HttpContext.Connection.RemoteIpAddress</c> - it is null
+    /// unless something sets it - but <see cref="Auth.BearerGrantMiddleware"/>'s loopback gate
+    /// treats null as non-loopback (fail closed), which would make every hosted request a
+    /// non-loopback 401. Register a startup filter that stamps a loopback address by default (so
+    /// the E2E suite exercises the localhost model the real server runs under), letting a test
+    /// override it to a specific address via the <see cref="RemoteIpHeader"/> header to drive the
+    /// non-loopback path over HTTP.
+    /// </summary>
+    protected override void ConfigureWebHost(IWebHostBuilder builder)
+    {
+        builder.ConfigureTestServices(services =>
+            services.AddSingleton<IStartupFilter, RemoteIpStartupFilter>());
+    }
+
+    /// <summary>
+    /// Runs ahead of the app's own middleware (it wraps the whole pipeline) and sets
+    /// <c>RemoteIpAddress</c> so <see cref="Auth.BearerGrantMiddleware"/> sees a concrete remote:
+    /// loopback by default, or the <see cref="RemoteIpHeader"/> value when a test supplies one.
+    /// </summary>
+    private sealed class RemoteIpStartupFilter : IStartupFilter
+    {
+        public Action<IApplicationBuilder> Configure(Action<IApplicationBuilder> next) => app =>
+        {
+            app.Use(async (context, nextMiddleware) =>
+            {
+                context.Connection.RemoteIpAddress =
+                    context.Request.Headers.TryGetValue(RemoteIpHeader, out var supplied)
+                    && IPAddress.TryParse(supplied.ToString(), out var parsed)
+                        ? parsed
+                        : IPAddress.Loopback;
+                await nextMiddleware();
+            });
+            next(app);
+        };
     }
 
     /// <summary>
