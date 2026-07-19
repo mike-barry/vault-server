@@ -357,4 +357,95 @@ public sealed class GrantStoreTests(TestVaultFixture fixture) : IClassFixture<Te
         Assert.True(grant.ScopeRoots.ContainsKey("personal"));
         Assert.False(grant.ScopeRoots.ContainsKey("test"));
     }
+
+    [Fact]
+    public void Mint_ReturnsATokenThatAuthenticatesToTheMintedGrant()
+    {
+        var store = GrantStore.Load(WriteGrants(TwoGrants), OpClasses, _vaultConfig);
+
+        var token = store.Mint(
+            "minted-1",
+            new HashSet<string> { OpClass.Read },
+            new HashSet<string> { "test" },
+            ScopeRoots(("test", "Projects/Foo")),
+            ttlMinutes: 30);
+
+        var grant = store.Authenticate(token);
+        Assert.NotNull(grant);
+        Assert.Equal("minted-1", grant.Id);
+        Assert.True(grant.Allows(OpClass.Read));
+        Assert.False(grant.Allows(OpClass.Write));
+        Assert.True(grant.CanAccessVault("test"));
+        Assert.Equal(ScopeRoots(("test", "Projects/Foo")), grant.ScopeRoots);
+    }
+
+    [Fact]
+    public void Mint_DoesNotAffectFileLoadedGrants()
+    {
+        var store = GrantStore.Load(WriteGrants(TwoGrants), OpClasses, _vaultConfig);
+        store.Mint("minted-1", new HashSet<string> { OpClass.Read }, new HashSet<string> { "test" }, ScopeRoots(("test", "")), ttlMinutes: 30);
+
+        var admin = store.Authenticate("admin-token");
+        Assert.NotNull(admin);
+        Assert.Null(admin.ScopeRoots);
+    }
+
+    [Fact]
+    public void Mint_ExpiresAfterItsTtlElapses()
+    {
+        var timeProvider = new FixedTimeProvider(DateTimeOffset.UtcNow);
+        var store = GrantStore.Load(WriteGrants(TwoGrants), OpClasses, _vaultConfig, timeProvider);
+
+        var token = store.Mint("minted-1", new HashSet<string> { OpClass.Read }, new HashSet<string> { "test" }, ScopeRoots(("test", "")), ttlMinutes: 1);
+        Assert.NotNull(store.Authenticate(token));
+
+        timeProvider.Now = timeProvider.Now.AddMinutes(10);
+
+        Assert.Null(store.Authenticate(token));
+        Assert.Equal(AuthFailureReason.Expired, store.GetAuthFailureReason(token));
+    }
+
+    [Fact]
+    public void Mint_UnknownTokenAfterMintingIsStillUnknown()
+    {
+        var store = GrantStore.Load(WriteGrants(TwoGrants), OpClasses, _vaultConfig);
+        store.Mint("minted-1", new HashSet<string> { OpClass.Read }, new HashSet<string> { "test" }, ScopeRoots(("test", "")), ttlMinutes: 30);
+
+        Assert.Null(store.Authenticate("not-a-real-token"));
+        Assert.Equal(AuthFailureReason.Unknown, store.GetAuthFailureReason("not-a-real-token"));
+    }
+
+    [Fact]
+    public void Mint_EachCallReturnsADistinctUnguessableToken()
+    {
+        var store = GrantStore.Load(WriteGrants(TwoGrants), OpClasses, _vaultConfig);
+
+        var tokenA = store.Mint("minted-a", new HashSet<string> { OpClass.Read }, new HashSet<string> { "test" }, ScopeRoots(("test", "")), ttlMinutes: 30);
+        var tokenB = store.Mint("minted-b", new HashSet<string> { OpClass.Read }, new HashSet<string> { "test" }, ScopeRoots(("test", "")), ttlMinutes: 30);
+
+        Assert.NotEqual(tokenA, tokenB);
+        Assert.Equal("minted-a", store.Authenticate(tokenA)!.Id);
+        Assert.Equal("minted-b", store.Authenticate(tokenB)!.Id);
+    }
+
+    [Fact]
+    public void Mint_NonPositiveTtlThrows()
+    {
+        var store = GrantStore.Load(WriteGrants(TwoGrants), OpClasses, _vaultConfig);
+        Assert.Throws<ArgumentOutOfRangeException>(() =>
+            store.Mint("minted-1", new HashSet<string> { OpClass.Read }, new HashSet<string> { "test" }, ScopeRoots(("test", "")), ttlMinutes: 0));
+    }
+
+    /// <summary>Builds the per-vault <see cref="Grant.ScopeRoots"/> dictionary shape from (vault, subtree) pairs, grouping subtrees under their vault key.</summary>
+    private static Dictionary<string, IReadOnlySet<string>> ScopeRoots(params (string Vault, string Subtree)[] entries)
+    {
+        var byVault = new Dictionary<string, HashSet<string>>();
+        foreach (var (vault, subtree) in entries)
+        {
+            if (!byVault.TryGetValue(vault, out var subtrees))
+                byVault[vault] = subtrees = new HashSet<string>();
+            subtrees.Add(subtree);
+        }
+        return byVault.ToDictionary(kv => kv.Key, kv => (IReadOnlySet<string>)kv.Value);
+    }
 }

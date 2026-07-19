@@ -35,13 +35,24 @@ builder.Services.AddSingleton(scriptToolRegistry);
 var scriptToolRunner = new ScriptToolRunner();
 builder.Services.AddSingleton(scriptToolRunner);
 
+// Native tools are compiled implementations (not hot-reloaded from disk like script tools).
+// Constructed directly here - like scriptToolRegistry/scriptToolRunner above - because
+// ScriptToolDispatcher needs the registry synchronously, before builder.Build() produces a
+// service provider. Each is also registered as its own singleton instance below so it is
+// resolvable through DI by type, same as GrantStore/VaultConfig/ScriptToolRegistry - a second
+// INativeTool only needs a `new` here plus an entry in this list, no dispatcher change.
+var mintTokenTool = new MintTokenTool(grantStore, opClassRegistry, vaultConfig);
+builder.Services.AddSingleton<INativeTool>(mintTokenTool);
+var nativeToolRegistry = new NativeToolRegistry([mintTokenTool]);
+builder.Services.AddSingleton(nativeToolRegistry);
+
 // A directly-constructed, directly-registered instance (rather than AddHttpContextAccessor())
 // so ScriptToolDispatcher can be wired up here, before builder.Build() - the framework
 // still populates HttpContext on it per-request once it's resolvable as IHttpContextAccessor.
 var httpContextAccessor = new HttpContextAccessor();
 builder.Services.AddSingleton<IHttpContextAccessor>(httpContextAccessor);
 
-var scriptToolDispatcher = new ScriptToolDispatcher(scriptToolRegistry, scriptToolRunner, httpContextAccessor);
+var scriptToolDispatcher = new ScriptToolDispatcher(scriptToolRegistry, nativeToolRegistry, scriptToolRunner, httpContextAccessor);
 
 builder.Services
     .AddMcpServer()

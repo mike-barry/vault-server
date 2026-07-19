@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
@@ -26,6 +27,15 @@ public sealed class GrantStore
 {
     private readonly IReadOnlyList<(byte[] Hash, Grant Grant)> _rows;
     private readonly TimeProvider _timeProvider;
+
+    /// <summary>
+    /// Grants minted at runtime via <see cref="Mint"/> - distinct from the file-loaded
+    /// <see cref="_rows"/>, never written back to grants.json. A thread-safe append-only
+    /// collection: entries are never removed on expiry (no background sweep), just treated as
+    /// a non-match by <see cref="FindMatch"/> once past their TTL, same as an unknown token.
+    /// Gone on process restart, same as any in-memory state.
+    /// </summary>
+    private readonly ConcurrentBag<(byte[] Hash, Grant Grant)> _mintedRows = new();
 
     private GrantStore(IReadOnlyList<(byte[] Hash, Grant Grant)> rows, TimeProvider timeProvider)
     {
@@ -114,11 +124,51 @@ public sealed class GrantStore
             ? AuthFailureReason.Expired
             : AuthFailureReason.Unknown;
 
+    /// <summary>
+    /// Mints a new grant in memory and returns its bearer token - the only time the plaintext
+    /// token is available; only its SHA-256 hash is retained, same as a file-loaded row. Held
+    /// only in the in-memory <see cref="_mintedRows"/> collection, never persisted to
+    /// grants.json - gone on process restart or once <paramref name="ttlMinutes"/> elapses
+    /// (checked lazily by <see cref="Authenticate"/>/<see cref="GetAuthFailureReason"/>
+    /// alongside the file-loaded rows), whichever comes first. Callers (see
+    /// <c>MintTokenTool</c>) are responsible for validating <paramref name="opClasses"/>,
+    /// <paramref name="vaults"/>, and <paramref name="scopeRoots"/> against the registry/config
+    /// and for rejecting the <c>"*"</c> wildcard - this method treats them as already-validated,
+    /// concrete sets. <paramref name="scopeRoots"/> is the per-vault shape stored directly on
+    /// <see cref="Grant.ScopeRoots"/> - <c>null</c> for unscoped-everywhere, or a dictionary
+    /// whose absent keys mean unscoped for that vault; callers (see <c>MintTokenTool</c>) are
+    /// responsible for grouping flat <c>scope_roots</c> entries into this shape.
+    /// </summary>
+    public string Mint(string id, IReadOnlySet<string> opClasses, IReadOnlySet<string> vaults, IReadOnlyDictionary<string, IReadOnlySet<string>>? scopeRoots, int ttlMinutes)
+    {
+        if (string.IsNullOrWhiteSpace(id))
+            throw new ArgumentException("Minted grant id must not be empty.", nameof(id));
+        if (opClasses.Count == 0)
+            throw new ArgumentException("Minted grant must have at least one op class.", nameof(opClasses));
+        if (vaults.Count == 0)
+            throw new ArgumentException("Minted grant must have at least one vault.", nameof(vaults));
+        if (ttlMinutes <= 0)
+            throw new ArgumentOutOfRangeException(nameof(ttlMinutes), ttlMinutes, "ttl must be a positive number of minutes.");
+
+        var token = GenerateToken();
+        var expiresAtUtc = _timeProvider.GetUtcNow().AddMinutes(ttlMinutes);
+        var grant = new Grant(id, opClasses, vaults, expiresAtUtc, scopeRoots);
+        _mintedRows.Add((Hash(token), grant));
+        return token;
+    }
+
+    private static string GenerateToken() => Convert.ToHexString(RandomNumberGenerator.GetBytes(32));
+
     private Grant? FindMatch(string presentedToken)
     {
         var presentedHash = Hash(presentedToken);
         Grant? match = null;
         foreach (var (hash, grant) in _rows)
+        {
+            if (CryptographicOperations.FixedTimeEquals(hash, presentedHash))
+                match = grant;
+        }
+        foreach (var (hash, grant) in _mintedRows)
         {
             if (CryptographicOperations.FixedTimeEquals(hash, presentedHash))
                 match = grant;

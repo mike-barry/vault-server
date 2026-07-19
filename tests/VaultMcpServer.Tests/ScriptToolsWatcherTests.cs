@@ -50,7 +50,7 @@ public sealed class ScriptToolsWatcherTests : IDisposable, IClassFixture<ScriptT
     private (ScriptToolRegistry Registry, ScriptToolDispatcher Dispatcher) MakeRegistryAndDispatcher(string toolsDir)
     {
         var registry = new ScriptToolRegistry(toolsDir, OpClasses);
-        var dispatcher = new ScriptToolDispatcher(registry, _runner, new HttpContextAccessor());
+        var dispatcher = new ScriptToolDispatcher(registry, new NativeToolRegistry([]), _runner, new HttpContextAccessor());
         dispatcher.AttachLogger(NullLogger<ScriptToolDispatcher>.Instance);
         return (registry, dispatcher);
     }

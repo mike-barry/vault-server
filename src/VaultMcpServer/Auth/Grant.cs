@@ -13,11 +13,15 @@ namespace VaultMcpServer.Auth;
 /// Per-vault folder-prefix roots (vault-relative, forward-slash, canonicalized at load time)
 /// the grant is restricted to, distinct from <paramref name="Vaults"/> - path scope restricts
 /// *within* a vault the grant already has <see cref="Vaults"/> access to. Keyed by vault name
-/// (case-insensitive); each value is that vault's list of folder-prefix roots. A vault present
+/// (case-insensitive); each value is that vault's list of folder-prefix roots. Also the shape
+/// used for grants minted at runtime by <see cref="GrantStore.Mint"/>. A vault present
 /// in <see cref="Vaults"/> but absent from this map's keys - and the whole map being
 /// <c>null</c> - means unscoped: full access within that vault, the same meaning as an entry's
 /// value being empty or exactly <c>["*"]</c> in <c>grants.json</c>'s <c>scopeRoots</c> object,
 /// or the <c>scopeRoots</c> field being omitted entirely - see <see cref="GrantStore.Load"/>.
+/// An empty/blank scope-root string is not a valid element of a set; it is treated as
+/// malformed input, not as a "matches everything" sentinel - see
+/// <see cref="VaultMcpServer.Vault.VaultAccess.NormalizeScopeSegments"/>.
 /// Resolve a vault's flat root list via
 /// <see cref="VaultMcpServer.Vault.VaultAccess.ResolveVaultScopeRoots"/> before checking with
 /// <see cref="VaultMcpServer.Vault.VaultAccess.IsPathInScope"/>.
