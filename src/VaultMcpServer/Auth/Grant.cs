@@ -12,9 +12,12 @@ namespace VaultMcpServer.Auth;
 /// <param name="ScopeRoots">
 /// Per-vault folder-prefix scope roots, set on grants minted by <see cref="GrantStore.Mint"/> -
 /// <c>null</c> means unscoped everywhere (including for file-loaded <c>grants.json</c> rows,
-/// which carry no sub-vault scoping concept). A vault key absent from the dictionary means
-/// unscoped for that specific vault; an empty set for a vault means no folder is in scope for
-/// it. Folder-prefix values are relative to the vault root (e.g. <c>"Projects/Foo"</c> under key
+/// which carry no sub-vault scoping concept). A vault key absent from the dictionary and an
+/// empty set for a vault key mean the same thing: fully unscoped (unrestricted) for that
+/// specific vault - there is no folder restriction to apply. An empty/blank scope-root string
+/// is not a valid element of the set; it is treated as malformed input by the containment
+/// check, not as a "matches everything" sentinel. Folder-prefix values are relative to the
+/// vault root (e.g. <c>"Projects/Foo"</c> under key
 /// <c>"primary"</c>) - a parallel branch (not yet merged) adds a
 /// <c>VaultAccess.ResolveVaultScopeRoots</c> helper for resolving a given vault's effective
 /// scope list from this shape. Not enforced by <c>EnsureAllowed</c>/

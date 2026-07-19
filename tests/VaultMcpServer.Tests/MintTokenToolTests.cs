@@ -68,7 +68,7 @@ public sealed class MintTokenToolTests(TestVaultFixture fixture) : IClassFixture
     }
 
     [Fact]
-    public async Task InvokeAsync_WholeVaultScopeRoot_ProducesEmptyStringPrefixForThatVault()
+    public async Task InvokeAsync_WholeVaultScopeRoot_ProducesEmptySetForThatVault()
     {
         var store = MakeStore();
         var tool = new MintTokenTool(store, OpClasses, _vaultConfig);
@@ -86,6 +86,28 @@ public sealed class MintTokenToolTests(TestVaultFixture fixture) : IClassFixture
 
         var mintedGrant = store.Authenticate(token);
         Assert.NotNull(mintedGrant?.ScopeRoots);
-        Assert.Equal(new HashSet<string> { "" }, mintedGrant!.ScopeRoots!["test"]);
+        Assert.Empty(mintedGrant!.ScopeRoots!["test"]);
+    }
+
+    [Fact]
+    public async Task InvokeAsync_WholeVaultAndSubtreeForSameVault_WholeVaultWinsProducingEmptySet()
+    {
+        var store = MakeStore();
+        var tool = new MintTokenTool(store, OpClasses, _vaultConfig);
+        var callerGrant = store.Authenticate("admin-token")!;
+
+        var result = await tool.InvokeAsync(
+            Arguments(["test", "test/Projects/Foo"], ["Read"]),
+            callerGrant,
+            CancellationToken.None);
+
+        Assert.False(result.IsError == true);
+        var text = ((ModelContextProtocol.Protocol.TextContentBlock)result.Content[0]).Text;
+        using var minted = JsonDocument.Parse(text);
+        var token = minted.RootElement.GetProperty("token").GetString()!;
+
+        var mintedGrant = store.Authenticate(token);
+        Assert.NotNull(mintedGrant?.ScopeRoots);
+        Assert.Empty(mintedGrant!.ScopeRoots!["test"]);
     }
 }

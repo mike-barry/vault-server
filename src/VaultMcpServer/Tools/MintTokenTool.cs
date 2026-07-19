@@ -24,9 +24,12 @@ namespace VaultMcpServer.Tools;
 /// (still enforced today by <see cref="Auth.BearerGrantMiddleware"/>'s vault-scope check) is
 /// derived from it, while the remainder of each entry (the part after the leading vault
 /// segment) is grouped per vault into <see cref="Grant.ScopeRoots"/>'s per-vault dictionary
-/// shape for the folder-prefix containment check landing on a parallel branch. That branch's
-/// enforcement code isn't wired up yet - <c>scope_roots</c> is accepted and stored, not yet
-/// enforced beyond the existing whole-vault check.
+/// shape for the folder-prefix containment check landing on a parallel branch. A whole-vault
+/// entry (no subtree) produces an <em>empty</em> set for that vault key, not an empty-string
+/// element - an empty/blank scope-root string is malformed input on that branch, not a
+/// "matches everything" sentinel. That branch's enforcement code isn't wired up yet -
+/// <c>scope_roots</c> is accepted and stored, not yet enforced beyond the existing whole-vault
+/// check.
 /// </summary>
 public sealed class MintTokenTool(GrantStore grantStore, OpClassRegistry opClassRegistry, VaultConfig vaultConfig) : INativeTool
 {
@@ -134,27 +137,42 @@ public sealed class MintTokenTool(GrantStore grantStore, OpClassRegistry opClass
     /// Splits each vault-prefixed <c>scope_roots</c> entry on its leading path segment (the
     /// vault name) and groups the remainders into a per-vault set, matching
     /// <see cref="Grant.ScopeRoots"/>'s <c>IReadOnlyDictionary&lt;string, IReadOnlySet&lt;string&gt;&gt;</c>
-    /// shape. A whole-vault entry with no subtree (e.g. <c>"primary"</c>, no <c>/</c>) contributes
-    /// the empty-string prefix, which matches every path under that vault. Entries for different
-    /// vaults never leak into each other's set - e.g. <c>"primary/Projects/Foo"</c> and
-    /// <c>"test/Areas/Bar"</c> produce two separate single-entry sets, one per vault key.
+    /// shape. A whole-vault entry with no subtree (e.g. <c>"primary"</c>, no <c>/</c>) means "no
+    /// restriction within this vault", which is represented by an <em>empty</em> set for that
+    /// vault key - never by an empty-string element. (An empty/blank scope-root string is
+    /// malformed input to <c>VaultAccess.NormalizeScopeRoot</c> on the containment-check branch,
+    /// not a "matches everything" sentinel - <c>{"primary": {""}}</c> would fail at grant-load or
+    /// mint-time validation.) If the same mint call names both a whole-vault entry and a subtree
+    /// entry for the same vault (e.g. <c>"primary"</c> and <c>"primary/Projects/Foo"</c>), the
+    /// whole-vault entry wins: it already covers the subtree, so the subtree entry is redundant
+    /// and dropped, leaving that vault's set empty. Entries for different vaults never leak into
+    /// each other's set - e.g. <c>"primary/Projects/Foo"</c> and <c>"test/Areas/Bar"</c> produce
+    /// two separate single-entry sets, one per vault key.
     /// </summary>
     private static Dictionary<string, IReadOnlySet<string>> GroupScopeRootsByVault(List<string> scopeRoots)
     {
         var byVault = new Dictionary<string, HashSet<string>>(StringComparer.OrdinalIgnoreCase);
+        var wholeVault = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         foreach (var root in scopeRoots)
         {
             var parts = root.Split('/', 2);
             var vaultName = parts[0];
-            var subtree = parts.Length > 1 ? parts[1] : string.Empty;
 
             if (!byVault.TryGetValue(vaultName, out var subtrees))
             {
                 subtrees = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
                 byVault[vaultName] = subtrees;
             }
-            subtrees.Add(subtree);
+
+            if (parts.Length > 1)
+                subtrees.Add(parts[1]);
+            else
+                wholeVault.Add(vaultName);
         }
+
+        foreach (var vaultName in wholeVault)
+            byVault[vaultName].Clear();
+
         return byVault.ToDictionary(kv => kv.Key, kv => (IReadOnlySet<string>)kv.Value, StringComparer.OrdinalIgnoreCase);
     }
 
