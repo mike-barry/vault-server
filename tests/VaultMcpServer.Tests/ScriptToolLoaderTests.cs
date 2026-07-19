@@ -127,6 +127,45 @@ public sealed class ScriptToolLoaderTests : IDisposable
     }
 
     [Fact]
+    public void Load_RegistryBackedNonBuiltInOpClass_ManageGrants_Loads()
+    {
+        // ManageGrants exists only in op-classes.json, not in the OpClass constants class -
+        // proving the loader validates .NOTES op classes against the registry, not a fixed
+        // enum (the phase-2 change that made mint_token's class declarable at all).
+        WriteScript("admin_thing.ps1", """
+            <#
+            .SYNOPSIS
+            Does grant administration.
+            .NOTES
+            OpClass: ManageGrants
+            #>
+            Write-Output "ok"
+            """);
+
+        var tool = Assert.Single(ScriptToolLoader.Load(_tempDir, OpClasses));
+        Assert.Equal("ManageGrants", tool.OpClass);
+    }
+
+    [Fact]
+    public void Load_OpClassIsCanonicalizedCaseInsensitively()
+    {
+        // The registry match is case-insensitive but the stored class is the registry's
+        // canonical casing - dispatch-time Grant.Allows comparisons rely on that.
+        WriteScript("lower.ps1", """
+            <#
+            .SYNOPSIS
+            Declares its op class in lowercase.
+            .NOTES
+            OpClass: managegrants
+            #>
+            Write-Output "ok"
+            """);
+
+        var tool = Assert.Single(ScriptToolLoader.Load(_tempDir, OpClasses));
+        Assert.Equal("ManageGrants", tool.OpClass);
+    }
+
+    [Fact]
     public void Load_InvalidOpClassThrows()
     {
         WriteScript("bad.ps1", """
