@@ -26,7 +26,7 @@ namespace VaultMcpServer.Tools;
 /// that has already finished by the time a refresh happens simply won't receive it, and a
 /// failed send just drops that (dead) session from the tracked set.
 /// </summary>
-public sealed class ScriptToolDispatcher(ScriptToolRegistry registry, ScriptToolRunner runner, IHttpContextAccessor httpContextAccessor)
+public sealed class ScriptToolDispatcher(ScriptToolRegistry registry, NativeToolRegistry nativeRegistry, ScriptToolRunner runner, IHttpContextAccessor httpContextAccessor)
 {
     private readonly ConcurrentDictionary<McpServer, byte> _sessions = new();
 
@@ -43,8 +43,9 @@ public sealed class ScriptToolDispatcher(ScriptToolRegistry registry, ScriptTool
     public ValueTask<ListToolsResult> ListToolsAsync(RequestContext<ListToolsRequestParams> context, CancellationToken cancellationToken)
     {
         TrackSession(context.Server);
-        var tools = registry.Tools
-            .Select(t => new Tool { Name = t.Name, Description = t.Description, InputSchema = t.BuildInputSchema() })
+        var tools = nativeRegistry.Tools
+            .Select(t => new Tool { Name = t.Name, Description = t.Description, InputSchema = t.InputSchema })
+            .Concat(registry.Tools.Select(t => new Tool { Name = t.Name, Description = t.Description, InputSchema = t.BuildInputSchema() }))
             .ToList();
         return ValueTask.FromResult(new ListToolsResult { Tools = tools });
     }
@@ -53,6 +54,22 @@ public sealed class ScriptToolDispatcher(ScriptToolRegistry registry, ScriptTool
     {
         TrackSession(context.Server);
         var name = context.Params?.Name ?? "";
+
+        // Native tools are checked first (a small, fixed set); a name collision with a script
+        // tool would be surprising either way, but native wins since it's compiled/reviewed
+        // rather than dropped into tools/ at runtime.
+        var nativeTool = nativeRegistry.Tools.FirstOrDefault(t => t.Name == name);
+        if (nativeTool is not null)
+        {
+            var nativeGrant = httpContextAccessor.HttpContext?.Items[BearerGrantMiddleware.GrantItemKey] as Grant;
+            if (nativeGrant is null || !nativeGrant.Allows(nativeTool.OpClass))
+                return ErrorResult($"Grant does not permit {nativeTool.OpClass} operations for tool \"{name}\".");
+
+            var nativeArguments = context.Params?.Arguments?.ToDictionary(kv => kv.Key, kv => kv.Value)
+                ?? new Dictionary<string, JsonElement>();
+            return await nativeTool.InvokeAsync(nativeArguments, nativeGrant, cancellationToken);
+        }
+
         var tool = registry.Tools.FirstOrDefault(t => t.Name == name);
         if (tool is null)
             return ErrorResult($"Unknown tool: \"{name}\".");
