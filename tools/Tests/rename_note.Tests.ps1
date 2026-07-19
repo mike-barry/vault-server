@@ -51,6 +51,16 @@ Describe 'rename_note' {
         Test-Path (Join-Path $script:VaultDir 'Resources/Renamed-Gizmo.md') | Should -BeTrue
     }
 
+    It 'accepts a bare name with a .md extension as -Note' {
+        & $script:ScriptPath -Note 'Gizmo-Reference.md' -NewName 'Renamed-Gizmo'
+        Test-Path (Join-Path $script:VaultDir 'Resources/Renamed-Gizmo.md') | Should -BeTrue
+    }
+
+    It 'accepts a path-qualified name with a .md extension as -Note' {
+        & $script:ScriptPath -Note 'Resources/Gizmo-Reference.md' -NewName 'Renamed-Gizmo'
+        Test-Path (Join-Path $script:VaultDir 'Resources/Renamed-Gizmo.md') | Should -BeTrue
+    }
+
     It 'accepts a full vault-relative path as -NewName and creates the destination folder' {
         & $script:ScriptPath -Note 'Gizmo-Reference' -NewName 'Archive/Old-Gizmo'
         Test-Path (Join-Path $script:VaultDir 'Archive/Old-Gizmo.md') | Should -BeTrue

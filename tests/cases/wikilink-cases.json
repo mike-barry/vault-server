@@ -15,5 +15,8 @@
   { "name": "wrong folder qualification returns nothing", "link": "[[Wrong/Gizmo-Reference]]", "outcome": "none" },
   { "name": "duplicate bare name is ambiguous", "link": "[[Dupe]]", "outcome": "ambiguous" },
   { "name": "empty link is invalid", "link": "[[]]", "outcome": "invalid" },
-  { "name": "whitespace link is invalid", "link": "[[ ]]", "outcome": "invalid" }
+  { "name": "whitespace link is invalid", "link": "[[ ]]", "outcome": "invalid" },
+  { "name": "bare name with .md extension resolves", "link": "Gizmo-Reference.md", "outcome": "resolves", "path": "Resources/Gizmo-Reference.md" },
+  { "name": "path-qualified with .md extension resolves", "link": "Resources/Gizmo-Reference.md", "outcome": "resolves", "path": "Resources/Gizmo-Reference.md" },
+  { "name": ".md extension is case-insensitive", "link": "Gizmo-Reference.MD", "outcome": "resolves", "path": "Resources/Gizmo-Reference.md" }
 ]

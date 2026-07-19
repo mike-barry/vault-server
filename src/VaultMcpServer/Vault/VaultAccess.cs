@@ -186,6 +186,7 @@ public sealed class VaultAccess(VaultConfig config)
     /// Resolves a wikilink to a vault-relative note path. Accepts every convention form:
     /// [[Name]], bare Name, [[Folder/Name]] (path-qualified, matched on trailing path
     /// segments), and either with #heading and/or |display suffixes, which are ignored.
+    /// A trailing .md extension on the link itself is also stripped and ignored.
     /// Returns null when nothing matches; throws when the link is ambiguous.
     /// </summary>
     public string? ResolveWikilink(string? vault, string link, IReadOnlyDictionary<string, IReadOnlySet<string>>? scopeRoots = null)
@@ -262,7 +263,10 @@ public sealed class VaultAccess(VaultConfig config)
         if (target.StartsWith("[[") && target.EndsWith("]]"))
             target = target[2..^2];
         target = target.Split('|')[0].Split('#')[0].Trim();
-        return target.Replace('\\', '/').Trim('/');
+        target = target.Replace('\\', '/').Trim('/');
+        if (target.EndsWith(".md", StringComparison.OrdinalIgnoreCase))
+            target = target[..^".md".Length];
+        return target;
     }
 
     private static string GetLastSegment(string path)

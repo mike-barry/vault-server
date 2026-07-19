@@ -322,6 +322,7 @@ function Resolve-WikiLink {
     Resolves a wikilink to a vault-relative note path. Accepts every convention form:
     [[Name]], bare Name, [[Folder/Name]] (path-qualified, matched on trailing path
     segments), and either with #heading and/or |display suffixes, which are ignored.
+    A trailing .md extension on the link itself is also stripped and ignored.
     Returns $null when nothing matches; throws when the link is ambiguous.
     #>
     [CmdletBinding()]
@@ -336,6 +337,7 @@ function Resolve-WikiLink {
     $target = ($target -split '\|')[0]
     $target = ($target -split '#')[0]
     $target = $target.Trim().Replace('\', '/').Trim('/')
+    if ($target.ToLowerInvariant().EndsWith('.md')) { $target = $target.Substring(0, $target.Length - 3) }
     if (-not $target) { throw "Empty wikilink: $Link" }
 
     $qualified = $target.Contains('/')
