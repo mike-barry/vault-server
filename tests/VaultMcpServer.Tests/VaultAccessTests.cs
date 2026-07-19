@@ -1,3 +1,5 @@
+using VaultMcpServer.Vault;
+
 namespace VaultMcpServer.Tests;
 
 public sealed class VaultAccessTests(TestVaultFixture fixture) : IClassFixture<TestVaultFixture>
@@ -60,6 +62,104 @@ public sealed class VaultAccessTests(TestVaultFixture fixture) : IClassFixture<T
             var ex = Record.Exception(() => fixture.Vault.ResolvePath(null, path));
             Assert.True(ex is ArgumentException, $"{name}: expected ArgumentException, got {ex?.GetType().Name ?? "no exception"}");
         }
+    }
+
+    [Theory]
+    [MemberData(nameof(ScopeCases))]
+    public void IsPathInScope_SharedCases(string name, string vault, string path, Dictionary<string, List<string>> scopeRoots, string outcome)
+    {
+        var scopeRootsByVault = scopeRoots.ToDictionary(
+            kv => kv.Key,
+            IReadOnlySet<string> (kv) => kv.Value.ToHashSet(StringComparer.OrdinalIgnoreCase),
+            StringComparer.OrdinalIgnoreCase);
+        var resolved = VaultAccess.ResolveVaultScopeRoots(vault, scopeRootsByVault);
+
+        switch (outcome)
+        {
+            case "inScope":
+                Assert.True(VaultAccess.IsPathInScope(path, resolved), $"{name}: expected in scope");
+                break;
+            case "outOfScope":
+                Assert.False(VaultAccess.IsPathInScope(path, resolved), $"{name}: expected out of scope");
+                break;
+            case "invalid":
+                Assert.Throws<ArgumentException>(() => VaultAccess.IsPathInScope(path, resolved));
+                break;
+            default:
+                Assert.Fail($"{name}: unknown outcome {outcome}");
+                break;
+        }
+    }
+
+    private static IReadOnlyDictionary<string, IReadOnlySet<string>> ScopeFor(string vault, params string[] roots) =>
+        new Dictionary<string, IReadOnlySet<string>>(StringComparer.OrdinalIgnoreCase)
+        {
+            [vault] = roots.ToHashSet(StringComparer.OrdinalIgnoreCase),
+        };
+
+    [Fact]
+    public void EnumerateNotes_ScopedGrant_FiltersToRootFolder()
+    {
+        var notes = fixture.Vault.EnumerateNotes(null, ScopeFor("test", "Projects/Widget"));
+        Assert.All(notes, n => Assert.StartsWith("Projects/Widget/", n, StringComparison.OrdinalIgnoreCase));
+        Assert.Contains("Projects/Widget/Widget.md", notes);
+    }
+
+    [Fact]
+    public void EnumerateNotes_ScopedGrant_DropsOutOfScopeSiblingNotesRatherThanErroring()
+    {
+        var notes = fixture.Vault.EnumerateNotes(null, ScopeFor("test", "Projects/Widget"));
+        Assert.DoesNotContain("Resources/Gizmo-Reference.md", notes);
+    }
+
+    [Fact]
+    public void EnumerateNotes_ScopeRootForAnotherVaultDoesNotLeakIntoThisVault()
+    {
+        // "scratch" has no entry in this map - only "test" is scoped - so enumerating
+        // "scratch" must see everything, not be restricted by "test"'s scope root.
+        var notes = fixture.Vault.EnumerateNotes("scratch", ScopeFor("test", "Projects/Widget"));
+        Assert.Contains("Resources/Gizmo-Reference.md", notes);
+    }
+
+    [Fact]
+    public void ReadNote_InScopePath_Succeeds()
+    {
+        Assert.Contains("quorvium", fixture.Vault.ReadNote(null, "Projects/Widget/Tasks.md", ScopeFor("test", "Projects/Widget")));
+    }
+
+    [Fact]
+    public void ReadNote_OutOfScopePath_Throws()
+    {
+        Assert.Throws<UnauthorizedAccessException>(() => fixture.Vault.ReadNote(null, "Resources/Gizmo-Reference.md", ScopeFor("test", "Projects/Widget")));
+    }
+
+    [Fact]
+    public void ReadNote_ScopeRootForAnotherVaultDoesNotRestrictThisVault()
+    {
+        // The grant's map scopes "test" to Projects/Widget, but this read targets "scratch",
+        // which has no entry - it must remain fully unscoped despite the sibling entry.
+        Assert.Contains("quorvium", fixture.Vault.ReadNote("scratch", "Resources/Gizmo-Reference.md", ScopeFor("test", "Projects/Widget")));
+    }
+
+    [Fact]
+    public void WriteNote_OutOfScopePath_Throws()
+    {
+        Assert.Throws<UnauthorizedAccessException>(() =>
+            fixture.Vault.WriteNote("scratch", "Areas/Note-Out-Of-Scope.md", "# Nope\n", ScopeFor("scratch", "Projects/Widget")));
+    }
+
+    [Fact]
+    public void MoveNote_OutOfScopeDestination_Throws()
+    {
+        fixture.Vault.WriteNote("scratch", "Projects/Widget/Note-Scoped-Move-Source.md", "# Source\n");
+        Assert.Throws<UnauthorizedAccessException>(() =>
+            fixture.Vault.MoveNote("scratch", "Projects/Widget/Note-Scoped-Move-Source.md", "Areas/Note-Scoped-Move-Dest.md", ScopeFor("scratch", "Projects/Widget")));
+    }
+
+    [Fact]
+    public void ResolveWikilink_ScopedGrant_DoesNotResolveAnOutOfScopeNote()
+    {
+        Assert.Null(fixture.Vault.ResolveWikilink(null, "Gizmo-Reference", ScopeFor("test", "Projects/Widget")));
     }
 
     [Fact]
@@ -127,4 +227,5 @@ public sealed class VaultAccessTests(TestVaultFixture fixture) : IClassFixture<T
 
     public static TheoryData<string, string, string, string?> WikilinkCases => SharedCases.Wikilink();
     public static TheoryData<string, string, bool> PathCases => SharedCases.Paths();
+    public static TheoryData<string, string, string, Dictionary<string, List<string>>, string> ScopeCases => SharedCases.Scope();
 }

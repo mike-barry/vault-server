@@ -10,5 +10,19 @@
     "opClasses": ["Read"],
     "vaults": ["primary", "test"],
     "ttl": "*"
+  },
+  "REPLACE-WITH-A-LONG-RANDOM-SCOPED-TOKEN": {
+    "id": "scoped-example",
+    "opClasses": ["Read"],
+    "vaults": ["primary"],
+    "ttl": "*",
+    "scopeRoots": { "primary": ["Projects/Vault-MCP-Server"] }
+  },
+  "REPLACE-WITH-A-LONG-RANDOM-MULTI-VAULT-SCOPED-TOKEN": {
+    "id": "multi-vault-scoped-example",
+    "opClasses": ["Read"],
+    "vaults": ["primary", "test"],
+    "ttl": "*",
+    "scopeRoots": { "primary": ["Area"], "test": [] }
   }
 }

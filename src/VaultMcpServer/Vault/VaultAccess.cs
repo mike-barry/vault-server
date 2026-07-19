@@ -16,12 +16,112 @@ public sealed class VaultAccess(VaultConfig config)
     private static bool IsHiddenSegment(string segment) => segment.StartsWith('.');
 
     /// <summary>
-    /// Grant-check hook. Phase 1 stub: always allows. Op-class enforcement lands with the
-    /// bearer middleware (grants.json); per-path scoping is the phase 2 hook this signature
-    /// reserves. Every operation below calls this before touching the file system.
+    /// Grant-check hook: checks a resolved vault-relative path against the grant's
+    /// folder-prefix <paramref name="scopeRoots"/> before a read, write, or enumeration
+    /// proceeds. Op-class enforcement happens separately in the bearer middleware /
+    /// <c>ScriptToolDispatcher</c> (grants.json); this hook is path scope only, distinct from
+    /// which vault a grant may touch at all (<see cref="VaultConfig.Resolve"/>).
+    ///
+    /// <paramref name="scopeRoots"/> null or empty means the caller's grant is unscoped: full
+    /// access within its granted vaults, so this is a no-op. The literal path <c>"."</c> - used
+    /// by <see cref="EnumerateNotes"/> to gate the listing operation itself, not any one note -
+    /// is always allowed here even under a scoped grant; per-note filtering happens inside
+    /// <see cref="EnumerateNotes"/> after listing, via <see cref="IsPathInScope"/>.
     /// </summary>
-    private static void EnsureAllowed(string op, string vault, string relativePath)
+    private static void EnsureAllowed(string op, string vault, string relativePath, IReadOnlyCollection<string>? scopeRoots)
     {
+        if (scopeRoots is not { Count: > 0 })
+            return;
+        if (relativePath == ".")
+            return;
+        if (!IsPathInScope(relativePath, scopeRoots))
+            throw new UnauthorizedAccessException($"Path is outside the grant's scope for vault \"{vault}\": {relativePath}");
+    }
+
+    /// <summary>
+    /// Resolves a grant's per-vault <see cref="Auth.Grant.ScopeRoots"/> map down to the flat,
+    /// already-vault-scoped root list for one specific <paramref name="vault"/> - the shape
+    /// every other chokepoint function in this class (and <see cref="EnsureAllowed"/>,
+    /// <see cref="IsPathInScope"/>) expects. <paramref name="scopeRootsByVault"/> being
+    /// <c>null</c>, or having no entry for <paramref name="vault"/> (matched case-insensitively),
+    /// both mean unscoped for that vault - returns an empty set, same meaning as an explicit
+    /// empty list. This is where "a scope root configured for one vault must not leak into
+    /// another vault the same grant can access" is enforced: only the entry keyed to
+    /// <paramref name="vault"/> is ever consulted.
+    /// </summary>
+    public static IReadOnlySet<string> ResolveVaultScopeRoots(string vault, IReadOnlyDictionary<string, IReadOnlySet<string>>? scopeRootsByVault)
+    {
+        if (scopeRootsByVault is not null)
+        {
+            foreach (var (key, roots) in scopeRootsByVault)
+            {
+                if (string.Equals(key, vault, StringComparison.OrdinalIgnoreCase))
+                    return roots;
+            }
+        }
+        return EmptyScopeRoots;
+    }
+
+    private static readonly IReadOnlySet<string> EmptyScopeRoots = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>
+    /// Splits a folder-prefix scope root or candidate vault-relative path into normalized,
+    /// case-preserved segments - resolving "." and ".." and rejecting rooted paths, root
+    /// escapes, and empty/whitespace input. Shared by <see cref="Auth.GrantStore.Load"/> (to
+    /// validate/canonicalize a grant's configured <c>scopeRoots</c> at load time) and
+    /// <see cref="IsPathInScope"/> (to test a path against them at request time). Throws
+    /// <see cref="ArgumentException"/> for anything that cannot be normalized to a well-formed
+    /// relative path.
+    /// </summary>
+    public static string[] NormalizeScopeSegments(string path)
+    {
+        if (string.IsNullOrWhiteSpace(path))
+            throw new ArgumentException("Scope path is empty.", nameof(path));
+        if (Path.IsPathRooted(path))
+            throw new ArgumentException($"Scope path must be vault-relative, not rooted: {path}", nameof(path));
+
+        var segments = new List<string>();
+        foreach (var raw in path.Replace('\\', '/').Split('/'))
+        {
+            if (raw.Length == 0 || raw == ".")
+                continue;
+            if (raw == "..")
+            {
+                if (segments.Count == 0)
+                    throw new ArgumentException($"Scope path escapes the vault: {path}", nameof(path));
+                segments.RemoveAt(segments.Count - 1);
+                continue;
+            }
+            segments.Add(raw);
+        }
+        if (segments.Count == 0)
+            throw new ArgumentException($"Scope path resolves to the vault root: {path}", nameof(path));
+        return [.. segments];
+    }
+
+    /// <summary>
+    /// True if <paramref name="relativePath"/> falls under any of <paramref name="scopeRoots"/> -
+    /// folder-prefix containment matched by path segment, not raw string prefix, so a root of
+    /// "Projects/Foo" does not match "Projects/Foo-Other/...". An empty <paramref name="scopeRoots"/>
+    /// means unscoped (always in scope).
+    ///
+    /// Every root (and the path itself) is normalized via <see cref="NormalizeScopeSegments"/>
+    /// before any match is attempted - eagerly, so one malformed root makes the whole check
+    /// throw regardless of whether a different root would have matched. This is the
+    /// "an unscopeable query errors; it does not silently degrade" rule applied at the
+    /// containment-check level: a grant whose configured scope can't be fully resolved is
+    /// treated as broken, not partially trusted.
+    /// </summary>
+    public static bool IsPathInScope(string relativePath, IReadOnlyCollection<string> scopeRoots)
+    {
+        if (scopeRoots.Count == 0)
+            return true;
+
+        var pathSegments = NormalizeScopeSegments(relativePath);
+        var rootSegmentsList = scopeRoots.Select(NormalizeScopeSegments).ToList();
+        return rootSegmentsList.Any(rootSegments =>
+            rootSegments.Length <= pathSegments.Length &&
+            !rootSegments.Where((s, i) => !string.Equals(s, pathSegments[i], StringComparison.OrdinalIgnoreCase)).Any());
     }
 
     public (string Name, string Root) ResolveVault(string? vault) => config.Resolve(vault);
@@ -44,17 +144,27 @@ public sealed class VaultAccess(VaultConfig config)
         return full;
     }
 
-    /// <summary>Enumerates all notes in a vault as vault-relative, forward-slash paths, skipping dot-directories (.git, .obsidian, ...).</summary>
-    public IReadOnlyList<string> EnumerateNotes(string? vault)
+    /// <summary>
+    /// Enumerates all notes in a vault as vault-relative, forward-slash paths, skipping
+    /// dot-directories (.git, .obsidian, ...) and - when <paramref name="scopeRoots"/> is a
+    /// non-empty scoped grant - any note outside those folder-prefix roots (see
+    /// <see cref="IsPathInScope"/>). Out-of-scope notes are silently dropped from the result,
+    /// not surfaced as an error - a search or wikilink resolution built on this enumeration
+    /// (see <see cref="ResolveWikilink"/>) sees a naturally scope-filtered result set.
+    /// </summary>
+    public IReadOnlyList<string> EnumerateNotes(string? vault, IReadOnlyDictionary<string, IReadOnlySet<string>>? scopeRoots = null)
     {
         var (name, root) = config.Resolve(vault);
-        EnsureAllowed(OpClass.Read, name, ".");
+        var vaultScopeRoots = ResolveVaultScopeRoots(name, scopeRoots);
+        EnsureAllowed(OpClass.Read, name, ".", vaultScopeRoots);
 
         var notes = new List<string>();
         foreach (var file in Directory.EnumerateFiles(root, "*.md", SearchOption.AllDirectories))
         {
             var relative = Path.GetRelativePath(root, file).Replace('\\', '/');
             if (relative.Split('/')[..^1].Any(IsHiddenSegment))
+                continue;
+            if (vaultScopeRoots.Count > 0 && !IsPathInScope(relative, vaultScopeRoots))
                 continue;
             notes.Add(relative);
         }
@@ -67,7 +177,7 @@ public sealed class VaultAccess(VaultConfig config)
     /// segments), and either with #heading and/or |display suffixes, which are ignored.
     /// Returns null when nothing matches; throws when the link is ambiguous.
     /// </summary>
-    public string? ResolveWikilink(string? vault, string link)
+    public string? ResolveWikilink(string? vault, string link, IReadOnlyDictionary<string, IReadOnlySet<string>>? scopeRoots = null)
     {
         var target = ParseWikilinkTarget(link);
         if (target.Length == 0)
@@ -75,7 +185,7 @@ public sealed class VaultAccess(VaultConfig config)
 
         var qualified = target.Contains('/');
         var matches = new List<string>();
-        foreach (var note in EnumerateNotes(vault))
+        foreach (var note in EnumerateNotes(vault, scopeRoots))
         {
             var noteNoExt = note[..^".md".Length];
             var hit = qualified
@@ -93,18 +203,18 @@ public sealed class VaultAccess(VaultConfig config)
         };
     }
 
-    public string ReadNote(string? vault, string relativePath)
+    public string ReadNote(string? vault, string relativePath, IReadOnlyDictionary<string, IReadOnlySet<string>>? scopeRoots = null)
     {
         var (name, _) = config.Resolve(vault);
-        EnsureAllowed(OpClass.Read, name, relativePath);
+        EnsureAllowed(OpClass.Read, name, relativePath, ResolveVaultScopeRoots(name, scopeRoots));
         return File.ReadAllText(ResolvePath(vault, relativePath));
     }
 
     /// <summary>Writes a note as UTF-8 without BOM, creating parent directories as needed.</summary>
-    public void WriteNote(string? vault, string relativePath, string content)
+    public void WriteNote(string? vault, string relativePath, string content, IReadOnlyDictionary<string, IReadOnlySet<string>>? scopeRoots = null)
     {
         var (name, _) = config.Resolve(vault);
-        EnsureAllowed(OpClass.Write, name, relativePath);
+        EnsureAllowed(OpClass.Write, name, relativePath, ResolveVaultScopeRoots(name, scopeRoots));
         var full = ResolvePath(vault, relativePath);
         Directory.CreateDirectory(Path.GetDirectoryName(full)!);
         File.WriteAllText(full, content);
@@ -115,11 +225,12 @@ public sealed class VaultAccess(VaultConfig config)
     /// directories as needed. Throws if the source note does not exist or the
     /// destination already exists.
     /// </summary>
-    public void MoveNote(string? vault, string relativePath, string newRelativePath)
+    public void MoveNote(string? vault, string relativePath, string newRelativePath, IReadOnlyDictionary<string, IReadOnlySet<string>>? scopeRoots = null)
     {
         var (name, _) = config.Resolve(vault);
-        EnsureAllowed(OpClass.Write, name, relativePath);
-        EnsureAllowed(OpClass.Write, name, newRelativePath);
+        var vaultScopeRoots = ResolveVaultScopeRoots(name, scopeRoots);
+        EnsureAllowed(OpClass.Write, name, relativePath, vaultScopeRoots);
+        EnsureAllowed(OpClass.Write, name, newRelativePath, vaultScopeRoots);
 
         var fullOld = ResolvePath(vault, relativePath);
         var fullNew = ResolvePath(vault, newRelativePath);

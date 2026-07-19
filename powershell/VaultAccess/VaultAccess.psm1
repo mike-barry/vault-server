@@ -68,17 +68,142 @@ function Get-VaultAccessConfig {
     $script:VaultConfig
 }
 
+function ConvertTo-VaultScopeSegments {
+    <#
+    .SYNOPSIS
+    Splits a folder-prefix scope root or candidate vault-relative path into normalized,
+    case-preserved segments - resolving "." and ".." and rejecting rooted paths, root
+    escapes, and empty/whitespace input. Mirrors the C# side's
+    VaultAccess.NormalizeScopeSegments exactly - shared containment semantics land as a
+    tests/cases/ JSON case, not side-specific logic. Throws for anything that cannot be
+    normalized to a well-formed relative path.
+    #>
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)] [AllowEmptyString()] [string] $Path
+    )
+
+    if ([string]::IsNullOrWhiteSpace($Path)) { throw 'Scope path is empty.' }
+    if ([System.IO.Path]::IsPathRooted($Path)) { throw "Scope path must be vault-relative, not rooted: $Path" }
+
+    $segments = [System.Collections.Generic.List[string]]::new()
+    foreach ($raw in $Path.Replace('\', '/').Split('/')) {
+        if ($raw.Length -eq 0 -or $raw -eq '.') { continue }
+        if ($raw -eq '..') {
+            if ($segments.Count -eq 0) { throw "Scope path escapes the vault: $Path" }
+            $segments.RemoveAt($segments.Count - 1)
+            continue
+        }
+        $segments.Add($raw)
+    }
+    if ($segments.Count -eq 0) { throw "Scope path resolves to the vault root: $Path" }
+    , $segments.ToArray()
+}
+
+function Test-VaultPathInScope {
+    <#
+    .SYNOPSIS
+    True if $Path falls under any of $ScopeRoots - folder-prefix containment matched by path
+    segment, not raw string prefix, so a root of "Projects/Foo" does not match
+    "Projects/Foo-Other/...". Empty $ScopeRoots means unscoped (always in scope). Every root
+    (and the path itself) is normalized before any match is attempted, so one malformed root
+    makes the whole check throw regardless of whether a different root would have matched -
+    an unscopeable query errors rather than silently degrading. Mirrors the C# side's
+    VaultAccess.IsPathInScope.
+    #>
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)] [string] $Path,
+        [AllowNull()] [string[]] $ScopeRoots
+    )
+
+    if ($null -eq $ScopeRoots -or $ScopeRoots.Count -eq 0) { return $true }
+
+    $pathSegments = ConvertTo-VaultScopeSegments -Path $Path
+    $rootSegmentsList = @($ScopeRoots | ForEach-Object { , (ConvertTo-VaultScopeSegments -Path $_) })
+
+    foreach ($rootSegments in $rootSegmentsList) {
+        if ($rootSegments.Count -gt $pathSegments.Count) { continue }
+        $isMatch = $true
+        for ($i = 0; $i -lt $rootSegments.Count; $i++) {
+            if ($rootSegments[$i] -ine $pathSegments[$i]) { $isMatch = $false; break }
+        }
+        if ($isMatch) { return $true }
+    }
+    return $false
+}
+
+function Get-VaultAccessAmbientScopeRoots {
+    <#
+    .SYNOPSIS
+    Reads the host-injected VaultMcpScopeRoots global hashtable (set by ScriptToolRunner right
+    before invoking a tool script, in the same runspace - see its InvokeAsync doc comment),
+    or $null when nothing set it (direct module use, e.g. Pester tests calling chokepoint
+    functions without going through the host). Keyed by vault name, mirroring the C# side's
+    per-vault Grant.ScopeRoots map one-for-one - use Resolve-VaultScopeRoots to pick out the
+    entry for a specific vault. Used as the default value for every chokepoint function's
+    -ScopeRoots parameter so tool scripts get path-scope enforcement without plumbing it
+    through by hand.
+    #>
+    [CmdletBinding()]
+    param()
+
+    (Get-Variable -Name VaultMcpScopeRoots -Scope Global -ValueOnly -ErrorAction SilentlyContinue)
+}
+
+function Resolve-VaultScopeRoots {
+    <#
+    .SYNOPSIS
+    Resolves a grant's per-vault $ScopeRoots hashtable down to the flat, already-vault-scoped
+    root list for one specific $Vault - the shape every chokepoint function (and
+    Assert-VaultOperationAllowed, Test-VaultPathInScope) actually operates on. $ScopeRoots
+    being $null, or having no entry for $Vault (matched case-insensitively), both mean unscoped
+    for that vault - returns an empty array, same meaning as an explicit empty list. Mirrors
+    the C# side's VaultAccess.ResolveVaultScopeRoots. This is where "a scope root configured
+    for one vault must not leak into another vault the same grant can access" is enforced: only
+    the entry keyed to $Vault is ever consulted.
+    #>
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)] [string] $Vault,
+        [AllowNull()] $ScopeRoots
+    )
+
+    if ($null -eq $ScopeRoots) { return @() }
+    $key = @($ScopeRoots.Keys) | Where-Object { $_ -ieq $Vault } | Select-Object -First 1
+    if ($null -eq $key) { return @() }
+    , @($ScopeRoots[$key])
+}
+
 function Assert-VaultOperationAllowed {
-    # Grant-check hook. Phase 1 stub: always allows. Op-class enforcement happens in the
-    # C# host's bearer middleware before a tool script ever runs; per-path scoping is the
-    # phase 2 hook this signature reserves. Every operation below calls this before
-    # touching the file system.
+    <#
+    .SYNOPSIS
+    Grant-check hook: checks a resolved vault-relative path against the grant's folder-prefix
+    $ScopeRoots before a read, write, or enumeration proceeds. Op-class enforcement happens
+    separately in the C# host's ScriptToolDispatcher (grants.json); this hook is path scope
+    only, distinct from which vault a grant may touch at all (Resolve-VaultRoot).
+
+    Unlike the other chokepoint functions, $ScopeRoots here is already the flat, resolved root
+    list for $Vault (see Resolve-VaultScopeRoots) - callers look it up once and reuse it for
+    both this check and any per-note filtering they do themselves (e.g. Get-VaultNotePath).
+    $ScopeRoots null or empty means the caller's grant is unscoped for this vault: full access,
+    so this is a no-op. The literal path "." - used by Get-VaultNotePath to gate the listing
+    operation itself, not any one note - is always allowed here even under a scoped grant;
+    per-note filtering happens inside Get-VaultNotePath after listing, via Test-VaultPathInScope.
+    #>
     [CmdletBinding()]
     param(
         [Parameter(Mandatory)] [ValidateSet('Read', 'Write')] [string] $Op,
         [Parameter(Mandatory)] [string] $Vault,
-        [Parameter(Mandatory)] [string] $RelativePath
+        [Parameter(Mandatory)] [string] $RelativePath,
+        [AllowNull()] [string[]] $ScopeRoots
     )
+
+    if ($null -eq $ScopeRoots -or $ScopeRoots.Count -eq 0) { return }
+    if ($RelativePath -eq '.') { return }
+    if (-not (Test-VaultPathInScope -Path $RelativePath -ScopeRoots $ScopeRoots)) {
+        throw "Path is outside the grant's scope for vault `"$Vault`": $RelativePath"
+    }
 }
 
 function Resolve-VaultRoot {
@@ -129,22 +254,34 @@ function Get-VaultNotePath {
     <#
     .SYNOPSIS
     Enumerates all notes in a vault as vault-relative, forward-slash paths, skipping
-    dot-directories (.git, .obsidian, ...).
+    dot-directories (.git, .obsidian, ...) and - when the vault has a non-empty scoped
+    grant - any note outside those folder-prefix roots (Test-VaultPathInScope). Out-of-scope
+    notes are silently dropped from the result, not surfaced as an error - a search or
+    wikilink resolution built on this enumeration (Resolve-WikiLink) sees a naturally
+    scope-filtered result set.
+
+    $ScopeRoots is the grant's per-vault map (hashtable keyed by vault name, or $null); the
+    entry for the resolved vault is picked out via Resolve-VaultScopeRoots before use, so a
+    scope root configured for a different vault the grant can access never applies here.
     #>
     [CmdletBinding()]
     param(
-        [string] $Vault
+        [string] $Vault,
+        [AllowNull()] $ScopeRoots = (Get-VaultAccessAmbientScopeRoots)
     )
 
     $resolved = Resolve-VaultRoot -Vault $Vault
-    Assert-VaultOperationAllowed -Op Read -Vault $resolved.Name -RelativePath '.'
+    $flatScopeRoots = Resolve-VaultScopeRoots -Vault $resolved.Name -ScopeRoots $ScopeRoots
+    Assert-VaultOperationAllowed -Op Read -Vault $resolved.Name -RelativePath '.' -ScopeRoots $flatScopeRoots
 
     Get-ChildItem -LiteralPath $resolved.Root -Filter '*.md' -File -Recurse -Force |
         ForEach-Object {
             $relative = [System.IO.Path]::GetRelativePath($resolved.Root, $_.FullName).Replace('\', '/')
             $segments = $relative -split '/'
             $dirSegments = if ($segments.Count -gt 1) { $segments[0..($segments.Count - 2)] } else { @() }
-            if (-not ($dirSegments | Where-Object { $_.StartsWith('.') })) { $relative }
+            if ($dirSegments | Where-Object { $_.StartsWith('.') }) { return }
+            if ($flatScopeRoots.Count -gt 0 -and -not (Test-VaultPathInScope -Path $relative -ScopeRoots $flatScopeRoots)) { return }
+            $relative
         }
 }
 
@@ -159,7 +296,8 @@ function Resolve-WikiLink {
     [CmdletBinding()]
     param(
         [Parameter(Mandatory)] [string] $Link,
-        [string] $Vault
+        [string] $Vault,
+        [AllowNull()] $ScopeRoots = (Get-VaultAccessAmbientScopeRoots)
     )
 
     $target = $Link.Trim()
@@ -170,7 +308,7 @@ function Resolve-WikiLink {
     if (-not $target) { throw "Empty wikilink: $Link" }
 
     $qualified = $target.Contains('/')
-    $found = @(Get-VaultNotePath -Vault $Vault | Where-Object {
+    $found = @(Get-VaultNotePath -Vault $Vault -ScopeRoots $ScopeRoots | Where-Object {
         $noteNoExt = $_.Substring(0, $_.Length - 3)
         if ($qualified) {
             $noteNoExt -ieq $target -or $noteNoExt.EndsWith("/$target", [System.StringComparison]::OrdinalIgnoreCase)
@@ -195,11 +333,13 @@ function Read-VaultNote {
     [CmdletBinding()]
     param(
         [Parameter(Mandatory)] [string] $Path,
-        [string] $Vault
+        [string] $Vault,
+        [AllowNull()] $ScopeRoots = (Get-VaultAccessAmbientScopeRoots)
     )
 
     $resolved = Resolve-VaultRoot -Vault $Vault
-    Assert-VaultOperationAllowed -Op Read -Vault $resolved.Name -RelativePath $Path
+    $flatScopeRoots = Resolve-VaultScopeRoots -Vault $resolved.Name -ScopeRoots $ScopeRoots
+    Assert-VaultOperationAllowed -Op Read -Vault $resolved.Name -RelativePath $Path -ScopeRoots $flatScopeRoots
     Get-Content -LiteralPath (Resolve-VaultPath -Path $Path -Vault $Vault) -Raw -ErrorAction Stop
 }
 
@@ -212,11 +352,13 @@ function Write-VaultNote {
     param(
         [Parameter(Mandatory)] [string] $Path,
         [Parameter(Mandatory)] [AllowEmptyString()] [string] $Content,
-        [string] $Vault
+        [string] $Vault,
+        [AllowNull()] $ScopeRoots = (Get-VaultAccessAmbientScopeRoots)
     )
 
     $resolved = Resolve-VaultRoot -Vault $Vault
-    Assert-VaultOperationAllowed -Op Write -Vault $resolved.Name -RelativePath $Path
+    $flatScopeRoots = Resolve-VaultScopeRoots -Vault $resolved.Name -ScopeRoots $ScopeRoots
+    Assert-VaultOperationAllowed -Op Write -Vault $resolved.Name -RelativePath $Path -ScopeRoots $flatScopeRoots
     $full = Resolve-VaultPath -Path $Path -Vault $Vault
     $dir = [System.IO.Path]::GetDirectoryName($full)
     if (-not (Test-Path -LiteralPath $dir -PathType Container)) {
@@ -236,12 +378,14 @@ function Move-VaultNote {
     param(
         [Parameter(Mandatory)] [string] $Path,
         [Parameter(Mandatory)] [string] $NewPath,
-        [string] $Vault
+        [string] $Vault,
+        [AllowNull()] $ScopeRoots = (Get-VaultAccessAmbientScopeRoots)
     )
 
     $resolved = Resolve-VaultRoot -Vault $Vault
-    Assert-VaultOperationAllowed -Op Write -Vault $resolved.Name -RelativePath $Path
-    Assert-VaultOperationAllowed -Op Write -Vault $resolved.Name -RelativePath $NewPath
+    $flatScopeRoots = Resolve-VaultScopeRoots -Vault $resolved.Name -ScopeRoots $ScopeRoots
+    Assert-VaultOperationAllowed -Op Write -Vault $resolved.Name -RelativePath $Path -ScopeRoots $flatScopeRoots
+    Assert-VaultOperationAllowed -Op Write -Vault $resolved.Name -RelativePath $NewPath -ScopeRoots $flatScopeRoots
 
     $fullOld = Resolve-VaultPath -Path $Path -Vault $Vault
     $fullNew = Resolve-VaultPath -Path $NewPath -Vault $Vault
@@ -270,4 +414,7 @@ Export-ModuleMember -Function @(
     'Read-VaultNote'
     'Write-VaultNote'
     'Move-VaultNote'
+    'Test-VaultPathInScope'
+    'Resolve-VaultScopeRoots'
+    'Assert-VaultOperationAllowed'
 )
