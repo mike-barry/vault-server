@@ -167,34 +167,32 @@ public sealed class MintTokenDispatchTests : IClassFixture<MintTokenDispatchTest
         Assert.Equal(["personal/Projects/Foo", "test/Areas/Bar"], scopeRoots);
     }
 
-    public sealed class Fixture : WebApplicationFactory<Program>
+    public sealed class Fixture : ProgramHostFixtureBase
     {
         public const string AdminToken = "test-mint-admin-token";
         public const string ReadOnlyToken = "test-mint-readonly-token";
 
-        private readonly string _tempDir = Directory.CreateTempSubdirectory("vault-mcp-mint-token-tests-").FullName;
-
-        public Fixture()
+        public Fixture() : base("vault-mcp-mint-token-tests-")
         {
-            var vaultRoot = Path.Combine(_tempDir, "personal");
+            var vaultRoot = Path.Combine(TempDir, "personal");
             Directory.CreateDirectory(vaultRoot);
-            var secondVaultRoot = Path.Combine(_tempDir, "test");
+            var secondVaultRoot = Path.Combine(TempDir, "test");
             Directory.CreateDirectory(secondVaultRoot);
-            var vaultsPath = Path.Combine(_tempDir, "vaults.json");
+            var vaultsPath = Path.Combine(TempDir, "vaults.json");
             File.WriteAllText(vaultsPath, JsonSerializer.Serialize(new
             {
                 default_vault = "personal",
                 vaults = new Dictionary<string, string> { ["personal"] = vaultRoot, ["test"] = secondVaultRoot },
             }));
 
-            var grantsPath = Path.Combine(_tempDir, "grants.json");
+            var grantsPath = Path.Combine(TempDir, "grants.json");
             File.WriteAllText(grantsPath, JsonSerializer.Serialize(new Dictionary<string, object>
             {
                 [AdminToken] = new { id = "admin", opClasses = new[] { "Read", "Write", "ManageGrants" }, vaults = new[] { "personal" }, ttl = "*", scopeRoots = new Dictionary<string, string[]> { ["personal"] = Array.Empty<string>() } },
                 [ReadOnlyToken] = new { id = "read-only", opClasses = new[] { "Read" }, vaults = new[] { "personal" }, ttl = "*", scopeRoots = new Dictionary<string, string[]> { ["personal"] = Array.Empty<string>() } },
             }));
 
-            var toolsDir = Path.Combine(_tempDir, "tools");
+            var toolsDir = Path.Combine(TempDir, "tools");
             Directory.CreateDirectory(toolsDir);
             File.WriteAllText(Path.Combine(toolsDir, "greet.ps1"), """
                 <#
@@ -209,32 +207,7 @@ public sealed class MintTokenDispatchTests : IClassFixture<MintTokenDispatchTest
                 Write-Output "hello $Name"
                 """);
 
-            Environment.SetEnvironmentVariable("VaultsConfigPath", vaultsPath);
-            Environment.SetEnvironmentVariable("GrantsConfigPath", grantsPath);
-            Environment.SetEnvironmentVariable("ToolsDirectory", toolsDir);
-            // Redirects Program.cs's FileLoggerProvider into this fixture's temp dir so
-            // test runs don't litter timestamped log files into the repo-root logs/
-            // directory; cleaned up by the temp-dir delete below.
-            Environment.SetEnvironmentVariable("LogsDirectory", Path.Combine(_tempDir, "logs"));
-        }
-
-        protected override void Dispose(bool disposing)
-        {
-            base.Dispose(disposing);
-            if (disposing)
-            {
-                Environment.SetEnvironmentVariable("VaultsConfigPath", null);
-                Environment.SetEnvironmentVariable("GrantsConfigPath", null);
-                Environment.SetEnvironmentVariable("ToolsDirectory", null);
-                Environment.SetEnvironmentVariable("LogsDirectory", null);
-                try
-                {
-                    Directory.Delete(_tempDir, recursive: true);
-                }
-                catch (IOException)
-                {
-                }
-            }
+            ConfigureEnvironment(vaultsPath, grantsPath, toolsDirectory: toolsDir);
         }
     }
 }

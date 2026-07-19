@@ -140,34 +140,32 @@ public sealed class ScriptToolDispatcherTests : IClassFixture<ScriptToolDispatch
         Assert.True(doc.RootElement.GetProperty("result").GetProperty("isError").GetBoolean());
     }
 
-    public sealed class Fixture : WebApplicationFactory<Program>
+    public sealed class Fixture : ProgramHostFixtureBase
     {
         public const string AdminToken = "test-admin-token";
         public const string ReadOnlyToken = "test-readonly-token";
 
-        private readonly string _tempDir = Directory.CreateTempSubdirectory("vault-mcp-tools-dispatch-tests-").FullName;
-
         public string ToolsDir { get; }
 
-        public Fixture()
+        public Fixture() : base("vault-mcp-tools-dispatch-tests-")
         {
-            var vaultRoot = Path.Combine(_tempDir, "personal");
+            var vaultRoot = Path.Combine(TempDir, "personal");
             Directory.CreateDirectory(vaultRoot);
-            var vaultsPath = Path.Combine(_tempDir, "vaults.json");
+            var vaultsPath = Path.Combine(TempDir, "vaults.json");
             File.WriteAllText(vaultsPath, JsonSerializer.Serialize(new
             {
                 default_vault = "personal",
                 vaults = new Dictionary<string, string> { ["personal"] = vaultRoot },
             }));
 
-            var grantsPath = Path.Combine(_tempDir, "grants.json");
+            var grantsPath = Path.Combine(TempDir, "grants.json");
             File.WriteAllText(grantsPath, JsonSerializer.Serialize(new Dictionary<string, object>
             {
                 [AdminToken] = new { id = "admin", opClasses = new[] { "Read", "Write" }, vaults = new[] { "personal" }, ttl = "*", scopeRoots = new Dictionary<string, string[]> { ["personal"] = Array.Empty<string>() } },
                 [ReadOnlyToken] = new { id = "read-only", opClasses = new[] { "Read" }, vaults = new[] { "personal" }, ttl = "*", scopeRoots = new Dictionary<string, string[]> { ["personal"] = Array.Empty<string>() } },
             }));
 
-            var toolsDir = Path.Combine(_tempDir, "tools");
+            var toolsDir = Path.Combine(TempDir, "tools");
             ToolsDir = toolsDir;
             Directory.CreateDirectory(toolsDir);
             File.WriteAllText(Path.Combine(toolsDir, "greet.ps1"), """
@@ -183,32 +181,7 @@ public sealed class ScriptToolDispatcherTests : IClassFixture<ScriptToolDispatch
                 Write-Output "hello $Name"
                 """);
 
-            Environment.SetEnvironmentVariable("VaultsConfigPath", vaultsPath);
-            Environment.SetEnvironmentVariable("GrantsConfigPath", grantsPath);
-            Environment.SetEnvironmentVariable("ToolsDirectory", toolsDir);
-            // Redirects Program.cs's FileLoggerProvider into this fixture's temp dir so
-            // test runs don't litter timestamped log files into the repo-root logs/
-            // directory; cleaned up by the temp-dir delete below.
-            Environment.SetEnvironmentVariable("LogsDirectory", Path.Combine(_tempDir, "logs"));
-        }
-
-        protected override void Dispose(bool disposing)
-        {
-            base.Dispose(disposing);
-            if (disposing)
-            {
-                Environment.SetEnvironmentVariable("VaultsConfigPath", null);
-                Environment.SetEnvironmentVariable("GrantsConfigPath", null);
-                Environment.SetEnvironmentVariable("ToolsDirectory", null);
-                Environment.SetEnvironmentVariable("LogsDirectory", null);
-                try
-                {
-                    Directory.Delete(_tempDir, recursive: true);
-                }
-                catch (IOException)
-                {
-                }
-            }
+            ConfigureEnvironment(vaultsPath, grantsPath, toolsDirectory: toolsDir);
         }
     }
 }

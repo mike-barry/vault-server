@@ -99,33 +99,31 @@ public sealed class MultiVaultDispatchTests
         Assert.True(File.Exists(Path.Combine(fixture.TestRoot, "Resources", "Gizmo-Reference.md")), "grant scoped only to personal must not have been able to touch the test vault");
     }
 
-    public sealed class Fixture : WebApplicationFactory<Program>
+    public sealed class Fixture : ProgramHostFixtureBase
     {
         public const string BroadToken = "test-multivault-broad-token";
         public const string PersonalOnlyToken = "test-multivault-personal-only-token";
 
-        private readonly string _tempDir = Directory.CreateTempSubdirectory("vault-mcp-multivault-tests-").FullName;
-
         public string PersonalRoot { get; }
         public string TestRoot { get; }
 
-        public Fixture()
+        public Fixture() : base("vault-mcp-multivault-tests-")
         {
-            PersonalRoot = Path.Combine(_tempDir, "personal");
+            PersonalRoot = Path.Combine(TempDir, "personal");
             Directory.CreateDirectory(PersonalRoot);
             File.WriteAllText(Path.Combine(PersonalRoot, "Personal-Note.md"), "# Personal Note\n");
 
-            TestRoot = Path.Combine(_tempDir, "test");
+            TestRoot = Path.Combine(TempDir, "test");
             CopyDirectory(Path.Combine(TestVaultFixture.RepoRoot, "test-vault"), TestRoot);
 
-            var vaultsPath = Path.Combine(_tempDir, "vaults.json");
+            var vaultsPath = Path.Combine(TempDir, "vaults.json");
             File.WriteAllText(vaultsPath, JsonSerializer.Serialize(new
             {
                 default_vault = "personal",
                 vaults = new Dictionary<string, string> { ["personal"] = PersonalRoot, ["test"] = TestRoot },
             }));
 
-            var grantsPath = Path.Combine(_tempDir, "grants.json");
+            var grantsPath = Path.Combine(TempDir, "grants.json");
             File.WriteAllText(grantsPath, JsonSerializer.Serialize(new Dictionary<string, object>
             {
                 [BroadToken] = new { id = "multivault-broad", opClasses = new[] { "Read", "Write" }, vaults = new[] { "personal", "test" }, ttl = "*", scopeRoots = new Dictionary<string, string[]> { ["personal"] = Array.Empty<string>(), ["test"] = Array.Empty<string>() } },
@@ -136,48 +134,11 @@ public sealed class MultiVaultDispatchTests
             // own relative Import-Module of ../powershell/VaultAccess resolves correctly.
             var toolsDir = Path.Combine(TestVaultFixture.RepoRoot, "tools");
 
-            Environment.SetEnvironmentVariable("VaultsConfigPath", vaultsPath);
-            Environment.SetEnvironmentVariable("GrantsConfigPath", grantsPath);
-            Environment.SetEnvironmentVariable("ToolsDirectory", toolsDir);
             // rename_note.ps1 resolves its own vault config through the VaultAccess
             // PowerShell module, which reads $env:VAULT_MCP_VAULTS_JSON - a separate env var
             // from the C# host's VaultsConfigPath above, both pointed at the same vaults.json
             // so the in-process script sees the same vaults the host does.
-            Environment.SetEnvironmentVariable("VAULT_MCP_VAULTS_JSON", vaultsPath);
-            // Redirects Program.cs's FileLoggerProvider into this fixture's temp dir so
-            // test runs don't litter timestamped log files into the repo-root logs/
-            // directory; cleaned up by the temp-dir delete below.
-            Environment.SetEnvironmentVariable("LogsDirectory", Path.Combine(_tempDir, "logs"));
-        }
-
-        private static void CopyDirectory(string source, string destination)
-        {
-            foreach (var file in Directory.EnumerateFiles(source, "*", SearchOption.AllDirectories))
-            {
-                var target = Path.Combine(destination, Path.GetRelativePath(source, file));
-                Directory.CreateDirectory(Path.GetDirectoryName(target)!);
-                File.Copy(file, target);
-            }
-        }
-
-        protected override void Dispose(bool disposing)
-        {
-            base.Dispose(disposing);
-            if (disposing)
-            {
-                Environment.SetEnvironmentVariable("VaultsConfigPath", null);
-                Environment.SetEnvironmentVariable("GrantsConfigPath", null);
-                Environment.SetEnvironmentVariable("ToolsDirectory", null);
-                Environment.SetEnvironmentVariable("VAULT_MCP_VAULTS_JSON", null);
-                Environment.SetEnvironmentVariable("LogsDirectory", null);
-                try
-                {
-                    Directory.Delete(_tempDir, recursive: true);
-                }
-                catch (IOException)
-                {
-                }
-            }
+            ConfigureEnvironment(vaultsPath, grantsPath, toolsDirectory: toolsDir, vaultMcpVaultsJsonPath: vaultsPath);
         }
     }
 }

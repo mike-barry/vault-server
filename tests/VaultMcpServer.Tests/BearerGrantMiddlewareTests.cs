@@ -177,65 +177,30 @@ public sealed class BearerGrantMiddlewareTests : IClassFixture<BearerGrantMiddle
 
     private static StringContent JsonBody(string json) => new(json, Encoding.UTF8, "application/json");
 
-    public sealed class Fixture : WebApplicationFactory<Program>
+    public sealed class Fixture : ProgramHostFixtureBase
     {
         public const string AdminToken = "test-admin-token";
         public const string ReadOnlyToken = "test-readonly-token";
 
-        private readonly string _tempDir = Directory.CreateTempSubdirectory("vault-mcp-middleware-tests-").FullName;
-
-        /// <summary>
-        /// Program.cs reads VaultsConfigPath/GrantsConfigPath from IConfiguration before
-        /// builder.Build(), so a ConfigureWebHost/ConfigureAppConfiguration override lands
-        /// too late - WebApplicationFactory doesn't guarantee it's applied before the
-        /// entry point's own top-level code runs. Environment variables are folded into
-        /// WebApplicationBuilder.Configuration synchronously inside CreateBuilder() itself,
-        /// so setting them here (before the host is lazily built on first client/server
-        /// access) reliably overrides both paths.
-        /// </summary>
-        public Fixture()
+        public Fixture() : base("vault-mcp-middleware-tests-")
         {
-            var vaultRoot = Path.Combine(_tempDir, "personal");
+            var vaultRoot = Path.Combine(TempDir, "personal");
             Directory.CreateDirectory(vaultRoot);
-            var vaultsPath = Path.Combine(_tempDir, "vaults.json");
+            var vaultsPath = Path.Combine(TempDir, "vaults.json");
             File.WriteAllText(vaultsPath, JsonSerializer.Serialize(new
             {
                 default_vault = "personal",
                 vaults = new Dictionary<string, string> { ["personal"] = vaultRoot },
             }));
 
-            var grantsPath = Path.Combine(_tempDir, "grants.json");
+            var grantsPath = Path.Combine(TempDir, "grants.json");
             File.WriteAllText(grantsPath, JsonSerializer.Serialize(new Dictionary<string, object>
             {
                 [AdminToken] = new { id = "admin", opClasses = new[] { "Read", "Write" }, vaults = new[] { "personal" }, ttl = "*", scopeRoots = new Dictionary<string, string[]> { ["personal"] = Array.Empty<string>() } },
                 [ReadOnlyToken] = new { id = "read-only", opClasses = new[] { "Read" }, vaults = new[] { "personal" }, ttl = "*", scopeRoots = new Dictionary<string, string[]> { ["personal"] = Array.Empty<string>() } },
             }));
 
-            Environment.SetEnvironmentVariable("VaultsConfigPath", vaultsPath);
-            Environment.SetEnvironmentVariable("GrantsConfigPath", grantsPath);
-            // Redirects Program.cs's FileLoggerProvider into this fixture's temp dir so
-            // test runs don't litter timestamped log files into the repo-root logs/
-            // directory - the real file-sink pipeline still runs, just aimed at a
-            // per-fixture path that the existing temp-dir delete below cleans up.
-            Environment.SetEnvironmentVariable("LogsDirectory", Path.Combine(_tempDir, "logs"));
-        }
-
-        protected override void Dispose(bool disposing)
-        {
-            base.Dispose(disposing);
-            if (disposing)
-            {
-                Environment.SetEnvironmentVariable("VaultsConfigPath", null);
-                Environment.SetEnvironmentVariable("GrantsConfigPath", null);
-                Environment.SetEnvironmentVariable("LogsDirectory", null);
-                try
-                {
-                    Directory.Delete(_tempDir, recursive: true);
-                }
-                catch (IOException)
-                {
-                }
-            }
+            ConfigureEnvironment(vaultsPath, grantsPath);
         }
     }
 }

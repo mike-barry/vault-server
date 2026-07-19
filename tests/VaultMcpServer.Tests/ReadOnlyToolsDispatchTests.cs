@@ -177,29 +177,27 @@ public sealed class ReadOnlyToolsDispatchTests : IClassFixture<ReadOnlyToolsDisp
         Assert.Contains("Not found", ContentText(result));
     }
 
-    public sealed class Fixture : WebApplicationFactory<Program>
+    public sealed class Fixture : ProgramHostFixtureBase
     {
         public const string ReadOnlyToken = "test-readonly-tools-token";
         public const string WriteOnlyToken = "test-writeonly-tools-token";
         public const string WidgetScopedToken = "test-widget-scoped-tools-token";
 
-        private readonly string _tempDir = Directory.CreateTempSubdirectory("vault-mcp-readonly-tools-dispatch-tests-").FullName;
-
         public string VaultRoot { get; }
 
-        public Fixture()
+        public Fixture() : base("vault-mcp-readonly-tools-dispatch-tests-")
         {
-            VaultRoot = Path.Combine(_tempDir, "test");
+            VaultRoot = Path.Combine(TempDir, "test");
             CopyDirectory(Path.Combine(TestVaultFixture.RepoRoot, "test-vault"), VaultRoot);
 
-            var vaultsPath = Path.Combine(_tempDir, "vaults.json");
+            var vaultsPath = Path.Combine(TempDir, "vaults.json");
             File.WriteAllText(vaultsPath, JsonSerializer.Serialize(new
             {
                 default_vault = "test",
                 vaults = new Dictionary<string, string> { ["test"] = VaultRoot },
             }));
 
-            var grantsPath = Path.Combine(_tempDir, "grants.json");
+            var grantsPath = Path.Combine(TempDir, "grants.json");
             File.WriteAllText(grantsPath, JsonSerializer.Serialize(new Dictionary<string, object>
             {
                 [ReadOnlyToken] = new { id = "readonly-tools", opClasses = new[] { "Read" }, vaults = new[] { "test" }, ttl = "*", scopeRoots = new Dictionary<string, string[]> { ["test"] = Array.Empty<string>() } },
@@ -211,48 +209,11 @@ public sealed class ReadOnlyToolsDispatchTests : IClassFixture<ReadOnlyToolsDisp
             // relative Import-Module of ../powershell/VaultAccess resolves correctly.
             var toolsDir = Path.Combine(TestVaultFixture.RepoRoot, "tools");
 
-            Environment.SetEnvironmentVariable("VaultsConfigPath", vaultsPath);
-            Environment.SetEnvironmentVariable("GrantsConfigPath", grantsPath);
-            Environment.SetEnvironmentVariable("ToolsDirectory", toolsDir);
             // Each tool script resolves its own vault config through the VaultAccess
             // PowerShell module, which reads $env:VAULT_MCP_VAULTS_JSON - a separate env var
             // from the C# host's VaultsConfigPath above, both pointed at the same vaults.json
             // so the in-process script sees the same vault the host does.
-            Environment.SetEnvironmentVariable("VAULT_MCP_VAULTS_JSON", vaultsPath);
-            // Redirects Program.cs's FileLoggerProvider into this fixture's temp dir so
-            // test runs don't litter timestamped log files into the repo-root logs/
-            // directory; cleaned up by the temp-dir delete below.
-            Environment.SetEnvironmentVariable("LogsDirectory", Path.Combine(_tempDir, "logs"));
-        }
-
-        private static void CopyDirectory(string source, string destination)
-        {
-            foreach (var file in Directory.EnumerateFiles(source, "*", SearchOption.AllDirectories))
-            {
-                var target = Path.Combine(destination, Path.GetRelativePath(source, file));
-                Directory.CreateDirectory(Path.GetDirectoryName(target)!);
-                File.Copy(file, target);
-            }
-        }
-
-        protected override void Dispose(bool disposing)
-        {
-            base.Dispose(disposing);
-            if (disposing)
-            {
-                Environment.SetEnvironmentVariable("VaultsConfigPath", null);
-                Environment.SetEnvironmentVariable("GrantsConfigPath", null);
-                Environment.SetEnvironmentVariable("ToolsDirectory", null);
-                Environment.SetEnvironmentVariable("VAULT_MCP_VAULTS_JSON", null);
-                Environment.SetEnvironmentVariable("LogsDirectory", null);
-                try
-                {
-                    Directory.Delete(_tempDir, recursive: true);
-                }
-                catch (IOException)
-                {
-                }
-            }
+            ConfigureEnvironment(vaultsPath, grantsPath, toolsDirectory: toolsDir, vaultMcpVaultsJsonPath: vaultsPath);
         }
     }
 }
