@@ -23,6 +23,35 @@ Describe 'search' {
         Remove-Item -LiteralPath $script:TempRoot -Recurse -Force -ErrorAction SilentlyContinue
     }
 
+    It 'skips an unreadable note instead of aborting the search' {
+        # search is Read-class and takes no write lock, so it stays exposed to concurrent
+        # mutation the mutex cannot cover - which is why skip-missing applies to reads.
+        # Creating a symlink needs Developer Mode or elevation, so this skips rather than
+        # passing vacuously.
+        $dangling = Join-Path $script:VaultDir 'Resources/Dangling.md'
+        try {
+            New-Item -ItemType SymbolicLink -Path $dangling -Target (Join-Path $script:VaultDir 'Resources/no-such-target.md') -ErrorAction Stop | Out-Null
+        }
+        catch {
+            Set-ItResult -Skipped -Because 'creating a symbolic link requires Developer Mode or elevation on this machine'
+            return
+        }
+
+        $results = & $script:ScriptPath -Query 'quorvium'
+        ($results -join "`n") | Should -Match 'Resources/Gizmo-Reference\.md'
+    }
+
+    It 'does not let skip-missing mask a real read failure' {
+        # A present-but-unreadable note must surface, not be silently dropped - otherwise
+        # search would under-report hits while looking successful.
+        $locked = Join-Path $script:VaultDir 'Resources/Gizmo-Reference.md'
+        $fs = [System.IO.File]::Open($locked, [System.IO.FileMode]::Open, [System.IO.FileAccess]::Read, [System.IO.FileShare]::None)
+        try {
+            { & $script:ScriptPath -Query 'quorvium' } | Should -Throw
+        }
+        finally { $fs.Dispose() }
+    }
+
     It 'finds every note containing the fixture-unique "quorvium" token' {
         $results = & $script:ScriptPath -Query 'quorvium'
         $results | Should -Not -BeNullOrEmpty

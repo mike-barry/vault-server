@@ -18,6 +18,9 @@
         'Test-VaultPathInScope'
         'Resolve-VaultScopeRoots'
         'Assert-VaultOperationAllowed'
+        'Get-VaultWriteLockName'
+        'Invoke-VaultWriteLock'
+        'Test-VaultNoteMissingError'
     )
     CmdletsToExport   = @()
     VariablesToExport = @()
