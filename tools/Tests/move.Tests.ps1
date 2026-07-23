@@ -1,6 +1,6 @@
 # Pester suite for tools/move.ps1. Exercises the script directly (not through the HTTP
 # dispatcher) against a scratch copy of test-vault/, mirroring the VaultAccess module's
-# own Pester setup and tools.old/Tests/rename_note.Tests.ps1's convention.
+# own Pester setup.
 # Run with: Invoke-Pester tools/Tests/move.Tests.ps1
 #
 # Lives in tools/Tests/ rather than directly beside move.ps1: ScriptToolLoader scans
