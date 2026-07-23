@@ -620,10 +620,21 @@ Describe 'Vault write lock cross-process behavior' {
         # release timeout. Runs on its own mutex so the one-shot abandoned signal cannot have
         # been consumed by another test.
         New-IsolatedVault -Label 'abandon'
+        $keepAlive = $null
         try {
             $name = Get-VaultWriteLockName -Vault iso
             $signal = Join-Path $script:TempRoot 'held-abandon.txt'
             $job = Start-LockHolder -Name $name -SignalPath $signal
+
+            # Hold an independent handle to the same kernel mutex across the child's death.
+            # Abandonment is a property of the mutex OBJECT, and Windows destroys that object
+            # the instant its last handle closes: without this handle the object can vanish
+            # between the killed child releasing it and the parent's WaitOne below, so the
+            # parent would open a fresh, never-abandoned mutex and the recovery signal would be
+            # lost. This makes the test verify the abandoned-owner semantics deterministically
+            # instead of racing the child's process teardown.
+            $keepAlive = [System.Threading.Mutex]::new($false, $name)
+
             Stop-Job $job -ErrorAction SilentlyContinue
             Remove-Job $job -Force -ErrorAction SilentlyContinue
 
@@ -637,6 +648,9 @@ Describe 'Vault write lock cross-process behavior' {
             Invoke-VaultWriteLock -Vault iso -TimeoutSeconds 30 -Abandoned ([ref]$stillAbandoned) -ScriptBlock { 'clean' } | Should -Be 'clean'
             $stillAbandoned | Should -BeFalse
         }
-        finally { Restore-DefaultVaultConfig }
+        finally {
+            if ($keepAlive) { $keepAlive.Dispose() }
+            Restore-DefaultVaultConfig
+        }
     }
 }
