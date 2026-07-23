@@ -9,6 +9,8 @@
   <ItemGroup>
     <PackageReference Include="Microsoft.PowerShell.SDK" Version="7.6.3" />
     <PackageReference Include="ModelContextProtocol.AspNetCore" Version="2.0.0-preview.3" />
+    <!-- Direct pin over the vulnerable 10.0.6 pulled transitively by Microsoft.PowerShell.SDK (NU1903); NU1510 is wrong that it's removable -->
+    <PackageReference Include="System.Security.Cryptography.Xml" Version="10.0.10" NoWarn="NU1510" />
   </ItemGroup>
 
 </Project>
