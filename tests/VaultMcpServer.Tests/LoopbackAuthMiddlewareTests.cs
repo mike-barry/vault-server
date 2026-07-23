@@ -36,8 +36,8 @@ public sealed class LoopbackAuthMiddlewareTests : IClassFixture<TestVaultFixture
         File.WriteAllText(_grantsPath, """
             {
               "admin": { "named": true, "id": "admin", "opClasses": ["*"], "vaults": ["*"], "ttl": "*", "scopeRoots": { "*": ["*"] } },
-              "real-worker-token": { "id": "worker", "opClasses": ["Read"], "vaults": ["test"], "ttl": "*", "scopeRoots": { "test": [] } },
-              "expiring-worker-token": { "id": "worker-expiring", "opClasses": ["Read"], "vaults": ["test"], "ttl": 1, "scopeRoots": { "test": [] } }
+              "real-worker-token": { "id": "worker", "opClasses": ["content:read"], "vaults": ["test"], "ttl": "*", "scopeRoots": { "test": [] } },
+              "expiring-worker-token": { "id": "worker-expiring", "opClasses": ["content:read"], "vaults": ["test"], "ttl": 1, "scopeRoots": { "test": [] } }
             }
             """);
     }

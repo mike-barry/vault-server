@@ -33,7 +33,7 @@ public sealed class ScriptToolsWatcherTests : IDisposable, IClassFixture<ScriptT
         .PARAMETER Name
         Who to greet.
         .NOTES
-        OpClass: Read
+        OpClass: content:read
         #>
         param([string]$Name)
         Write-Output "hi $Name"

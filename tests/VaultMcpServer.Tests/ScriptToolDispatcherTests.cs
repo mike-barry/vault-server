@@ -104,7 +104,7 @@ public sealed class ScriptToolDispatcherTests : IClassFixture<ScriptToolDispatch
             .SYNOPSIS
             Says goodbye.
             .NOTES
-            OpClass: Read
+            OpClass: content:read
             #>
             Write-Output "bye"
             """);
@@ -161,8 +161,8 @@ public sealed class ScriptToolDispatcherTests : IClassFixture<ScriptToolDispatch
             var grantsPath = Path.Combine(TempDir, "grants.json");
             File.WriteAllText(grantsPath, JsonSerializer.Serialize(new Dictionary<string, object>
             {
-                [AdminToken] = new { id = "admin", opClasses = new[] { "Read", "Write" }, vaults = new[] { "personal" }, ttl = "*", scopeRoots = new Dictionary<string, string[]> { ["personal"] = Array.Empty<string>() } },
-                [ReadOnlyToken] = new { id = "read-only", opClasses = new[] { "Read" }, vaults = new[] { "personal" }, ttl = "*", scopeRoots = new Dictionary<string, string[]> { ["personal"] = Array.Empty<string>() } },
+                [AdminToken] = new { id = "admin", opClasses = new[] { "content:read", "content:write" }, vaults = new[] { "personal" }, ttl = "*", scopeRoots = new Dictionary<string, string[]> { ["personal"] = Array.Empty<string>() } },
+                [ReadOnlyToken] = new { id = "read-only", opClasses = new[] { "content:read" }, vaults = new[] { "personal" }, ttl = "*", scopeRoots = new Dictionary<string, string[]> { ["personal"] = Array.Empty<string>() } },
             }));
 
             var toolsDir = Path.Combine(TempDir, "tools");
@@ -175,7 +175,7 @@ public sealed class ScriptToolDispatcherTests : IClassFixture<ScriptToolDispatch
                 .PARAMETER Name
                 Who to greet.
                 .NOTES
-                OpClass: Write
+                OpClass: content:write
                 #>
                 param([Parameter(Mandatory=$true)] [string]$Name)
                 Write-Output "hello $Name"

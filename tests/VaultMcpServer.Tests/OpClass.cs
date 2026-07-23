@@ -10,6 +10,6 @@ namespace VaultMcpServer.Tests;
 /// </summary>
 internal static class OpClass
 {
-    public const string Read = "Read";
-    public const string Write = "Write";
+    public const string Read = "content:read";
+    public const string Write = "content:write";
 }

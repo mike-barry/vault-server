@@ -106,7 +106,7 @@ public sealed class CascadeAvoidanceDispatchTests
                 ["some-token"] = new
                 {
                     id = "someone",
-                    opClasses = new[] { "Read" },
+                    opClasses = new[] { "content:read" },
                     vaults = new[] { "personal" },
                     ttl = "*",
                     scopeRoots = new Dictionary<string, string[]> { ["personal"] = Array.Empty<string>() },

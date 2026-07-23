@@ -58,7 +58,7 @@ public sealed class LocalhostAuthDispatchTests : IClassFixture<LocalhostAuthDisp
     public async Task SelectorToken_ResolvesToDefaultAdminGrant_CanMint()
     {
         // mint_token requires ManageGrants; the selector binding to admin is what grants it.
-        var body = """{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"mint_token","arguments":{"scope_roots":["personal"],"op_class":["Read"]}}}""";
+        var body = """{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"mint_token","arguments":{"scope_roots":["personal"],"op_class":["content:read"]}}}""";
         var (status, result) = await CallToolAsync(_fixture, Fixture.SelectorToken, body);
 
         Assert.Equal(HttpStatusCode.OK, status);
@@ -79,7 +79,7 @@ public sealed class LocalhostAuthDispatchTests : IClassFixture<LocalhostAuthDisp
     public async Task UnknownToken_FloorsToMinimum_ManageGrantsToolDenied()
     {
         // The minimum floor has no op classes, so mint_token (ManageGrants) is a tool error.
-        var body = """{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"mint_token","arguments":{"scope_roots":["personal"],"op_class":["Read"]}}}""";
+        var body = """{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"mint_token","arguments":{"scope_roots":["personal"],"op_class":["content:read"]}}}""";
         var (status, result) = await CallToolAsync(_fixture, "some-random-unrecognized-token", body);
 
         Assert.Equal(HttpStatusCode.OK, status);
@@ -127,7 +127,7 @@ public sealed class LocalhostAuthDispatchTests : IClassFixture<LocalhostAuthDisp
             File.WriteAllText(grantsPath, JsonSerializer.Serialize(new Dictionary<string, object>
             {
                 ["admin"] = new { named = true, id = "admin", opClasses = new[] { "*" }, vaults = new[] { "*" }, ttl = "*", scopeRoots = new Dictionary<string, string[]> { ["*"] = new[] { "*" } } },
-                ["a-real-readonly-token"] = new { id = "read-only", opClasses = new[] { "Read" }, vaults = new[] { "personal" }, ttl = "*", scopeRoots = new Dictionary<string, string[]> { ["personal"] = Array.Empty<string>() } },
+                ["a-real-readonly-token"] = new { id = "read-only", opClasses = new[] { "content:read" }, vaults = new[] { "personal" }, ttl = "*", scopeRoots = new Dictionary<string, string[]> { ["personal"] = Array.Empty<string>() } },
             }));
 
             var toolsDir = Path.Combine(TempDir, "tools");
@@ -139,7 +139,7 @@ public sealed class LocalhostAuthDispatchTests : IClassFixture<LocalhostAuthDisp
                 .PARAMETER Name
                 Who to greet.
                 .NOTES
-                OpClass: Write
+                OpClass: content:write
                 #>
                 param([Parameter(Mandatory=$true)] [string]$Name)
                 Write-Output "hello $Name"

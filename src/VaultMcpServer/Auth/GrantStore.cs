@@ -75,7 +75,7 @@ public sealed class GrantStore
     /// <summary>
     /// The built-in minimum-access floor: what an unrecognized, blank, or expired localhost token
     /// degrades to (see <see cref="ResolveLocalhostGrant"/>). No op classes and no vaults - so no
-    /// Read/Write/ManageGrants and no vault content - but callable tools that bypass the op-class
+    /// content:read/content:write/grants:manage and no vault content - but callable tools that bypass the op-class
     /// check by name still work: <c>health_check</c> (diagnostics as a right of connection) and
     /// <c>request_elevation</c>. It opts into elevation so a floored session can ask to be
     /// elevated with approval - the whole point of a fail-closed floor that stays recoverable.

@@ -1,5 +1,7 @@
 [
-  { "name": "Read", "description": "Read-only vault access: note reads, wikilink resolution, search, enumeration." },
-  { "name": "Write", "description": "Vault-mutating access: note writes, renames, moves." },
-  { "name": "ManageGrants", "description": "Grant administration: minting new scoped, time-limited bearer tokens." }
+  { "name": "content:read", "description": "Read-only vault content access: note reads, wikilink resolution, search, enumeration." },
+  { "name": "content:write", "description": "Vault content mutation: note writes, renames, moves." },
+  { "name": "agentic:write", "description": "Mutation of the agentic frontmatter layer (the agent.* / nav.* metadata) on vault notes." },
+  { "name": "git:sync", "description": "Git sync operations against the vault repository: commit, pull, push." },
+  { "name": "grants:manage", "description": "Grant administration: minting new scoped, time-limited bearer tokens." }
 ]

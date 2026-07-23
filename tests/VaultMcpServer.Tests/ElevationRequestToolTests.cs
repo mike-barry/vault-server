@@ -30,9 +30,9 @@ public sealed class ElevationRequestToolTests(TestVaultFixture fixture) : IClass
     // Opt-in caller (Read only) plus a token-less named "elevated" grant that also has Write.
     private const string Grants = """
         {
-          "caller-token": { "id": "caller", "opClasses": ["Read"], "vaults": ["test"], "ttl": "*", "scopeRoots": { "test": [] }, "canRequestElevation": true },
-          "no-elevate-token": { "id": "no-elevate", "opClasses": ["Read"], "vaults": ["test"], "ttl": "*", "scopeRoots": { "test": [] } },
-          "elevated": { "named": true, "id": "elevated", "opClasses": ["Read", "Write"], "vaults": ["test"], "ttl": "*", "scopeRoots": { "test": [] } }
+          "caller-token": { "id": "caller", "opClasses": ["content:read"], "vaults": ["test"], "ttl": "*", "scopeRoots": { "test": [] }, "canRequestElevation": true },
+          "no-elevate-token": { "id": "no-elevate", "opClasses": ["content:read"], "vaults": ["test"], "ttl": "*", "scopeRoots": { "test": [] } },
+          "elevated": { "named": true, "id": "elevated", "opClasses": ["content:read", "content:write"], "vaults": ["test"], "ttl": "*", "scopeRoots": { "test": [] } }
         }
         """;
 
@@ -115,7 +115,7 @@ public sealed class ElevationRequestToolTests(TestVaultFixture fixture) : IClass
         var elevated = store.Authenticate(CallerToken);
         Assert.NotNull(elevated);
         Assert.Equal("elevated", elevated.Id);
-        Assert.True(elevated.Allows("Write"));
+        Assert.True(elevated.Allows("content:write"));
     }
 
     [Fact]
@@ -178,7 +178,7 @@ public sealed class ElevationRequestToolTests(TestVaultFixture fixture) : IClass
         var caller = store.Authenticate(CallerToken)!;
 
         var result = await tool.InvokeAsync(
-            Args(new { scope_roots = new[] { "test/Projects/Foo" }, op_class = new[] { "Read" }, ttl = 10 }),
+            Args(new { scope_roots = new[] { "test/Projects/Foo" }, op_class = new[] { "content:read" }, ttl = 10 }),
             caller, CancellationToken.None);
 
         Assert.False(IsError(result));
@@ -196,7 +196,7 @@ public sealed class ElevationRequestToolTests(TestVaultFixture fixture) : IClass
         var caller = store.Authenticate(CallerToken)!;
 
         var result = await tool.InvokeAsync(
-            Args(new { grant = "elevated", scope_roots = new[] { "test" }, op_class = new[] { "Read" } }),
+            Args(new { grant = "elevated", scope_roots = new[] { "test" }, op_class = new[] { "content:read" } }),
             caller, CancellationToken.None);
 
         Assert.True(IsError(result));

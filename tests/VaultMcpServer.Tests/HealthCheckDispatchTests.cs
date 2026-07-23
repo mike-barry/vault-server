@@ -65,7 +65,7 @@ public sealed class HealthCheckDispatchTests : IClassFixture<HealthCheckDispatch
     [Fact]
     public async Task HealthCheck_CallableByReadOnlyGrant_BypassingItsOwnOpClass()
     {
-        // ReadOnlyToken's grant only allows "Read" - health_check's own OpClass is
+        // ReadOnlyToken's grant only allows "content:read" - health_check's own OpClass is
         // deliberately never a real, matchable class (see HealthCheckTool.OpClass), so a
         // normal grant.Allows(tool.OpClass) check would reject this call. Succeeding here
         // proves ScriptToolDispatcher's health_check special case actually bypasses that
@@ -141,7 +141,7 @@ public sealed class HealthCheckDispatchTests : IClassFixture<HealthCheckDispatch
             var grantsPath = Path.Combine(TempDir, "grants.json");
             File.WriteAllText(grantsPath, JsonSerializer.Serialize(new Dictionary<string, object>
             {
-                [ReadOnlyToken] = new { id = "read-only", opClasses = new[] { "Read" }, vaults = new[] { "personal" }, ttl = "*", scopeRoots = new Dictionary<string, string[]> { ["personal"] = Array.Empty<string>() } },
+                [ReadOnlyToken] = new { id = "read-only", opClasses = new[] { "content:read" }, vaults = new[] { "personal" }, ttl = "*", scopeRoots = new Dictionary<string, string[]> { ["personal"] = Array.Empty<string>() } },
             }));
 
             var toolsDir = Path.Combine(TempDir, "tools");
@@ -153,7 +153,7 @@ public sealed class HealthCheckDispatchTests : IClassFixture<HealthCheckDispatch
                 .PARAMETER Name
                 Who to greet.
                 .NOTES
-                OpClass: Read
+                OpClass: content:read
                 #>
                 param([Parameter(Mandatory=$true)] [string]$Name)
                 Write-Output "hello $Name"
@@ -164,7 +164,7 @@ public sealed class HealthCheckDispatchTests : IClassFixture<HealthCheckDispatch
             File.WriteAllText(Path.Combine(toolsDir, "broken.ps1"), """
                 <#
                 .NOTES
-                OpClass: Read
+                OpClass: content:read
                 #>
                 param()
                 """);

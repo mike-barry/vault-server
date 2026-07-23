@@ -171,15 +171,15 @@ try {
 
     Write-Host 'Probe: attenuation-only minting'
     $mintedToken = $null
-    $r = Invoke-McpCall -Tool 'mint_token' -Arguments @{ scope_roots = @('test'); op_class = @('Read', 'ManageGrants') } -Token $selectorToken
+    $r = Invoke-McpCall -Tool 'mint_token' -Arguments @{ scope_roots = @('test'); op_class = @('content:read', 'grants:manage') } -Token $selectorToken
     $mint = if ($r.StatusCode -eq 200 -and -not $r.IsError -and $r.Text) { $r.Text | ConvertFrom-Json } else { $null }
     if ($mint) { $mintedToken = $mint.token }
-    Check 'selector mints a Read+ManageGrants grant on vault "test"' ($null -ne $mint -and $mint.token) "status=$($r.StatusCode) isError=$($r.IsError)"
+    Check 'selector mints a content:read+grants:manage grant on vault "test"' ($null -ne $mint -and $mint.token) "status=$($r.StatusCode) isError=$($r.IsError)"
     if ($mintedToken) {
-        $r = Invoke-McpCall -Tool 'mint_token' -Arguments @{ scope_roots = @('test'); op_class = @('Write') } -Token $mintedToken
-        Check 'minted token cannot mint Write (refusal names the op-class dimension)' ($r.IsError -and $r.Text -like '*"op_class" requests*does not hold*') "isError=$($r.IsError) text=$($r.Text)"
+        $r = Invoke-McpCall -Tool 'mint_token' -Arguments @{ scope_roots = @('test'); op_class = @('content:write') } -Token $mintedToken
+        Check 'minted token cannot mint content:write (refusal names the op-class dimension)' ($r.IsError -and $r.Text -like '*"op_class" requests*does not hold*') "isError=$($r.IsError) text=$($r.Text)"
     } else {
-        Check 'minted token cannot mint Write (refusal names the op-class dimension)' $false 'skipped: mint failed'
+        Check 'minted token cannot mint content:write (refusal names the op-class dimension)' $false 'skipped: mint failed'
     }
 
     Write-Host 'Probe: audit log hygiene'

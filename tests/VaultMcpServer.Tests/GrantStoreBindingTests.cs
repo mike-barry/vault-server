@@ -32,8 +32,8 @@ public sealed class GrantStoreBindingTests(TestVaultFixture fixture) : IClassFix
     // A token-keyed opt-in caller row plus a token-less named "elevated" grant with broader access.
     private const string CallerAndNamedTarget = """
         {
-          "caller-token": { "id": "caller", "opClasses": ["Read"], "vaults": ["test"], "ttl": "*", "scopeRoots": { "test": [] }, "canRequestElevation": true },
-          "elevated": { "named": true, "id": "elevated", "opClasses": ["Read", "Write"], "vaults": ["test", "scratch"], "ttl": "*", "scopeRoots": { "test": [], "scratch": [] } }
+          "caller-token": { "id": "caller", "opClasses": ["content:read"], "vaults": ["test"], "ttl": "*", "scopeRoots": { "test": [] }, "canRequestElevation": true },
+          "elevated": { "named": true, "id": "elevated", "opClasses": ["content:read", "content:write"], "vaults": ["test", "scratch"], "ttl": "*", "scopeRoots": { "test": [], "scratch": [] } }
         }
         """;
 
@@ -55,7 +55,7 @@ public sealed class GrantStoreBindingTests(TestVaultFixture fixture) : IClassFix
 
         Assert.True(store.TryGetNamedGrant("elevated", out var named));
         Assert.Equal("elevated", named.Id);
-        Assert.True(named.Allows("Write"));
+        Assert.True(named.Allows("content:write"));
 
         // A token-keyed grant is not a named-grant elevation target.
         Assert.False(store.TryGetNamedGrant("caller", out _));
@@ -68,7 +68,7 @@ public sealed class GrantStoreBindingTests(TestVaultFixture fixture) : IClassFix
         var path = Path.Combine(_tempDir, "grants.json");
         File.WriteAllText(path, """
             {
-              "some-token": { "id": "admin", "opClasses": ["Read"], "vaults": ["test"], "ttl": "*", "scopeRoots": { "test": [] } },
+              "some-token": { "id": "admin", "opClasses": ["content:read"], "vaults": ["test"], "ttl": "*", "scopeRoots": { "test": [] } },
               "admin": { "named": true, "id": "admin", "opClasses": ["*"], "vaults": ["*"], "ttl": "*", "scopeRoots": { "*": ["*"] } }
             }
             """);
@@ -86,7 +86,7 @@ public sealed class GrantStoreBindingTests(TestVaultFixture fixture) : IClassFix
         var store = Load(CallerAndNamedTarget);
         Assert.True(store.Authenticate("caller-token")!.CanRequestElevation);
 
-        var noFlag = Load("""{ "t": { "id": "plain", "opClasses": ["Read"], "vaults": ["test"], "ttl": "*", "scopeRoots": { "test": [] } } }""");
+        var noFlag = Load("""{ "t": { "id": "plain", "opClasses": ["content:read"], "vaults": ["test"], "ttl": "*", "scopeRoots": { "test": [] } } }""");
         Assert.False(noFlag.Authenticate("t")!.CanRequestElevation);
     }
 
@@ -150,7 +150,7 @@ public sealed class GrantStoreBindingTests(TestVaultFixture fixture) : IClassFix
         var grant = store.Authenticate("caller-token");
         Assert.NotNull(grant);
         Assert.Equal("elevated", grant.Id);
-        Assert.True(grant.Allows("Write")); // the base "caller" grant is Read-only - proving the rebind took effect
+        Assert.True(grant.Allows("content:write")); // the base "caller" grant is Read-only - proving the rebind took effect
     }
 
     [Fact]
@@ -168,7 +168,7 @@ public sealed class GrantStoreBindingTests(TestVaultFixture fixture) : IClassFix
         var reverted = store.Authenticate("caller-token");
         Assert.NotNull(reverted);
         Assert.Equal("caller", reverted.Id);
-        Assert.False(reverted.Allows("Write"));
+        Assert.False(reverted.Allows("content:write"));
     }
 
     [Fact]
@@ -184,7 +184,7 @@ public sealed class GrantStoreBindingTests(TestVaultFixture fixture) : IClassFix
     {
         var store = Load(CallerAndNamedTarget);
 
-        var opClasses = (IReadOnlySet<string>)new HashSet<string> { "Read" };
+        var opClasses = (IReadOnlySet<string>)new HashSet<string> { "content:read" };
         var vaults = (IReadOnlySet<string>)new HashSet<string> { "test" };
         var scopeRoots = new Dictionary<string, IReadOnlySet<string>> { ["test"] = new HashSet<string> { "Projects/Foo" } };
 

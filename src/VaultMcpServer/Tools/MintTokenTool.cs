@@ -8,7 +8,7 @@ namespace VaultMcpServer.Tools;
 
 /// <summary>
 /// Native tool (<see cref="INativeTool"/>) that mints a new, in-memory, scoped, time-limited
-/// bearer grant via <see cref="GrantStore.Mint"/> - gated by the <c>ManageGrants</c> op class,
+/// bearer grant via <see cref="GrantStore.Mint"/> - gated by the <c>grants:manage</c> op class,
 /// enforced by <see cref="ScriptToolDispatcher.CallToolAsync"/> the same way any tool's op
 /// class is (<c>grant.Allows(tool.OpClass)</c> against the caller's own grant). Target caller:
 /// an orchestrator spawning a restricted child session without hand-editing grants.json.
@@ -27,7 +27,7 @@ namespace VaultMcpServer.Tools;
 /// unscoped there, so anything is permitted); and the minted grant's absolute expiry is capped at
 /// the caller's own remaining lifetime (an infinite caller imposes no cap) - see
 /// <see cref="GrantStore.Mint"/>'s <c>maxExpiresAtUtc</c> parameter. This uniformly covers
-/// <c>ManageGrants</c> too: a minted grant may carry it iff the caller does, no special case.
+/// <c>grants:manage</c> too: a minted grant may carry it iff the caller does, no special case.
 /// A violation returns an <c>isError: true</c> result naming the dimension and the caller's
 /// actual bound authority, matching the repo's informative-denial convention.
 ///
@@ -53,9 +53,9 @@ public sealed class MintTokenTool(GrantStore grantStore, OpClassRegistry opClass
 
     public string Description =>
         "Mints a new, scoped, time-limited bearer token in memory (never persisted to grants.json). " +
-        "Requires the ManageGrants op class. Returns the token once - it cannot be retrieved again.";
+        "Requires the grants:manage op class. Returns the token once - it cannot be retrieved again.";
 
-    public string OpClass => "ManageGrants";
+    public string OpClass => "grants:manage";
 
     public JsonElement InputSchema { get; } = JsonSerializer.SerializeToElement(new Dictionary<string, object>
     {
@@ -72,7 +72,7 @@ public sealed class MintTokenTool(GrantStore grantStore, OpClassRegistry opClass
             {
                 ["type"] = "array",
                 ["items"] = new Dictionary<string, object> { ["type"] = "string" },
-                ["description"] = "Explicit op classes the minted grant allows, e.g. [\"Read\"]. Required, at least one; \"*\" is not accepted.",
+                ["description"] = "Explicit op classes the minted grant allows, e.g. [\"content:read\"]. Required, at least one; \"*\" is not accepted.",
             },
             ["ttl"] = new Dictionary<string, object>
             {

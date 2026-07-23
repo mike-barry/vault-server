@@ -132,7 +132,7 @@ public sealed class ScriptToolDispatcher(ScriptToolRegistry registry, NativeTool
         }
 
         var arguments = ConvertArguments(context.Params?.Arguments);
-        var execution = await runner.InvokeAsync(tool.ScriptPath, arguments, cancellationToken, grant.ScopeRoots);
+        var execution = await runner.InvokeAsync(tool.ScriptPath, arguments, cancellationToken, grant.ScopeRoots, grant.OpClasses);
         return execution.HadErrors
             ? ErrorResult(execution.ErrorText)
             : new CallToolResult { Content = [new TextContentBlock { Text = execution.OutputText }] };

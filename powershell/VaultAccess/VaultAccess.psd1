@@ -18,6 +18,7 @@
         'Test-VaultPathInScope'
         'Resolve-VaultScopeRoots'
         'Assert-VaultOperationAllowed'
+        'Assert-VaultOpClass'
         'Get-VaultWriteLockName'
         'Invoke-VaultWriteLock'
         'Test-VaultNoteMissingError'

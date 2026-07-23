@@ -52,12 +52,13 @@ public sealed class ScriptToolRunner : IDisposable
     /// single multi-line script block avoids that). The wrapped script's own parameters are
     /// splatted through <c>@VaultMcpParameters</c> rather than passed as literal
     /// <c>AddParameter</c> calls, so the script never sees "VaultMcpScriptPath",
-    /// "VaultMcpScopeRoots", or "VaultMcpParameters" as its own arguments.
+    /// "VaultMcpScopeRoots", "VaultMcpOpClasses", or "VaultMcpParameters" as its own arguments.
     /// </summary>
     private const string WrapperScript = """
         param(
             [string] $VaultMcpScriptPath,
             [hashtable] $VaultMcpScopeRoots,
+            [string[]] $VaultMcpOpClasses,
             [hashtable] $VaultMcpParameters,
             [string] $VaultMcpVaultsJsonPath
         )
@@ -75,6 +76,15 @@ public sealed class ScriptToolRunner : IDisposable
         if ($VaultMcpVaultsJsonPath) { $env:VAULT_MCP_VAULTS_JSON = $VaultMcpVaultsJsonPath }
         elseif (Test-Path -LiteralPath Env:\VAULT_MCP_VAULTS_JSON) { Remove-Item -LiteralPath Env:\VAULT_MCP_VAULTS_JSON }
         Set-Variable -Name VaultMcpScopeRoots -Value $VaultMcpScopeRoots -Scope Global
+        # Mirror of the scope-roots injection above for the calling grant's op-class set: the
+        # runspace-global VaultMcpOpClasses is the in-script authorization floor's "key ring"
+        # that Assert-VaultOpClass reads to gate an elevated operation (a tool declaring a floor
+        # op-class can still require a higher class mid-script). Injected as a global rather than
+        # a script parameter for the same invariant as the scope roots - a tool's param() block
+        # is its verbatim MCP input schema, so a client-controllable "OpClasses" argument would
+        # let a caller forge its own grant's classes. A null/absent global (standalone pwsh -File,
+        # no host) makes Assert-VaultOpClass degrade open exactly as unscoped scope roots do.
+        Set-Variable -Name VaultMcpOpClasses -Value $VaultMcpOpClasses -Scope Global
         & $VaultMcpScriptPath @VaultMcpParameters
         """;
 
@@ -94,7 +104,19 @@ public sealed class ScriptToolRunner : IDisposable
     /// explicitly, so path-scope enforcement applies without every tool script needing to
     /// plumb it through by hand.
     /// </param>
-    public async Task<ScriptToolExecution> InvokeAsync(string scriptPath, IReadOnlyDictionary<string, object?> parameters, CancellationToken cancellationToken, IReadOnlyDictionary<string, IReadOnlySet<string>>? scopeRoots = null)
+    /// <param name="opClasses">
+    /// The calling grant's op-class set (see <see cref="Auth.Grant.OpClasses"/>), injected into the
+    /// runspace as the <c>VaultMcpOpClasses</c> global (see <see cref="WrapperScript"/>) so a tool
+    /// script's <c>Assert-VaultOpClass</c> calls can gate an elevated in-script operation against the
+    /// same authority the dispatcher's floor check (<c>grant.Allows(tool.OpClass)</c>) used to admit
+    /// the call. Not a script parameter, for the same reason as <paramref name="scopeRoots"/>: a
+    /// tool's own <c>param()</c> block is its verbatim MCP input schema, so a client-controllable
+    /// argument would let a caller forge its grant's classes. Null (the default) leaves the global
+    /// unset - a standalone <c>pwsh -File</c> run has no injected context, so <c>Assert-VaultOpClass</c>
+    /// degrades open, mirroring how an unscoped scope-roots map degrades. An empty (non-null) set is
+    /// distinct: injected as an empty array, an empty key ring DENIES every asserted class.
+    /// </param>
+    public async Task<ScriptToolExecution> InvokeAsync(string scriptPath, IReadOnlyDictionary<string, object?> parameters, CancellationToken cancellationToken, IReadOnlyDictionary<string, IReadOnlySet<string>>? scopeRoots = null, IReadOnlySet<string>? opClasses = null)
     {
         using var ps = PowerShell.Create();
         ps.RunspacePool = _pool;
@@ -110,9 +132,16 @@ public sealed class ScriptToolRunner : IDisposable
                 scopeRootsTable[vault] = roots.ToArray();
         }
 
+        // Preserve the null-vs-empty distinction the PowerShell side depends on: a null set binds
+        // the wrapper's [string[]] param to $null (Assert-VaultOpClass degrades open, no injected
+        // context), while an empty set binds an empty array (an injected but empty key ring that
+        // denies every asserted class). ToArray() on an empty set yields an empty array, not null.
+        var opClassesArray = opClasses?.ToArray();
+
         ps.AddScript(WrapperScript)
             .AddParameter("VaultMcpScriptPath", scriptPath)
             .AddParameter("VaultMcpScopeRoots", scopeRootsTable)
+            .AddParameter("VaultMcpOpClasses", opClassesArray)
             .AddParameter("VaultMcpParameters", scriptParameters)
             .AddParameter("VaultMcpVaultsJsonPath", _vaultsJsonPath ?? "");
 

@@ -229,6 +229,54 @@ function Assert-VaultOperationAllowed {
     }
 }
 
+function Assert-VaultOpClass {
+    <#
+    .SYNOPSIS
+    In-script op-class floor check: throws unless the calling grant holds $OpClass. Lets a tool
+    whose declared floor op-class (the class the C# dispatcher already gated the call on via
+    grant.Allows(tool.OpClass)) admit it, still require a *higher* class before an elevated
+    operation - e.g. a content:read tool that performs a content:write mutation only on some
+    branch asserts content:write there, so a content:read-only grant is denied in-script rather
+    than at listing time.
+
+    $GrantClasses defaults to the host-injected $Global:VaultMcpOpClasses (set by
+    ScriptToolRunner right before invoking a tool script, in the same runspace - see its
+    InvokeAsync doc comment), mirroring how the path-scope chokepoints default -ScopeRoots to the
+    injected VaultMcpScopeRoots global. The $null-vs-empty distinction is load-bearing and matches
+    how Test-VaultPathInScope treats an unscoped ($null) grant:
+
+      - $GrantClasses is $null  -> no host context was injected (a standalone `pwsh -File` run, or
+        a Pester test calling the function directly). Degrade open: return silently, exactly as an
+        unscoped scope-roots map is treated as "no restriction in play".
+      - $GrantClasses is an empty array -> host context WAS injected but the grant holds no op
+        classes (e.g. the minimum-access floor). This is a real, authenticated "holds nothing"
+        state and must DENY every asserted class - it is not the same as absent context.
+      - $OpClass is a member -> pass (return).
+      - otherwise -> throw insufficient_capability naming the missing class.
+    #>
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)] [string] $OpClass,
+        $GrantClasses = $Global:VaultMcpOpClasses
+    )
+
+    # $null means "no injected host context at all" - degrade open, same posture as an unscoped
+    # scope-roots map. An empty (non-null) set is distinct: an injected but empty key ring denies.
+    if ($null -eq $GrantClasses) { return }
+
+    if ($GrantClasses -contains $OpClass) { return }
+
+    # No shared PowerShell error-helper exists in this repo (tool scripts throw plain strings and
+    # the C# runner surfaces the thrown message verbatim as the tool call's error text). Throw a
+    # compact JSON object so the error carries a machine-inspectable { code, message } shape - the
+    # code is the stable contract, the message is human-facing and names the missing class.
+    $err = [ordered]@{
+        code    = 'insufficient_capability'
+        message = "Grant does not hold the required op class '$OpClass' for this operation."
+    }
+    throw ($err | ConvertTo-Json -Compress)
+}
+
 function Resolve-VaultRoot {
     <#
     .SYNOPSIS
@@ -590,6 +638,7 @@ Export-ModuleMember -Function @(
     'Test-VaultPathInScope'
     'Resolve-VaultScopeRoots'
     'Assert-VaultOperationAllowed'
+    'Assert-VaultOpClass'
     'Get-VaultWriteLockName'
     'Invoke-VaultWriteLock'
     'Test-VaultNoteMissingError'

@@ -30,7 +30,7 @@ public sealed class ScriptToolLoaderTests : IDisposable
         .PARAMETER Force
         Overwrite an existing note at the destination.
         .NOTES
-        OpClass: Write
+        OpClass: content:write
         #>
         param(
             [Parameter(Mandatory=$true)] [string]$From,
@@ -79,7 +79,7 @@ public sealed class ScriptToolLoaderTests : IDisposable
     public void Load_MultipleScripts_ReturnsOneToolEach()
     {
         WriteScript("a.ps1", ValidScript);
-        WriteScript("b.ps1", ValidScript.Replace("OpClass: Write", "OpClass: Read"));
+        WriteScript("b.ps1", ValidScript.Replace("OpClass: content:write", "OpClass: content:read"));
 
         var tools = ScriptToolLoader.Load(_tempDir, OpClasses, new ServerHealthState());
 
@@ -96,7 +96,7 @@ public sealed class ScriptToolLoaderTests : IDisposable
             .SYNOPSIS
             Summarizes today's tasks.
             .NOTES
-            OpClass: Read
+            OpClass: content:read
             #>
             Write-Output "agenda"
             """);
@@ -111,7 +111,7 @@ public sealed class ScriptToolLoaderTests : IDisposable
         WriteScript("bad.ps1", """
             <#
             .NOTES
-            OpClass: Read
+            OpClass: content:read
             #>
             param()
             """);
@@ -134,7 +134,7 @@ public sealed class ScriptToolLoaderTests : IDisposable
     [Fact]
     public void Load_RegistryBackedNonBuiltInOpClass_ManageGrants_Loads()
     {
-        // ManageGrants exists only in op-classes.json, not in the OpClass constants class -
+        // grants:manage exists only in op-classes.json, not in the OpClass constants class -
         // proving the loader validates .NOTES op classes against the registry, not a fixed
         // enum (the phase-2 change that made mint_token's class declarable at all).
         WriteScript("admin_thing.ps1", """
@@ -142,13 +142,13 @@ public sealed class ScriptToolLoaderTests : IDisposable
             .SYNOPSIS
             Does grant administration.
             .NOTES
-            OpClass: ManageGrants
+            OpClass: grants:manage
             #>
             Write-Output "ok"
             """);
 
         var tool = Assert.Single(ScriptToolLoader.Load(_tempDir, OpClasses, new ServerHealthState()));
-        Assert.Equal("ManageGrants", tool.OpClass);
+        Assert.Equal("grants:manage", tool.OpClass);
     }
 
     [Fact]
@@ -159,15 +159,15 @@ public sealed class ScriptToolLoaderTests : IDisposable
         WriteScript("lower.ps1", """
             <#
             .SYNOPSIS
-            Declares its op class in lowercase.
+            Declares its op class in a different case.
             .NOTES
-            OpClass: managegrants
+            OpClass: GRANTS:MANAGE
             #>
             Write-Output "ok"
             """);
 
         var tool = Assert.Single(ScriptToolLoader.Load(_tempDir, OpClasses, new ServerHealthState()));
-        Assert.Equal("ManageGrants", tool.OpClass);
+        Assert.Equal("grants:manage", tool.OpClass);
     }
 
     [Fact]
@@ -193,7 +193,7 @@ public sealed class ScriptToolLoaderTests : IDisposable
             .SYNOPSIS
             Does a thing.
             .NOTES
-            OpClass: Read
+            OpClass: content:read
             #>
             param([string]$Undocumented)
             """);
@@ -215,7 +215,7 @@ public sealed class ScriptToolLoaderTests : IDisposable
             .SYNOPSIS
             Broken.
             .NOTES
-            OpClass: Read
+            OpClass: content:read
             #>
             param($X
             """);

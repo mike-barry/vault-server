@@ -9,14 +9,14 @@
   },
   "REPLACE-WITH-A-LONG-RANDOM-READONLY-TOKEN": {
     "id": "read-only",
-    "opClasses": ["Read"],
+    "opClasses": ["content:read"],
     "vaults": ["primary", "test"],
     "ttl": "*",
     "scopeRoots": { "primary": [], "test": [] }
   },
   "REPLACE-WITH-A-LONG-RANDOM-SCOPED-TOKEN": {
     "id": "scoped-example",
-    "opClasses": ["Read"],
+    "opClasses": ["content:read"],
     "vaults": ["primary"],
     "ttl": "*",
     "scopeRoots": { "primary": ["Projects/Vault-MCP-Server"] },
@@ -24,7 +24,7 @@
   },
   "REPLACE-WITH-A-LONG-RANDOM-MULTI-VAULT-SCOPED-TOKEN": {
     "id": "multi-vault-scoped-example",
-    "opClasses": ["Read"],
+    "opClasses": ["content:read"],
     "vaults": ["primary", "test"],
     "ttl": "*",
     "scopeRoots": { "primary": ["Area"], "test": [] }

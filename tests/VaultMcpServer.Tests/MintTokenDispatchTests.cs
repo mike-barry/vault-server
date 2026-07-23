@@ -74,7 +74,7 @@ public sealed class MintTokenDispatchTests : IClassFixture<MintTokenDispatchTest
     [Fact]
     public async Task MintToken_AdminGrant_ReturnsAWorkingTokenScopedToWhatWasRequested()
     {
-        var body = """{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"mint_token","arguments":{"scope_roots":["personal"],"op_class":["Read"],"ttl":5}}}""";
+        var body = """{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"mint_token","arguments":{"scope_roots":["personal"],"op_class":["content:read"],"ttl":5}}}""";
         var result = await CallToolAsync(_fixture, Fixture.AdminToken, body);
 
         Assert.False(result.TryGetProperty("isError", out var isError) && isError.GetBoolean());
@@ -91,7 +91,7 @@ public sealed class MintTokenDispatchTests : IClassFixture<MintTokenDispatchTest
     [Fact]
     public async Task MintToken_WithoutManageGrants_IsRejectedAsToolError()
     {
-        var body = """{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"mint_token","arguments":{"scope_roots":["personal"],"op_class":["Read"]}}}""";
+        var body = """{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"mint_token","arguments":{"scope_roots":["personal"],"op_class":["content:read"]}}}""";
         var result = await CallToolAsync(_fixture, Fixture.ReadOnlyToken, body);
 
         Assert.True(result.GetProperty("isError").GetBoolean());
@@ -118,7 +118,7 @@ public sealed class MintTokenDispatchTests : IClassFixture<MintTokenDispatchTest
     [Fact]
     public async Task MintToken_WildcardTtl_IsRejectedAsToolError()
     {
-        var body = """{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"mint_token","arguments":{"scope_roots":["personal"],"op_class":["Read"],"ttl":"*"}}}""";
+        var body = """{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"mint_token","arguments":{"scope_roots":["personal"],"op_class":["content:read"],"ttl":"*"}}}""";
         var result = await CallToolAsync(_fixture, Fixture.AdminToken, body);
 
         Assert.True(result.GetProperty("isError").GetBoolean());
@@ -127,7 +127,7 @@ public sealed class MintTokenDispatchTests : IClassFixture<MintTokenDispatchTest
     [Fact]
     public async Task MintToken_UnknownVaultInScopeRoots_IsRejectedAsToolError()
     {
-        var body = """{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"mint_token","arguments":{"scope_roots":["no-such-vault"],"op_class":["Read"]}}}""";
+        var body = """{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"mint_token","arguments":{"scope_roots":["no-such-vault"],"op_class":["content:read"]}}}""";
         var result = await CallToolAsync(_fixture, Fixture.AdminToken, body);
 
         Assert.True(result.GetProperty("isError").GetBoolean());
@@ -136,7 +136,7 @@ public sealed class MintTokenDispatchTests : IClassFixture<MintTokenDispatchTest
     [Fact]
     public async Task MintToken_DefaultTtlIsSixtyMinutes()
     {
-        var body = """{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"mint_token","arguments":{"scope_roots":["personal"],"op_class":["Read"]}}}""";
+        var body = """{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"mint_token","arguments":{"scope_roots":["personal"],"op_class":["content:read"]}}}""";
         var result = await CallToolAsync(_fixture, Fixture.AdminToken, body);
 
         Assert.False(result.TryGetProperty("isError", out var isError) && isError.GetBoolean());
@@ -147,7 +147,7 @@ public sealed class MintTokenDispatchTests : IClassFixture<MintTokenDispatchTest
     [Fact]
     public async Task MintToken_MultiVaultScopeRoots_KeepsEachVaultsSubtreesSeparate()
     {
-        var body = """{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"mint_token","arguments":{"scope_roots":["personal/Projects/Foo","test/Areas/Bar"],"op_class":["Read"]}}}""";
+        var body = """{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"mint_token","arguments":{"scope_roots":["personal/Projects/Foo","test/Areas/Bar"],"op_class":["content:read"]}}}""";
         var result = await CallToolAsync(_fixture, Fixture.AdminToken, body);
 
         Assert.False(result.TryGetProperty("isError", out var isError) && isError.GetBoolean());
@@ -192,7 +192,7 @@ public sealed class MintTokenDispatchTests : IClassFixture<MintTokenDispatchTest
                 // never constrains what these dispatch tests can mint - matching the real dev
                 // default binding, which is likewise unscoped/infinite.
                 [AdminToken] = new { id = "admin", opClasses = new[] { "*" }, vaults = new[] { "*" }, ttl = "*", scopeRoots = new Dictionary<string, string[]> { ["*"] = new[] { "*" } } },
-                [ReadOnlyToken] = new { id = "read-only", opClasses = new[] { "Read" }, vaults = new[] { "personal" }, ttl = "*", scopeRoots = new Dictionary<string, string[]> { ["personal"] = Array.Empty<string>() } },
+                [ReadOnlyToken] = new { id = "read-only", opClasses = new[] { "content:read" }, vaults = new[] { "personal" }, ttl = "*", scopeRoots = new Dictionary<string, string[]> { ["personal"] = Array.Empty<string>() } },
             }));
 
             var toolsDir = Path.Combine(TempDir, "tools");
@@ -204,7 +204,7 @@ public sealed class MintTokenDispatchTests : IClassFixture<MintTokenDispatchTest
                 .PARAMETER Name
                 Who to greet.
                 .NOTES
-                OpClass: Write
+                OpClass: content:write
                 #>
                 param([Parameter(Mandatory=$true)] [string]$Name)
                 Write-Output "hello $Name"
