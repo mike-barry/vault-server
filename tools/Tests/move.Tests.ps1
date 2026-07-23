@@ -14,7 +14,11 @@
 # Bar/Bar.md), the old-folder-path prefix substitution repairing contained-file links, the
 # two-component emit for a qualified link to the folder note itself, the folder-note bare
 # rewrite and its ambiguity gate, pure relocations, missing-folder-note warn-and-proceed,
-# and dest-folder-exists merge refusal.
+# and dest-folder-exists merge refusal. The final slice adds: embed-marker preservation on a
+# file move, the moved-away folder-note-orphan variant, a depth-changing folder move (same-length
+# suffix emit), an embed of a contained non-.md file repointed on a folder move, apply-phase
+# partial_state (held-write-handle seam), cross-process lock_timeout, and the content:write
+# op-class metadata declaration (dispatcher floor-gating itself is proven generically C#-side).
 
 BeforeAll {
     $script:ScriptPath = Join-Path $PSScriptRoot '..' 'move.ps1'
@@ -268,6 +272,19 @@ Describe 'move (validate + resolve + scope)' {
             $plan | Should -Match '\[\[Widget\]\]'
         }
 
+        It 'preserves the embed marker on an ![[...]] embed of the moved file' {
+            # The fixture links Gizmo-Reference only as a wikilink; inject an embed so the
+            # embed-marker-preservation path is exercised for a file move, not only asserted on
+            # a plain wikilink. A bare embed and a path-qualified embed, both with the "!" kept.
+            Set-Content -LiteralPath (Join-Path $script:VaultDir 'Inbox/Ref-Embed.md') -Value "Bare ![[Gizmo-Reference]] and qualified ![[Resources/Gizmo-Reference]].`n"
+            & $script:ScriptPath -Source 'Resources/Gizmo-Reference.md' -Dest 'Renamed-Gizmo' | Out-Null
+            $refs = Get-Content (Join-Path $script:VaultDir 'Inbox/Ref-Embed.md') -Raw
+            # Both embeds canonicalize to the bare new name (unique) with the "!" marker intact;
+            # the qualified one collapses to bare too, so two "![[Renamed-Gizmo]]" occurrences.
+            ([regex]::Matches($refs, '!\[\[Renamed-Gizmo\]\]')).Count | Should -Be 2
+            $refs | Should -Not -Match 'Gizmo-Reference'
+        }
+
         It 'canonicalizes a path-qualified link to the bare new name when it is unique' {
             & $script:ScriptPath -Source 'Resources/Gizmo-Reference.md' -Dest 'Renamed-Gizmo' | Out-Null
             $plan = Get-Content (Join-Path $script:VaultDir 'Projects/Widget/Inbox/Plan-Widget-Assembly.md') -Raw
@@ -375,6 +392,19 @@ Describe 'move (validate + resolve + scope)' {
             $result.kind | Should -Be 'file'
             $result.folderNoteOrphaned | Should -BeTrue
             Test-Path (Join-Path $script:VaultDir 'Projects/Widget/Renamed-Widget.md') | Should -BeTrue
+        }
+
+        It 'warns folderNoteOrphaned when a folder note is file-moved to another folder, basename unchanged' {
+            # The moved-away variant (distinct from the rename-away case above): the folder note
+            # keeps its basename but leaves its folder, so it is no longer Foo/Foo.md. A pure
+            # relocation (basename unchanged) still reports the broken invariant.
+            $output = & $script:ScriptPath -Source 'Projects/Widget/Widget.md' -Dest 'Inbox/Widget'
+            $result = $output | ConvertFrom-Json
+            $result.kind | Should -Be 'file'
+            $result.pureMove | Should -BeTrue
+            $result.folderNoteOrphaned | Should -BeTrue
+            Test-Path (Join-Path $script:VaultDir 'Inbox/Widget.md') | Should -BeTrue
+            Test-Path (Join-Path $script:VaultDir 'Projects/Widget/Widget.md') | Should -BeFalse
         }
     }
 
@@ -487,6 +517,42 @@ Describe 'move (validate + resolve + scope)' {
             Test-Path (Join-Path $script:VaultDir 'Projects/Widget/Widget.md') | Should -BeTrue
         }
 
+        It 'emits the same-length new-path suffix when the folder move changes component depth' {
+            # Projects/Widget (2 components) -> Archive/2026/Widget (3): a qualified link's leading
+            # folder-suffix is swapped for the SAME-LENGTH suffix of the new folder path, not the
+            # whole new path. So a 1-component suffix ([[Widget/Tasks]]) takes the new path's last
+            # 1 component (Widget, unchanged), while a 2-component suffix ([[Projects/Widget/Tasks]])
+            # takes the new path's last 2 (2026/Widget) - proving depth is preserved per link.
+            Set-Content -LiteralPath (Join-Path $script:VaultDir 'Inbox/Ref-Depth.md') -Value "Short [[Widget/Tasks]] and full [[Projects/Widget/Tasks]].`n"
+            $output = & $script:ScriptPath -Source 'Projects/Widget' -Dest 'Archive/2026/Widget'
+            $result = $output | ConvertFrom-Json
+            $result.newPath | Should -Be 'Archive/2026/Widget'
+            $result.pureMove | Should -BeTrue
+            $refs = Get-Content (Join-Path $script:VaultDir 'Inbox/Ref-Depth.md') -Raw
+            $refs | Should -Match '\[\[Widget/Tasks\]\]'         # 1-component suffix: last 1 of new path (unchanged)
+            $refs | Should -Match '\[\[2026/Widget/Tasks\]\]'    # 2-component suffix: last 2 of new path
+            $refs | Should -Not -Match '\[\[Projects/Widget/Tasks\]\]'
+            # Destination parents (Archive/2026) autocreated; the folder landed there.
+            Test-Path (Join-Path $script:VaultDir 'Archive/2026/Widget/Widget.md') | Should -BeTrue
+        }
+
+        It 'repoints an embed of a contained non-.md file (![[Widget/diagram.png]]) on a folder move' {
+            # The rewrite grammar covers embeds of any contained file, not only note-to-note
+            # links: an image inside the moved folder must have its embeds repaired by the same
+            # prefix substitution. The contained-file census (Get-VaultFilePath) is not .md-only,
+            # so the png is enumerated and its embed key matched.
+            Set-Content -LiteralPath (Join-Path $script:VaultDir 'Projects/Widget/diagram.png') -Value 'PNGDATA'
+            Set-Content -LiteralPath (Join-Path $script:VaultDir 'Inbox/Ref-Embed-Png.md') -Value "See ![[Widget/diagram.png]] and ![[Projects/Widget/diagram.png]].`n"
+            & $script:ScriptPath -Source 'Projects/Widget' -Dest 'Projects/Renamed-Widget' | Out-Null
+            $refs = Get-Content (Join-Path $script:VaultDir 'Inbox/Ref-Embed-Png.md') -Raw
+            $refs | Should -Match '!\[\[Renamed-Widget/diagram.png\]\]'
+            $refs | Should -Match '!\[\[Projects/Renamed-Widget/diagram.png\]\]'
+            $refs | Should -Not -Match '!\[\[Widget/diagram\.png\]\]' -Because 'the old bare-folder-path form must not survive'
+            $refs | Should -Not -Match '!\[\[Projects/Widget/diagram\.png\]\]' -Because 'the old full-folder-path form must not survive'
+            # The png itself is carried into the moved folder.
+            Test-Path (Join-Path $script:VaultDir 'Projects/Renamed-Widget/diagram.png') | Should -BeTrue
+        }
+
         It 'applies a case-only folder rename, bouncing the folder note through the case change' {
             $output = & $script:ScriptPath -Source 'Projects/Widget' -Dest 'widget'
             $result = $output | ConvertFrom-Json
@@ -550,6 +616,102 @@ Describe 'move (validate + resolve + scope)' {
             }
         }
     }
+
+    Context 'partial_state (apply-phase failure)' {
+        It 'reports partial_state naming the moved item and already-rewritten files when a rewrite write fails mid-apply' {
+            # The read-only pre-flight (readonly_targets) catches an unwritable target BEFORE apply,
+            # so it cannot produce a torn state. A held exclusive-write handle is the seam that
+            # survives the pre-flight: the file is not marked read-only and is still readable during
+            # the scan (FileShare.Read), so validate passes clean; only the apply-phase WriteAllText
+            # fails, after the source has already moved - exactly the mid-apply torn state.
+            $tasks = Join-Path $script:VaultDir 'Projects/Widget/Tasks.md'
+            $handle = [System.IO.File]::Open($tasks, [System.IO.FileMode]::Open, [System.IO.FileAccess]::Read, [System.IO.FileShare]::Read)
+            try {
+                $err = Invoke-MoveError @{ Source = 'Resources/Gizmo-Reference.md'; Dest = 'Renamed-Gizmo' }
+                $err.code | Should -Be 'partial_state'
+                # The move landed before the rewrite failed - the torn state partial_state names.
+                $err.data.directoryMoved | Should -BeTrue
+                Test-Path (Join-Path $script:VaultDir 'Resources/Renamed-Gizmo.md') | Should -BeTrue
+                # filesRewritten is present (an array) and never includes the file that could not be
+                # written - the one that produced the failure.
+                $err.data.PSObject.Properties.Name | Should -Contain 'filesRewritten'
+                $err.data.filesRewritten | Should -Not -Contain 'Projects/Widget/Tasks.md'
+                # The recovery hint names git checkout.
+                $err.message | Should -Match 'git checkout'
+            }
+            finally {
+                $handle.Close(); $handle.Dispose()
+            }
+        }
+    }
+
+    Context 'lock_timeout' {
+        It 'fails lock_timeout when the write lock is held by another process' -Skip:(-not $IsWindows) {
+            # The write lock cannot be contended in-process (the mutex is reentrant for the calling
+            # thread), so a genuinely separate process must hold it - the cross-process convention
+            # in Testing.md. A background job acquires the per-vault write lock via
+            # Invoke-VaultWriteLock, signals a handshake file once it holds it, then sleeps; the
+            # foreground move (with the acquire timeout squeezed to 1s via the env override
+            # Invoke-VaultWriteLock reads for its default) then cannot acquire and must time out.
+            $modulePath = Join-Path $script:RepoRoot 'powershell' 'VaultAccess' 'VaultAccess.psd1'
+            $configPath = $env:VAULT_MCP_VAULTS_JSON
+            $signalPath = Join-Path $script:TempRoot 'lock-held.signal'
+
+            $holder = Start-Job -ScriptBlock {
+                param($ModulePath, $ConfigPath, $SignalPath)
+                $env:VAULT_MCP_VAULTS_JSON = $ConfigPath
+                Import-Module $ModulePath -Force
+                Invoke-VaultWriteLock -Vault 'scratch' -ScriptBlock {
+                    Set-Content -LiteralPath $SignalPath -Value 'held'
+                    Start-Sleep -Seconds 30
+                }
+            } -ArgumentList $modulePath, $configPath, $signalPath
+
+            try {
+                # Wait for the holder to actually own the lock before contending.
+                $deadline = (Get-Date).AddSeconds(20)
+                while (-not (Test-Path -LiteralPath $signalPath) -and (Get-Date) -lt $deadline) {
+                    Start-Sleep -Milliseconds 100
+                }
+                (Test-Path -LiteralPath $signalPath) | Should -BeTrue -Because 'the background lock holder must have acquired before we contend'
+
+                $prevTimeout = $env:VAULT_MCP_WRITE_LOCK_TIMEOUT_SECONDS
+                $env:VAULT_MCP_WRITE_LOCK_TIMEOUT_SECONDS = '1'
+                try {
+                    $err = Invoke-MoveError @{ Source = 'Resources/Gizmo-Reference.md'; Dest = 'Renamed-Gizmo' }
+                    $err.code | Should -Be 'lock_timeout'
+                    # Contended out before any mutation - the source is untouched.
+                    Test-Path (Join-Path $script:VaultDir 'Resources/Gizmo-Reference.md') | Should -BeTrue
+                }
+                finally {
+                    if ($null -eq $prevTimeout) {
+                        Remove-Item Env:\VAULT_MCP_WRITE_LOCK_TIMEOUT_SECONDS -ErrorAction SilentlyContinue
+                    }
+                    else {
+                        $env:VAULT_MCP_WRITE_LOCK_TIMEOUT_SECONDS = $prevTimeout
+                    }
+                }
+            }
+            finally {
+                Stop-Job $holder -ErrorAction SilentlyContinue
+                Remove-Job $holder -Force -ErrorAction SilentlyContinue
+            }
+        }
+    }
+
+    Context 'op-class metadata declaration' {
+        It 'declares the content:write floor in its .NOTES comment-help (the loader-parsed op class)' {
+            # Dispatcher floor-gating itself is enforced C#-side and is generically proven by the
+            # xUnit dispatcher test that refuses a content:write tool to a content:read grant
+            # (ScriptToolDispatcherTests: ReadOnlyGrantCallingWriteTool_IsRejectedAsToolError); move
+            # inherits that uniform grant.Allows(tool.OpClass) check, declaring no move-specific
+            # dispatcher test. What IS assertable PowerShell-side without the dispatcher is move's
+            # own metadata *declaration* - the OpClass line ScriptToolLoader reads to derive the
+            # floor. Asserting it here pins the input the C# gate keys on.
+            $scriptText = Get-Content -LiteralPath $script:ScriptPath -Raw
+            $scriptText | Should -Match '(?m)^\s*OpClass:\s*content:write\s*$'
+        }
+    }
 }
 
 Describe 'move standalone invocability' {
@@ -600,5 +762,29 @@ Describe 'move standalone invocability' {
         $rawOutput = & $psExe -NoProfile -NonInteractive -Command "`$env:VAULT_MCP_VAULTS_JSON = '$($script:StandaloneConfigPath)'; & '$($script:ScriptPath)' -Source 'Projects/Widget/Tasks.md' -Dest 'Renamed-Tasks'"
         $LASTEXITCODE | Should -Be 0
         { $rawOutput | ConvertFrom-Json } | Should -Not -Throw
+    }
+
+    It 'runs via a literal "pwsh -File move.ps1" invocation (the Tool Authoring Standard spelling)' {
+        # The two tests above use -Command so the vault-config env var can be set inside the child
+        # string; this one exercises the exact "pwsh -File" spelling the authoring standard names,
+        # passing the config through the child's inherited environment instead. Still a genuinely
+        # separate process, so no ScriptToolRunner-injected global (VaultMcpScopeRoots /
+        # VaultMcpOpClasses) exists to be mistaken for host context.
+        $psExe = (Get-Process -Id $PID).Path
+        $prev = $env:VAULT_MCP_VAULTS_JSON
+        $env:VAULT_MCP_VAULTS_JSON = $script:StandaloneConfigPath
+        try {
+            $rawOutput = & $psExe -NoProfile -NonInteractive -File $script:ScriptPath -Source 'Resources/Gizmo-Reference.md' -Dest 'Renamed-Gizmo'
+            $LASTEXITCODE | Should -Be 0
+            { $rawOutput | ConvertFrom-Json } | Should -Not -Throw
+            $result = $rawOutput | ConvertFrom-Json
+            $result.newPath | Should -Be 'Resources/Renamed-Gizmo.md'
+            $result.referencesRewritten | Should -Be 6
+            Test-Path (Join-Path $script:StandaloneVaultDir 'Resources/Renamed-Gizmo.md') | Should -BeTrue
+        }
+        finally {
+            if ($null -eq $prev) { Remove-Item Env:\VAULT_MCP_VAULTS_JSON -ErrorAction SilentlyContinue }
+            else { $env:VAULT_MCP_VAULTS_JSON = $prev }
+        }
     }
 }
