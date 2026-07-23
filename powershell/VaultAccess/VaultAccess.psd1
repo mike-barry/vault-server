@@ -22,6 +22,10 @@
         'Get-VaultWriteLockName'
         'Invoke-VaultWriteLock'
         'Test-VaultNoteMissingError'
+        'New-VaultToolError'
+        'ConvertTo-VaultToolResult'
+        'Test-VaultNameConvention'
+        'Get-VaultFilePath'
     )
     CmdletsToExport   = @()
     VariablesToExport = @()

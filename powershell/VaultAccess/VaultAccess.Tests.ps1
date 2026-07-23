@@ -388,6 +388,98 @@ Describe 'Test-VaultNoteMissingError' {
     }
 }
 
+Describe 'New-VaultToolError' {
+    It 'builds the {code, message} shape' {
+        $json = New-VaultToolError -Code 'not_found' -Message 'Nothing at that path.'
+        $obj = $json | ConvertFrom-Json
+        $obj.code | Should -Be 'not_found'
+        $obj.message | Should -Be 'Nothing at that path.'
+        $obj.PSObject.Properties.Name | Should -Not -Contain 'data'
+    }
+
+    It 'includes data only when supplied' {
+        $json = New-VaultToolError -Code 'out_of_scope' -Message 'Outside scope.' -Data @{ path = 'Foo/Bar.md' }
+        $obj = $json | ConvertFrom-Json
+        $obj.data.path | Should -Be 'Foo/Bar.md'
+    }
+
+    It 'is throwable directly, surfacing the JSON as the exception message' {
+        { throw (New-VaultToolError -Code 'kind_mismatch' -Message 'Expected a file.') } |
+            Should -Throw '*kind_mismatch*'
+    }
+}
+
+Describe 'ConvertTo-VaultToolResult' {
+    It 'serializes a single hashtable result as a JSON object' {
+        $json = [ordered]@{ oldPath = 'A.md'; newPath = 'B.md'; referencesRewritten = 0 } | ConvertTo-VaultToolResult
+        $obj = $json | ConvertFrom-Json
+        $obj.oldPath | Should -Be 'A.md'
+        $obj.referencesRewritten | Should -Be 0
+    }
+
+    It 'preserves array-valued fields nested inside the single result object' {
+        $json = [ordered]@{ filesRewritten = @('A.md', 'B.md') } | ConvertTo-VaultToolResult
+        $obj = $json | ConvertFrom-Json
+        @($obj.filesRewritten).Count | Should -Be 2
+    }
+
+    It 'throws malformed_op when the result is an array (stray success-stream output arrayified the return value)' {
+        { ConvertTo-VaultToolResult -Result @([ordered]@{ a = 1 }, [ordered]@{ b = 2 }) } | Should -Throw '*malformed_op*'
+    }
+}
+
+Describe 'Test-VaultNameConvention' {
+    It '<name>' -TestCases @(
+        @{ name = 'Foo-Bar'; valid = $true }
+        @{ name = 'Foo'; valid = $true }
+        @{ name = 'Vault-MCP-Server'; valid = $true }
+        @{ name = 'Maui-Trip-2026'; valid = $true }
+        @{ name = 'Foo-Bar.md'; valid = $true }
+        @{ name = 'Foo-Bar.MD'; valid = $true }
+        @{ name = 'foo-bar'; valid = $false }
+        @{ name = 'Foo bar'; valid = $false }
+        @{ name = 'Foo_Bar'; valid = $false }
+        @{ name = '-Foo-Bar'; valid = $false }
+        @{ name = 'Foo-Bar-'; valid = $false }
+        @{ name = 'Foo--Bar'; valid = $false }
+        @{ name = ''; valid = $false }
+        @{ name = '   '; valid = $false }
+    ) {
+        Test-VaultNameConvention -Name $name | Should -Be $valid
+    }
+}
+
+Describe 'Get-VaultFilePath' {
+    It 'enumerates every fixture file, including non-note files if present' {
+        # The 'test' vault has 6 real fixture notes plus the 2 injected dupes = 8; the
+        # injected .obsidian/junk.md stays invisible (ripgrep hides dot-directories by
+        # default), matching Get-VaultNotePath's own count.
+        @(Get-VaultFilePath).Count | Should -Be 8
+    }
+
+    It 'prunes dot-directories, matching Get-VaultNotePath' {
+        @(Get-VaultFilePath) -like '*.obsidian*' | Should -BeNullOrEmpty
+    }
+
+    It 'returns forward-slash vault-relative paths' {
+        @(Get-VaultFilePath) | Should -Contain 'Projects/Widget/Widget.md'
+    }
+
+    It 'agrees with Get-VaultNotePath on the note set, so move and glob cannot drift' {
+        (@(Get-VaultFilePath) | Sort-Object) | Should -Be (@(Get-VaultNotePath) | Sort-Object)
+    }
+
+    It 'filters to notes under the scope root, mirroring Get-VaultNotePath scoping' {
+        $files = @(Get-VaultFilePath -ScopeRoots @{ test = @('Projects/Widget') })
+        $files | Should -Not -BeNullOrEmpty
+        $files | ForEach-Object { $_ | Should -Match '^Projects/Widget/' }
+    }
+
+    It 'throws dependency_unavailable-shaped when ripgrep cannot be resolved' {
+        { Get-VaultFilePath -RgPath (Join-Path $script:TempRoot 'no-such-rg.exe') } | Should -Throw '*dependency_unavailable*'
+    }
+}
+
 Describe 'Vault write lock name' {
     # The name is the cross-process contract with VaultWatcher - these tests pin the
     # derivation rule (canonicalized root path, not vault name), so a change that would

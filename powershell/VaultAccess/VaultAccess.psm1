@@ -524,6 +524,177 @@ function Move-VaultNote {
     Move-Item -LiteralPath $fullOld -Destination $fullNew -ErrorAction Stop
 }
 
+function New-VaultToolError {
+    <#
+    .SYNOPSIS
+    Builds the shared `{code, message, data?}` JSON error shape ratified in
+    Plan-Vault-Tool-Primitives's Error Convention (vault-primary), returning it as a
+    compact JSON string. A tool script throws the return value directly
+    (`throw (New-VaultToolError -Code ... -Message ...)`) so the dispatcher - and a
+    standalone `pwsh -File` run, which surfaces the same string on stderr - present one
+    error shape regardless of which layer raised it. This is the tool-script-facing
+    counterpart to Assert-VaultOpClass's inline `insufficient_capability` JSON, factored
+    out so every tool script builds its own error codes (not_found, invalid_argument,
+    kind_mismatch, ...) the same way instead of hand-rolling the object per call site.
+    .PARAMETER Code
+    Machine-routing error code - the stable field callers and tests branch on (e.g.
+    not_found, already_exists, invalid_argument, kind_mismatch, out_of_scope).
+    .PARAMETER Message
+    Human/model-readable explanation of the failure.
+    .PARAMETER Data
+    Optional structured payload (offending paths, candidate lists, ...). Omitted from the
+    JSON entirely when not supplied, rather than emitted as a null, so a caller can test
+    for the field's presence rather than its nullness.
+    #>
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)] [string] $Code,
+        [Parameter(Mandatory)] [string] $Message,
+        $Data
+    )
+
+    $err = [ordered]@{ code = $Code; message = $Message }
+    if ($PSBoundParameters.ContainsKey('Data')) { $err.data = $Data }
+    $err | ConvertTo-Json -Compress -Depth 10
+}
+
+function ConvertTo-VaultToolResult {
+    <#
+    .SYNOPSIS
+    Serializes a write-class tool's return object to the Tier-2 JSON text convention
+    ratified in Plan-Vault-Tool-Primitives's Return Convention (write, create, delete,
+    move, sync, and lint both modes) - the single JSON summary object a write-class tool
+    emits as its MCP text content in place of a read-class cognate's native-format output.
+
+    Doubles as a shape guard: a PowerShell scriptblock's return value silently arrayifies
+    the moment more than one object reaches the success stream (a stray Write-Output, an
+    un-suppressed cmdlet call left in the pipeline), and this throws rather than quietly
+    serializing an array where every caller and schema expects a single object - a stray
+    success-stream leak fails loudly at serialization instead of shipping malformed JSON.
+    .PARAMETER Result
+    The single hashtable, [ordered]@{}, or PSCustomObject to serialize.
+    #>
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory, ValueFromPipeline)] $Result
+    )
+
+    process {
+        # A scriptblock's return value arrayifies the moment more than one object reaches the
+        # success stream; a Hashtable/PSCustomObject never does. [array] is therefore the
+        # precise shape of "stray output leaked in", not a stand-in for "any collection" - a
+        # tool's return legitimately contains array-valued fields (filesRewritten[]) nested
+        # inside the single top-level object, which this check does not touch.
+        if ($Result -is [array]) {
+            throw (New-VaultToolError -Code 'malformed_op' -Message "Tool returned $($Result.Count) object(s) instead of one Tier-2 result object - stray success-stream output.")
+        }
+        $Result | ConvertTo-Json -Depth 10
+    }
+}
+
+function Test-VaultNameConvention {
+    <#
+    .SYNOPSIS
+    True when $Name conforms to the vault's `Title-Case-With-Hyphens` filename/folder-name
+    convention (Document-Conventions.md, Vault-Organization.md in vault-primary):
+    hyphen-separated segments, each starting with an uppercase letter or a digit (so both
+    acronym segments like "MCP" and numeric segments like "2026" are admitted), no spaces
+    or underscores, and no empty segments (a leading/trailing/doubled hyphen).
+
+    Consumers warn on a $false result and never fail the operation over it - move reports
+    a violation via its `namingWarnings` return field (see Plan-Tool-Move); only
+    link-breaking or OS-invalid characters, checked separately, block a move outright.
+
+    A trailing ".md" is stripped (case-insensitively) before checking, so the same check
+    serves both file and folder names.
+    #>
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)] [AllowEmptyString()] [string] $Name
+    )
+
+    $bare = $Name
+    if ($bare.ToLowerInvariant().EndsWith('.md')) { $bare = $bare.Substring(0, $bare.Length - 3) }
+
+    if ([string]::IsNullOrWhiteSpace($bare)) { return $false }
+    if ($bare -match '[ _]') { return $false }
+    if ($bare -match '(^-|-$|--)') { return $false }
+
+    foreach ($segment in ($bare -split '-')) {
+        if ($segment.Length -eq 0) { return $false }
+        if ($segment -cnotmatch '^[A-Z0-9][A-Za-z0-9]*$') { return $false }
+    }
+    return $true
+}
+
+function Get-VaultFilePath {
+    <#
+    .SYNOPSIS
+    Enumerates every file in a vault - not only ".md" notes - as vault-relative,
+    forward-slash paths, via ripgrep. This is the basename-census enumeration primitive
+    move's ambiguity gate (Plan-Tool-Move) and glob (Plan-Tool-Glob) are designed to
+    share, so the two tools always agree on what exists rather than drifting to two
+    independent notions of "every file in the vault". Get-VaultNotePath stays the
+    note-only (.md) enumeration `read`/`write`/wikilink resolution use; this is the
+    file-general counterpart for `move`/`glob`, per Plan-Vault-Tool-Primitives's
+    note-vs-file tool split.
+
+    Exclusion rules mirror Plan-Tool-Glob's accepted v1 defaults exactly, since both
+    tools shell to the same binary the same way: ripgrep's own defaults respect
+    .gitignore and hide dot-directories (.git, .obsidian, .claude, ...), and symlinks are
+    never followed (-L/--follow is never passed - the one real vault-escape vector, so
+    the guard is simply never opting in). Every result is additionally asserted to
+    resolve under the vault root as a second guard, covering Windows junctions and
+    reparse points without reasoning about ripgrep's own symlink detection.
+
+    Applies the resolved vault's scope-roots filter the same way Get-VaultNotePath does -
+    out-of-scope files are silently dropped, never surfaced as an error.
+    .PARAMETER RgPath
+    Path to the ripgrep executable. Defaults to resolving "rg" off PATH; throws a
+    dependency_unavailable-shaped error (see New-VaultToolError) when it cannot be found,
+    naming the path tried, per Plan-Tool-Glob.
+    #>
+    [CmdletBinding()]
+    param(
+        [string] $Vault,
+        [AllowNull()] $ScopeRoots = (Get-VaultAccessAmbientScopeRoots),
+        [string] $RgPath
+    )
+
+    $resolved = Resolve-VaultRoot -Vault $Vault
+    $flatScopeRoots = Resolve-VaultScopeRoots -Vault $resolved.Name -ScopeRoots $ScopeRoots
+    Assert-VaultOperationAllowed -Vault $resolved.Name -RelativePath '.' -ScopeRoots $flatScopeRoots
+
+    if (-not $RgPath) {
+        $cmd = Get-Command -Name 'rg' -CommandType Application -ErrorAction SilentlyContinue
+        if (-not $cmd) {
+            throw (New-VaultToolError -Code 'dependency_unavailable' -Message 'ripgrep (rg) could not be resolved on PATH.' -Data @{ pathTried = 'rg' })
+        }
+        $RgPath = $cmd.Source
+    }
+    elseif (-not (Test-Path -LiteralPath $RgPath -PathType Leaf)) {
+        throw (New-VaultToolError -Code 'dependency_unavailable' -Message "ripgrep (rg) could not be resolved at '$RgPath'." -Data @{ pathTried = $RgPath })
+    }
+
+    # --files with no -g pattern lists every file rg would ever consider a match candidate -
+    # exactly the "everything that exists" set a basename census needs. Argument array, never
+    # a composed shell string, so nothing here is shell-interpreted.
+    $rgOutput = & $RgPath '--files' '--' $resolved.Root 2>$null
+    if ($LASTEXITCODE -gt 1) {
+        throw (New-VaultToolError -Code 'dependency_unavailable' -Message "ripgrep exited with code ${LASTEXITCODE} enumerating '$($resolved.Root)'.")
+    }
+
+    $rootPrefix = $resolved.Root + [System.IO.Path]::DirectorySeparatorChar
+    foreach ($line in $rgOutput) {
+        if ([string]::IsNullOrWhiteSpace($line)) { continue }
+        $full = [System.IO.Path]::GetFullPath($line)
+        if (-not $full.StartsWith($rootPrefix, [System.StringComparison]::OrdinalIgnoreCase)) { continue }
+        $relative = [System.IO.Path]::GetRelativePath($resolved.Root, $full).Replace('\', '/')
+        if ($flatScopeRoots.Count -gt 0 -and -not (Test-VaultPathInScope -Path $relative -ScopeRoots $flatScopeRoots)) { continue }
+        $relative
+    }
+}
+
 function Get-VaultWriteLockName {
     <#
     .SYNOPSIS
@@ -642,4 +813,8 @@ Export-ModuleMember -Function @(
     'Get-VaultWriteLockName'
     'Invoke-VaultWriteLock'
     'Test-VaultNoteMissingError'
+    'New-VaultToolError'
+    'ConvertTo-VaultToolResult'
+    'Test-VaultNameConvention'
+    'Get-VaultFilePath'
 )
