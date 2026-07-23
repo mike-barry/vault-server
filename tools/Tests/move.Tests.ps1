@@ -8,11 +8,13 @@
 # directly in tools/ would itself be loaded as a (broken) tool.
 #
 # SCOPE NOTE: this suite covers argument validation, source resolution + dest
-# construction, scope membership (earlier slices), and the file-move core-engine slice:
-# the write-lock plan-validate-apply structure, the ambiguity gate, and the single-scan
-# reference-rewrite engine. The folder-move path (directory move, folder-note sync, prefix
-# rewrite) is the next slice and a folder source returns a deferred shape (folderMoveDeferred)
-# rather than mutating - exercised here only to confirm that deferral holds.
+# construction, scope membership, the file-move core-engine slice (write-lock
+# plan-validate-apply, the ambiguity gate, the single-scan reference-rewrite engine), and
+# the folder-move slice: the directory move, the folder-note invariant (Foo/Foo.md ->
+# Bar/Bar.md), the old-folder-path prefix substitution repairing contained-file links, the
+# two-component emit for a qualified link to the folder note itself, the folder-note bare
+# rewrite and its ambiguity gate, pure relocations, missing-folder-note warn-and-proceed,
+# and dest-folder-exists merge refusal.
 
 BeforeAll {
     $script:ScriptPath = Join-Path $PSScriptRoot '..' 'move.ps1'
@@ -366,7 +368,7 @@ Describe 'move (validate + resolve + scope)' {
         }
     }
 
-    Context 'folder-note orphan + folder-move deferral' {
+    Context 'folder-note orphan (file move of a folder note)' {
         It 'warns folderNoteOrphaned when a folder note is file-renamed away from its folder name' {
             $output = & $script:ScriptPath -Source 'Projects/Widget/Widget.md' -Dest 'Renamed-Widget'
             $result = $output | ConvertFrom-Json
@@ -374,15 +376,161 @@ Describe 'move (validate + resolve + scope)' {
             $result.folderNoteOrphaned | Should -BeTrue
             Test-Path (Join-Path $script:VaultDir 'Projects/Widget/Renamed-Widget.md') | Should -BeTrue
         }
+    }
 
-        It 'defers a folder-source move without mutating (next slice)' {
+    Context 'folder move' {
+        It 'renames the folder, fires the folder-note invariant, and reports the full shape' {
             $output = & $script:ScriptPath -Source 'Projects/Widget' -Dest 'Projects/Renamed-Widget'
             $result = $output | ConvertFrom-Json
+
             $result.kind | Should -Be 'folder'
-            $result.folderMoveDeferred | Should -BeTrue
-            # No mutation: the source folder is untouched.
+            $result.oldPath | Should -Be 'Projects/Widget'
+            $result.newPath | Should -Be 'Projects/Renamed-Widget'
+            $result.pureMove | Should -BeFalse
+            # No deferral remnants.
+            $result.PSObject.Properties.Name | Should -Not -Contain 'folderMoveDeferred'
+            # The folder note Foo/Foo.md -> Bar/Bar.md invariant.
+            $result.folderNoteRenamed.oldPath | Should -Be 'Projects/Widget/Widget.md'
+            $result.folderNoteRenamed.newPath | Should -Be 'Projects/Renamed-Widget/Renamed-Widget.md'
+            # Every contained file is carried, reported at its post-move path.
+            $result.containedFilesMoved | Should -Contain 'Projects/Renamed-Widget/Renamed-Widget.md'
+            $result.containedFilesMoved | Should -Contain 'Projects/Renamed-Widget/Tasks.md'
+            $result.containedFilesMoved | Should -Contain 'Projects/Renamed-Widget/Inbox/Plan-Widget-Assembly.md'
+
+            # Directory moved on disk.
+            Test-Path (Join-Path $script:VaultDir 'Projects/Widget') | Should -BeFalse
+            Test-Path (Join-Path $script:VaultDir 'Projects/Renamed-Widget/Renamed-Widget.md') | Should -BeTrue
+            Test-Path (Join-Path $script:VaultDir 'Projects/Renamed-Widget/Tasks.md') | Should -BeTrue
+            Test-Path (Join-Path $script:VaultDir 'Projects/Renamed-Widget/Inbox/Plan-Widget-Assembly.md') | Should -BeTrue
+        }
+
+        It 'rewrites the folder note bare link across the vault' {
+            & $script:ScriptPath -Source 'Projects/Widget' -Dest 'Projects/Renamed-Widget' | Out-Null
+            # [[Widget]] -> [[Renamed-Widget]] in the notes that referenced the folder note.
+            (Get-Content (Join-Path $script:VaultDir 'Resources/Gizmo-Reference.md') -Raw) | Should -Match '\[\[Renamed-Widget\]\]'
+            (Get-Content (Join-Path $script:VaultDir 'Resources/Gizmo-Reference.md') -Raw) | Should -Not -Match '\[\[Widget\]\]'
+        }
+
+        It 'repairs a path-qualified link to a contained file by prefix substitution' {
+            # Inject a qualified link to a contained file (the folder note carries [[Widget/Tasks]]
+            # in its nav frontmatter already).
+            Set-Content -LiteralPath (Join-Path $script:VaultDir 'Inbox/Ref-Contained.md') -Value "See [[Widget/Tasks]] and [[Projects/Widget/Tasks]].`n"
+            & $script:ScriptPath -Source 'Projects/Widget' -Dest 'Projects/Renamed-Widget' | Out-Null
+            $refs = Get-Content (Join-Path $script:VaultDir 'Inbox/Ref-Contained.md') -Raw
+            # Prefix swapped, contained tail (Tasks) preserved; link keeps its original depth.
+            $refs | Should -Match '\[\[Renamed-Widget/Tasks\]\]'
+            $refs | Should -Match '\[\[Projects/Renamed-Widget/Tasks\]\]'
+            $refs | Should -Not -Match '\[\[Widget/Tasks\]\]'
+            $refs | Should -Not -Match '\[\[Projects/Widget/Tasks\]\]'
+        }
+
+        It 'changes both components of a qualified link to the folder note itself' {
+            Set-Content -LiteralPath (Join-Path $script:VaultDir 'Inbox/Ref-Note.md') -Value "Project [[Projects/Widget/Widget]] and [[Widget/Widget]].`n"
+            & $script:ScriptPath -Source 'Projects/Widget' -Dest 'Projects/Renamed-Widget' | Out-Null
+            $refs = Get-Content (Join-Path $script:VaultDir 'Inbox/Ref-Note.md') -Raw
+            # Prefix AND leaf both change (the folder note's basename tracks the folder's).
+            $refs | Should -Match '\[\[Projects/Renamed-Widget/Renamed-Widget\]\]'
+            $refs | Should -Match '\[\[Renamed-Widget/Renamed-Widget\]\]'
+            $refs | Should -Not -Match 'Widget/Widget'
+        }
+
+        It 'leaves a bare link to a contained file untouched (contained basenames do not change)' {
+            Set-Content -LiteralPath (Join-Path $script:VaultDir 'Inbox/Ref-Bare-Contained.md') -Value "See [[Tasks]] and [[Plan-Widget-Assembly]].`n"
+            & $script:ScriptPath -Source 'Projects/Widget' -Dest 'Projects/Renamed-Widget' | Out-Null
+            $refs = Get-Content (Join-Path $script:VaultDir 'Inbox/Ref-Bare-Contained.md') -Raw
+            $refs | Should -Match '\[\[Tasks\]\]'
+            $refs | Should -Match '\[\[Plan-Widget-Assembly\]\]'
+        }
+
+        It 'remaps a contained note''s own sibling qualified link and writes it to the new location' {
+            # A contained note links to a sibling by qualified path; after the move the rewrite
+            # must land in the note's NEW location.
+            Set-Content -LiteralPath (Join-Path $script:VaultDir 'Projects/Widget/Sibling.md') -Value "Points at [[Projects/Widget/Tasks]].`n"
+            $output = & $script:ScriptPath -Source 'Projects/Widget' -Dest 'Projects/Renamed-Widget'
+            $result = $output | ConvertFrom-Json
+            $result.filesRewritten | Should -Contain 'Projects/Renamed-Widget/Sibling.md'
+            # Old location gone; new location carries the repaired link.
+            Test-Path (Join-Path $script:VaultDir 'Projects/Widget/Sibling.md') | Should -BeFalse
+            (Get-Content (Join-Path $script:VaultDir 'Projects/Renamed-Widget/Sibling.md') -Raw) | Should -Match '\[\[Projects/Renamed-Widget/Tasks\]\]'
+        }
+
+        It 'pure relocation keeps the basename: folderNoteRenamed null, prefix repair still runs' {
+            # A full-path qualified link breaks on relocation and must be repaired even though the
+            # basename (and every contained name) is unchanged.
+            Set-Content -LiteralPath (Join-Path $script:VaultDir 'Inbox/Ref-Reloc.md') -Value "Full [[Projects/Widget/Tasks]] and short [[Widget/Tasks]].`n"
+            $output = & $script:ScriptPath -Source 'Projects/Widget' -Dest 'Archive/Widget'
+            $result = $output | ConvertFrom-Json
+            $result.pureMove | Should -BeTrue
+            $result.folderNoteRenamed | Should -BeNullOrEmpty
+            $refs = Get-Content (Join-Path $script:VaultDir 'Inbox/Ref-Reloc.md') -Raw
+            # Full path repaired to the new location; the short suffix still resolves and is kept.
+            $refs | Should -Match '\[\[Archive/Widget/Tasks\]\]'
+            $refs | Should -Match '\[\[Widget/Tasks\]\]'
+            Test-Path (Join-Path $script:VaultDir 'Archive/Widget/Widget.md') | Should -BeTrue
+        }
+
+        It 'warns and proceeds when the folder note is absent (folderNoteRenamed null)' {
+            Remove-Item -LiteralPath (Join-Path $script:VaultDir 'Projects/Widget/Widget.md')
+            $output = & $script:ScriptPath -Source 'Projects/Widget' -Dest 'Projects/Renamed-Widget'
+            $result = $output | ConvertFrom-Json
+            $result.folderNoteRenamed | Should -BeNullOrEmpty
+            # The directory still moves and contained files are carried.
+            Test-Path (Join-Path $script:VaultDir 'Projects/Renamed-Widget/Tasks.md') | Should -BeTrue
+            $result.containedFilesMoved | Should -Contain 'Projects/Renamed-Widget/Tasks.md'
+        }
+
+        It 'refuses a pre-existing destination folder as already_exists (a merge, not a move)' {
+            New-Item -ItemType Directory -Path (Join-Path $script:VaultDir 'Projects/Renamed-Widget') | Out-Null
+            $err = Invoke-MoveError @{ Source = 'Projects/Widget'; Dest = 'Projects/Renamed-Widget' }
+            $err.code | Should -Be 'already_exists'
+            # Nothing mutated.
+            Test-Path (Join-Path $script:VaultDir 'Projects/Widget/Widget.md') | Should -BeTrue
+        }
+
+        It 'applies a case-only folder rename, bouncing the folder note through the case change' {
+            $output = & $script:ScriptPath -Source 'Projects/Widget' -Dest 'widget'
+            $result = $output | ConvertFrom-Json
+            $result.newPath | Should -Be 'Projects/widget'
+            $result.pureMove | Should -BeFalse
+            $result.folderNoteRenamed.newPath | Should -Be 'Projects/widget/widget.md'
+            $onDisk = @((Get-ChildItem (Join-Path $script:VaultDir 'Projects') -Directory).Name)
+            ($onDisk -ccontains 'widget') | Should -BeTrue
+            ($onDisk -ccontains 'Widget') | Should -BeFalse
+        }
+    }
+
+    Context 'folder move - ambiguity gate on the folder-note rename' {
+        BeforeEach {
+            # A second Widget.md elsewhere makes the folder-note basename non-unique; the bare
+            # [[Widget]] links in the fixture then become ambiguous.
+            New-Item -ItemType Directory -Path (Join-Path $script:VaultDir 'Other') -Force | Out-Null
+            Set-Content -LiteralPath (Join-Path $script:VaultDir 'Other/Widget.md') -Value "# Another Widget`n"
+        }
+
+        It 'fails ambiguous_references unforced when the folder-note basename is non-unique and bare links exist' {
+            $err = Invoke-MoveError @{ Source = 'Projects/Widget'; Dest = 'Projects/Renamed-Widget' }
+            $err.code | Should -Be 'ambiguous_references'
+            $err.data.duplicatePaths | Should -Contain 'Projects/Widget/Widget.md'
+            $err.data.duplicatePaths | Should -Contain 'Other/Widget.md'
+            # Validate-stage refusal - nothing moved.
             Test-Path (Join-Path $script:VaultDir 'Projects/Widget') | Should -BeTrue
-            Test-Path (Join-Path $script:VaultDir 'Projects/Renamed-Widget') | Should -BeFalse
+        }
+
+        It 'forced: skips the ambiguous bare links but still rewrites definitive qualified links' {
+            Set-Content -LiteralPath (Join-Path $script:VaultDir 'Inbox/Ref-Q.md') -Value "Bare [[Widget]] and qualified [[Projects/Widget/Widget]].`n"
+            $output = & $script:ScriptPath -Source 'Projects/Widget' -Dest 'Projects/Renamed-Widget' -Force
+            $result = $output | ConvertFrom-Json
+            $result.referencesSkippedAmbiguous.count | Should -BeGreaterThan 0
+            $refs = Get-Content (Join-Path $script:VaultDir 'Inbox/Ref-Q.md') -Raw
+            $refs | Should -Match '\[\[Widget\]\]'                                   # bare skipped
+            $refs | Should -Match '\[\[Projects/Renamed-Widget/Renamed-Widget\]\]'   # qualified rewritten
+        }
+
+        It 'fails basename_collision unforced when the new folder-note basename already exists' {
+            # Rename Projects/Widget -> Projects/Gizmo-Reference: Gizmo-Reference.md already exists.
+            $err = Invoke-MoveError @{ Source = 'Projects/Widget'; Dest = 'Projects/Gizmo-Reference' }
+            $err.code | Should -Be 'basename_collision'
+            $err.data.collidingPaths | Should -Contain 'Resources/Gizmo-Reference.md'
         }
     }
 

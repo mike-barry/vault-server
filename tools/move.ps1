@@ -245,8 +245,136 @@ function Convert-VaultLinkReferences {
     }
 }
 
+function Convert-VaultFolderLinkReferences {
+    <#
+    .SYNOPSIS
+    Single-pass rewrite of one file's content for a FOLDER move. A folder move carries two
+    rewrites in one scan (Plan-Tool-Move: Folder-move correctness core):
+
+    (a) the old-folder-path PREFIX substitution for path-qualified links under the old
+        folder - this is what repairs links to contained files as a byproduct of the prefix,
+        not a per-child loop. A qualified link's leading components are a component-aligned
+        suffix of the old folder path (Obsidian writes shortest-suffix paths like
+        [[Widget/Note]]), followed by the contained relative path; the folder-suffix portion
+        is swapped for the same-length suffix of the new folder path and the contained tail
+        is preserved verbatim - so the link keeps its original shape and still resolves. The
+        one exception is a qualified link to the FOLDER NOTE itself: because the folder note's
+        basename tracks the folder's, such a link changes in TWO components (prefix and leaf).
+
+    (b) the bare-link rewrite for the folder note's old basename when it changed - the folder
+        note is the only basename event in a folder op (contained basenames don't change), so
+        this is exactly the file-move bare-link rule applied to the folder note, ambiguity
+        gate and all.
+
+    Path-qualified links are always definitive (a path is never ambiguous) and rewritten
+    regardless of the folder-note basename census. Bare links are only ever the folder note's
+    basename; a bare link to a contained file keeps its name and is left untouched.
+
+    Returns NewContent, RewriteCount, AmbiguousBareCount (bare folder-note links left
+    untouched because the old basename is non-unique), and HadBareToOld.
+    #>
+    param(
+        [Parameter(Mandatory)] [AllowEmptyString()] [string] $Content,
+        [Parameter(Mandatory)] [string[]] $OldFolderComponents,
+        [Parameter(Mandatory)] [string[]] $NewFolderComponents,
+        [Parameter(Mandatory)] [string]   $OldFolderPathKey,
+        [Parameter(Mandatory)] [System.Collections.Generic.HashSet[string]] $ContainedKeySet,
+        [Parameter(Mandatory)] [AllowEmptyString()] [string]   $OldFolderNoteKey,
+        [Parameter(Mandatory)] [string]   $OldFolderBasename,
+        [Parameter(Mandatory)] [string]   $NewFolderBasename,
+        # The folder note exists AND its basename changed: enables both the folder-note leaf
+        # swap in qualified links and the bare-link rewrite. False on a pure relocation (basename
+        # kept) or when the folder note is absent - the prefix scan still runs and repairs.
+        [Parameter(Mandatory)] [bool]     $FolderNoteBasenameChanged,
+        [Parameter(Mandatory)] [string]   $FolderNoteNewBareTarget,
+        [Parameter(Mandatory)] [string]   $FolderNoteNewFullTarget,
+        [Parameter(Mandatory)] [bool]     $OldFolderNoteUnique,
+        [Parameter(Mandatory)] [bool]     $EmitBareFolderNote
+    )
+
+    $emitBare = if ($EmitBareFolderNote) { $FolderNoteNewBareTarget } else { $FolderNoteNewFullTarget }
+
+    $rewriteCount = 0
+    $ambiguousBare = 0
+    $hadBareToOld = $false
+
+    $sb = [System.Text.StringBuilder]::new()
+    $cursor = 0
+    foreach ($m in $script:VaultLinkPattern.Matches($Content)) {
+        [void]$sb.Append($Content.Substring($cursor, $m.Index - $cursor))
+        $cursor = $m.Index + $m.Length
+
+        $key = Get-VaultLinkKey -Name $m.Groups['target'].Value
+        $newTarget = $null
+
+        if ($key.Contains('/')) {
+            # Path-qualified: does it point at a file under the old folder? Its leading k
+            # components must be a component-aligned suffix of the old folder path, and the
+            # remaining tail must resolve to a real contained file. Largest k wins (most
+            # specific); the ContainedKeySet membership guard keeps a coincidental prefix
+            # match on an unrelated link from being rewritten.
+            $L = $key -split '/'
+            $matchedK = 0
+            $maxK = [Math]::Min($OldFolderComponents.Count, $L.Count - 1)
+            for ($k = $maxK; $k -ge 1; $k--) {
+                $aligned = $true
+                for ($i = 0; $i -lt $k; $i++) {
+                    if ($L[$i] -ine $OldFolderComponents[$OldFolderComponents.Count - $k + $i]) { $aligned = $false; break }
+                }
+                if ($aligned) {
+                    $tail = @($L[$k..($L.Count - 1)])
+                    $candidateFullKey = "$OldFolderPathKey/$($tail -join '/')"
+                    if ($ContainedKeySet.Contains($candidateFullKey)) { $matchedK = $k; break }
+                }
+            }
+            if ($matchedK -gt 0) {
+                $tail = @($L[$matchedK..($L.Count - 1)])
+                # Two-component emit: the folder note's leaf also changes when its basename did.
+                if ($FolderNoteBasenameChanged -and $tail.Count -eq 1 -and ($tail[0] -ieq $OldFolderBasename) -and (("$OldFolderPathKey/$($tail[0])") -ieq $OldFolderNoteKey)) {
+                    $tail = @($NewFolderBasename)
+                }
+                $newSuffix = @($NewFolderComponents[($NewFolderComponents.Count - $matchedK)..($NewFolderComponents.Count - 1)])
+                $newTarget = (@($newSuffix) + @($tail)) -join '/'
+            }
+        }
+        elseif ($FolderNoteBasenameChanged -and ($key -ieq $OldFolderBasename)) {
+            # Bare link to the folder note - the one bare basename event in a folder op.
+            $hadBareToOld = $true
+            if ($OldFolderNoteUnique) {
+                $newTarget = $emitBare
+            }
+            else {
+                $ambiguousBare++
+            }
+        }
+
+        if ($null -ne $newTarget) {
+            $rebuilt = $m.Groups['embed'].Value + '[[' + $newTarget + $m.Groups['heading'].Value + $m.Groups['alias'].Value + ']]'
+            if ($rebuilt -cne $m.Value) {
+                [void]$sb.Append($rebuilt)
+                $rewriteCount++
+            }
+            else {
+                [void]$sb.Append($m.Value)
+            }
+        }
+        else {
+            [void]$sb.Append($m.Value)
+        }
+    }
+    [void]$sb.Append($Content.Substring($cursor))
+
+    [pscustomobject]@{
+        NewContent         = $sb.ToString()
+        RewriteCount       = $rewriteCount
+        AmbiguousBareCount = $ambiguousBare
+        HadBareToOld       = $hadBareToOld
+    }
+}
+
 $lockAbandoned = $false
-$result = Invoke-VaultWriteLock -Vault $Vault -Abandoned ([ref]$lockAbandoned) -ScriptBlock {
+try {
+    $result = Invoke-VaultWriteLock -Vault $Vault -Abandoned ([ref]$lockAbandoned) -ScriptBlock {
     # Required: the script-scope preference does not reach cmdlets invoked from inside a
     # module-function scriptblock, and without it a failed mutation is non-terminating and
     # gets reported as success.
@@ -367,32 +495,239 @@ $result = Invoke-VaultWriteLock -Vault $Vault -Abandoned ([ref]$lockAbandoned) -
     $basenameChanged = -not $pureMove
 
     # =======================================================================
-    # FOLDER MOVE - deferred to the next slice. The directory Move-Item, the folder-note
-    # invariant (Foo/Foo.md -> Bar/Bar.md), and the old-folder-path prefix rewrite land there;
-    # this slice implements file moves only. Validation above (dest-inside-source, occupancy,
-    # scope, kind) already ran, so a folder source returns its resolved shape with the
-    # file-move and folder-move effect fields at their null/zero defaults and no mutation.
-    # The reference-rewrite engine below is structured (Get-VaultLinkKey, the suffix matcher,
-    # canonical emit) so the folder slice plugs its prefix-substitution identify rule into the
-    # same single scan.
+    # FOLDER MOVE. One atomic operation under the single lock carrying three coupled effects
+    # (Plan-Tool-Move: Role, Folder-move correctness core): the directory Move-Item, the
+    # folder-note invariant (Foo/Foo.md -> Bar/Bar.md, only when the folder's basename changed),
+    # and one vault scan applying two rewrites - the old-folder-path prefix substitution for
+    # qualified links under the old path (which repairs links to contained files as a byproduct)
+    # and the folder note's bare-link rewrite when its basename changed. Contained basenames
+    # never change, so the folder note's rename is the only basename event; the ambiguity gate
+    # applies to it exactly as in a file move. Nothing before the "APPLY" marker mutates.
     # =======================================================================
     if ($resolvedKind -eq 'folder') {
+        $oldFolderPathKey = Get-VaultLinkKey -Name $sourcePath
+        $newFolderPathKey = Get-VaultLinkKey -Name $destPath
+        $oldFolderComponents = $oldFolderPathKey -split '/'
+        $newFolderComponents = $newFolderPathKey -split '/'
+        $oldFolderBasename = $sourceBasename
+        $newFolderBasename = $destBasename
+
+        # The folder-note invariant fires only when the folder's basename changed (a pure
+        # relocation keeps the folder note's name); a case-only folder rename still counts as a
+        # change (link display text changes), matching pureMove's case-sensitive comparison.
+        $folderBasenameChanged = -not $pureMove
+
+        # Folder note: Foo/Foo.md. Convention, not guaranteed - a missing folder note is
+        # warn-and-proceed (folderNoteRenamed: null), never an error (Plan-Tool-Move: Errors).
+        $folderNoteOldRel = "$sourcePath/$oldFolderBasename.md"
+        $folderNoteFull = Resolve-VaultPath -Path $folderNoteOldRel -Vault $Vault
+        $folderNoteExists = Test-Path -LiteralPath $folderNoteFull -PathType Leaf
+        $folderNoteBasenameChanged = $folderNoteExists -and $folderBasenameChanged
+
+        $oldFolderNoteKey = if ($folderNoteExists) { Get-VaultLinkKey -Name $folderNoteOldRel } else { '' }
+        # The folder note's post-move identity (basename may have changed): its bare new
+        # basename and its full new vault path, both keyed for canonical emit.
+        $folderNoteNewBareTarget = $newFolderBasename
+        $folderNoteNewFullTarget = Get-VaultLinkKey -Name "$destPath/$newFolderBasename.md"
+
+        # --- Contained files (every file under the old folder, not only .md - embeds to a
+        # contained image must repoint too). Shared enumeration with glob via Get-VaultFilePath,
+        # vault-wide (ScopeRoots $null). Keyed into a case-insensitive set so the scan can
+        # confirm a qualified link's tail resolves to a real contained file. ---
+        $containedKeySet = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::OrdinalIgnoreCase)
+        $containedRels = [System.Collections.Generic.List[string]]::new()
+        $folderPrefix = "$sourcePath/"
+        foreach ($rel in @(Get-VaultFilePath -Vault $Vault -ScopeRoots $null)) {
+            if ($rel.StartsWith($folderPrefix, [System.StringComparison]::OrdinalIgnoreCase)) {
+                $containedRels.Add($rel)
+                [void]$containedKeySet.Add((Get-VaultLinkKey -Name $rel))
+            }
+        }
+
+        # Remaps a contained file's old vault-relative path to its post-move path: the folder
+        # prefix is swapped, and the top-level folder note's leaf is renamed when the basename
+        # changed. Used both to compute where a rewritten contained note is written and to
+        # report containedFilesMoved.
+        $remapContained = {
+            param([string] $Rel)
+            $inner = $Rel.Substring($sourcePath.Length + 1)
+            if ($folderNoteBasenameChanged -and ($Rel -ieq $folderNoteOldRel)) {
+                $inner = "$newFolderBasename.md"
+            }
+            "$destPath/$inner"
+        }
+
+        # --- Folder-note basename censuses + ambiguity gate. Only a folder-note basename change
+        # is a basename event; a pure relocation or an absent folder note skips the gate
+        # entirely (location cannot change basename uniqueness). Same rules as a file move. ---
+        $oldFolderNoteUnique = $true
+        $newCollision = $false
+        $newCensusOthers = @()
+        if ($folderNoteBasenameChanged) {
+            $oldKeyBasename = Get-VaultLinkKey -Name $oldFolderBasename
+            $newKeyBasename = Get-VaultLinkKey -Name $newFolderBasename
+            $allFiles = @(Get-VaultFilePath -Vault $Vault -ScopeRoots $null)
+            $oldCensus = @($allFiles | Where-Object { (Get-VaultLinkKey -Name (($_ -split '/')[-1])) -ieq $oldKeyBasename })
+            $newCensus = @($allFiles | Where-Object { (Get-VaultLinkKey -Name (($_ -split '/')[-1])) -ieq $newKeyBasename })
+            $oldFolderNoteUnique = ($oldCensus.Count -le 1)
+            # The folder note itself carries the old basename and is excluded; any OTHER file with
+            # the new basename is a standing collision.
+            $newCensusOthers = @($newCensus | Where-Object { $_ -cne $folderNoteOldRel })
+            $newCollision = ($newCensusOthers.Count -gt 0)
+
+            if ($newCollision -and -not $Force) {
+                throw (New-VaultToolError -Code 'basename_collision' -Message "Folder-note destination basename '$newFolderBasename' already exists elsewhere in the vault: $($newCensusOthers -join ', '). Pick a different folder name, or pass force to emit path-qualified links." -Data @{ collidingPaths = $newCensusOthers })
+            }
+        }
+        $emitBareFolderNote = -not $newCollision
+        $basenameCollisionCreated = ($folderNoteBasenameChanged -and $newCollision -and $Force)
+
+        # --- Single vault scan. Builds each file's rewritten content (prefix substitution for
+        # qualified links under the old folder + the folder-note bare rewrite) and tallies the
+        # gate signals. Nothing written here. ---
+        $rewriteTargets = [System.Collections.Generic.List[object]]::new()
+        $ambiguousFiles = [System.Collections.Generic.List[string]]::new()
+        $referencesRewritten = 0
+        $referencesSkippedAmbiguous = 0
+        $filesSkippedUnreadable = 0
+        $hadBareToOldAny = $false
+
+        foreach ($rel in (Get-VaultNotePath -Vault $Vault -ScopeRoots $null)) {
+            $full = Resolve-VaultPath -Path $rel -Vault $Vault
+            try {
+                $content = [System.IO.File]::ReadAllText($full)
+            }
+            catch {
+                if (Test-VaultNoteMissingError -ErrorRecord $_) { $filesSkippedUnreadable++; continue }
+                throw (New-VaultToolError -Code 'read_failure' -Message "Could not read '$rel' during the reference scan: $($_.Exception.Message)" -Data @{ path = $rel; error = $_.Exception.Message })
+            }
+
+            $r = Convert-VaultFolderLinkReferences -Content $content `
+                -OldFolderComponents $oldFolderComponents -NewFolderComponents $newFolderComponents `
+                -OldFolderPathKey $oldFolderPathKey -ContainedKeySet $containedKeySet `
+                -OldFolderNoteKey $oldFolderNoteKey `
+                -OldFolderBasename $oldFolderBasename -NewFolderBasename $newFolderBasename `
+                -FolderNoteBasenameChanged $folderNoteBasenameChanged `
+                -FolderNoteNewBareTarget $folderNoteNewBareTarget -FolderNoteNewFullTarget $folderNoteNewFullTarget `
+                -OldFolderNoteUnique $oldFolderNoteUnique -EmitBareFolderNote $emitBareFolderNote
+
+            if ($r.HadBareToOld) { $hadBareToOldAny = $true }
+            if ($r.AmbiguousBareCount -gt 0) {
+                $referencesSkippedAmbiguous += $r.AmbiguousBareCount
+                $ambiguousFiles.Add($rel)
+            }
+            if ($r.RewriteCount -gt 0) {
+                $referencesRewritten += $r.RewriteCount
+                $rewriteTargets.Add([pscustomobject]@{ Path = $rel; NewContent = $r.NewContent })
+            }
+        }
+
+        # --- Ambiguity gate, part 2: ambiguous_references for the folder-note basename. ---
+        if ($folderNoteBasenameChanged -and -not $oldFolderNoteUnique -and $hadBareToOldAny -and -not $Force) {
+            throw (New-VaultToolError -Code 'ambiguous_references' -Message "The folder note's old basename '$oldFolderBasename' is not unique in the vault and bare links to it exist, so they cannot be rewritten unambiguously: $($oldCensus -join ', '). Rename to a unique folder name, or pass force to skip the ambiguous bare links." -Data @{ duplicatePaths = $oldCensus; referencingFiles = $ambiguousFiles.ToArray() })
+        }
+
+        # --- Read-only pre-flight: every rewrite target plus the folder note (which is renamed)
+        # must be writable, caught before the first mutation. ---
+        $readOnlyFiles = [System.Collections.Generic.List[string]]::new()
+        $readonlyCandidates = @($rewriteTargets | ForEach-Object { $_.Path })
+        if ($folderNoteBasenameChanged) { $readonlyCandidates += $folderNoteOldRel }
+        foreach ($check in $readonlyCandidates) {
+            $checkFull = Resolve-VaultPath -Path $check -Vault $Vault
+            if ((Test-Path -LiteralPath $checkFull) -and (([System.IO.File]::GetAttributes($checkFull) -band [System.IO.FileAttributes]::ReadOnly) -ne 0)) {
+                $readOnlyFiles.Add($check)
+            }
+        }
+        if ($readOnlyFiles.Count -gt 0) {
+            throw (New-VaultToolError -Code 'readonly_targets' -Message "The move cannot proceed: $($readOnlyFiles.Count) target file(s) are read-only: $($readOnlyFiles.ToArray() -join ', ')." -Data @{ readOnlyFiles = $readOnlyFiles.ToArray() })
+        }
+
+        # =======================================================================
+        # APPLY (folder). Directory move -> folder-note rename -> rewrites, all under the one
+        # lock. $dirMoved / $folderNoteRenamedApplied / the running $rewrittenFiles list are
+        # exactly the already-done set a mid-apply failure must name in partial_state.
+        # =======================================================================
+        $dirMoved = $false
+        $folderNoteRenamedApplied = $false
+        $rewrittenFiles = [System.Collections.Generic.List[string]]::new()
+        $folderNoteNewRel = if ($folderNoteBasenameChanged) { "$destPath/$newFolderBasename.md" } else { $folderNoteOldRel -replace [regex]::Escape($sourcePath), $destPath }
+        try {
+            # Destination-parent autocreate: move into a not-yet-existing archive subfolder in
+            # one call (Plan-Tool-Move: Design Guarantees).
+            $destParent = [System.IO.Path]::GetDirectoryName($fullDest)
+            if ($destParent -and -not (Test-Path -LiteralPath $destParent -PathType Container)) {
+                New-Item -ItemType Directory -Path $destParent -Force -ErrorAction Stop | Out-Null
+            }
+
+            if ($sameCaseInsensitive) {
+                # Case-only folder rename on a case-insensitive filesystem: bounce through a
+                # unique temp name so the case change actually lands.
+                $tempFull = "$fullDest.__movecase__$([guid]::NewGuid().ToString('N'))"
+                Move-Item -LiteralPath $fullSource -Destination $tempFull -ErrorAction Stop
+                Move-Item -LiteralPath $tempFull -Destination $fullDest -ErrorAction Stop
+            }
+            else {
+                Move-Item -LiteralPath $fullSource -Destination $fullDest -ErrorAction Stop
+            }
+            $dirMoved = $true
+
+            # Folder-note invariant: after the directory move the note lives at
+            # <dest>/<oldBasename>.md; rename it to <dest>/<newBasename>.md. Only when the
+            # basename changed and a folder note exists.
+            if ($folderNoteBasenameChanged) {
+                $folderNoteMovedFull = Resolve-VaultPath -Path "$destPath/$oldFolderBasename.md" -Vault $Vault
+                $folderNoteTargetFull = Resolve-VaultPath -Path $folderNoteNewRel -Vault $Vault
+                if ($oldFolderBasename -ieq $newFolderBasename) {
+                    # Case-only basename change: temp-bounce as above.
+                    $tempNote = "$folderNoteTargetFull.__movecase__$([guid]::NewGuid().ToString('N'))"
+                    Move-Item -LiteralPath $folderNoteMovedFull -Destination $tempNote -ErrorAction Stop
+                    Move-Item -LiteralPath $tempNote -Destination $folderNoteTargetFull -ErrorAction Stop
+                }
+                else {
+                    Move-Item -LiteralPath $folderNoteMovedFull -Destination $folderNoteTargetFull -ErrorAction Stop
+                }
+                $folderNoteRenamedApplied = $true
+            }
+
+            foreach ($tgt in $rewriteTargets) {
+                # A contained rewrite target now lives at its post-move path; an external note
+                # linking in stays put. Remap contained paths (folder-note leaf included).
+                $writeRel = if ($tgt.Path.StartsWith($folderPrefix, [System.StringComparison]::OrdinalIgnoreCase)) { & $remapContained $tgt.Path } else { $tgt.Path }
+                $writeFull = Resolve-VaultPath -Path $writeRel -Vault $Vault
+                [System.IO.File]::WriteAllText($writeFull, $tgt.NewContent)
+                $rewrittenFiles.Add($writeRel)
+            }
+        }
+        catch {
+            if ($_.Exception.Message -match '^\s*\{.*"code"') { throw }
+            if ($dirMoved) {
+                throw (New-VaultToolError -Code 'partial_state' -Message "Folder move partially applied then failed: '$sourcePath' was moved to '$destPath'$(if ($folderNoteRenamedApplied) { ' and the folder note renamed' }) and $($rewrittenFiles.Count) file(s) rewritten before the error: $($_.Exception.Message). Recover with: git checkout -- <files>." -Data @{
+                        filesRewritten     = $rewrittenFiles.ToArray()
+                        directoryMoved     = $dirMoved
+                        folderNoteRenamed  = $folderNoteRenamedApplied
+                        error              = $_.Exception.Message
+                    })
+            }
+            throw
+        }
+
+        $containedFilesMoved = @($containedRels | ForEach-Object { & $remapContained $_ })
+
         return [ordered]@{
             oldPath                    = $sourcePath
             newPath                    = $destPath
             kind                       = $resolvedKind
             pureMove                   = $pureMove
-            referencesRewritten        = 0
-            filesRewritten             = @()
-            referencesSkippedAmbiguous = $null
-            basenameCollisionCreated   = $false
+            referencesRewritten        = $referencesRewritten
+            filesRewritten             = $rewrittenFiles.ToArray()
+            referencesSkippedAmbiguous = if ($referencesSkippedAmbiguous -gt 0) { [ordered]@{ count = $referencesSkippedAmbiguous; files = $ambiguousFiles.ToArray() } } else { $null }
+            basenameCollisionCreated   = $basenameCollisionCreated
             folderNoteOrphaned         = $false
             namingWarnings             = $namingWarnings
-            filesSkippedUnreadable     = 0
-            folderNoteRenamed          = $null
-            containedFilesMoved        = @()
+            filesSkippedUnreadable     = $filesSkippedUnreadable
+            folderNoteRenamed          = if ($folderNoteRenamedApplied) { [ordered]@{ oldPath = $folderNoteOldRel; newPath = $folderNoteNewRel } } else { $null }
+            containedFilesMoved        = $containedFilesMoved
             lockWarning                = $null
-            folderMoveDeferred         = $true
         }
     }
 
@@ -579,6 +914,17 @@ $result = Invoke-VaultWriteLock -Vault $Vault -Abandoned ([ref]$lockAbandoned) -
         containedFilesMoved        = @()
         lockWarning                = $null
     }
+    }
+}
+catch {
+    # A clean {code, message, data?} error (validate-stage refusal, partial_state, ...) passes
+    # through unchanged. Invoke-VaultWriteLock's acquire-timeout is a plain string, outside that
+    # convention - map it to the spec's lock_timeout code so callers see one shape.
+    if ($_.Exception.Message -match '^\s*\{.*"code"') { throw }
+    if ($_.Exception.Message -match 'waiting for the vault write lock') {
+        throw (New-VaultToolError -Code 'lock_timeout' -Message $_.Exception.Message)
+    }
+    throw
 }
 
 if ($lockAbandoned) {
