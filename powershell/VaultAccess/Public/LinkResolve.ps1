@@ -23,13 +23,14 @@ function Resolve-VaultBareLink {
     share a basename (the caller's census); this function only ranks them - it does not
     filter by name. Returns the winning candidate path, or $null for an empty candidate set.
 
-    EMPIRICAL RULE - ADJUST HERE. The exact tie-break is empirical (see
-    Obsidian-Link-Behavior.md). Two micro-tests (T11/T12) are pending on whether `..`
-    components should carry extra weight versus a pure character count. That refinement is
-    isolated to the single `$score` computation below (currently the plain string length of
-    the spelled-out relative path) so it lands everywhere - move, and the future delete/lint
-    primitives - at once. To weight `..` components, change how `$score` is derived from
-    $rel; nothing else in this function (or its callers) encodes the rule.
+    EMPIRICAL RULE - CONFIRMED. The rule is empirical (see Obsidian-Link-Behavior.md) and
+    both refinement micro-tests are resolved (2026-07-23): T11 confirmed pure character
+    count with no extra weight for `..` components (two short hops beat one long one), and
+    T12 confirmed the tie-break compares candidate VAULT paths, not relative paths (`..`
+    sorts before letters relatively, yet Obsidian picked the subtree copy). Should a future
+    Obsidian version change the rule, the score is the single `$score` line below and the
+    tie-break is the [string]::Compare on candidate paths; nothing else in this function
+    (or its callers) encodes the rule.
     #>
     [CmdletBinding()]
     param(

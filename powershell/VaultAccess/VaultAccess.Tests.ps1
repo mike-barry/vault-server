@@ -522,6 +522,24 @@ Describe 'Resolve-VaultBareLink' {
             Should -Be 'Tests/T3/Deep/Down/T3-Dup.md'
     }
 
+    It 'fewer characters beat fewer folder hops (T11)' {
+        # From Tests/T11/T11-Links.md: two hops down at "A/B/T11-Dup.md" (14 chars) beats one hop
+        # down at "Alphabet-Zoo-Folder/T11-Dup.md" (30 chars) - confirmed in Obsidian 2026-07-23.
+        Resolve-VaultBareLink -LinkingFile 'Tests/T11/T11-Links.md' `
+            -Candidates @('Tests/T11/Alphabet-Zoo-Folder/T11-Dup.md', 'Tests/T11/A/B/T11-Dup.md') |
+            Should -Be 'Tests/T11/A/B/T11-Dup.md'
+    }
+
+    It 'ties break on the candidate vault path, not the relative path (T12)' {
+        # From Tests/T12/Sub/T12-Links.md: "../T12-Dup.md" and "Al/T12-Dup.md" are both 13 chars.
+        # Relative-path alphabetical would pick the parent ('.' < 'A'); Obsidian picks the subtree
+        # copy, matching ordinal comparison of the vault-absolute paths ("Tests/T12/Sub/Al/..."
+        # < "Tests/T12/T12-Dup.md" at 'S' vs 'T') - confirmed in Obsidian 2026-07-23.
+        Resolve-VaultBareLink -LinkingFile 'Tests/T12/Sub/T12-Links.md' `
+            -Candidates @('Tests/T12/T12-Dup.md', 'Tests/T12/Sub/Al/T12-Dup.md') |
+            Should -Be 'Tests/T12/Sub/Al/T12-Dup.md'
+    }
+
     It 'measures distance from the linking file, not the vault root (moving closer changes the winner)' {
         # A/B/Link.md resolves [[Dup]] to A/Dupe.md ("../Dupe.md", 10) over Far/Dupe.md; once a
         # same-basename file sits at A/B/Dupe.md ("Dupe.md", 7) it becomes the winner.
