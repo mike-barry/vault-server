@@ -97,11 +97,11 @@ Describe 'Assert-VaultOpClass' {
         { Assert-VaultOpClass -OpClass 'content:write' } | Should -Throw '*insufficient_capability*'
     }
 
-    It 'matches op classes case-insensitively (pinning the -contains default, as-is)' {
-        # Pinned as-implemented, not endorsed: the gate uses PowerShell's `-contains`, which is
-        # case-insensitive by default, so a differently-cased required class matches a granted one
-        # and passes. Documenting the actual behavior here so a future case-sensitivity change is a
-        # deliberate, test-visible decision rather than a silent regression.
+    It 'matches op classes case-insensitively (by design)' {
+        # Op-class names are case-insensitive everywhere - the C# OpClassRegistry canonicalizes
+        # lookups case-insensitively, and this gate follows the same rule via `-contains`'
+        # case-insensitive default. A change to case-sensitive matching breaks the contract and
+        # must fail here first.
         $Global:VaultMcpOpClasses = @('content:write')
         { Assert-VaultOpClass -OpClass 'CONTENT:WRITE' } | Should -Not -Throw
     }

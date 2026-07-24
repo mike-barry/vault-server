@@ -119,8 +119,12 @@ function Assert-VaultOpClass {
       - $GrantClasses is an empty array -> host context WAS injected but the grant holds no op
         classes (e.g. the minimum-access floor). This is a real, authenticated "holds nothing"
         state and must DENY every asserted class - it is not the same as absent context.
-      - $OpClass is a member -> pass (return).
+      - $OpClass is a member (matched case-insensitively) -> pass (return).
       - otherwise -> throw insufficient_capability naming the missing class.
+
+    Matching is case-insensitive by design: op-class names are case-insensitive everywhere -
+    the C# OpClassRegistry canonicalizes lookups case-insensitively - and this gate follows
+    the same rule via `-contains`' case-insensitive default.
     #>
     [CmdletBinding()]
     param(
