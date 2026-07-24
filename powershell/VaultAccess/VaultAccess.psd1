@@ -11,7 +11,6 @@
         'Resolve-VaultRoot'
         'Resolve-VaultPath'
         'Get-VaultNotePath'
-        'Resolve-WikiLink'
         'Read-VaultNote'
         'Write-VaultNote'
         'Test-VaultPathInScope'
@@ -25,6 +24,7 @@
         'ConvertTo-VaultToolResult'
         'Test-VaultNameConvention'
         'Get-VaultFilePath'
+        'Search-VaultContent'
         'Resolve-VaultBareLink'
     )
     CmdletsToExport   = @()

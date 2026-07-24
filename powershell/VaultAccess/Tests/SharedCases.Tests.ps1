@@ -1,5 +1,5 @@
 # SharedCases.Tests.ps1 - the PowerShell half of the shared-case parity contract with the
-# xUnit suite (tests/VaultMcpServer.Tests). The wikilink, path, and scope cases load from
+# xUnit suite (tests/VaultMcpServer.Tests). The path and scope cases load from
 # tests/cases/*.json, consumed identically on both sides so the mirrored chokepoint
 # semantics are exercised the same way. Any change to mirrored semantics lands HERE as a
 # shared case (add the case to the JSON file, or - for 'Vault config skip semantics' -
@@ -91,21 +91,6 @@ Describe 'Vault config skip semantics' {
         $config.Vaults.Count | Should -Be 0
         $config.SkippedVaults.Count | Should -Be 2
         { Resolve-VaultRoot } | Should -Throw '*currently unavailable*'
-    }
-}
-
-Describe 'Resolve-WikiLink' {
-    It '<name>' -TestCases @(
-        Get-Content -LiteralPath (Join-Path $PSScriptRoot '../../../tests/cases/wikilink-cases.json') -Raw |
-            ConvertFrom-Json | ForEach-Object { @{ name = $_.name; link = $_.link; outcome = $_.outcome; path = $_.path } }
-    ) {
-        switch ($outcome) {
-            'resolves' { Resolve-WikiLink -Link $link | Should -Be $path }
-            'none' { Resolve-WikiLink -Link $link | Should -BeNullOrEmpty }
-            'ambiguous' { { Resolve-WikiLink -Link $link } | Should -Throw '*Ambiguous*' }
-            'invalid' { { Resolve-WikiLink -Link $link } | Should -Throw }
-            default { throw "unknown outcome: $outcome" }
-        }
     }
 }
 

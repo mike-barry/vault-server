@@ -1,20 +1,21 @@
 namespace VaultMcpServer.Vault;
 
 /// <summary>
-/// The vault-access chokepoint: path resolution, wikilink resolution, and the grant-scope
-/// check primitives (<see cref="EnsureAllowed"/>, <see cref="IsPathInScope"/>,
-/// <see cref="ResolveVaultScopeRoots"/>, <see cref="NormalizeScopeSegments"/>) live here -
-/// the shared-case-guarded resolution surface plus the scope primitives real callers
+/// The vault-access chokepoint: path resolution and the grant-scope check primitives
+/// (<see cref="IsPathInScope"/>, <see cref="ResolveVaultScopeRoots"/>,
+/// <see cref="NormalizeScopeSegments"/>) live here - the scope primitives real callers
 /// (mint, grant load, the elevation tool) use. The PowerShell counterpart for script tools,
 /// powershell/VaultAccess/VaultAccess.psm1, mirrors these operations and semantics and also
-/// carries the full read/write/enumerate/move instance-op surface for tool scripts - the C#
-/// side dropped its caller-less mirror of that half (2026-07-19, see
-/// Plan-Grant-Tool-Trust-Model's "Mirrored chokepoint drift surface"); re-mirror by porting
-/// from the then-current PowerShell implementation when a native vault tool needs it.
+/// carries the full read/write/enumerate/search/move instance-op surface for tool scripts -
+/// the C# side dropped its caller-less mirror of that half (2026-07-19, see
+/// Plan-Grant-Tool-Trust-Model's "Mirrored chokepoint drift surface"; the last of the mirrored
+/// resolution surface, wikilink resolution, retired 2026-07-23 when read/move superseded it);
+/// re-mirror by porting from the then-current PowerShell implementation when a native vault tool
+/// needs it.
 ///
-/// Vault conventions (wikilink forms, filename rules, layout) are encoded only here and
-/// in the PowerShell module; they implement the vault's Document-Conventions.md and
-/// Vault-Guide.md (Resources/Vault/Guides/ in the vault repo).
+/// Vault conventions (filename rules, layout) are encoded only here and in the PowerShell
+/// module; they implement the vault's Document-Conventions.md and Vault-Guide.md
+/// (Resources/Vault/Guides/ in the vault repo).
 /// </summary>
 public sealed class VaultAccess(VaultConfig config)
 {
@@ -30,9 +31,9 @@ public sealed class VaultAccess(VaultConfig config)
     ///
     /// <paramref name="scopeRoots"/> null or empty means the caller's grant is unscoped: full
     /// access within its granted vaults, so this is a no-op. The literal path <c>"."</c> - used
-    /// by <see cref="EnumerateNotes"/> to gate the listing operation itself, not any one note -
-    /// is always allowed here even under a scoped grant; per-note filtering happens inside
-    /// <see cref="EnumerateNotes"/> after listing, via <see cref="IsPathInScope"/>.
+    /// to gate a listing/enumeration operation itself, not any one note - is always allowed here
+    /// even under a scoped grant; per-note filtering is applied after listing, via
+    /// <see cref="IsPathInScope"/>.
     /// </summary>
     private static void EnsureAllowed(string vault, string relativePath, IReadOnlyCollection<string>? scopeRoots)
     {
@@ -159,90 +160,5 @@ public sealed class VaultAccess(VaultConfig config)
         if (!full.StartsWith(root + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase) && !full.Equals(root, StringComparison.OrdinalIgnoreCase))
             throw new ArgumentException($"Path escapes vault \"{name}\": {relativePath}", nameof(relativePath));
         return full;
-    }
-
-    /// <summary>
-    /// Enumerates all notes in a vault as vault-relative, forward-slash paths, skipping
-    /// dot-directories (.git, .obsidian, ...) and - when <paramref name="scopeRoots"/> is a
-    /// non-empty scoped grant - any note outside those folder-prefix roots (see
-    /// <see cref="IsPathInScope"/>). Out-of-scope notes are silently dropped from the result,
-    /// not surfaced as an error - a search or wikilink resolution built on this enumeration
-    /// (see <see cref="ResolveWikilink"/>) sees a naturally scope-filtered result set.
-    ///
-    /// Private: this has no production caller of its own (the read/write/move instance-op
-    /// half it used to sit alongside was dropped 2026-07-19 as caller-less drift liability -
-    /// see the class summary), but <see cref="ResolveWikilink"/> - which *is* kept, as
-    /// shared-case-guarded resolution surface - is built on it, so it stays as minimal
-    /// private support rather than being cut too.
-    /// </summary>
-    private IReadOnlyList<string> EnumerateNotes(string? vault, IReadOnlyDictionary<string, IReadOnlySet<string>>? scopeRoots = null)
-    {
-        var (name, root) = config.Resolve(vault);
-        var vaultScopeRoots = ResolveVaultScopeRoots(name, scopeRoots);
-        EnsureAllowed(name, ".", vaultScopeRoots);
-
-        var notes = new List<string>();
-        foreach (var file in Directory.EnumerateFiles(root, "*.md", SearchOption.AllDirectories))
-        {
-            var relative = Path.GetRelativePath(root, file).Replace('\\', '/');
-            if (relative.Split('/')[..^1].Any(IsHiddenSegment))
-                continue;
-            if (vaultScopeRoots.Count > 0 && !IsPathInScope(relative, vaultScopeRoots))
-                continue;
-            notes.Add(relative);
-        }
-        return notes;
-    }
-
-    /// <summary>
-    /// Resolves a wikilink to a vault-relative note path. Accepts every convention form:
-    /// [[Name]], bare Name, [[Folder/Name]] (path-qualified, matched on trailing path
-    /// segments), and either with #heading and/or |display suffixes, which are ignored.
-    /// A trailing .md extension on the link itself is also stripped and ignored.
-    /// Returns null when nothing matches; throws when the link is ambiguous.
-    /// </summary>
-    public string? ResolveWikilink(string? vault, string link, IReadOnlyDictionary<string, IReadOnlySet<string>>? scopeRoots = null)
-    {
-        var target = ParseWikilinkTarget(link);
-        if (target.Length == 0)
-            throw new ArgumentException($"Empty wikilink: {link}", nameof(link));
-
-        var qualified = target.Contains('/');
-        var matches = new List<string>();
-        foreach (var note in EnumerateNotes(vault, scopeRoots))
-        {
-            var noteNoExt = note[..^".md".Length];
-            var hit = qualified
-                ? noteNoExt.Equals(target, StringComparison.OrdinalIgnoreCase) || noteNoExt.EndsWith("/" + target, StringComparison.OrdinalIgnoreCase)
-                : GetLastSegment(noteNoExt).Equals(target, StringComparison.OrdinalIgnoreCase);
-            if (hit)
-                matches.Add(note);
-        }
-
-        return matches.Count switch
-        {
-            0 => null,
-            1 => matches[0],
-            _ => throw new InvalidOperationException($"Ambiguous wikilink [[{target}]]: {string.Join(", ", matches)}"),
-        };
-    }
-
-    /// <summary>Strips [[ ]] delimiters, |display text, and #heading fragments, normalizing separators to forward slashes.</summary>
-    private static string ParseWikilinkTarget(string link)
-    {
-        var target = link.Trim();
-        if (target.StartsWith("[[") && target.EndsWith("]]"))
-            target = target[2..^2];
-        target = target.Split('|')[0].Split('#')[0].Trim();
-        target = target.Replace('\\', '/').Trim('/');
-        if (target.EndsWith(".md", StringComparison.OrdinalIgnoreCase))
-            target = target[..^".md".Length];
-        return target;
-    }
-
-    private static string GetLastSegment(string path)
-    {
-        var index = path.LastIndexOf('/');
-        return index < 0 ? path : path[(index + 1)..];
     }
 }

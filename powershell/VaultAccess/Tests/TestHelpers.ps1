@@ -5,7 +5,7 @@
 #
 # Run with: Invoke-Pester powershell/VaultAccess/Tests
 #
-# The wikilink and path cases load from tests/cases/*.json, shared with the xUnit suite
+# The path and scope cases load from tests/cases/*.json, shared with the xUnit suite
 # (tests/VaultMcpServer.Tests) so the mirrored chokepoint semantics are exercised
 # identically on both sides. Files here live in Tests/ (one level below the module root),
 # so repo-relative paths resolve from $PSScriptRoot '../../..'.

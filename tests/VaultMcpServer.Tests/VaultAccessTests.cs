@@ -5,31 +5,6 @@ namespace VaultMcpServer.Tests;
 public sealed class VaultAccessTests(TestVaultFixture fixture) : IClassFixture<TestVaultFixture>
 {
     [Theory]
-    [MemberData(nameof(WikilinkCases))]
-    public void ResolveWikilink_SharedCases(string name, string link, string outcome, string? path)
-    {
-        switch (outcome)
-        {
-            case "resolves":
-                var resolved = fixture.Vault.ResolveWikilink(null, link);
-                Assert.True(path == resolved, $"{name}: expected {path}, got {resolved ?? "null"}");
-                break;
-            case "none":
-                Assert.True(fixture.Vault.ResolveWikilink(null, link) is null, $"{name}: expected no match");
-                break;
-            case "ambiguous":
-                Assert.Throws<InvalidOperationException>(() => fixture.Vault.ResolveWikilink(null, link));
-                break;
-            case "invalid":
-                Assert.Throws<ArgumentException>(() => fixture.Vault.ResolveWikilink(null, link));
-                break;
-            default:
-                Assert.Fail($"{name}: unknown outcome {outcome}");
-                break;
-        }
-    }
-
-    [Theory]
     [MemberData(nameof(PathCases))]
     public void ResolvePath_SharedCases(string name, string path, bool valid)
     {
@@ -89,13 +64,6 @@ public sealed class VaultAccessTests(TestVaultFixture fixture) : IClassFixture<T
         Assert.Throws<InvalidOperationException>(() => VaultAccess.ResolveVaultScopeRoots("test", scopeRoots));
     }
 
-    [Fact]
-    public void ResolveWikilink_ScopedGrant_DoesNotResolveAnOutOfScopeNote()
-    {
-        Assert.Null(fixture.Vault.ResolveWikilink(null, "Gizmo-Reference", ScopeFor("test", "Projects/Widget")));
-    }
-
-    public static TheoryData<string, string, string, string?> WikilinkCases => SharedCases.Wikilink();
     public static TheoryData<string, string, bool> PathCases => SharedCases.Paths();
     public static TheoryData<string, string, string, Dictionary<string, List<string>>, string> ScopeCases => SharedCases.Scope();
 }

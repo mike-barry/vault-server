@@ -12,17 +12,8 @@ public static class SharedCases
 {
     private static readonly JsonSerializerOptions Options = new() { PropertyNameCaseInsensitive = true };
 
-    private sealed record WikilinkCase(string Name, string Link, string Outcome, string? Path);
     private sealed record PathCase(string Name, string Path, bool Valid);
     private sealed record ScopeCase(string Name, string Vault, string Path, Dictionary<string, List<string>> ScopeRoots, string Outcome);
-
-    public static TheoryData<string, string, string, string?> Wikilink()
-    {
-        var data = new TheoryData<string, string, string, string?>();
-        foreach (var c in Load<WikilinkCase>("wikilink-cases.json"))
-            data.Add(c.Name, c.Link, c.Outcome, c.Path);
-        return data;
-    }
 
     public static TheoryData<string, string, bool> Paths()
     {
