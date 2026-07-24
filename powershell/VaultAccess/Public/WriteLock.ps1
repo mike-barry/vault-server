@@ -48,10 +48,10 @@ function Invoke-VaultWriteLock {
     exported Enter/Exit pair. The try/finally lives here once, so a tool cannot hold the lock
     without releasing it.
 
-    Wrap the whole logical operation, not individual chokepoint calls. A rename issues N+1
-    mutations (one Write-VaultNote per backlinked file, then Move-VaultNote), so a lock taken
-    inside those functions would acquire and release N+1 times without serializing the
-    operation.
+    Wrap the whole logical operation, not individual chokepoint calls. A move issues N+1
+    mutations (one Write-VaultNote per backlinked file, then the file move itself), so a
+    lock taken inside those functions would acquire and release N+1 times without
+    serializing the operation.
 
     When a process dies holding the mutex, the OS releases it and hands the next waiter an
     AbandonedMutexException - that waiter owns the lock, and a previous owner died mid-write.
