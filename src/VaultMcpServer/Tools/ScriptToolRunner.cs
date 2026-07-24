@@ -24,9 +24,16 @@ public sealed class ScriptToolRunner : IDisposable
     // which case the wrapper clears the var so the VaultAccess module falls back to its own default.
     private readonly string? _vaultsJsonPath;
 
-    public ScriptToolRunner(string? vaultsJsonPath = null)
+    // The ripgrep executable path the host resolved at startup (from the RipgrepPath appsetting) -
+    // re-asserted into VAULT_MCP_RG_PATH ahead of every invocation for the same
+    // sequential-reuse reason as the vaults.json path above. Null when the host started without
+    // one, in which case the wrapper clears the var and Resolve-VaultRgPath falls back to PATH.
+    private readonly string? _ripgrepPath;
+
+    public ScriptToolRunner(string? vaultsJsonPath = null, string? ripgrepPath = null)
     {
         _vaultsJsonPath = vaultsJsonPath;
+        _ripgrepPath = ripgrepPath;
 
         // The (min, max, InitialSessionState, PSHost) overload requires a non-null host, so
         // the initial session state is set via the (InitialSessionState)-only overload
@@ -60,7 +67,8 @@ public sealed class ScriptToolRunner : IDisposable
             [hashtable] $VaultMcpScopeRoots,
             [string[]] $VaultMcpOpClasses,
             [hashtable] $VaultMcpParameters,
-            [string] $VaultMcpVaultsJsonPath
+            [string] $VaultMcpVaultsJsonPath,
+            [string] $VaultMcpRipgrepPath
         )
         # Runspaces are pooled and reused, and $env: changes are process-wide, so a value a
         # previous tool script left in VAULT_MCP_VAULTS_JSON (which the VaultAccess module reads
@@ -75,6 +83,12 @@ public sealed class ScriptToolRunner : IDisposable
         # HadErrors flag.)
         if ($VaultMcpVaultsJsonPath) { $env:VAULT_MCP_VAULTS_JSON = $VaultMcpVaultsJsonPath }
         elseif (Test-Path -LiteralPath Env:\VAULT_MCP_VAULTS_JSON) { Remove-Item -LiteralPath Env:\VAULT_MCP_VAULTS_JSON }
+        # Same sequential-reuse re-assertion for the ripgrep path (RipgrepPath appsetting ->
+        # VAULT_MCP_RG_PATH, read by Resolve-VaultRgPath): set the host's startup value, or clear
+        # it so resolution falls back to PATH, so a prior tool's mutation cannot redirect a later
+        # call at an attacker-chosen binary.
+        if ($VaultMcpRipgrepPath) { $env:VAULT_MCP_RG_PATH = $VaultMcpRipgrepPath }
+        elseif (Test-Path -LiteralPath Env:\VAULT_MCP_RG_PATH) { Remove-Item -LiteralPath Env:\VAULT_MCP_RG_PATH }
         Set-Variable -Name VaultMcpScopeRoots -Value $VaultMcpScopeRoots -Scope Global
         # Mirror of the scope-roots injection above for the calling grant's op-class set: the
         # runspace-global VaultMcpOpClasses is the in-script authorization floor's "key ring"
@@ -143,7 +157,8 @@ public sealed class ScriptToolRunner : IDisposable
             .AddParameter("VaultMcpScopeRoots", scopeRootsTable)
             .AddParameter("VaultMcpOpClasses", opClassesArray)
             .AddParameter("VaultMcpParameters", scriptParameters)
-            .AddParameter("VaultMcpVaultsJsonPath", _vaultsJsonPath ?? "");
+            .AddParameter("VaultMcpVaultsJsonPath", _vaultsJsonPath ?? "")
+            .AddParameter("VaultMcpRipgrepPath", _ripgrepPath ?? "");
 
         await using var registration = cancellationToken.Register(() => ps.Stop());
 

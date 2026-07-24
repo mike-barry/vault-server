@@ -85,34 +85,47 @@ function Resolve-WikiLink {
 function Get-VaultFilePath {
     <#
     .SYNOPSIS
-    Enumerates every file in a vault - not only ".md" notes - as vault-relative,
-    forward-slash paths, via ripgrep. This is the basename-census enumeration primitive
-    move's ambiguity gate (Plan-Tool-Move) and glob (Plan-Tool-Glob) are designed to
-    share, so the two tools always agree on what exists rather than drifting to two
-    independent notions of "every file in the vault". Get-VaultNotePath stays the
-    note-only (.md) enumeration `read`/`write`/wikilink resolution use; this is the
-    file-general counterpart for `move`/`glob`, per Plan-Vault-Tool-Primitives's
-    note-vs-file tool split.
+    Enumerates files in a vault - not only ".md" notes - as vault-relative, forward-slash
+    paths, via ripgrep. With no -Pattern this is the "everything that exists" census the
+    basename-uniqueness pass in move (Plan-Tool-Move) shares with glob (Plan-Tool-Glob), so
+    the two tools always agree on what exists rather than drifting to two independent notions
+    of "every file in the vault". With -Pattern it is glob's filename-search surface: rg's
+    glob matcher filters the walk, so pattern semantics match the native Glob tool by
+    construction. Get-VaultNotePath stays the note-only (.md) enumeration `read`/`write`/
+    wikilink resolution use; this is the file-general counterpart for `move`/`glob`, per
+    Plan-Vault-Tool-Primitives's note-vs-file tool split.
 
-    Exclusion rules mirror Plan-Tool-Glob's accepted v1 defaults exactly, since both
-    tools shell to the same binary the same way: ripgrep's own defaults respect
-    .gitignore and hide dot-directories (.git, .obsidian, .claude, ...), and symlinks are
-    never followed (-L/--follow is never passed - the one real vault-escape vector, so
-    the guard is simply never opting in). Every result is additionally asserted to
-    resolve under the vault root as a second guard, covering Windows junctions and
-    reparse points without reasoning about ripgrep's own symlink detection.
+    Binary resolution and invocation are the shared Resolve-VaultRgPath / Invoke-VaultRipgrep
+    privates, so every rg consumer resolves the binary and shells out the same way.
+
+    Exclusion rules mirror Plan-Tool-Glob's accepted v1 defaults exactly, since both tools
+    shell to the same binary the same way: ripgrep's own defaults respect .gitignore and hide
+    dot-directories (.git, .obsidian, .claude, ...), and symlinks are never followed
+    (-L/--follow is never passed - the one real vault-escape vector, so the guard is simply
+    never opting in). rg runs rooted at the vault directory searching ".", which both makes
+    glob patterns match vault-relative paths (native Glob semantics) and structurally confines
+    results to the subtree; every result is additionally asserted to resolve under the vault
+    root as a second guard, covering Windows junctions and reparse points without reasoning
+    about ripgrep's own symlink detection.
 
     Applies the resolved vault's scope-roots filter the same way Get-VaultNotePath does -
     out-of-scope files are silently dropped, never surfaced as an error.
+    .PARAMETER Pattern
+    Optional glob pattern (native Glob semantics, e.g. `**/Note-Name.md`, `Projects/**/*.md`).
+    When supplied, `-g <pattern> --glob-case-insensitive` is appended so matching is
+    case-insensitive on Windows like the native Glob tool. rg exit 2 (a malformed pattern) is
+    surfaced as `invalid_pattern` carrying rg's stderr; without a pattern, exit 2 is a real rg
+    failure. Omit for the full-vault census.
     .PARAMETER RgPath
-    Path to the ripgrep executable. Defaults to resolving "rg" off PATH; throws a
-    dependency_unavailable-shaped error (see New-VaultToolError) when it cannot be found,
-    naming the path tried, per Plan-Tool-Glob.
+    Optional explicit ripgrep executable path (Resolve-VaultRgPath), highest precedence over
+    the VAULT_MCP_RG_PATH setting and PATH; throws `dependency_unavailable` naming the path
+    tried when it does not resolve.
     #>
     [CmdletBinding()]
     param(
         [string] $Vault,
         [AllowNull()] $ScopeRoots = (Get-VaultAccessAmbientScopeRoots),
+        [string] $Pattern,
         [string] $RgPath
     )
 
@@ -120,29 +133,46 @@ function Get-VaultFilePath {
     $flatScopeRoots = Resolve-VaultScopeRoots -Vault $resolved.Name -ScopeRoots $ScopeRoots
     Assert-VaultOperationAllowed -Vault $resolved.Name -RelativePath '.' -ScopeRoots $flatScopeRoots
 
-    if (-not $RgPath) {
-        $cmd = Get-Command -Name 'rg' -CommandType Application -ErrorAction SilentlyContinue
-        if (-not $cmd) {
-            throw (New-VaultToolError -Code 'dependency_unavailable' -Message 'ripgrep (rg) could not be resolved on PATH.' -Data @{ pathTried = 'rg' })
-        }
-        $RgPath = $cmd.Source
-    }
-    elseif (-not (Test-Path -LiteralPath $RgPath -PathType Leaf)) {
-        throw (New-VaultToolError -Code 'dependency_unavailable' -Message "ripgrep (rg) could not be resolved at '$RgPath'." -Data @{ pathTried = $RgPath })
-    }
+    $rg = Resolve-VaultRgPath -RgPath $RgPath
 
-    # --files with no -g pattern lists every file rg would ever consider a match candidate -
-    # exactly the "everything that exists" set a basename census needs. Argument array, never
-    # a composed shell string, so nothing here is shell-interpreted.
-    $rgOutput = & $RgPath '--files' '--' $resolved.Root 2>$null
-    if ($LASTEXITCODE -gt 1) {
-        throw (New-VaultToolError -Code 'dependency_unavailable' -Message "ripgrep exited with code ${LASTEXITCODE} enumerating '$($resolved.Root)'.")
+    # rg runs rooted at the vault directory and searches ".", so a -g pattern matches
+    # vault-relative paths (native Glob semantics) rather than the absolute path, and results
+    # are structurally confined to the subtree. --files with no -g lists every candidate file -
+    # the census set; -g <pattern> --glob-case-insensitive filters it for glob.
+    $hasPattern = $PSBoundParameters.ContainsKey('Pattern')
+    $rgArgs = @('--files')
+    if ($hasPattern) { $rgArgs += @('--glob-case-insensitive', '-g', $Pattern) }
+    $rgArgs += @('--', '.')
+
+    $rgResult = Invoke-VaultRipgrep -RgPath $rg -Arguments $rgArgs -WorkingDirectory $resolved.Root
+
+    # Exit-code classification (Plan-Tool-Glob: Shared Ripgrep Layers). 0 = matches follow;
+    # 1 = no matches, an empty result, not an error; 2 with a caller pattern = a malformed glob
+    # (invalid_pattern, carrying rg's stderr); exit 2 with no pattern or any higher code is a
+    # real rg failure with stderr attached - never a discarded diagnostic or a misfiled
+    # dependency_unavailable.
+    switch ($rgResult.ExitCode) {
+        0 { }
+        1 { return }
+        2 {
+            if ($hasPattern) {
+                throw (New-VaultToolError -Code 'invalid_pattern' -Message "ripgrep rejected the glob pattern: $($rgResult.Stderr.Trim())" -Data @{ pattern = $Pattern; stderr = $rgResult.Stderr.Trim() })
+            }
+            throw (New-VaultToolError -Code 'ripgrep_failed' -Message "ripgrep exited with code 2 enumerating '$($resolved.Root)': $($rgResult.Stderr.Trim())" -Data @{ exitCode = 2; stderr = $rgResult.Stderr.Trim() })
+        }
+        default {
+            throw (New-VaultToolError -Code 'ripgrep_failed' -Message "ripgrep exited with code $($rgResult.ExitCode) enumerating '$($resolved.Root)': $($rgResult.Stderr.Trim())" -Data @{ exitCode = $rgResult.ExitCode; stderr = $rgResult.Stderr.Trim() })
+        }
     }
 
     $rootPrefix = $resolved.Root + [System.IO.Path]::DirectorySeparatorChar
-    foreach ($line in $rgOutput) {
+    foreach ($line in $rgResult.Stdout) {
         if ([string]::IsNullOrWhiteSpace($line)) { continue }
-        $full = [System.IO.Path]::GetFullPath($line)
+        # rg prints paths relative to the "." search root (e.g. ".\Projects\Widget.md");
+        # resolve each against the vault root, then re-derive the vault-relative form. The
+        # containment assert drops anything that resolves outside the vault (junctions,
+        # reparse points) as a second guard beyond the structural rooting.
+        $full = [System.IO.Path]::GetFullPath($line, $resolved.Root)
         if (-not $full.StartsWith($rootPrefix, [System.StringComparison]::OrdinalIgnoreCase)) { continue }
         $relative = [System.IO.Path]::GetRelativePath($resolved.Root, $full).Replace('\', '/')
         if ($flatScopeRoots.Count -gt 0 -and -not (Test-VaultPathInScope -Path $relative -ScopeRoots $flatScopeRoots)) { continue }

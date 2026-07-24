@@ -85,8 +85,12 @@ builder.Services.AddSingleton(scriptToolRegistry);
 // Pass the host's resolved vaults.json path so the runner can pin VAULT_MCP_VAULTS_JSON to it
 // ahead of every script invocation - the VaultAccess module reads that env var, and re-asserting
 // the intended path each call stops a prior tool script from redirecting a later one via the
-// process-wide variable.
-var scriptToolRunner = new ScriptToolRunner(vaultsConfigPath);
+// process-wide variable. The ripgrep path (RipgrepPath appsetting -> VAULT_MCP_RG_PATH, read by
+// Resolve-VaultRgPath) rides the same mechanism; unset means the scripts fall back to rg on PATH.
+var ripgrepPath = builder.Configuration["RipgrepPath"] is { Length: > 0 } rgp
+    ? Path.GetFullPath(Path.Combine(builder.Environment.ContentRootPath, rgp))
+    : null;
+var scriptToolRunner = new ScriptToolRunner(vaultsConfigPath, ripgrepPath);
 builder.Services.AddSingleton(scriptToolRunner);
 
 // A directly-constructed, directly-registered instance (rather than AddHttpContextAccessor())

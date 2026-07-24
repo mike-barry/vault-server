@@ -92,3 +92,52 @@ Describe 'Get-VaultFilePath' {
         { Get-VaultFilePath -RgPath (Join-Path $script:TempRoot 'no-such-rg.exe') } | Should -Throw '*dependency_unavailable*'
     }
 }
+
+Describe 'Get-VaultFilePath -Pattern (glob surface)' {
+    It 'matches a bare basename anywhere via **' {
+        $m = @(Get-VaultFilePath -Pattern '**/Widget.md')
+        $m | Should -Be @('Projects/Widget/Widget.md')
+    }
+
+    It 'honors an anchored (location-expressing) pattern' {
+        $m = @(Get-VaultFilePath -Pattern 'Projects/**/*.md')
+        $m.Count | Should -Be 3
+        $m | ForEach-Object { $_ | Should -Match '^Projects/' }
+    }
+
+    It 'matches the root-level manifest-style file, mirroring the spec probe' {
+        # Spec's Vault Root Containment probe uses **/Vault-Manifest.md against the real vault;
+        # the fixture's root file is Test-Vault.md.
+        @(Get-VaultFilePath -Pattern '**/Test-Vault.md') | Should -Be @('Test-Vault.md')
+    }
+
+    It 'is case-insensitive (--glob-case-insensitive), matching native Glob on Windows' {
+        @(Get-VaultFilePath -Pattern '**/test-vault.MD') | Should -Be @('Test-Vault.md')
+    }
+
+    It 'returns empty output (not an error) when nothing matches' {
+        @(Get-VaultFilePath -Pattern '**/NoSuchFileXYZ.md') | Should -BeNullOrEmpty
+    }
+
+    Context 'vault-root containment - escape probes return nothing (Plan-Tool-Glob)' {
+        It 'confines <_> to the vault, matching zero files' -ForEach @('../**', '../../**', '/Windows/**', 'C:/Windows/**', '**/../../*') {
+            @(Get-VaultFilePath -Pattern $_) | Should -BeNullOrEmpty
+        }
+    }
+
+    It 'maps a malformed pattern (rg exit 2) to invalid_pattern carrying stderr' {
+        $err = $null
+        try { Get-VaultFilePath -Pattern '[' | Out-Null } catch { $err = $_ }
+        $err | Should -Not -BeNullOrEmpty
+        $parsed = $err.Exception.Message | ConvertFrom-Json
+        $parsed.code | Should -Be 'invalid_pattern'
+        $parsed.data.stderr | Should -Not -BeNullOrEmpty
+    }
+
+    It 'applies the scope post-filter to matches, dropping out-of-scope files silently' {
+        $m = @(Get-VaultFilePath -Pattern '**/*.md' -ScopeRoots @{ test = @('Projects/Widget') })
+        $m | Should -Not -BeNullOrEmpty
+        $m | ForEach-Object { $_ | Should -Match '^Projects/Widget/' }
+        $m | Should -Not -Contain 'Resources/Gizmo-Reference.md'
+    }
+}
