@@ -26,6 +26,7 @@
         'ConvertTo-VaultToolResult'
         'Test-VaultNameConvention'
         'Get-VaultFilePath'
+        'Resolve-VaultBareLink'
     )
     CmdletsToExport   = @()
     VariablesToExport = @()

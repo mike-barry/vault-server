@@ -9,8 +9,8 @@
 #
 # SCOPE NOTE: this suite covers argument validation, source resolution + dest
 # construction, scope membership, the file-move core-engine slice (write-lock
-# plan-validate-apply, the ambiguity gate, the single-scan reference-rewrite engine), and
-# the folder-move slice: the directory move, the folder-note invariant (Foo/Foo.md ->
+# plan-validate-apply, the protect-and-proceed reference-rewrite engine - follow/pin, no
+# gate), and the folder-move slice: the directory move, the folder-note invariant (Foo/Foo.md ->
 # Bar/Bar.md), the old-folder-path prefix substitution repairing contained-file links, the
 # two-component emit for a qualified link to the folder note itself, the folder-note bare
 # rewrite and its ambiguity gate, pure relocations, missing-folder-note warn-and-proceed,
@@ -82,9 +82,27 @@ Describe 'move (validate + resolve + scope)' {
             Test-Path (Join-Path $script:VaultDir 'Resources/Renamed-Gizmo.md') | Should -BeTrue
         }
 
-        It 'accepts the optional Kind and Force parameters without erroring' {
-            $output = & $script:ScriptPath -Source 'Resources/Gizmo-Reference.md' -Dest 'Renamed-Gizmo' -Kind file -Force
+        It 'accepts the optional Kind parameter without erroring' {
+            $output = & $script:ScriptPath -Source 'Resources/Gizmo-Reference.md' -Dest 'Renamed-Gizmo' -Kind file
             { $output | ConvertFrom-Json } | Should -Not -Throw
+        }
+
+        It 'rejects the retired Force parameter as a binding error (no ambiguity gate to override)' {
+            # Force was removed with the ambiguity gate; a caller passing it must fail at
+            # parameter binding, not silently ignore it.
+            { & $script:ScriptPath -Source 'Resources/Gizmo-Reference.md' -Dest 'Renamed-Gizmo' -Force 2>$null } |
+                Should -Throw
+        }
+
+        It 'reports referencesQualifiedProtectively as null when no pinning occurred' {
+            $output = & $script:ScriptPath -Source 'Resources/Gizmo-Reference.md' -Dest 'Renamed-Gizmo'
+            $result = $output | ConvertFrom-Json
+            # The field is always present (the shape is stable); null when nothing was pinned.
+            $result.PSObject.Properties.Name | Should -Contain 'referencesQualifiedProtectively'
+            $result.referencesQualifiedProtectively | Should -BeNullOrEmpty
+            # The retired fields are gone entirely.
+            $result.PSObject.Properties.Name | Should -Not -Contain 'referencesSkippedAmbiguous'
+            $result.PSObject.Properties.Name | Should -Not -Contain 'basenameCollisionCreated'
         }
 
         It 'resolves kind as folder for a directory source' {
@@ -337,7 +355,7 @@ Describe 'move (validate + resolve + scope)' {
         }
     }
 
-    Context 'ambiguity gate' {
+    Context 'protection (protect-and-proceed)' {
         BeforeEach {
             # Inject duplicate basenames and referencing links into the scratch copy only -
             # never committed to test-vault (Testing.md fixture convention).
@@ -345,43 +363,85 @@ Describe 'move (validate + resolve + scope)' {
             New-Item -ItemType Directory -Path (Join-Path $script:VaultDir 'B') -Force | Out-Null
             Set-Content -LiteralPath (Join-Path $script:VaultDir 'A/Dupe.md') -Value "# Dupe A`n"
             Set-Content -LiteralPath (Join-Path $script:VaultDir 'B/Dupe.md') -Value "# Dupe B`n"
-            # A bare link (ambiguous) and a path-qualified link (definitive) to the A copy.
+        }
+
+        It 'renames a non-unique file and proceeds without failing (no gate), following links that resolved to it' {
+            # A/Dupe.md is non-unique (B/Dupe.md shares the name). From Inbox/Refs.md the bare
+            # [[Dupe]] resolves to A/Dupe (equal-length tie with B, A wins ordinally), and
+            # [[A/Dupe]] is definitive - both point at the moved file. The old model refused;
+            # protect-and-proceed renames and both links FOLLOW the moved file to [[Renamed-Dupe]]
+            # (the new basename is unique vault-wide, so a bare emit).
             Set-Content -LiteralPath (Join-Path $script:VaultDir 'Inbox/Refs.md') -Value "See [[Dupe]] and [[A/Dupe]].`n"
-        }
-
-        It 'fails ambiguous_references unforced when the old basename is non-unique and bare links exist' {
-            $err = Invoke-MoveError @{ Source = 'A/Dupe.md'; Dest = 'A/Renamed-Dupe' }
-            $err.code | Should -Be 'ambiguous_references'
-            $err.data.duplicatePaths | Should -Contain 'A/Dupe.md'
-            $err.data.duplicatePaths | Should -Contain 'B/Dupe.md'
-            # Nothing mutated - validate-stage refusal.
-            Test-Path (Join-Path $script:VaultDir 'A/Dupe.md') | Should -BeTrue
-        }
-
-        It 'forced: skips the ambiguous bare link but still rewrites the definitive path-qualified one' {
-            $output = & $script:ScriptPath -Source 'A/Dupe.md' -Dest 'A/Renamed-Dupe' -Force
+            $output = & $script:ScriptPath -Source 'A/Dupe.md' -Dest 'A/Renamed-Dupe'
+            { $output | ConvertFrom-Json } | Should -Not -Throw
             $result = $output | ConvertFrom-Json
-            $result.referencesSkippedAmbiguous.count | Should -Be 1
-            $result.referencesSkippedAmbiguous.files | Should -Contain 'Inbox/Refs.md'
-            # The path-qualified [[A/Dupe]] is definitive and IS rewritten.
-            $result.referencesRewritten | Should -Be 1
+            $result.referencesRewritten | Should -Be 2
+            $result.referencesQualifiedProtectively | Should -BeNullOrEmpty
             $refs = Get-Content (Join-Path $script:VaultDir 'Inbox/Refs.md') -Raw
-            $refs | Should -Match '\[\[Dupe\]\]'          # bare link left untouched
-            $refs | Should -Match '\[\[Renamed-Dupe\]\]'  # qualified link canonicalized (now unique)
+            ([regex]::Matches($refs, '\[\[Renamed-Dupe\]\]')).Count | Should -Be 2
+            $refs | Should -Not -Match '\[\[Dupe\]\]'
+            $refs | Should -Not -Match '\[\[A/Dupe\]\]'
+            Test-Path (Join-Path $script:VaultDir 'A/Renamed-Dupe.md') | Should -BeTrue
         }
 
-        It 'fails basename_collision unforced when the new basename already exists elsewhere' {
-            $err = Invoke-MoveError @{ Source = 'Resources/Gizmo-Reference.md'; Dest = 'Dupe' }
-            $err.code | Should -Be 'basename_collision'
-            $err.data.collidingPaths | Should -Contain 'A/Dupe.md'
-        }
-
-        It 'forced: proceeds through a basename collision, emitting rewritten links path-qualified' {
-            $output = & $script:ScriptPath -Source 'Resources/Gizmo-Reference.md' -Dest 'Resources/Dupe' -Force
+        It 'T5: renaming into an occupied basename emits the moved file''s links full-path and pins threatened bystanders' {
+            # Rename Resources/Gizmo-Reference.md -> Resources/Dupe: "Dupe" is already occupied by
+            # A/Dupe.md and B/Dupe.md. A bare [[Dupe]] in Resources/Note.md resolves to A/Dupe
+            # pre-move (../A/Dupe.md, 12 chars) but the moved file lands at Resources/Dupe.md
+            # (Dupe.md, 7) and would win - so it is PINNED to its pre-move target, A/Dupe.
+            Set-Content -LiteralPath (Join-Path $script:VaultDir 'Resources/Note.md') -Value "Link [[Dupe]] here.`n"
+            $output = & $script:ScriptPath -Source 'Resources/Gizmo-Reference.md' -Dest 'Resources/Dupe'
             $result = $output | ConvertFrom-Json
-            $result.basenameCollisionCreated | Should -BeTrue
-            # The new basename (Dupe) is non-unique, so rewrites emit the full vault path.
+
+            # The moved file's own links emit the full vault path (new basename non-unique).
             (Get-Content (Join-Path $script:VaultDir 'Projects/Widget/Tasks.md') -Raw) | Should -Match '\[\[Resources/Dupe\]\]'
+            # The threatened bystander bare link is pinned to its pre-move target, never re-aimed.
+            $result.referencesQualifiedProtectively.count | Should -Be 1
+            $result.referencesQualifiedProtectively.files | Should -Contain 'Resources/Note.md'
+            (Get-Content (Join-Path $script:VaultDir 'Resources/Note.md') -Raw) | Should -Match '\[\[A/Dupe\]\]'
+        }
+
+        It 'does not pin a bystander whose winner the move leaves unaffected' {
+            # A bare [[Dupe]] in Inbox/Refs.md resolves to A/Dupe (../A/Dupe.md, 12; ties with
+            # ../B/Dupe.md, A wins). Renaming Gizmo-Reference into Resources/Dupe adds a farther
+            # candidate (../Resources/Dupe.md, 20) that does not win - so the link is untouched.
+            Set-Content -LiteralPath (Join-Path $script:VaultDir 'Inbox/Refs.md') -Value "See [[Dupe]].`n"
+            $output = & $script:ScriptPath -Source 'Resources/Gizmo-Reference.md' -Dest 'Resources/Dupe'
+            $result = $output | ConvertFrom-Json
+            $result.referencesQualifiedProtectively | Should -BeNullOrEmpty
+            (Get-Content (Join-Path $script:VaultDir 'Inbox/Refs.md') -Raw) | Should -Match '\[\[Dupe\]\]'
+        }
+
+        It 'T8: relocating a same-basename file closer flips a bystander''s winner, pinning it to its original target' {
+            # A/B/Link.md links [[Dupe]], resolving to A/Dupe.md (../Dupe.md, 10) over Far/Dupe.md.
+            # Relocating Far/Dupe.md -> A/B/Dupe.md (a pureMove: basename unchanged) makes the moved
+            # file the winner (Dupe.md, 7); the bystander link is pinned to A/Dupe.
+            New-Item -ItemType Directory -Path (Join-Path $script:VaultDir 'A/B') -Force | Out-Null
+            New-Item -ItemType Directory -Path (Join-Path $script:VaultDir 'Far') -Force | Out-Null
+            Set-Content -LiteralPath (Join-Path $script:VaultDir 'Far/Dupe.md') -Value "# moved`n"
+            Set-Content -LiteralPath (Join-Path $script:VaultDir 'A/B/Link.md') -Value "Points [[Dupe]].`n"
+            $output = & $script:ScriptPath -Source 'Far/Dupe.md' -Dest 'A/B/Dupe'
+            $result = $output | ConvertFrom-Json
+            $result.pureMove | Should -BeTrue
+            $result.referencesQualifiedProtectively.count | Should -Be 1
+            $result.referencesQualifiedProtectively.files | Should -Contain 'A/B/Link.md'
+            (Get-Content (Join-Path $script:VaultDir 'A/B/Link.md') -Raw) | Should -Match '\[\[A/Dupe\]\]'
+        }
+
+        It 'pureMove with a duplicate basename follows the moved file when the link resolved to it' {
+            # A/B/Link.md links [[Dupe]] resolving to A/B/Dupe.md pre-move; relocating that file to
+            # a farther spot flips the winner to A/Dupe.md - so the link follows the moved file to
+            # keep resolving to it, emitting the full path (Dupe non-unique).
+            New-Item -ItemType Directory -Path (Join-Path $script:VaultDir 'A/B') -Force | Out-Null
+            New-Item -ItemType Directory -Path (Join-Path $script:VaultDir 'Far/Deep') -Force | Out-Null
+            Set-Content -LiteralPath (Join-Path $script:VaultDir 'A/B/Dupe.md') -Value "# moved`n"
+            Set-Content -LiteralPath (Join-Path $script:VaultDir 'A/B/Link.md') -Value "Points [[Dupe]].`n"
+            $output = & $script:ScriptPath -Source 'A/B/Dupe.md' -Dest 'Far/Deep/Dupe'
+            $result = $output | ConvertFrom-Json
+            $result.pureMove | Should -BeTrue
+            # Followed (not pinned): the link tracked the moved file to its new full path.
+            $result.referencesQualifiedProtectively | Should -BeNullOrEmpty
+            (Get-Content (Join-Path $script:VaultDir 'A/B/Link.md') -Raw) | Should -Match '\[\[Far/Deep/Dupe\]\]'
         }
     }
 
@@ -565,38 +625,52 @@ Describe 'move (validate + resolve + scope)' {
         }
     }
 
-    Context 'folder move - ambiguity gate on the folder-note rename' {
+    Context 'folder move - protection on the folder-note rename' {
         BeforeEach {
             # A second Widget.md elsewhere makes the folder-note basename non-unique; the bare
-            # [[Widget]] links in the fixture then become ambiguous.
+            # [[Widget]] links in the fixture are then deterministic, not ambiguous.
             New-Item -ItemType Directory -Path (Join-Path $script:VaultDir 'Other') -Force | Out-Null
             Set-Content -LiteralPath (Join-Path $script:VaultDir 'Other/Widget.md') -Value "# Another Widget`n"
         }
 
-        It 'fails ambiguous_references unforced when the folder-note basename is non-unique and bare links exist' {
-            $err = Invoke-MoveError @{ Source = 'Projects/Widget'; Dest = 'Projects/Renamed-Widget' }
-            $err.code | Should -Be 'ambiguous_references'
-            $err.data.duplicatePaths | Should -Contain 'Projects/Widget/Widget.md'
-            $err.data.duplicatePaths | Should -Contain 'Other/Widget.md'
-            # Validate-stage refusal - nothing moved.
-            Test-Path (Join-Path $script:VaultDir 'Projects/Widget') | Should -BeTrue
-        }
-
-        It 'forced: skips the ambiguous bare links but still rewrites definitive qualified links' {
+        It 'proceeds when the folder-note basename is non-unique, rewriting definitive qualified links' {
+            # The old model refused (ambiguous_references); protect-and-proceed moves the folder.
+            # The path-qualified [[Projects/Widget/Widget]] is definitive and follows the folder
+            # note to its renamed two-component path.
             Set-Content -LiteralPath (Join-Path $script:VaultDir 'Inbox/Ref-Q.md') -Value "Bare [[Widget]] and qualified [[Projects/Widget/Widget]].`n"
-            $output = & $script:ScriptPath -Source 'Projects/Widget' -Dest 'Projects/Renamed-Widget' -Force
-            $result = $output | ConvertFrom-Json
-            $result.referencesSkippedAmbiguous.count | Should -BeGreaterThan 0
+            $output = & $script:ScriptPath -Source 'Projects/Widget' -Dest 'Projects/Renamed-Widget'
+            { $output | ConvertFrom-Json } | Should -Not -Throw
             $refs = Get-Content (Join-Path $script:VaultDir 'Inbox/Ref-Q.md') -Raw
-            $refs | Should -Match '\[\[Widget\]\]'                                   # bare skipped
-            $refs | Should -Match '\[\[Projects/Renamed-Widget/Renamed-Widget\]\]'   # qualified rewritten
+            $refs | Should -Match '\[\[Projects/Renamed-Widget/Renamed-Widget\]\]'   # qualified follows
+            # The move landed.
+            Test-Path (Join-Path $script:VaultDir 'Projects/Renamed-Widget/Renamed-Widget.md') | Should -BeTrue
         }
 
-        It 'fails basename_collision unforced when the new folder-note basename already exists' {
+        It 'follows a bare folder-note link that resolved to the folder note across the rename' {
+            # From Resources/Gizmo-Reference.md the bare [[Widget]] resolves to the folder note
+            # (Projects/Widget/Widget.md, ../Projects/Widget/Widget, 30) over Other/Widget.md
+            # (../Other/Widget, 15)? No - Other is shorter, so [[Widget]] here resolves to Other.
+            # Use a linking file inside the folder, where the folder note is the clear winner.
+            Set-Content -LiteralPath (Join-Path $script:VaultDir 'Projects/Widget/Inbox/Ref-Inside.md') -Value "Parent [[Widget]].`n"
+            $output = & $script:ScriptPath -Source 'Projects/Widget' -Dest 'Projects/Renamed-Widget'
+            $result = $output | ConvertFrom-Json
+            # The folder note is renamed; a contained linking file whose [[Widget]] resolved to it
+            # follows it to the new basename (unique post-move? Other/Widget still exists, so the
+            # emit is the full path). The link is rewritten, not left dangling.
+            $inside = Get-Content (Join-Path $script:VaultDir 'Projects/Renamed-Widget/Inbox/Ref-Inside.md') -Raw
+            $inside | Should -Match 'Renamed-Widget'
+            $inside | Should -Not -Match '\[\[Widget\]\]'
+        }
+
+        It 'proceeds when the new folder-note basename already exists elsewhere, emitting full-path' {
             # Rename Projects/Widget -> Projects/Gizmo-Reference: Gizmo-Reference.md already exists.
-            $err = Invoke-MoveError @{ Source = 'Projects/Widget'; Dest = 'Projects/Gizmo-Reference' }
-            $err.code | Should -Be 'basename_collision'
-            $err.data.collidingPaths | Should -Contain 'Resources/Gizmo-Reference.md'
+            # The old model refused (basename_collision); protect-and-proceed moves the folder and
+            # the folder note's links emit the full vault path (new basename non-unique).
+            $output = & $script:ScriptPath -Source 'Projects/Widget' -Dest 'Projects/Gizmo-Reference'
+            { $output | ConvertFrom-Json } | Should -Not -Throw
+            $result = $output | ConvertFrom-Json
+            $result.folderNoteRenamed.newPath | Should -Be 'Projects/Gizmo-Reference/Gizmo-Reference.md'
+            Test-Path (Join-Path $script:VaultDir 'Projects/Gizmo-Reference/Gizmo-Reference.md') | Should -BeTrue
         }
     }
 

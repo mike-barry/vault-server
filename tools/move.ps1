@@ -2,13 +2,12 @@
 .SYNOPSIS
 Relocates or renames a file or folder within the vault as one atomic, write-locked
 operation, rewriting every reference to the moved item so the link graph stays intact.
-See Plan-Tool-Move (vault-primary) for the full spec. IMPLEMENTATION SLICE 2: argument
-validation, source resolution, dest construction, and scope membership are implemented
-below - the write-lock/plan-validate-apply structure, the ambiguity gate, the
-reference-rewrite engine, and the folder-move path (directory move, folder-note sync,
-prefix rewrite) are later slices (see the plan's Proposed Implementation Checklist). The
-mutation itself is still stubbed: this slice validates and constructs the full target
-set but performs no write.
+See the Move corpus doc (vault-primary) for the full contract. Ambiguity is never an
+error: mirroring Obsidian's own link maintenance (Obsidian-Link-Behavior), a move that
+would change any bare link's resolution proceeds and protects the affected links -
+following the moved file, or pinning a threatened same-basename bystander link to its
+current target's full vault-relative path (Reference Rewrite / Protection). There is no
+ambiguity gate and no Force override.
 .PARAMETER Source
 Vault-relative path of the file or folder to move.
 .PARAMETER Dest
@@ -23,10 +22,6 @@ spec requires "project"/"area" to be rejected with move's own invalid_argument J
 error, so any value reaches the script body for in-script validation.
 .PARAMETER Vault
 The vault to operate in. Defaults to the configured default vault.
-.PARAMETER Force
-Overrides the reference-rewrite ambiguity gate: unforced, a move whose rewrite would
-involve or create bare-name ambiguity fails in validate; forced, it proceeds with
-skip-and-report and path-qualified emission. Not yet implemented in this slice.
 .NOTES
 OpClass: content:write
 
@@ -42,8 +37,7 @@ param(
     [Parameter(Mandatory)] [string] $Source,
     [Parameter(Mandatory)] [string] $Dest,
     [string] $Kind,
-    [string] $Vault,
-    [switch] $Force
+    [string] $Vault
 )
 
 Set-StrictMode -Version Latest
@@ -156,41 +150,105 @@ function Test-VaultPathSuffixMatch {
     $true
 }
 
+function New-VaultMoveBareNamespaces {
+    <#
+    .SYNOPSIS
+    Builds the per-basename candidate sets (pre-move and post-move) the protection pass
+    resolves each bare link against (Move corpus: Reference Rewrite / Protection). A
+    namespace maps a lowercased basename key to its Pre and Post candidate path lists: Pre is
+    the current census for that basename; Post is the census with the moved item remapped.
+
+    When the old and new basenames are the same name (a pure relocation, or a case-only
+    rename - both keep the item inside one basename namespace), there is a single shared
+    namespace whose Post has the item moved from its old path to its new path. When the
+    basenames differ, there are two: the old-basename namespace the item LEAVES (Post drops
+    it) and the new-basename namespace it ENTERS at its new path (Post adds it). Membership
+    keys are lowercased so a case-only rename collapses to the single-namespace branch rather
+    than colliding two entries on one key.
+    #>
+    param(
+        [Parameter(Mandatory)] [string] $OldKeyBasename,
+        [Parameter(Mandatory)] [string] $NewKeyBasename,
+        # OldCensus includes the moved item at its old path; NewCensus excludes it (pre-move it
+        # still carries the old basename).
+        [Parameter(Mandatory)] [AllowEmptyCollection()] [string[]] $OldCensus,
+        [Parameter(Mandatory)] [AllowEmptyCollection()] [string[]] $NewCensus,
+        [Parameter(Mandatory)] [string] $MovedOldPath,
+        [Parameter(Mandatory)] [string] $MovedNewPath
+    )
+
+    $ns = @{}
+    if ($OldKeyBasename -ieq $NewKeyBasename) {
+        # One shared namespace: the item stays in it but changes location (relocation) or case
+        # (case-only rename). Post = census minus the item's old path, plus its new path.
+        $ns[$OldKeyBasename.ToLowerInvariant()] = [pscustomobject]@{
+            Pre  = @($OldCensus)
+            Post = @(@($OldCensus | Where-Object { $_ -cne $MovedOldPath }) + $MovedNewPath)
+        }
+    }
+    else {
+        # Old-basename namespace: the moved item leaves it.
+        $ns[$OldKeyBasename.ToLowerInvariant()] = [pscustomobject]@{
+            Pre  = @($OldCensus)
+            Post = @($OldCensus | Where-Object { $_ -cne $MovedOldPath })
+        }
+        # New-basename namespace: the moved item enters it at its new path.
+        $ns[$NewKeyBasename.ToLowerInvariant()] = [pscustomobject]@{
+            Pre  = @($NewCensus)
+            Post = @(@($NewCensus) + $MovedNewPath)
+        }
+    }
+    $ns
+}
+
 function Convert-VaultLinkReferences {
     <#
     .SYNOPSIS
     Single-pass rewrite of one file's content. Classifies every link target as bare or
-    path-qualified, decides per the identify/emit rules (Plan-Tool-Move: Reference Rewrite)
-    whether it refers to the moved item, and rebuilds the file's text with only the matching
-    targets repointed - embed marker, heading, and alias copied through untouched.
+    path-qualified, decides per the identify/emit/protection rules (Move corpus: Reference
+    Rewrite) whether and how it must change, and rebuilds the file's text with only the
+    affected targets repointed - embed marker, heading, and alias copied through untouched.
 
-    Returns a PSCustomObject: NewContent (the rewritten text), RewriteCount (link
-    occurrences actually changed), AmbiguousBareCount (bare links to a non-unique old
-    basename, left untouched), and HadBareToOld (whether any bare link to the old basename
-    was seen at all - the ambiguity gate's "at least one bare link exists" signal).
+    Path-qualified links that suffix-match the moved item's old path follow it (canonical
+    emit). Bare links are resolved pre- and post-move against their basename namespace
+    (Resolve-VaultBareLink) and handled per Protection:
+      - resolves to the moved item -> emit the moved item's canonical target (a no-op when
+        the emitted text is identical, e.g. a pure relocation; a real edit on a case-only
+        rename or when the basename changed).
+      - resolves to a bystander whose winner the move would flip -> PIN the link to that
+        bystander's full vault-relative path (never re-aimed).
+      - resolves to a bystander the move does not affect -> untouched.
 
-    Decision inputs are all resolved before the scan (censuses, force, pureMove), so this
-    produces final content in the same pass that feeds the gate; when the gate then refuses
-    an unforced move, the content is simply discarded (nothing has been written yet).
+    Returns NewContent (the rewritten text), RewriteCount (link occurrences actually changed),
+    and PinnedCount (the subset of those that were protective bystander pins).
     #>
     param(
         [Parameter(Mandatory)] [AllowEmptyString()] [string] $Content,
-        [Parameter(Mandatory)] [string] $OldKeyBasename,
+        # The linking file's own vault-relative path - the origin bare-link relative paths are
+        # measured from. Pre and Post differ only when the linking file itself moves (a
+        # self-referential source note, or a contained file in a folder move).
+        [Parameter(Mandatory)] [string] $LinkingFilePre,
+        [Parameter(Mandatory)] [string] $LinkingFilePost,
         [Parameter(Mandatory)] [string[]] $OldKeyPathComponents,
+        # The moved item's old/new vault-relative paths - the winner identity Resolve-VaultBareLink
+        # results are compared against.
+        [Parameter(Mandatory)] [string] $MovedOldPath,
+        [Parameter(Mandatory)] [string] $MovedNewPath,
         [Parameter(Mandatory)] [string] $NewTargetBare,
         [Parameter(Mandatory)] [string] $NewTargetFull,
-        [Parameter(Mandatory)] [bool] $OldUnique,
         [Parameter(Mandatory)] [bool] $EmitBare,
-        # ProcessBare is false on a pure relocation (basename unchanged): bare links stay
-        # textually valid and are never touched, while the path-qualified scan still runs.
+        # keyLc -> [pscustomobject]@{ Pre; Post } from New-VaultMoveBareNamespaces.
+        [Parameter(Mandatory)] [hashtable] $Namespaces,
+        # ProcessBare is false only for the fast path where no bare link could change (a pure
+        # relocation whose basename is unique vault-wide): the resolution scan is skipped and
+        # bare links are left untouched, while the path-qualified scan still runs.
         [Parameter(Mandatory)] [bool] $ProcessBare
     )
 
     $emit = if ($EmitBare) { $NewTargetBare } else { $NewTargetFull }
 
     $rewriteCount = 0
-    $ambiguousBare = 0
-    $hadBareToOld = $false
+    $pinnedCount = 0
 
     $sb = [System.Text.StringBuilder]::new()
     $cursor = 0
@@ -200,24 +258,34 @@ function Convert-VaultLinkReferences {
 
         $key = Get-VaultLinkKey -Name $m.Groups['target'].Value
         $newTarget = $null
+        $isPin = $false
 
         if ($key.Contains('/')) {
-            # Path-qualified: definitive suffix match, rewritten regardless of pureMove or
-            # old-basename uniqueness (a path is never ambiguous).
+            # Path-qualified: definitive suffix match, always follows the moved item (a path is
+            # never ambiguous).
             if (Test-VaultPathSuffixMatch -Target $OldKeyPathComponents -Candidate ($key -split '/')) {
                 $newTarget = $emit
             }
         }
-        elseif ($ProcessBare -and ($key -ieq $OldKeyBasename)) {
-            $hadBareToOld = $true
-            if ($OldUnique) {
-                # Unique old basename: a bare link definitively refers to the moved item.
-                $newTarget = $emit
-            }
-            else {
-                # Non-unique: intent unknowable, never rewritten by guess. Under force this is
-                # the skip-and-report path; unforced, the gate refuses before any write.
-                $ambiguousBare++
+        elseif ($ProcessBare) {
+            $keyLc = $key.ToLowerInvariant()
+            if ($Namespaces.ContainsKey($keyLc)) {
+                $ns = $Namespaces[$keyLc]
+                $preWinner = Resolve-VaultBareLink -LinkingFile $LinkingFilePre -Candidates $ns.Pre
+                $postWinner = Resolve-VaultBareLink -LinkingFile $LinkingFilePost -Candidates $ns.Post
+
+                if ($null -ne $preWinner -and $preWinner -ceq $MovedOldPath) {
+                    # The link currently resolves to the moved item; emit its canonical target.
+                    # A pure relocation emits identical text (the rebuild guard drops it); a
+                    # case-only rename or a basename change produces a real edit that follows it.
+                    $newTarget = $emit
+                }
+                elseif ($null -ne $preWinner -and ($postWinner -cne $preWinner)) {
+                    # The link resolves to a bystander whose winner the move would flip - pin it
+                    # to that bystander's current target's full vault-relative path. Never re-aimed.
+                    $newTarget = Get-VaultLinkKey -Name $preWinner
+                    $isPin = $true
+                }
             }
         }
 
@@ -226,6 +294,7 @@ function Convert-VaultLinkReferences {
             if ($rebuilt -cne $m.Value) {
                 [void]$sb.Append($rebuilt)
                 $rewriteCount++
+                if ($isPin) { $pinnedCount++ }
             }
             else {
                 [void]$sb.Append($m.Value)
@@ -238,10 +307,9 @@ function Convert-VaultLinkReferences {
     [void]$sb.Append($Content.Substring($cursor))
 
     [pscustomobject]@{
-        NewContent         = $sb.ToString()
-        RewriteCount       = $rewriteCount
-        AmbiguousBareCount = $ambiguousBare
-        HadBareToOld       = $hadBareToOld
+        NewContent   = $sb.ToString()
+        RewriteCount = $rewriteCount
+        PinnedCount  = $pinnedCount
     }
 }
 
@@ -261,20 +329,27 @@ function Convert-VaultFolderLinkReferences {
         one exception is a qualified link to the FOLDER NOTE itself: because the folder note's
         basename tracks the folder's, such a link changes in TWO components (prefix and leaf).
 
-    (b) the bare-link rewrite for the folder note's old basename when it changed - the folder
-        note is the only basename event in a folder op (contained basenames don't change), so
-        this is exactly the file-move bare-link rule applied to the folder note, ambiguity
-        gate and all.
+    (b) the protective bare-link pass for the folder note's basename - the folder note is the
+        only basename event in a folder op (contained basenames don't change), so this is
+        exactly the file-move protection rule (Move corpus: Protection) applied to the folder
+        note: a bare link that resolves to the folder note follows it (canonical emit); a bare
+        link to a same-basename bystander whose winner the move would flip is pinned to that
+        bystander's full path. Relocating the folder note can flip a winner even without a
+        rename, so this runs whenever the folder note exists and ambiguity is in play, not only
+        on a basename change.
 
     Path-qualified links are always definitive (a path is never ambiguous) and rewritten
-    regardless of the folder-note basename census. Bare links are only ever the folder note's
-    basename; a bare link to a contained file keeps its name and is left untouched.
+    regardless of the folder-note basename census. Bare links other than the folder note's
+    basename (e.g. to a contained file, whose name does not change) are left untouched -
+    contained-file bare-link protection is deliberately out of scope (Move corpus: Role).
 
-    Returns NewContent, RewriteCount, AmbiguousBareCount (bare folder-note links left
-    untouched because the old basename is non-unique), and HadBareToOld.
+    Returns NewContent, RewriteCount, and PinnedCount (protective bystander pins, a subset of
+    RewriteCount).
     #>
     param(
         [Parameter(Mandatory)] [AllowEmptyString()] [string] $Content,
+        [Parameter(Mandatory)] [string]   $LinkingFilePre,
+        [Parameter(Mandatory)] [string]   $LinkingFilePost,
         [Parameter(Mandatory)] [string[]] $OldFolderComponents,
         [Parameter(Mandatory)] [string[]] $NewFolderComponents,
         [Parameter(Mandatory)] [string]   $OldFolderPathKey,
@@ -282,21 +357,28 @@ function Convert-VaultFolderLinkReferences {
         [Parameter(Mandatory)] [AllowEmptyString()] [string]   $OldFolderNoteKey,
         [Parameter(Mandatory)] [string]   $OldFolderBasename,
         [Parameter(Mandatory)] [string]   $NewFolderBasename,
-        # The folder note exists AND its basename changed: enables both the folder-note leaf
-        # swap in qualified links and the bare-link rewrite. False on a pure relocation (basename
-        # kept) or when the folder note is absent - the prefix scan still runs and repairs.
+        # The folder note exists AND its basename changed: drives the folder-note leaf swap in
+        # a qualified link (the leaf changes with the folder's basename). False on a pure
+        # relocation (basename kept) or when the folder note is absent.
         [Parameter(Mandatory)] [bool]     $FolderNoteBasenameChanged,
+        # The folder note's old/new vault-relative paths - winner identity for the bare pass.
+        [Parameter(Mandatory)] [string]   $FolderNoteOldPath,
+        [Parameter(Mandatory)] [string]   $FolderNoteNewPath,
         [Parameter(Mandatory)] [string]   $FolderNoteNewBareTarget,
         [Parameter(Mandatory)] [string]   $FolderNoteNewFullTarget,
-        [Parameter(Mandatory)] [bool]     $OldFolderNoteUnique,
-        [Parameter(Mandatory)] [bool]     $EmitBareFolderNote
+        [Parameter(Mandatory)] [bool]     $EmitBareFolderNote,
+        # keyLc -> [pscustomobject]@{ Pre; Post } from New-VaultMoveBareNamespaces, for the
+        # folder note's basename namespace(s).
+        [Parameter(Mandatory)] [hashtable] $Namespaces,
+        # False when no bare folder-note link could change (no folder note, or a pure
+        # relocation whose folder-note basename is unique vault-wide): the bare pass is skipped.
+        [Parameter(Mandatory)] [bool]     $ProcessBareFolderNote
     )
 
     $emitBare = if ($EmitBareFolderNote) { $FolderNoteNewBareTarget } else { $FolderNoteNewFullTarget }
 
     $rewriteCount = 0
-    $ambiguousBare = 0
-    $hadBareToOld = $false
+    $pinnedCount = 0
 
     $sb = [System.Text.StringBuilder]::new()
     $cursor = 0
@@ -306,6 +388,7 @@ function Convert-VaultFolderLinkReferences {
 
         $key = Get-VaultLinkKey -Name $m.Groups['target'].Value
         $newTarget = $null
+        $isPin = $false
 
         if ($key.Contains('/')) {
             # Path-qualified: does it point at a file under the old folder? Its leading k
@@ -337,14 +420,26 @@ function Convert-VaultFolderLinkReferences {
                 $newTarget = (@($newSuffix) + @($tail)) -join '/'
             }
         }
-        elseif ($FolderNoteBasenameChanged -and ($key -ieq $OldFolderBasename)) {
-            # Bare link to the folder note - the one bare basename event in a folder op.
-            $hadBareToOld = $true
-            if ($OldFolderNoteUnique) {
-                $newTarget = $emitBare
-            }
-            else {
-                $ambiguousBare++
+        elseif ($ProcessBareFolderNote) {
+            # Bare link whose basename is the folder note's - the one bare basename event in a
+            # folder op. Resolve pre/post and apply the file-move protection rule.
+            $keyLc = $key.ToLowerInvariant()
+            if ($Namespaces.ContainsKey($keyLc)) {
+                $ns = $Namespaces[$keyLc]
+                $preWinner = Resolve-VaultBareLink -LinkingFile $LinkingFilePre -Candidates $ns.Pre
+                $postWinner = Resolve-VaultBareLink -LinkingFile $LinkingFilePost -Candidates $ns.Post
+
+                if ($null -ne $preWinner -and $preWinner -ceq $FolderNoteOldPath) {
+                    # Currently resolves to the folder note; emit its canonical target (a no-op
+                    # when the emitted text is identical).
+                    $newTarget = $emitBare
+                }
+                elseif ($null -ne $preWinner -and ($postWinner -cne $preWinner)) {
+                    # Resolves to a same-basename bystander whose winner the move would flip -
+                    # pin it to that bystander's full vault-relative path.
+                    $newTarget = Get-VaultLinkKey -Name $preWinner
+                    $isPin = $true
+                }
             }
         }
 
@@ -353,6 +448,7 @@ function Convert-VaultFolderLinkReferences {
             if ($rebuilt -cne $m.Value) {
                 [void]$sb.Append($rebuilt)
                 $rewriteCount++
+                if ($isPin) { $pinnedCount++ }
             }
             else {
                 [void]$sb.Append($m.Value)
@@ -365,10 +461,9 @@ function Convert-VaultFolderLinkReferences {
     [void]$sb.Append($Content.Substring($cursor))
 
     [pscustomobject]@{
-        NewContent         = $sb.ToString()
-        RewriteCount       = $rewriteCount
-        AmbiguousBareCount = $ambiguousBare
-        HadBareToOld       = $hadBareToOld
+        NewContent   = $sb.ToString()
+        RewriteCount = $rewriteCount
+        PinnedCount  = $pinnedCount
     }
 }
 
@@ -500,9 +595,9 @@ try {
     # folder-note invariant (Foo/Foo.md -> Bar/Bar.md, only when the folder's basename changed),
     # and one vault scan applying two rewrites - the old-folder-path prefix substitution for
     # qualified links under the old path (which repairs links to contained files as a byproduct)
-    # and the folder note's bare-link rewrite when its basename changed. Contained basenames
-    # never change, so the folder note's rename is the only basename event; the ambiguity gate
-    # applies to it exactly as in a file move. Nothing before the "APPLY" marker mutates.
+    # and the folder note's protective bare-link pass. Contained basenames never change, so the
+    # folder note is the only basename event; the protect-and-proceed rule applies to it exactly
+    # as in a file move (follow or pin, never fail). Nothing before the "APPLY" marker mutates.
     # =======================================================================
     if ($resolvedKind -eq 'folder') {
         $oldFolderPathKey = Get-VaultLinkKey -Name $sourcePath
@@ -557,40 +652,53 @@ try {
             "$destPath/$inner"
         }
 
-        # --- Folder-note basename censuses + ambiguity gate. Only a folder-note basename change
-        # is a basename event; a pure relocation or an absent folder note skips the gate
-        # entirely (location cannot change basename uniqueness). Same rules as a file move. ---
+        # The folder note's post-move vault-relative path (leaf renamed when the basename
+        # changed) - needed both for the protection pass's winner identity and the apply.
+        $folderNoteNewRel = if ($folderNoteExists) { & $remapContained $folderNoteOldRel } else { $folderNoteOldRel -replace [regex]::Escape($sourcePath), $destPath }
+
+        # --- Folder-note basename censuses + protection setup. The folder note is the only
+        # basename event in a folder op (contained basenames don't change), so this is the
+        # file-move protection rule applied to it. Censuses are taken whenever a folder note
+        # exists - relocating it can flip a bare link's winner even without a rename, so a pure
+        # relocation with a non-unique folder-note basename still needs the resolution scan. ---
         $oldFolderNoteUnique = $true
         $newCollision = $false
-        $newCensusOthers = @()
-        if ($folderNoteBasenameChanged) {
+        $emitBareFolderNote = $true
+        $folderNoteNamespaces = @{}
+        $processBareFolderNote = $false
+        if ($folderNoteExists) {
             $oldKeyBasename = Get-VaultLinkKey -Name $oldFolderBasename
             $newKeyBasename = Get-VaultLinkKey -Name $newFolderBasename
             $allFiles = @(Get-VaultFilePath -Vault $Vault -ScopeRoots $null)
             $oldCensus = @($allFiles | Where-Object { (Get-VaultLinkKey -Name (($_ -split '/')[-1])) -ieq $oldKeyBasename })
             $newCensus = @($allFiles | Where-Object { (Get-VaultLinkKey -Name (($_ -split '/')[-1])) -ieq $newKeyBasename })
             $oldFolderNoteUnique = ($oldCensus.Count -le 1)
-            # The folder note itself carries the old basename and is excluded; any OTHER file with
-            # the new basename is a standing collision.
+            # The folder note carries the old basename and is excluded from the "others with the
+            # new basename" set (on a pure relocation new == old, so it appears in newCensus).
             $newCensusOthers = @($newCensus | Where-Object { $_ -cne $folderNoteOldRel })
             $newCollision = ($newCensusOthers.Count -gt 0)
+            $emitBareFolderNote = -not $newCollision
 
-            if ($newCollision -and -not $Force) {
-                throw (New-VaultToolError -Code 'basename_collision' -Message "Folder-note destination basename '$newFolderBasename' already exists elsewhere in the vault: $($newCensusOthers -join ', '). Pick a different folder name, or pass force to emit path-qualified links." -Data @{ collidingPaths = $newCensusOthers })
-            }
+            # NewCensus for the namespace builder must exclude the moved item (the folder note),
+            # matching the file-move convention that NewCensus excludes the moved file.
+            $folderNoteNamespaces = New-VaultMoveBareNamespaces `
+                -OldKeyBasename $oldKeyBasename -NewKeyBasename $newKeyBasename `
+                -OldCensus $oldCensus -NewCensus $newCensusOthers `
+                -MovedOldPath $folderNoteOldRel -MovedNewPath $folderNoteNewRel
+
+            # Skip the bare pass only when nothing could change: a pure relocation whose
+            # folder-note basename is unique vault-wide.
+            $processBareFolderNote = -not ($pureMove -and $oldFolderNoteUnique)
         }
-        $emitBareFolderNote = -not $newCollision
-        $basenameCollisionCreated = ($folderNoteBasenameChanged -and $newCollision -and $Force)
 
         # --- Single vault scan. Builds each file's rewritten content (prefix substitution for
-        # qualified links under the old folder + the folder-note bare rewrite) and tallies the
-        # gate signals. Nothing written here. ---
+        # qualified links under the old folder + the folder-note protection pass) and tallies
+        # rewrites and protective pins. Nothing written here. ---
         $rewriteTargets = [System.Collections.Generic.List[object]]::new()
-        $ambiguousFiles = [System.Collections.Generic.List[string]]::new()
+        $pinnedFiles = [System.Collections.Generic.List[string]]::new()
         $referencesRewritten = 0
-        $referencesSkippedAmbiguous = 0
+        $referencesPinned = 0
         $filesSkippedUnreadable = 0
-        $hadBareToOldAny = $false
 
         foreach ($rel in (Get-VaultNotePath -Vault $Vault -ScopeRoots $null)) {
             $full = Resolve-VaultPath -Path $rel -Vault $Vault
@@ -602,29 +710,31 @@ try {
                 throw (New-VaultToolError -Code 'read_failure' -Message "Could not read '$rel' during the reference scan: $($_.Exception.Message)" -Data @{ path = $rel; error = $_.Exception.Message })
             }
 
+            # A contained linking file's own path changes post-move, shifting the relative
+            # distances the resolution rule measures; resolve pre against its old path, post
+            # against its remapped path.
+            $linkingFilePost = if ($rel.StartsWith($folderPrefix, [System.StringComparison]::OrdinalIgnoreCase)) { & $remapContained $rel } else { $rel }
+
             $r = Convert-VaultFolderLinkReferences -Content $content `
+                -LinkingFilePre $rel -LinkingFilePost $linkingFilePost `
                 -OldFolderComponents $oldFolderComponents -NewFolderComponents $newFolderComponents `
                 -OldFolderPathKey $oldFolderPathKey -ContainedKeySet $containedKeySet `
                 -OldFolderNoteKey $oldFolderNoteKey `
                 -OldFolderBasename $oldFolderBasename -NewFolderBasename $newFolderBasename `
                 -FolderNoteBasenameChanged $folderNoteBasenameChanged `
+                -FolderNoteOldPath $folderNoteOldRel -FolderNoteNewPath $folderNoteNewRel `
                 -FolderNoteNewBareTarget $folderNoteNewBareTarget -FolderNoteNewFullTarget $folderNoteNewFullTarget `
-                -OldFolderNoteUnique $oldFolderNoteUnique -EmitBareFolderNote $emitBareFolderNote
+                -EmitBareFolderNote $emitBareFolderNote `
+                -Namespaces $folderNoteNamespaces -ProcessBareFolderNote $processBareFolderNote
 
-            if ($r.HadBareToOld) { $hadBareToOldAny = $true }
-            if ($r.AmbiguousBareCount -gt 0) {
-                $referencesSkippedAmbiguous += $r.AmbiguousBareCount
-                $ambiguousFiles.Add($rel)
-            }
             if ($r.RewriteCount -gt 0) {
                 $referencesRewritten += $r.RewriteCount
                 $rewriteTargets.Add([pscustomobject]@{ Path = $rel; NewContent = $r.NewContent })
             }
-        }
-
-        # --- Ambiguity gate, part 2: ambiguous_references for the folder-note basename. ---
-        if ($folderNoteBasenameChanged -and -not $oldFolderNoteUnique -and $hadBareToOldAny -and -not $Force) {
-            throw (New-VaultToolError -Code 'ambiguous_references' -Message "The folder note's old basename '$oldFolderBasename' is not unique in the vault and bare links to it exist, so they cannot be rewritten unambiguously: $($oldCensus -join ', '). Rename to a unique folder name, or pass force to skip the ambiguous bare links." -Data @{ duplicatePaths = $oldCensus; referencingFiles = $ambiguousFiles.ToArray() })
+            if ($r.PinnedCount -gt 0) {
+                $referencesPinned += $r.PinnedCount
+                $pinnedFiles.Add($rel)
+            }
         }
 
         # --- Read-only pre-flight: every rewrite target plus the folder note (which is renamed)
@@ -650,7 +760,6 @@ try {
         $dirMoved = $false
         $folderNoteRenamedApplied = $false
         $rewrittenFiles = [System.Collections.Generic.List[string]]::new()
-        $folderNoteNewRel = if ($folderNoteBasenameChanged) { "$destPath/$newFolderBasename.md" } else { $folderNoteOldRel -replace [regex]::Escape($sourcePath), $destPath }
         try {
             # Destination-parent autocreate: move into a not-yet-existing archive subfolder in
             # one call (Plan-Tool-Move: Design Guarantees).
@@ -714,27 +823,28 @@ try {
         $containedFilesMoved = @($containedRels | ForEach-Object { & $remapContained $_ })
 
         return [ordered]@{
-            oldPath                    = $sourcePath
-            newPath                    = $destPath
-            kind                       = $resolvedKind
-            pureMove                   = $pureMove
-            referencesRewritten        = $referencesRewritten
-            filesRewritten             = $rewrittenFiles.ToArray()
-            referencesSkippedAmbiguous = if ($referencesSkippedAmbiguous -gt 0) { [ordered]@{ count = $referencesSkippedAmbiguous; files = $ambiguousFiles.ToArray() } } else { $null }
-            basenameCollisionCreated   = $basenameCollisionCreated
-            folderNoteOrphaned         = $false
-            namingWarnings             = $namingWarnings
-            filesSkippedUnreadable     = $filesSkippedUnreadable
-            folderNoteRenamed          = if ($folderNoteRenamedApplied) { [ordered]@{ oldPath = $folderNoteOldRel; newPath = $folderNoteNewRel } } else { $null }
-            containedFilesMoved        = $containedFilesMoved
-            lockWarning                = $null
+            oldPath                         = $sourcePath
+            newPath                         = $destPath
+            kind                            = $resolvedKind
+            pureMove                        = $pureMove
+            referencesRewritten             = $referencesRewritten
+            filesRewritten                  = $rewrittenFiles.ToArray()
+            referencesQualifiedProtectively = if ($referencesPinned -gt 0) { [ordered]@{ count = $referencesPinned; files = $pinnedFiles.ToArray() } } else { $null }
+            folderNoteOrphaned              = $false
+            namingWarnings                  = $namingWarnings
+            filesSkippedUnreadable          = $filesSkippedUnreadable
+            folderNoteRenamed               = if ($folderNoteRenamedApplied) { [ordered]@{ oldPath = $folderNoteOldRel; newPath = $folderNoteNewRel } } else { $null }
+            containedFilesMoved             = $containedFilesMoved
+            lockWarning                     = $null
         }
     }
 
     # =======================================================================
-    # FILE MOVE. Complete the validate phase (censuses, ambiguity gate, single-scan rewrite
-    # plan, read-only pre-flight), then apply (Move-Item, then the rewrites) - all still under
-    # the one write lock. Nothing before the "APPLY" marker mutates the vault.
+    # FILE MOVE. Complete the validate phase (censuses, protection scan, read-only pre-flight),
+    # then apply (Move-Item, then the rewrites) - all still under the one write lock. Nothing
+    # before the "APPLY" marker mutates the vault. Ambiguity is never an error: a move that
+    # would flip any bare link's resolution proceeds and protects the affected links (Move
+    # corpus: Reference Rewrite / Protection).
     # =======================================================================
 
     # --- The moved item's old/new identity in the wikilink namespace. ---
@@ -757,32 +867,39 @@ try {
     $oldUnique = ($oldCensus.Count -le 1)
     # newCollision: some OTHER file already carries the destination name (the source is
     # excluded - on a pure relocation it still carries that name). The destination path itself
-    # is free (already_exists checked above).
+    # is free (already_exists checked above). Entering an occupied basename is allowed
+    # (protect-and-proceed): the moved file's links emit full-path and threatened bystander
+    # links are pinned.
     $newCensusOthers = @($newCensus | Where-Object { $_ -cne $sourcePath })
     $newCollision = ($newCensusOthers.Count -gt 0)
 
-    # --- Ambiguity gate, part 1: basename_collision needs no scan (a census fact), so refuse
-    # early when unforced. Pure relocations cannot change basename uniqueness, so the gate is
-    # skipped entirely for them (Plan-Tool-Move: Design Guarantees). ---
-    if ($basenameChanged -and $newCollision -and -not $Force) {
-        throw (New-VaultToolError -Code 'basename_collision' -Message "Destination basename '$destBasename' already exists elsewhere in the vault: $($newCensusOthers -join ', '). Pick a different name, or pass force to emit path-qualified links." -Data @{ collidingPaths = $newCensusOthers })
-    }
-
-    # EmitBare: a rewritten link comes out as the bare new basename when that name is unique
-    # vault-wide after the move, else as the full vault-relative path. Same rule whether the
-    # collision was forced through or never existed.
+    # EmitBare: a rewritten link that follows the moved item comes out as the bare new basename
+    # when that name is unique vault-wide after the move, else as the full vault-relative path
+    # (Move corpus: Emit - Obsidian-validated).
     $emitBare = -not $newCollision
-    $basenameCollisionCreated = ($basenameChanged -and $newCollision -and $Force)
+
+    # Bare-link namespaces (pre/post candidate sets) the protection pass resolves each bare link
+    # against. On a case-only rename the old and new basenames share one lowercased key, so this
+    # collapses to a single namespace; on a rename the item leaves the old set and enters the new.
+    $bareNamespaces = New-VaultMoveBareNamespaces `
+        -OldKeyBasename $oldKeyBasename -NewKeyBasename $newKeyBasename `
+        -OldCensus $oldCensus -NewCensus $newCensusOthers `
+        -MovedOldPath $sourcePath -MovedNewPath $destPath
+
+    # ProcessBare is skipped only on the fast path where no bare link can change: a pure
+    # relocation (basename unchanged, case and all) whose basename is unique vault-wide. Every
+    # other case - a rename, a case-only rename, or a relocation into a non-unique namespace -
+    # needs the resolution scan because relocation can flip a winner.
+    $processBare = -not ($pureMove -and $oldUnique)
 
     # --- Single scan over every note in the vault (ScopeRoots $null: the rewrite reaches
     # outside the grant's scope, by design). Builds each file's rewritten content and tallies
-    # the gate signals. Nothing is written here. ---
+    # rewrites and protective pins. Nothing is written here. ---
     $rewriteTargets = [System.Collections.Generic.List[object]]::new()
-    $ambiguousFiles = [System.Collections.Generic.List[string]]::new()
+    $pinnedFiles = [System.Collections.Generic.List[string]]::new()
     $referencesRewritten = 0
-    $referencesSkippedAmbiguous = 0
+    $referencesPinned = 0
     $filesSkippedUnreadable = 0
-    $hadBareToOldAny = $false
 
     foreach ($rel in (Get-VaultNotePath -Vault $Vault -ScopeRoots $null)) {
         $full = Resolve-VaultPath -Path $rel -Vault $Vault
@@ -796,27 +913,25 @@ try {
             throw (New-VaultToolError -Code 'read_failure' -Message "Could not read '$rel' during the reference scan: $($_.Exception.Message)" -Data @{ path = $rel; error = $_.Exception.Message })
         }
 
-        $r = Convert-VaultLinkReferences -Content $content `
-            -OldKeyBasename $oldKeyBasename -OldKeyPathComponents $oldKeyPathComponents `
-            -NewTargetBare $newTargetBare -NewTargetFull $newTargetFull `
-            -OldUnique $oldUnique -EmitBare $emitBare -ProcessBare $basenameChanged
+        # A self-referential source note is scanned at its old path but lands at the destination;
+        # its own relative distances shift, so resolve pre against sourcePath and post against dest.
+        $linkingFilePost = if ($rel -ceq $sourcePath) { $destPath } else { $rel }
 
-        if ($r.HadBareToOld) { $hadBareToOldAny = $true }
-        if ($r.AmbiguousBareCount -gt 0) {
-            $referencesSkippedAmbiguous += $r.AmbiguousBareCount
-            $ambiguousFiles.Add($rel)
-        }
+        $r = Convert-VaultLinkReferences -Content $content `
+            -LinkingFilePre $rel -LinkingFilePost $linkingFilePost `
+            -OldKeyPathComponents $oldKeyPathComponents `
+            -MovedOldPath $sourcePath -MovedNewPath $destPath `
+            -NewTargetBare $newTargetBare -NewTargetFull $newTargetFull `
+            -EmitBare $emitBare -Namespaces $bareNamespaces -ProcessBare $processBare
+
         if ($r.RewriteCount -gt 0) {
             $referencesRewritten += $r.RewriteCount
             $rewriteTargets.Add([pscustomobject]@{ Path = $rel; NewContent = $r.NewContent })
         }
-    }
-
-    # --- Ambiguity gate, part 2: ambiguous_references needs the scan (does any bare link to a
-    # non-unique old basename exist). Unforced, refuse before any write; forced, the scan
-    # already skipped those bare links and the counts are reported. ---
-    if ($basenameChanged -and -not $oldUnique -and $hadBareToOldAny -and -not $Force) {
-        throw (New-VaultToolError -Code 'ambiguous_references' -Message "The old basename '$sourceBasename' is not unique in the vault and bare links to it exist, so they cannot be rewritten unambiguously: $($oldCensus -join ', '). Rename to a unique name, or pass force to skip the ambiguous bare links." -Data @{ duplicatePaths = $oldCensus; referencingFiles = $ambiguousFiles.ToArray() })
+        if ($r.PinnedCount -gt 0) {
+            $referencesPinned += $r.PinnedCount
+            $pinnedFiles.Add($rel)
+        }
     }
 
     # --- Read-only pre-flight: the source and every file the rewrite would touch must be
@@ -899,20 +1014,19 @@ try {
     }
 
     [ordered]@{
-        oldPath                    = $sourcePath
-        newPath                    = $destPath
-        kind                       = $resolvedKind
-        pureMove                   = $pureMove
-        referencesRewritten        = $referencesRewritten
-        filesRewritten             = $rewrittenFiles.ToArray()
-        referencesSkippedAmbiguous = if ($referencesSkippedAmbiguous -gt 0) { [ordered]@{ count = $referencesSkippedAmbiguous; files = $ambiguousFiles.ToArray() } } else { $null }
-        basenameCollisionCreated   = $basenameCollisionCreated
-        folderNoteOrphaned         = $folderNoteOrphaned
-        namingWarnings             = $namingWarnings
-        filesSkippedUnreadable     = $filesSkippedUnreadable
-        folderNoteRenamed          = $null
-        containedFilesMoved        = @()
-        lockWarning                = $null
+        oldPath                         = $sourcePath
+        newPath                         = $destPath
+        kind                            = $resolvedKind
+        pureMove                        = $pureMove
+        referencesRewritten             = $referencesRewritten
+        filesRewritten                  = $rewrittenFiles.ToArray()
+        referencesQualifiedProtectively = if ($referencesPinned -gt 0) { [ordered]@{ count = $referencesPinned; files = $pinnedFiles.ToArray() } } else { $null }
+        folderNoteOrphaned              = $folderNoteOrphaned
+        namingWarnings                  = $namingWarnings
+        filesSkippedUnreadable          = $filesSkippedUnreadable
+        folderNoteRenamed               = $null
+        containedFilesMoved             = @()
+        lockWarning                     = $null
     }
     }
 }
