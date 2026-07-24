@@ -4,7 +4,7 @@ namespace VaultMcpServer.Tests;
 
 /// <summary>
 /// Loads the shared test-case files from tests/cases/. The Pester suite
-/// (powershell/VaultAccess/VaultAccess.Tests.ps1) consumes the same files, so the
+/// (powershell/VaultAccess/Tests/SharedCases.Tests.ps1) consumes the same files, so the
 /// mirrored chokepoint semantics are exercised identically on both sides - add a case
 /// there once and both implementations must pass it.
 /// </summary>
