@@ -179,7 +179,7 @@ public sealed class BearerGrantMiddlewareTests : IClassFixture<BearerGrantMiddle
     {
         using var client = _fixture.CreateClient();
         client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", Fixture.ReadOnlyToken);
-        var body = """{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"rename_note","arguments":{"VAULT_PROPERTY":"not-configured","from":"a","to":"b"}}}""".Replace("VAULT_PROPERTY", vaultPropertyName);
+        var body = """{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"move","arguments":{"VAULT_PROPERTY":"not-configured","source":"a","dest":"b"}}}""".Replace("VAULT_PROPERTY", vaultPropertyName);
         using var response = await client.PostAsync("/mcp", JsonBody(body));
 
         Assert.Equal(HttpStatusCode.Forbidden, response.StatusCode);
@@ -190,7 +190,7 @@ public sealed class BearerGrantMiddlewareTests : IClassFixture<BearerGrantMiddle
     {
         using var client = _fixture.CreateClient();
         client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", Fixture.ReadOnlyToken);
-        var body = """{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"read_note","arguments":{"vault":"personal","path":"a.md"}}}""";
+        var body = """{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"read","arguments":{"vault":"personal","path":"a.md"}}}""";
         using var response = await client.PostAsync("/mcp", JsonBody(body));
 
         Assert.NotEqual(HttpStatusCode.Unauthorized, response.StatusCode);
