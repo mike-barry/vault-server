@@ -59,6 +59,23 @@ public sealed class ElevationRequestToolTests(TestVaultFixture fixture) : IClass
     private static bool IsError(CallToolResult r) => r.IsError == true;
     private static string Text(CallToolResult r) => ((TextContentBlock)r.Content[0]).Text;
 
+    /// <summary>The <c>code</c> of a refusal's <c>{code, message, data?}</c> JSON - the field callers
+    /// branch on, so every denial test pins it rather than the prose beside it.</summary>
+    private static string Code(CallToolResult r)
+    {
+        using var doc = JsonDocument.Parse(Text(r));
+        return doc.RootElement.GetProperty("code").GetString()!;
+    }
+
+    /// <summary>A refusal's <c>data</c> object as a name-to-raw-JSON map, or null when it carries none.</summary>
+    private static Dictionary<string, string>? Data(CallToolResult r)
+    {
+        using var doc = JsonDocument.Parse(Text(r));
+        return doc.RootElement.TryGetProperty("data", out var data)
+            ? data.EnumerateObject().ToDictionary(p => p.Name, p => p.Value.ToString())
+            : null;
+    }
+
     private sealed class FakeApprover(ElevationDecision decision) : IElevationApprover
     {
         public int Calls { get; private set; }
@@ -80,7 +97,13 @@ public sealed class ElevationRequestToolTests(TestVaultFixture fixture) : IClass
         var result = await tool.InvokeAsync(Args(new { grant = "elevated" }), caller, CancellationToken.None);
 
         Assert.True(IsError(result));
+        // The canRequestElevation opt-in stands in for an op class on this tool, so its shortfall
+        // carries the op-class shortfall's code.
+        Assert.Equal("insufficient_capability", Code(result));
         Assert.Contains("not permitted to request elevation", Text(result));
+        // No-oracle: an op-class-exempt tool reachable from the minimum-access floor must not hand
+        // back anything about the grant that called it.
+        Assert.Null(Data(result));
         Assert.Equal(0, approver.Calls); // never reaches the approver
         Assert.Equal("no-elevate", store.Authenticate("no-elevate-token")!.Id); // unchanged
     }
@@ -95,6 +118,9 @@ public sealed class ElevationRequestToolTests(TestVaultFixture fixture) : IClass
         var result = await tool.InvokeAsync(Args(new { grant = "elevated" }), caller, CancellationToken.None);
 
         Assert.True(IsError(result));
+        // Deliberately the same code as the opt-in denial above: a caller cannot distinguish "not
+        // allowed to ask" from "asked and refused".
+        Assert.Equal("insufficient_capability", Code(result));
         Assert.Contains("denied", Text(result));
         Assert.Equal("caller", store.Authenticate(CallerToken)!.Id); // still the base grant, no rebind
     }
@@ -143,7 +169,12 @@ public sealed class ElevationRequestToolTests(TestVaultFixture fixture) : IClass
         var result = await tool.InvokeAsync(Args(new { grant = "does-not-exist" }), caller, CancellationToken.None);
 
         Assert.True(IsError(result));
+        // Distinct from the approver's insufficient_capability denial, preserving the distinction this
+        // tool's prose already drew. The rate limit is consumed before this check, so the resulting
+        // existence probe stays bounded at MaxRequestsPerMinute.
+        Assert.Equal("not_found", Code(result));
         Assert.Contains("Unknown named grant", Text(result));
+        Assert.Equal("does-not-exist", Data(result)!["grant"]); // the caller's own argument, echoed
     }
 
     [Fact]
@@ -159,15 +190,18 @@ public sealed class ElevationRequestToolTests(TestVaultFixture fixture) : IClass
         var second = await tool.InvokeAsync(Args(new { grant = "elevated" }), caller, CancellationToken.None);
         var third = await tool.InvokeAsync(Args(new { grant = "elevated" }), caller, CancellationToken.None);
 
-        Assert.Contains("denied", Text(first));   // auto-deny, but not rate-limited
-        Assert.Contains("denied", Text(second));
-        Assert.Contains("rate-limited", Text(third));
+        Assert.Equal("insufficient_capability", Code(first));   // auto-deny, but not rate-limited
+        Assert.Equal("insufficient_capability", Code(second));
+        // rate_limited is this tool's one tool-specific code: no core code names a transient throttle,
+        // and coding it as a capability or argument failure would route a retryable condition into a
+        // branch that never retries.
+        Assert.Equal("rate_limited", Code(third));
+        Assert.Equal("2", Data(third)!["limitPerMinute"]);
 
         // The window resets: after it elapses, a request is allowed through to the approver again.
         timeProvider.Now = timeProvider.Now.AddMinutes(2);
         var afterWindow = await tool.InvokeAsync(Args(new { grant = "elevated" }), caller, CancellationToken.None);
-        Assert.Contains("denied", Text(afterWindow));
-        Assert.DoesNotContain("rate-limited", Text(afterWindow));
+        Assert.Equal("insufficient_capability", Code(afterWindow));
     }
 
     [Fact]
@@ -200,6 +234,41 @@ public sealed class ElevationRequestToolTests(TestVaultFixture fixture) : IClass
             caller, CancellationToken.None);
 
         Assert.True(IsError(result));
+        Assert.Equal("invalid_argument", Code(result));
         Assert.Contains("not both", Text(result));
+        // No single argument is at fault, so the refusal carries no "argument" datum.
+        Assert.Null(Data(result));
+    }
+
+    [Fact]
+    public async Task Invoke_ScopedTargetNamingAnUnknownVault_IsUnknownVault()
+    {
+        var store = MakeStore();
+        var tool = MakeTool(store, new FakeApprover(ElevationDecision.Approve()), AccessorFor(CallerToken));
+        var caller = store.Authenticate(CallerToken)!;
+
+        var result = await tool.InvokeAsync(
+            Args(new { scope_roots = new[] { "no-such-vault/Projects" }, op_class = new[] { "content:read" } }),
+            caller, CancellationToken.None);
+
+        Assert.True(IsError(result));
+        // Same classification Resolve-VaultToolRoot makes PowerShell-side. Discloses nothing new: the
+        // configured vault set is already public to any grant through health_check.
+        Assert.Equal("unknown_vault", Code(result));
+        Assert.Equal("no-such-vault", Data(result)!["vault"]);
+    }
+
+    [Fact]
+    public async Task Invoke_UnparseableTtl_IsInvalidArgumentNamingTheArgument()
+    {
+        var store = MakeStore();
+        var tool = MakeTool(store, new FakeApprover(ElevationDecision.Approve()), AccessorFor(CallerToken));
+        var caller = store.Authenticate(CallerToken)!;
+
+        var result = await tool.InvokeAsync(Args(new { grant = "elevated", ttl = "*" }), caller, CancellationToken.None);
+
+        Assert.True(IsError(result));
+        Assert.Equal("invalid_argument", Code(result));
+        Assert.Equal("ttl", Data(result)!["argument"]);
     }
 }

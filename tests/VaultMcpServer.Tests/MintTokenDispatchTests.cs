@@ -57,6 +57,15 @@ public sealed class MintTokenDispatchTests : IClassFixture<MintTokenDispatchTest
     private static string ContentText(JsonElement result) =>
         result.GetProperty("content").EnumerateArray().First().GetProperty("text").GetString()!;
 
+    /// <summary>The <c>code</c> of a refusal's <c>{code, message, data?}</c> JSON. Asserting it here -
+    /// over HTTP, not against the tool object - is what pins that the dispatcher's native-tool path
+    /// hands a native tool's own coded error through unchanged rather than re-wrapping it.</summary>
+    private static string ErrorCode(JsonElement result)
+    {
+        using var doc = JsonDocument.Parse(ContentText(result));
+        return doc.RootElement.GetProperty("code").GetString()!;
+    }
+
     [Fact]
     public async Task ToolsList_IncludesMintTokenAlongsideScriptTools()
     {
@@ -86,6 +95,7 @@ public sealed class MintTokenDispatchTests : IClassFixture<MintTokenDispatchTest
         var readCall = """{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"greet","arguments":{"Name":"Mike"}}}""";
         var readResult = await CallToolAsync(_fixture, mintedToken!, readCall);
         Assert.True(readResult.GetProperty("isError").GetBoolean()); // greet is a Write-class tool - proves the mint actually scoped to Read only, not "any" access.
+        Assert.Equal("insufficient_capability", ErrorCode(readResult));
     }
 
     [Fact]
@@ -95,6 +105,9 @@ public sealed class MintTokenDispatchTests : IClassFixture<MintTokenDispatchTest
         var result = await CallToolAsync(_fixture, Fixture.ReadOnlyToken, body);
 
         Assert.True(result.GetProperty("isError").GetBoolean());
+        // The dispatcher's grants:manage floor refuses before the tool runs - same code the tool's own
+        // attenuation check raises, so a caller routes both identically.
+        Assert.Equal("insufficient_capability", ErrorCode(result));
     }
 
     [Fact]
@@ -104,6 +117,7 @@ public sealed class MintTokenDispatchTests : IClassFixture<MintTokenDispatchTest
         var result = await CallToolAsync(_fixture, Fixture.AdminToken, body);
 
         Assert.True(result.GetProperty("isError").GetBoolean());
+        Assert.Equal("invalid_argument", ErrorCode(result));
     }
 
     [Fact]
@@ -113,6 +127,7 @@ public sealed class MintTokenDispatchTests : IClassFixture<MintTokenDispatchTest
         var result = await CallToolAsync(_fixture, Fixture.AdminToken, body);
 
         Assert.True(result.GetProperty("isError").GetBoolean());
+        Assert.Equal("invalid_argument", ErrorCode(result));
     }
 
     [Fact]
@@ -122,6 +137,7 @@ public sealed class MintTokenDispatchTests : IClassFixture<MintTokenDispatchTest
         var result = await CallToolAsync(_fixture, Fixture.AdminToken, body);
 
         Assert.True(result.GetProperty("isError").GetBoolean());
+        Assert.Equal("invalid_argument", ErrorCode(result));
     }
 
     [Fact]
@@ -131,6 +147,7 @@ public sealed class MintTokenDispatchTests : IClassFixture<MintTokenDispatchTest
         var result = await CallToolAsync(_fixture, Fixture.AdminToken, body);
 
         Assert.True(result.GetProperty("isError").GetBoolean());
+        Assert.Equal("unknown_vault", ErrorCode(result));
     }
 
     [Fact]

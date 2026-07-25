@@ -28,8 +28,19 @@ namespace VaultMcpServer.Tools;
 /// the caller's own remaining lifetime (an infinite caller imposes no cap) - see
 /// <see cref="GrantStore.Mint"/>'s <c>maxExpiresAtUtc</c> parameter. This uniformly covers
 /// <c>grants:manage</c> too: a minted grant may carry it iff the caller does, no special case.
-/// A violation returns an <c>isError: true</c> result naming the dimension and the caller's
-/// actual bound authority, matching the repo's informative-denial convention.
+/// A violation returns a coded <see cref="ToolError"/> result - <c>insufficient_capability</c> for
+/// the op-class dimension, <c>out_of_scope</c> for the vault and scope-root dimensions - whose
+/// <c>message</c> names the dimension and the caller's actual bound authority, matching the repo's
+/// informative-denial convention.
+///
+/// Every refusal here is a <c>{code, message, data?}</c> error built by <see cref="ToolError"/>, the
+/// same shape a tool script's own error carries, so a caller branches on <c>code</c> whichever tier
+/// refused. <c>data</c> follows the no-oracle rule this tool needs most, being the grant-administration
+/// surface: it echoes only values the caller itself supplied (the argument name, the offending
+/// <c>scope_roots</c> entry, vault, or op class) and never a set computed by filtering the request
+/// against the grant's held authority. The prose - which does name that authority - is unchanged,
+/// because attenuation is only reachable behind the <c>grants:manage</c> floor and telling a grant
+/// administrator the bounds it may mint within is the point of the denial.
 ///
 /// <c>scope_roots</c> entries are folder-prefix strings of the form <c>"&lt;vault&gt;"</c> (the
 /// whole vault) or <c>"&lt;vault&gt;/&lt;folder-prefix&gt;"</c> (a subtree within it) - the
@@ -102,7 +113,7 @@ public sealed class MintTokenTool(GrantStore grantStore, OpClassRegistry opClass
         }
         catch (MintArgumentException ex)
         {
-            return Task.FromResult(ErrorResult(ex.Message));
+            return Task.FromResult(ToolError.Result(ex.Code, ex.Message, ex.ErrorData));
         }
 
         var id = $"minted-{Guid.NewGuid():N}";
@@ -133,20 +144,36 @@ public sealed class MintTokenTool(GrantStore grantStore, OpClassRegistry opClass
     /// it is capped, not rejected, inside <see cref="GrantStore.Mint"/> (see its <c>maxExpiresAtUtc</c>
     /// parameter), since capping needs the store's own "now" to stay consistent with the rest of
     /// expiry handling.
+    ///
+    /// A request exceeding the caller's authority is refused rather than intersected down, so these are
+    /// authority denials, not malformed arguments: <c>insufficient_capability</c> for the op-class
+    /// dimension (the same code the dispatcher's floor check and the in-script <c>Assert-VaultOpClass</c>
+    /// key assertion use - one condition, three layers) and <c>out_of_scope</c> for the vault and
+    /// scope-root dimensions (the same code the dispatcher's vault-membership denial uses). Coding these
+    /// <c>invalid_argument</c> would tell a caller to fix the request when the fix is elevation.
+    ///
+    /// Each <c>data</c> payload names the dimension and, where one exists, the caller's own operand -
+    /// never the filtered subset that violated the check, because that subset is computed from the
+    /// grant's held classes, vault set, or scope roots and would turn a replayable denial into a
+    /// per-item enumeration of the caller's authority.
     /// </summary>
     private static void ValidateAttenuation(Grant grant, HashSet<string> opClasses, HashSet<string> vaults, Dictionary<string, IReadOnlySet<string>> scopeRootsByVault)
     {
         var missingOpClasses = opClasses.Where(o => !grant.OpClasses.Contains(o)).ToList();
         if (missingOpClasses.Count > 0)
             throw new MintArgumentException(
+                "insufficient_capability",
                 $"\"op_class\" requests {FormatSet(missingOpClasses)}, which the caller's own grant \"{grant.Id}\" does not hold " +
-                $"(caller's op classes: {FormatSet(grant.OpClasses)}).");
+                $"(caller's op classes: {FormatSet(grant.OpClasses)}).",
+                new { argument = "op_class" });
 
         var missingVaults = vaults.Where(v => !grant.Vaults.Contains(v)).ToList();
         if (missingVaults.Count > 0)
             throw new MintArgumentException(
+                "out_of_scope",
                 $"\"scope_roots\" names vault{(missingVaults.Count > 1 ? "s" : "")} {FormatSet(missingVaults)} outside the caller's own grant " +
-                $"\"{grant.Id}\" (caller's vaults: {FormatSet(grant.Vaults)}).");
+                $"\"{grant.Id}\" (caller's vaults: {FormatSet(grant.Vaults)}).",
+                new { argument = "scope_roots" });
 
         foreach (var (vaultName, requestedRoots) in scopeRootsByVault)
         {
@@ -156,14 +183,18 @@ public sealed class MintTokenTool(GrantStore grantStore, OpClassRegistry opClass
 
             if (requestedRoots.Count == 0)
                 throw new MintArgumentException(
+                    "out_of_scope",
                     $"\"scope_roots\" requests unscoped access to vault \"{vaultName}\", but the caller's own grant \"{grant.Id}\" " +
-                    $"is scoped there to {FormatSet(callerRoots)}.");
+                    $"is scoped there to {FormatSet(callerRoots)}.",
+                    new { argument = "scope_roots", vault = vaultName });
 
             var outOfScope = requestedRoots.Where(r => !VaultAccess.IsPathInScope(r, callerRoots)).ToList();
             if (outOfScope.Count > 0)
                 throw new MintArgumentException(
+                    "out_of_scope",
                     $"\"scope_roots\" entr{(outOfScope.Count > 1 ? "ies" : "y")} {FormatSet(outOfScope.Select(r => $"{vaultName}/{r}"))} fall outside " +
-                    $"the caller's own grant \"{grant.Id}\" scope for vault \"{vaultName}\" ({FormatSet(callerRoots)}).");
+                    $"the caller's own grant \"{grant.Id}\" scope for vault \"{vaultName}\" ({FormatSet(callerRoots)}).",
+                    new { argument = "scope_roots", vault = vaultName });
         }
     }
 
@@ -174,9 +205,9 @@ public sealed class MintTokenTool(GrantStore grantStore, OpClassRegistry opClass
     {
         var values = ReadStringArray(arguments, "scope_roots");
         if (values.Count == 0)
-            throw new MintArgumentException("\"scope_roots\" is required and must contain at least one entry.");
+            throw new MintArgumentException("invalid_argument", "\"scope_roots\" is required and must contain at least one entry.", new { argument = "scope_roots" });
         if (values.Any(v => v == "*"))
-            throw new MintArgumentException("\"scope_roots\" does not accept \"*\" - list explicit folder-prefix roots.");
+            throw new MintArgumentException("invalid_argument", "\"scope_roots\" does not accept \"*\" - list explicit folder-prefix roots.", new { argument = "scope_roots" });
         return values;
     }
 
@@ -189,10 +220,18 @@ public sealed class MintTokenTool(GrantStore grantStore, OpClassRegistry opClass
             // A vault skipped at config load (root missing on disk) is configured but not
             // mintable-against: minting is an operation targeting the vault now, unlike a
             // grants.json row, which stays valid while the vault is broken.
+            // The same two vault-resolution codes Resolve-VaultToolRoot raises PowerShell-side, and
+            // classified the same way - by which config map holds the name, not by message text.
             if (vaultConfig.SkippedVaults.ContainsKey(vaultName))
-                throw new MintArgumentException($"\"scope_roots\" entry \"{root}\" names vault \"{vaultName}\", which is configured but currently unavailable: {vaultConfig.SkippedVaults[vaultName]}.");
+                throw new MintArgumentException(
+                    "vault_unavailable",
+                    $"\"scope_roots\" entry \"{root}\" names vault \"{vaultName}\", which is configured but currently unavailable: {vaultConfig.SkippedVaults[vaultName]}.",
+                    new { argument = "scope_roots", scopeRoot = root, vault = vaultName });
             if (!vaultConfig.Vaults.ContainsKey(vaultName))
-                throw new MintArgumentException($"\"scope_roots\" entry \"{root}\" names an unknown vault \"{vaultName}\".");
+                throw new MintArgumentException(
+                    "unknown_vault",
+                    $"\"scope_roots\" entry \"{root}\" names an unknown vault \"{vaultName}\".",
+                    new { argument = "scope_roots", scopeRoot = root, vault = vaultName });
             vaults.Add(vaultName);
         }
         return vaults;
@@ -246,7 +285,10 @@ public sealed class MintTokenTool(GrantStore grantStore, OpClassRegistry opClass
                 }
                 catch (ArgumentException ex)
                 {
-                    throw new MintArgumentException($"\"scope_roots\" entry \"{root}\" has an invalid subtree \"{parts[1]}\": {ex.Message}");
+                    throw new MintArgumentException(
+                        "invalid_argument",
+                        $"\"scope_roots\" entry \"{root}\" has an invalid subtree \"{parts[1]}\": {ex.Message}",
+                        new { argument = "scope_roots", scopeRoot = root });
                 }
                 subtrees.Add(canonical);
             }
@@ -264,15 +306,18 @@ public sealed class MintTokenTool(GrantStore grantStore, OpClassRegistry opClass
     {
         var values = ReadStringArray(arguments, "op_class");
         if (values.Count == 0)
-            throw new MintArgumentException("\"op_class\" is required and must contain at least one entry.");
+            throw new MintArgumentException("invalid_argument", "\"op_class\" is required and must contain at least one entry.", new { argument = "op_class" });
         if (values.Any(v => v == "*"))
-            throw new MintArgumentException("\"op_class\" does not accept \"*\" - list explicit op classes.");
+            throw new MintArgumentException("invalid_argument", "\"op_class\" does not accept \"*\" - list explicit op classes.", new { argument = "op_class" });
 
         var opClasses = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         foreach (var value in values)
         {
+            // invalid_argument, not insufficient_capability: the name is not in the registry at all,
+            // so no elevation could ever satisfy it. Whether the caller *holds* a real class is the
+            // separate attenuation check.
             var canonical = opClassRegistry.Canonicalize(value)
-                ?? throw new MintArgumentException($"\"op_class\" entry \"{value}\" is not a known op class.");
+                ?? throw new MintArgumentException("invalid_argument", $"\"op_class\" entry \"{value}\" is not a known op class.", new { argument = "op_class", opClass = value });
             opClasses.Add(canonical);
         }
         return opClasses;
@@ -284,13 +329,13 @@ public sealed class MintTokenTool(GrantStore grantStore, OpClassRegistry opClass
             return DefaultTtlMinutes;
 
         if (prop.ValueKind == JsonValueKind.String)
-            throw new MintArgumentException("\"ttl\" does not accept \"*\" - pass an integer number of minutes, or omit it for the default (60).");
+            throw new MintArgumentException("invalid_argument", "\"ttl\" does not accept \"*\" - pass an integer number of minutes, or omit it for the default (60).", new { argument = "ttl" });
 
         if (prop.ValueKind != JsonValueKind.Number || !prop.TryGetInt32(out var minutes))
-            throw new MintArgumentException("\"ttl\" must be an integer number of minutes.");
+            throw new MintArgumentException("invalid_argument", "\"ttl\" must be an integer number of minutes.", new { argument = "ttl" });
 
         if (minutes <= 0)
-            throw new MintArgumentException($"\"ttl\" must be a positive number of minutes, got {minutes}.");
+            throw new MintArgumentException("invalid_argument", $"\"ttl\" must be a positive number of minutes, got {minutes}.", new { argument = "ttl" });
 
         return minutes;
     }
@@ -300,24 +345,30 @@ public sealed class MintTokenTool(GrantStore grantStore, OpClassRegistry opClass
         if (!arguments.TryGetValue(name, out var prop))
             return [];
         if (prop.ValueKind != JsonValueKind.Array)
-            throw new MintArgumentException($"\"{name}\" must be an array of strings.");
+            throw new MintArgumentException("invalid_argument", $"\"{name}\" must be an array of strings.", new { argument = name });
 
         var result = new List<string>();
         foreach (var item in prop.EnumerateArray())
         {
             if (item.ValueKind != JsonValueKind.String || item.GetString() is not { Length: > 0 } value)
-                throw new MintArgumentException($"\"{name}\" must contain only non-empty strings.");
+                throw new MintArgumentException("invalid_argument", $"\"{name}\" must contain only non-empty strings.", new { argument = name });
             result.Add(value);
         }
         return result;
     }
 
-    private static CallToolResult ErrorResult(string message) => new()
+    /// <summary>
+    /// Internal control-flow exception for a refused mint - caught in <see cref="InvokeAsync"/> and
+    /// turned into a coded <see cref="ToolError"/> result, never propagated. Carries the
+    /// <see cref="Code"/> and <see cref="ErrorData"/> alongside the message so the refusal keeps the
+    /// shared <c>{code, message, data?}</c> shape rather than reaching the client as prose.
+    /// <see cref="ErrorData"/> is named apart from <see cref="Exception.Data"/>, which is an unrelated
+    /// <see cref="System.Collections.IDictionary"/> on the base type.
+    /// </summary>
+    private sealed class MintArgumentException(string code, string message, object? data = null) : Exception(message)
     {
-        IsError = true,
-        Content = [new TextContentBlock { Text = message }],
-    };
+        public string Code { get; } = code;
 
-    /// <summary>Internal control-flow exception for a bad argument - caught in <see cref="InvokeAsync"/> and turned into a normal MCP tool error, never propagated.</summary>
-    private sealed class MintArgumentException(string message) : Exception(message);
+        public object? ErrorData { get; } = data;
+    }
 }

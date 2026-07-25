@@ -106,6 +106,9 @@ public sealed class ScriptToolDispatcher(ScriptToolRegistry registry, NativeTool
 
             var nativeArguments = context.Params?.Arguments?.ToDictionary(kv => kv.Key, kv => kv.Value)
                 ?? new Dictionary<string, JsonElement>();
+            // Returned unchanged, success or failure: a native tool builds its own refusals through
+            // ToolError, the same way a script tool throws New-VaultToolError text, so re-shaping here
+            // would overwrite the tool's chosen code with a dispatcher-chosen one.
             return await nativeTool.InvokeAsync(nativeArguments, nativeGrant, cancellationToken);
         }
 

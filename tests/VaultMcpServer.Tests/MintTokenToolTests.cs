@@ -51,6 +51,24 @@ public sealed class MintTokenToolTests(TestVaultFixture fixture) : IClassFixture
     private static string ErrorText(ModelContextProtocol.Protocol.CallToolResult result) =>
         ((ModelContextProtocol.Protocol.TextContentBlock)result.Content[0]).Text;
 
+    /// <summary>The <c>code</c> of a refusal's <c>{code, message, data?}</c> JSON - the field callers
+    /// branch on, so every denial test pins it rather than the prose beside it.</summary>
+    private static string ErrorCode(ModelContextProtocol.Protocol.CallToolResult result)
+    {
+        using var doc = JsonDocument.Parse(ErrorText(result));
+        return doc.RootElement.GetProperty("code").GetString()!;
+    }
+
+    /// <summary>A refusal's <c>data</c> object, as a name-to-raw-JSON map, or null when the refusal
+    /// carries none.</summary>
+    private static Dictionary<string, string>? ErrorData(ModelContextProtocol.Protocol.CallToolResult result)
+    {
+        using var doc = JsonDocument.Parse(ErrorText(result));
+        return doc.RootElement.TryGetProperty("data", out var data)
+            ? data.EnumerateObject().ToDictionary(p => p.Name, p => p.Value.ToString())
+            : null;
+    }
+
     [Fact]
     public async Task InvokeAsync_MultiVaultScopeRoots_ProducesSeparatePerVaultSets()
     {
@@ -125,8 +143,9 @@ public sealed class MintTokenToolTests(TestVaultFixture fixture) : IClassFixture
         // mint call cleanly instead of producing an unusable grant that only fails - confusingly -
         // on some later, unrelated tool call.
         Assert.True(result.IsError);
-        var text = ((ModelContextProtocol.Protocol.TextContentBlock)result.Content[0]).Text;
-        Assert.Contains("invalid subtree", text);
+        Assert.Equal("invalid_argument", ErrorCode(result));
+        Assert.Contains("invalid subtree", ErrorText(result));
+        Assert.Equal(scopeRoot, ErrorData(result)!["scopeRoot"]);
     }
 
     [Fact]
@@ -206,10 +225,20 @@ public sealed class MintTokenToolTests(TestVaultFixture fixture) : IClassFixture
             CancellationToken.None);
 
         Assert.True(result.IsError);
+        // insufficient_capability, not invalid_argument: minting is attenuation-only, so a request
+        // exceeding the caller's authority is refused rather than intersected, and the fix is
+        // elevation rather than a different argument.
+        Assert.Equal("insufficient_capability", ErrorCode(result));
         var text = ErrorText(result);
         Assert.Contains("op_class", text);
         Assert.Contains("content:write", text);
         Assert.Contains("scoped", text); // names the caller's own grant id
+
+        // No-oracle: data names the refused dimension and nothing computed from the caller's held
+        // authority - not the missing subset, not the grant's class set, not its id.
+        var data = ErrorData(result)!;
+        Assert.Equal("op_class", data["argument"]);
+        Assert.Equal(["argument"], data.Keys.ToArray());
     }
 
     [Fact]
@@ -244,10 +273,16 @@ public sealed class MintTokenToolTests(TestVaultFixture fixture) : IClassFixture
             CancellationToken.None);
 
         Assert.True(result.IsError);
+        // out_of_scope, the same code the dispatcher's vault-membership denial uses - one code per
+        // condition regardless of which layer refused.
+        Assert.Equal("out_of_scope", ErrorCode(result));
         var text = ErrorText(result);
         Assert.Contains("scope_roots", text);
         Assert.Contains("scratch", text);
         Assert.Contains("scoped", text);
+
+        // The caller's own vault set never reaches data, only the refused dimension.
+        Assert.Equal(["argument"], ErrorData(result)!.Keys.ToArray());
     }
 
     [Fact]
@@ -265,10 +300,16 @@ public sealed class MintTokenToolTests(TestVaultFixture fixture) : IClassFixture
             CancellationToken.None);
 
         Assert.True(result.IsError);
+        Assert.Equal("out_of_scope", ErrorCode(result));
         var text = ErrorText(result);
         Assert.Contains("scope_roots", text);
         Assert.Contains("test/Projects/Bar", text);
         Assert.Contains("scoped", text);
+
+        // data names the vault the caller itself addressed; the caller's roots for it stay out.
+        var data = ErrorData(result)!;
+        Assert.Equal("test", data["vault"]);
+        Assert.Equal(["argument", "vault"], data.Keys.Order().ToArray());
     }
 
     [Fact]
@@ -286,8 +327,8 @@ public sealed class MintTokenToolTests(TestVaultFixture fixture) : IClassFixture
             CancellationToken.None);
 
         Assert.True(result.IsError);
-        var text = ErrorText(result);
-        Assert.Contains("unscoped access", text);
+        Assert.Equal("out_of_scope", ErrorCode(result));
+        Assert.Contains("unscoped access", ErrorText(result));
     }
 
     [Fact]
@@ -377,5 +418,82 @@ public sealed class MintTokenToolTests(TestVaultFixture fixture) : IClassFixture
         Assert.False(result.IsError == true);
         using var minted = JsonDocument.Parse(ErrorText(result));
         Assert.False(minted.RootElement.GetProperty("ttlCapped").GetBoolean());
+    }
+
+    // --- Coded argument refusals ----------------------------------------------------------
+
+    [Fact]
+    public async Task InvokeAsync_UnknownVaultInScopeRoots_IsUnknownVault()
+    {
+        var store = MakeStore();
+        var tool = new MintTokenTool(store, OpClasses, _vaultConfig);
+        var callerGrant = store.Authenticate("admin-token")!;
+
+        var result = await tool.InvokeAsync(
+            Arguments(["no-such-vault/Projects"], ["content:read"]),
+            callerGrant,
+            CancellationToken.None);
+
+        Assert.True(result.IsError);
+        // The same code Resolve-VaultToolRoot raises PowerShell-side for a name in no configured
+        // map, so a caller routes an unknown vault identically whichever tier saw it.
+        Assert.Equal("unknown_vault", ErrorCode(result));
+        var data = ErrorData(result)!;
+        Assert.Equal("no-such-vault", data["vault"]);
+        Assert.Equal("no-such-vault/Projects", data["scopeRoot"]);
+    }
+
+    [Theory]
+    [InlineData("scope_roots")]
+    [InlineData("op_class")]
+    public async Task InvokeAsync_WildcardArgument_IsInvalidArgumentNamingIt(string argument)
+    {
+        var store = MakeStore();
+        var tool = new MintTokenTool(store, OpClasses, _vaultConfig);
+        var callerGrant = store.Authenticate("admin-token")!;
+
+        var result = await tool.InvokeAsync(
+            Arguments(argument == "scope_roots" ? ["*"] : ["test"], argument == "op_class" ? ["*"] : ["content:read"]),
+            callerGrant,
+            CancellationToken.None);
+
+        Assert.True(result.IsError);
+        Assert.Equal("invalid_argument", ErrorCode(result));
+        Assert.Equal(argument, ErrorData(result)!["argument"]);
+    }
+
+    [Fact]
+    public async Task InvokeAsync_UnknownOpClassName_IsInvalidArgumentNotACapabilityDenial()
+    {
+        var store = MakeStore();
+        var tool = new MintTokenTool(store, OpClasses, _vaultConfig);
+        var callerGrant = store.Authenticate("admin-token")!;
+
+        var result = await tool.InvokeAsync(
+            Arguments(["test"], ["not:a-class"]),
+            callerGrant,
+            CancellationToken.None);
+
+        Assert.True(result.IsError);
+        // No elevation could ever satisfy a name that is not in the registry, so this must not be
+        // coded as the capability shortfall the attenuation check raises.
+        Assert.Equal("invalid_argument", ErrorCode(result));
+        Assert.Equal("not:a-class", ErrorData(result)!["opClass"]);
+    }
+
+    [Fact]
+    public async Task InvokeAsync_WildcardTtl_IsInvalidArgument()
+    {
+        var store = MakeStore();
+        var tool = new MintTokenTool(store, OpClasses, _vaultConfig);
+        var callerGrant = store.Authenticate("admin-token")!;
+
+        var arguments = JsonSerializer.Deserialize<Dictionary<string, JsonElement>>(
+            JsonSerializer.Serialize(new { scope_roots = new[] { "test" }, op_class = new[] { "content:read" }, ttl = "*" }))!;
+        var result = await tool.InvokeAsync(arguments, callerGrant, CancellationToken.None);
+
+        Assert.True(result.IsError);
+        Assert.Equal("invalid_argument", ErrorCode(result));
+        Assert.Equal("ttl", ErrorData(result)!["argument"]);
     }
 }

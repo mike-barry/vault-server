@@ -165,9 +165,13 @@ try {
     $r = Invoke-McpCall -Tool 'health_check' -Token $bogusToken
     Check 'still succeeds on the floored grant' ($r.StatusCode -eq 200 -and -not $r.IsError -and $r.Text) "status=$($r.StatusCode) isError=$($r.IsError)"
 
+    # The server-intrinsic tools refuse through the shared {code, message, data?} envelope, the same
+    # shape a tool script's own error carries - so these probe the code, not the prose beside it.
     Write-Host 'Probe: request_elevation with bogus token (auto-deny stub)'
     $r = Invoke-McpCall -Tool 'request_elevation' -Arguments @{ grant = 'admin' } -Token $bogusToken
-    Check 'is a tool error naming the denied elevation' ($r.StatusCode -eq 200 -and $r.IsError -and $r.Text -like '*Elevation to "admin" denied*') "status=$($r.StatusCode) isError=$($r.IsError) text=$($r.Text)"
+    $elevErr = if ($r.Text) { try { $r.Text | ConvertFrom-Json } catch { $null } } else { $null }
+    Check 'is a coded tool error (insufficient_capability)' ($r.StatusCode -eq 200 -and $r.IsError -and $null -ne $elevErr -and $elevErr.code -eq 'insufficient_capability') "status=$($r.StatusCode) isError=$($r.IsError) text=$($r.Text)"
+    Check 'message still names the denied elevation' ($null -ne $elevErr -and $elevErr.message -like '*Elevation to "admin" denied*') "text=$($r.Text)"
 
     Write-Host 'Probe: attenuation-only minting'
     $mintedToken = $null
@@ -177,9 +181,12 @@ try {
     Check 'selector mints a content:read+grants:manage grant on vault "test"' ($null -ne $mint -and $mint.token) "status=$($r.StatusCode) isError=$($r.IsError)"
     if ($mintedToken) {
         $r = Invoke-McpCall -Tool 'mint_token' -Arguments @{ scope_roots = @('test'); op_class = @('content:write') } -Token $mintedToken
-        Check 'minted token cannot mint content:write (refusal names the op-class dimension)' ($r.IsError -and $r.Text -like '*"op_class" requests*does not hold*') "isError=$($r.IsError) text=$($r.Text)"
+        $mintErr = if ($r.Text) { try { $r.Text | ConvertFrom-Json } catch { $null } } else { $null }
+        # Attenuation-only: a mint exceeding the minter's authority is refused, not intersected, so
+        # the refusal is a capability denial rather than an argument error.
+        Check 'minted token cannot mint content:write (insufficient_capability on the op_class dimension)' ($r.IsError -and $null -ne $mintErr -and $mintErr.code -eq 'insufficient_capability' -and $mintErr.data.argument -eq 'op_class') "isError=$($r.IsError) text=$($r.Text)"
     } else {
-        Check 'minted token cannot mint content:write (refusal names the op-class dimension)' $false 'skipped: mint failed'
+        Check 'minted token cannot mint content:write (insufficient_capability on the op_class dimension)' $false 'skipped: mint failed'
     }
 
     Write-Host 'Probe: audit log hygiene'

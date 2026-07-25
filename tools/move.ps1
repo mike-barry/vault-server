@@ -1,7 +1,10 @@
 <#
 .SYNOPSIS
-Relocates or renames a file or folder within the vault as one atomic, write-locked
-operation, rewriting every reference to the moved item so the link graph stays intact.
+Relocates or renames a file or folder within the vault as one write-locked
+plan-validate-apply operation, rewriting every reference to the moved item so the link
+graph stays intact. The lock serializes the operation against other writers; it does not
+make it atomic - a multi-file rewrite that fails partway raises partial_state naming the
+files already written.
 See the Move corpus doc (vault-primary) for the full contract. Ambiguity is never an
 error: mirroring Obsidian's own link maintenance (Obsidian-Link-Behavior), a move that
 would change any bare link's resolution proceeds and protects the affected links -
@@ -17,10 +20,13 @@ leading "/" targets the vault root. Dest must preserve the source's extension, b
 included - ".md" is never inferred and an extension is never converted.
 .PARAMETER Kind
 Intent assertion - "file" or "folder" - inferred from the source's shape when omitted;
-fails fast (kind_mismatch) when supplied and wrong. Deliberately not a ValidateSet: the
-spec requires "project"/"area" to be rejected with move's own invalid_argument JSON error
-(project/area moves carry a registry entry move does not own), not a PowerShell binding
-error, so any value reaches the script body for in-script validation.
+fails fast (kind_mismatch) when supplied and wrong. Deliberately not a ValidateSet, so
+every value reaches the script body and is refused with move's own invalid_argument JSON
+error rather than a PowerShell binding error. "project"/"area" retired from the kind
+vocabulary in 2026-07 and are kept as an explicit legacy-argument refusal: the generic
+branch would refuse them anyway, so the specific branch exists only to name the
+replacement (kind "folder" plus skill-side registry composition) for a caller still
+carrying the old vocabulary.
 .PARAMETER Vault
 The vault to operate in. Defaults to the configured default vault.
 .PARAMETER Apply
@@ -527,7 +533,7 @@ try {
     # and reject anything else that isn't a recognized shape - before touching the vault. ---
     $normalizedKind = if ($Kind) { $Kind.Trim().ToLowerInvariant() } else { '' }
     if ($normalizedKind -in @('project', 'area')) {
-        throw (New-VaultToolError -Code 'invalid_argument' -Message "kind '$Kind' is not valid for move - project/area moves carry a registry entry move does not own. Pass 'folder' (or omit kind) and compose the registry update via write.")
+        throw (New-VaultToolError -Code 'invalid_argument' -Message "kind '$Kind' is not valid for move - project/area moves carry a registry entry move does not own. Pass 'folder' (or omit kind) and compose the registry update via edit.")
     }
     if ($normalizedKind -and $normalizedKind -notin @('file', 'folder')) {
         throw (New-VaultToolError -Code 'invalid_argument' -Message "kind '$Kind' is not a recognized value - move accepts 'file' or 'folder'.")
@@ -656,7 +662,7 @@ try {
     $basenameChanged = -not $pureMove
 
     # =======================================================================
-    # FOLDER MOVE. One atomic operation under the single lock carrying three coupled effects
+    # FOLDER MOVE. One locked operation carrying three coupled effects
     # (Plan-Tool-Move: Role, Folder-move correctness core): the directory Move-Item, the
     # folder-note invariant (Foo/Foo.md -> Bar/Bar.md, only when the folder's basename changed),
     # and one vault scan applying two rewrites - the old-folder-path prefix substitution for
