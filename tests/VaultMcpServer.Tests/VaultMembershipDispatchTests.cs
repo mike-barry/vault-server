@@ -14,7 +14,8 @@ namespace VaultMcpServer.Tests;
 /// parameter. This is the check the middleware's best-effort body-peek 403 cannot be trusted to
 /// cover: an omitted vault argument (which resolves to the default) sails past the peek, so these
 /// cases exercise the dispatcher rather than the gate. Denials come back as normal MCP tool errors
-/// (<c>isError</c>), matching the op-class denial pattern.
+/// (<c>isError</c>) carrying the shared <c>{code, message, data?}</c> JSON, matching the op-class
+/// denial pattern and a tool script's own errors.
 /// </summary>
 [Collection("Program host tests")]
 public sealed class VaultMembershipDispatchTests : IClassFixture<VaultMembershipDispatchTests.Fixture>
@@ -69,7 +70,32 @@ public sealed class VaultMembershipDispatchTests : IClassFixture<VaultMembership
 
         Assert.Equal(HttpStatusCode.OK, status);
         Assert.True(isError, text);
-        Assert.Contains("not scoped to vault \"test\"", text);
+
+        // The denial is the shared {code, message, data?} shape, not prose: a caller routes on
+        // `code` whether the dispatcher or a tool script refused (Error Convention).
+        using var error = JsonDocument.Parse(text);
+        Assert.Equal("out_of_scope", error.RootElement.GetProperty("code").GetString());
+        Assert.Equal("test", error.RootElement.GetProperty("data").GetProperty("vault").GetString());
+        Assert.Equal("note_tool", error.RootElement.GetProperty("data").GetProperty("tool").GetString());
+    }
+
+    /// <summary>
+    /// The denial must not become an enumeration surface: it names the vault the call effectively
+    /// targeted, and nothing about what the grant does hold (its vault set or op classes). Mirrors
+    /// the no-oracle posture the middleware's fixed 401 body keeps (LoopbackAuthMiddlewareTests).
+    /// </summary>
+    [Fact]
+    public async Task VaultDenial_DoesNotDiscloseTheGrantsOwnVaultsOrOpClasses()
+    {
+        var body = """{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"note_tool","arguments":{"Name":"x"}}}""";
+        var (_, _, text) = await CallToolAsync(_fixture, Fixture.PersonalOnlyToken, body);
+
+        using var error = JsonDocument.Parse(text);
+        var data = error.RootElement.GetProperty("data");
+        Assert.False(data.TryGetProperty("vaults", out _));
+        Assert.False(data.TryGetProperty("opClasses", out _));
+        Assert.DoesNotContain("personal", data.GetRawText(), StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("content:read", data.GetRawText(), StringComparison.OrdinalIgnoreCase);
     }
 
     [Fact]
@@ -106,6 +132,8 @@ public sealed class VaultMembershipDispatchTests : IClassFixture<VaultMembership
 
         Assert.Equal(HttpStatusCode.OK, status);
         Assert.True(isError, text);
+        using var error = JsonDocument.Parse(text);
+        Assert.Equal("insufficient_capability", error.RootElement.GetProperty("code").GetString());
     }
 
     [Fact]

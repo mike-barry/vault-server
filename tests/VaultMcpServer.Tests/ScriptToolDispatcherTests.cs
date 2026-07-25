@@ -87,6 +87,35 @@ public sealed class ScriptToolDispatcherTests : IClassFixture<ScriptToolDispatch
         using var doc = JsonDocument.Parse(ExtractJsonRpcPayload(text));
         var result = doc.RootElement.GetProperty("result");
         Assert.True(result.GetProperty("isError").GetBoolean());
+
+        // The floor denial carries the shared {code, message, data?} shape - the same code the
+        // in-script key assertion (Assert-VaultOpClass) throws, so one branch covers both layers.
+        var errorText = result.GetProperty("content").EnumerateArray().First().GetProperty("text").GetString()!;
+        using var error = JsonDocument.Parse(errorText);
+        Assert.Equal("insufficient_capability", error.RootElement.GetProperty("code").GetString());
+        Assert.Equal("content:write", error.RootElement.GetProperty("data").GetProperty("requiredOpClass").GetString());
+        Assert.Equal("greet", error.RootElement.GetProperty("data").GetProperty("tool").GetString());
+    }
+
+    /// <summary>
+    /// The denial names the class the tool required - actionable for an elevation request - and
+    /// nothing about the classes the caller's grant actually holds, so a denial never doubles as a
+    /// capability dump.
+    /// </summary>
+    [Fact]
+    public async Task ToolsCall_OpClassDenial_DoesNotDiscloseTheGrantsHeldClasses()
+    {
+        using var client = AuthedClient(_fixture, Fixture.ReadOnlyToken);
+        var body = """{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"greet","arguments":{"Name":"Mike"}}}""";
+        using var response = await client.PostAsync("/mcp", JsonBody(body));
+        var text = await response.Content.ReadAsStringAsync();
+
+        using var doc = JsonDocument.Parse(ExtractJsonRpcPayload(text));
+        var errorText = doc.RootElement.GetProperty("result").GetProperty("content").EnumerateArray().First().GetProperty("text").GetString()!;
+        using var error = JsonDocument.Parse(errorText);
+        var data = error.RootElement.GetProperty("data").GetRawText();
+        Assert.DoesNotContain("content:read", data, StringComparison.Ordinal);
+        Assert.DoesNotContain("read-only", data, StringComparison.Ordinal);
     }
 
     /// <summary>
@@ -137,7 +166,15 @@ public sealed class ScriptToolDispatcherTests : IClassFixture<ScriptToolDispatch
         var text = await response.Content.ReadAsStringAsync();
 
         using var doc = JsonDocument.Parse(ExtractJsonRpcPayload(text));
-        Assert.True(doc.RootElement.GetProperty("result").GetProperty("isError").GetBoolean());
+        var result = doc.RootElement.GetProperty("result");
+        Assert.True(result.GetProperty("isError").GetBoolean());
+
+        // An unknown name is refused before any script runs, so it emits the shared shape too -
+        // `not_found` over the caller's own tool name, which discloses nothing about the tool set.
+        var errorText = result.GetProperty("content").EnumerateArray().First().GetProperty("text").GetString()!;
+        using var error = JsonDocument.Parse(errorText);
+        Assert.Equal("not_found", error.RootElement.GetProperty("code").GetString());
+        Assert.Equal("no_such_tool", error.RootElement.GetProperty("data").GetProperty("tool").GetString());
     }
 
     public sealed class Fixture : ProgramHostFixtureBase

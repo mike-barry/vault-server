@@ -40,9 +40,36 @@ Describe 'Write-VaultNote' {
         ($bytes[0] -eq 0xEF -and $bytes[1] -eq 0xBB -and $bytes[2] -eq 0xBF) | Should -BeFalse
     }
 
-    It 'creates parent directories' {
-        Write-VaultNote -Vault scratch -Path 'New-Folder/Nested/Note-Deep.md' -Content "# Deep`n"
-        Test-Path -LiteralPath (Resolve-VaultPath -Vault scratch -Path 'New-Folder/Nested/Note-Deep.md') | Should -BeTrue
+    It 'writes into an existing directory' {
+        Write-VaultNote -Vault scratch -Path 'Projects/Widget/Inbox/Note-Existing-Dir.md' -Content "# Existing`n"
+        Test-Path -LiteralPath (Resolve-VaultPath -Vault scratch -Path 'Projects/Widget/Inbox/Note-Existing-Dir.md') | Should -BeTrue
+    }
+
+    It 'refuses a write whose parent directory does not exist, creating nothing' {
+        { Write-VaultNote -Vault scratch -Path 'New-Folder/Nested/Note-Deep.md' -Content "# Deep`n" } | Should -Throw
+        Test-Path -LiteralPath (Resolve-VaultPath -Vault scratch -Path 'New-Folder') | Should -BeFalse
+    }
+
+    It 'raises parent_not_found naming the missing parent vault-relative' {
+        # The code and the named parent are the contract the create tool maps straight through,
+        # so both are pinned rather than just the throw.
+        $record = $null
+        try { Write-VaultNote -Vault scratch -Path 'New-Folder/Nested/Note-Deep.md' -Content "# Deep`n" }
+        catch { $record = $_ }
+
+        $record | Should -Not -BeNullOrEmpty
+        $err = $record.Exception.Message | ConvertFrom-Json
+        $err.code | Should -Be 'parent_not_found'
+        $err.message | Should -Match 'New-Folder/Nested'
+        $err.data.parent | Should -Be 'New-Folder/Nested'
+        $err.data.path | Should -Be 'New-Folder/Nested/Note-Deep.md'
+    }
+
+    It 'names the immediate parent even when only the leaf directory is missing' {
+        try { Write-VaultNote -Vault scratch -Path 'Projects/Widget/Absent/Note-Leaf.md' -Content "# Leaf`n" }
+        catch { $err = $_.Exception.Message | ConvertFrom-Json }
+        $err.code | Should -Be 'parent_not_found'
+        $err.data.parent | Should -Be 'Projects/Widget/Absent'
     }
 }
 

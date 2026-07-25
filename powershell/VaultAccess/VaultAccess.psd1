@@ -21,6 +21,7 @@
         'Invoke-VaultWriteLock'
         'Test-VaultNoteMissingError'
         'New-VaultToolError'
+        'Resolve-VaultToolRoot'
         'ConvertTo-VaultToolResult'
         'Test-VaultNameConvention'
         'Get-VaultFilePath'

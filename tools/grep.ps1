@@ -70,6 +70,14 @@ if ($mode -notin @('content', 'files_with_matches', 'count')) {
     throw (New-VaultToolError -Code 'invalid_argument' -Message "output_mode '$OutputMode' is not a recognized value - grep accepts 'content', 'files_with_matches', or 'count'." -Data @{ outputMode = $OutputMode })
 }
 
+# Vault resolution before the path check and the search: both Resolve-VaultPath and
+# Search-VaultContent resolve the vault internally through the mirrored-core Resolve-VaultRoot,
+# which raises plain text - and the path check would additionally misfile a vault failure as
+# invalid_argument. Resolving here refuses an unconfigured name as unknown_vault and a
+# configured-but-root-missing vault as vault_unavailable (Plan-Vault-Tool-Primitives: Error
+# Convention).
+[void](Resolve-VaultToolRoot -Vault $Vault)
+
 # --- path: an optional search-narrowing folder. A rooted or vault-escaping value is a malformed
 # operand (invalid_argument), validated via Resolve-VaultPath the same way read.ps1 validates its
 # target; existence is not required (a subtree with no matches is an empty result, not an error).

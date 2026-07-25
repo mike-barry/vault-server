@@ -2,6 +2,7 @@
   { "name": "content:read", "description": "Read-only vault content access: note reads, wikilink resolution, search, enumeration." },
   { "name": "content:write", "description": "Vault content mutation: note writes, renames, moves." },
   { "name": "agentic:write", "description": "Mutation of the agentic frontmatter layer (the agent.* / nav.* metadata) on vault notes." },
-  { "name": "git:sync", "description": "Git sync operations against the vault repository: commit, pull, push." },
+  { "name": "git:sync", "description": "Converging the vault repository toward the remote without introducing agent-authored content into history: fetch, fast-forward, clean merge commits, submodule checkout and the pointer commit that records one, and reattach." },
+  { "name": "git:commit", "description": "Introducing agent-authored content into the vault repository's history: committing agent-authored working-tree changes, resolving conflicts, and pushing." },
   { "name": "grants:manage", "description": "Grant administration: minting new scoped, time-limited bearer tokens." }
 ]

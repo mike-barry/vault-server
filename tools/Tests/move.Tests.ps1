@@ -19,6 +19,9 @@
 # suffix emit), an embed of a contained non-.md file repointed on a folder move, apply-phase
 # partial_state (held-write-handle seam), cross-process lock_timeout, and the content:write
 # op-class metadata declaration (dispatcher floor-gating itself is proven generically C#-side).
+# The Landed-Tool Reconciliation pass adds three more: dest extension preservation (the retired
+# ".md" inference), the write-class envelope (capabilitiesUsed / filesSkippedUnreadable[] always,
+# lockWarning only when it fires), and the `apply` gate with its `applied` return field.
 
 BeforeAll {
     $script:ScriptPath = Join-Path $PSScriptRoot '..' 'move.ps1'
@@ -63,7 +66,7 @@ Describe 'move (validate + resolve + scope)' {
 
     Context 'happy path - return shape' {
         It 'returns a well-formed Tier-2 JSON object and applies a bare-name rename' {
-            $output = & $script:ScriptPath -Source 'Resources/Gizmo-Reference.md' -Dest 'Renamed-Gizmo'
+            $output = & $script:ScriptPath -Source 'Resources/Gizmo-Reference.md' -Dest 'Renamed-Gizmo.md'
             { $output | ConvertFrom-Json } | Should -Not -Throw
 
             $result = $output | ConvertFrom-Json
@@ -83,19 +86,19 @@ Describe 'move (validate + resolve + scope)' {
         }
 
         It 'accepts the optional Kind parameter without erroring' {
-            $output = & $script:ScriptPath -Source 'Resources/Gizmo-Reference.md' -Dest 'Renamed-Gizmo' -Kind file
+            $output = & $script:ScriptPath -Source 'Resources/Gizmo-Reference.md' -Dest 'Renamed-Gizmo.md' -Kind file
             { $output | ConvertFrom-Json } | Should -Not -Throw
         }
 
         It 'rejects the retired Force parameter as a binding error (no ambiguity gate to override)' {
             # Force was removed with the ambiguity gate; a caller passing it must fail at
             # parameter binding, not silently ignore it.
-            { & $script:ScriptPath -Source 'Resources/Gizmo-Reference.md' -Dest 'Renamed-Gizmo' -Force 2>$null } |
+            { & $script:ScriptPath -Source 'Resources/Gizmo-Reference.md' -Dest 'Renamed-Gizmo.md' -Force 2>$null } |
                 Should -Throw
         }
 
         It 'reports referencesQualifiedProtectively as null when no pinning occurred' {
-            $output = & $script:ScriptPath -Source 'Resources/Gizmo-Reference.md' -Dest 'Renamed-Gizmo'
+            $output = & $script:ScriptPath -Source 'Resources/Gizmo-Reference.md' -Dest 'Renamed-Gizmo.md'
             $result = $output | ConvertFrom-Json
             # The field is always present (the shape is stable); null when nothing was pinned.
             $result.PSObject.Properties.Name | Should -Contain 'referencesQualifiedProtectively'
@@ -121,17 +124,17 @@ Describe 'move (validate + resolve + scope)' {
         }
 
         It 'rejects kind "project" as invalid_argument (not a PowerShell binding error)' {
-            $err = Invoke-MoveError @{ Source = 'Resources/Gizmo-Reference.md'; Dest = 'Renamed-Gizmo'; Kind = 'project' }
+            $err = Invoke-MoveError @{ Source = 'Resources/Gizmo-Reference.md'; Dest = 'Renamed-Gizmo.md'; Kind = 'project' }
             $err.code | Should -Be 'invalid_argument'
         }
 
         It 'rejects kind "area" as invalid_argument' {
-            $err = Invoke-MoveError @{ Source = 'Resources/Gizmo-Reference.md'; Dest = 'Renamed-Gizmo'; Kind = 'area' }
+            $err = Invoke-MoveError @{ Source = 'Resources/Gizmo-Reference.md'; Dest = 'Renamed-Gizmo.md'; Kind = 'area' }
             $err.code | Should -Be 'invalid_argument'
         }
 
         It 'rejects an unrecognized kind value as invalid_argument' {
-            $err = Invoke-MoveError @{ Source = 'Resources/Gizmo-Reference.md'; Dest = 'Renamed-Gizmo'; Kind = 'note' }
+            $err = Invoke-MoveError @{ Source = 'Resources/Gizmo-Reference.md'; Dest = 'Renamed-Gizmo.md'; Kind = 'note' }
             $err.code | Should -Be 'invalid_argument'
         }
 
@@ -156,15 +159,37 @@ Describe 'move (validate + resolve + scope)' {
         }
 
         It 'reports a naming-convention violation as a warning, not a failure' {
-            $output = & $script:ScriptPath -Source 'Resources/Gizmo-Reference.md' -Dest 'lowercase_name'
+            $output = & $script:ScriptPath -Source 'Resources/Gizmo-Reference.md' -Dest 'lowercase_name.md'
             $result = $output | ConvertFrom-Json
             $result.namingWarnings | Should -Not -BeNullOrEmpty
         }
 
         It 'raises no naming warning for a convention-conformant dest' {
-            $output = & $script:ScriptPath -Source 'Resources/Gizmo-Reference.md' -Dest 'Renamed-Gizmo'
+            $output = & $script:ScriptPath -Source 'Resources/Gizmo-Reference.md' -Dest 'Renamed-Gizmo.md'
             $result = $output | ConvertFrom-Json
             $result.namingWarnings | Should -BeNullOrEmpty
+        }
+    }
+
+    Context 'vault resolution' {
+        # Both failure modes carry a structured code rather than the module's plain text
+        # (Plan-Vault-Tool-Primitives: Error Convention), and refuse ahead of the write lock,
+        # whose mutex name is itself derived from the resolved vault root.
+        It 'refuses an unconfigured vault with unknown_vault' {
+            $err = Invoke-MoveError @{ Source = 'Resources/Gizmo-Reference.md'; Dest = 'Renamed-Gizmo.md'; Vault = 'nope' }
+            $err.code | Should -Be 'unknown_vault'
+            $err.data.vault | Should -Be 'nope'
+        }
+
+        It 'refuses a configured vault whose root is missing with vault_unavailable' {
+            $configPath = Join-Path $script:TempRoot 'with-missing.json'
+            @{ default_vault = 'scratch'; vaults = @{ scratch = $script:VaultDir; gone = (Join-Path $script:TempRoot 'no-such-root') } } |
+                ConvertTo-Json | Set-Content -LiteralPath $configPath
+            $env:VAULT_MCP_VAULTS_JSON = $configPath
+
+            $err = Invoke-MoveError @{ Source = 'Resources/Gizmo-Reference.md'; Dest = 'Renamed-Gizmo.md'; Vault = 'gone' }
+            $err.code | Should -Be 'vault_unavailable'
+            $err.data.reason | Should -Match 'does not exist'
         }
     }
 
@@ -176,32 +201,24 @@ Describe 'move (validate + resolve + scope)' {
         }
 
         It 'renames in place for a bare-name dest, keeping the current parent' {
-            $output = & $script:ScriptPath -Source 'Projects/Widget/Inbox/Plan-Widget-Assembly.md' -Dest 'Renamed-Plan'
+            $output = & $script:ScriptPath -Source 'Projects/Widget/Inbox/Plan-Widget-Assembly.md' -Dest 'Renamed-Plan.md'
             $result = $output | ConvertFrom-Json
             $result.newPath | Should -Be 'Projects/Widget/Inbox/Renamed-Plan.md'
         }
 
         It 'treats a dest containing "/" as a full vault-relative destination' {
-            $output = & $script:ScriptPath -Source 'Resources/Gizmo-Reference.md' -Dest 'Archive/Old-Gizmo'
+            $output = & $script:ScriptPath -Source 'Resources/Gizmo-Reference.md' -Dest 'Archive/Old-Gizmo.md'
             $result = $output | ConvertFrom-Json
             $result.newPath | Should -Be 'Archive/Old-Gizmo.md'
         }
 
         It 'normalizes a leading "/" to the vault root' {
-            $output = & $script:ScriptPath -Source 'Resources/Gizmo-Reference.md' -Dest '/Root-Gizmo'
+            $output = & $script:ScriptPath -Source 'Resources/Gizmo-Reference.md' -Dest '/Root-Gizmo.md'
             $result = $output | ConvertFrom-Json
             $result.newPath | Should -Be 'Root-Gizmo.md'
         }
 
-        It 'does not force a .md extension for a non-note file' {
-            # Test-Vault.md's folder note aside, use a folder move to prove no extension is
-            # forced onto a non-note dest.
-            $output = & $script:ScriptPath -Source 'Projects/Widget' -Dest 'Projects/Widget-Renamed'
-            $result = $output | ConvertFrom-Json
-            $result.newPath | Should -Be 'Projects/Widget-Renamed'
-        }
-
-        It 'leaves an explicit .md extension alone (no double extension)' {
+        It 'takes an explicit .md dest verbatim (no double extension)' {
             $output = & $script:ScriptPath -Source 'Resources/Gizmo-Reference.md' -Dest 'Renamed-Gizmo.md'
             $result = $output | ConvertFrom-Json
             $result.newPath | Should -Be 'Resources/Renamed-Gizmo.md'
@@ -214,7 +231,7 @@ Describe 'move (validate + resolve + scope)' {
         }
 
         It 'allows a case-only rename without already_exists, and reports pureMove: false' {
-            $output = & $script:ScriptPath -Source 'Resources/Gizmo-Reference.md' -Dest 'gizmo-reference'
+            $output = & $script:ScriptPath -Source 'Resources/Gizmo-Reference.md' -Dest 'gizmo-reference.md'
             { $output | ConvertFrom-Json } | Should -Not -Throw
             $result = $output | ConvertFrom-Json
             $result.newPath | Should -Be 'Resources/gizmo-reference.md'
@@ -222,13 +239,13 @@ Describe 'move (validate + resolve + scope)' {
         }
 
         It 'reports pureMove: true when the basename is unchanged' {
-            $output = & $script:ScriptPath -Source 'Resources/Gizmo-Reference.md' -Dest 'Archive/Gizmo-Reference'
+            $output = & $script:ScriptPath -Source 'Resources/Gizmo-Reference.md' -Dest 'Archive/Gizmo-Reference.md'
             $result = $output | ConvertFrom-Json
             $result.pureMove | Should -BeTrue
         }
 
         It 'fails kind_mismatch when Kind asserts folder for a file source' {
-            $err = Invoke-MoveError @{ Source = 'Resources/Gizmo-Reference.md'; Dest = 'Renamed-Gizmo'; Kind = 'folder' }
+            $err = Invoke-MoveError @{ Source = 'Resources/Gizmo-Reference.md'; Dest = 'Renamed-Gizmo.md'; Kind = 'folder' }
             $err.code | Should -Be 'kind_mismatch'
             $err.data.resolvedKind | Should -Be 'file'
             $err.data.assertedKind | Should -Be 'folder'
@@ -241,30 +258,126 @@ Describe 'move (validate + resolve + scope)' {
         }
     }
 
+    Context 'dest extension preservation' {
+        # Plan-Vault-Tool-Primitives (Path Convention): dest must carry the resolved source's
+        # extension, both-absent included. This replaced move's landed ".md" inference - the
+        # tool now neither guesses an extension nor converts one, with no override.
+
+        It 'refuses an extensionless dest for a .md source, naming the correct form' {
+            $err = Invoke-MoveError @{ Source = 'Resources/Gizmo-Reference.md'; Dest = 'Renamed-Gizmo' }
+            $err.code | Should -Be 'invalid_argument'
+            # The message must name the value that works, so the caller retries in ONE call.
+            $err.message | Should -Match "Renamed-Gizmo\.md"
+            $err.data.suggestedDest | Should -Be 'Renamed-Gizmo.md'
+            $err.data.sourceExtension | Should -Be '.md'
+            $err.data.destExtension | Should -BeNullOrEmpty
+            # Refused in validate: nothing moved.
+            Test-Path (Join-Path $script:VaultDir 'Resources/Gizmo-Reference.md') | Should -BeTrue
+        }
+
+        It 'names the correct form as a full path when dest was given as a full path' {
+            $err = Invoke-MoveError @{ Source = 'Resources/Gizmo-Reference.md'; Dest = 'Archive/Old-Gizmo' }
+            $err.code | Should -Be 'invalid_argument'
+            $err.data.suggestedDest | Should -Be 'Archive/Old-Gizmo.md'
+        }
+
+        It 'allows an extensionless dest for an extensionless source (both-absent)' {
+            # LICENSE -> COPYING: file-general moves must handle extensionless files, and
+            # "preserve the extension" is satisfied when both sides have none.
+            Set-Content -LiteralPath (Join-Path $script:VaultDir 'LICENSE') -Value "MIT`n"
+            $output = & $script:ScriptPath -Source 'LICENSE' -Dest 'COPYING'
+            $result = $output | ConvertFrom-Json
+            $result.newPath | Should -Be 'COPYING'
+            Test-Path (Join-Path $script:VaultDir 'COPYING') | Should -BeTrue
+            Test-Path (Join-Path $script:VaultDir 'LICENSE') | Should -BeFalse
+        }
+
+        It 'refuses adding an extension to an extensionless source, naming the bare form' {
+            Set-Content -LiteralPath (Join-Path $script:VaultDir 'LICENSE') -Value "MIT`n"
+            $err = Invoke-MoveError @{ Source = 'LICENSE'; Dest = 'COPYING.md' }
+            $err.code | Should -Be 'invalid_argument'
+            # No trailing dot: the suggestion strips the period along with the extension.
+            $err.data.suggestedDest | Should -Be 'COPYING'
+            Test-Path (Join-Path $script:VaultDir 'LICENSE') | Should -BeTrue
+        }
+
+        It 'allows an extensionless dest for a folder source (a folder has no extension to preserve)' {
+            $output = & $script:ScriptPath -Source 'Projects/Widget' -Dest 'Projects/Widget-Renamed'
+            $result = $output | ConvertFrom-Json
+            $result.kind | Should -Be 'folder'
+            $result.newPath | Should -Be 'Projects/Widget-Renamed'
+        }
+
+        It 'refuses diagram.png -> photo, the case a note-only rule would have missed' {
+            # This silently succeeded under the landed contract, producing an extensionless
+            # file; the source-extension rule catches it without a note-versus-file conditional.
+            Set-Content -LiteralPath (Join-Path $script:VaultDir 'Resources/diagram.png') -Value 'PNGDATA'
+            $err = Invoke-MoveError @{ Source = 'Resources/diagram.png'; Dest = 'photo' }
+            $err.code | Should -Be 'invalid_argument'
+            $err.data.sourceExtension | Should -Be '.png'
+            $err.data.suggestedDest | Should -Be 'photo.png'
+            Test-Path (Join-Path $script:VaultDir 'Resources/diagram.png') | Should -BeTrue
+            Test-Path (Join-Path $script:VaultDir 'Resources/photo') | Should -BeFalse
+        }
+
+        It 'allows diagram.png -> photo.png (the extension is preserved)' {
+            Set-Content -LiteralPath (Join-Path $script:VaultDir 'Resources/diagram.png') -Value 'PNGDATA'
+            $output = & $script:ScriptPath -Source 'Resources/diagram.png' -Dest 'photo.png'
+            $result = $output | ConvertFrom-Json
+            $result.newPath | Should -Be 'Resources/photo.png'
+            Test-Path (Join-Path $script:VaultDir 'Resources/photo.png') | Should -BeTrue
+        }
+
+        It 'refuses a deliberate conversion (notes.txt -> notes.md) with no override available' {
+            Set-Content -LiteralPath (Join-Path $script:VaultDir 'Inbox/notes.txt') -Value "plain`n"
+            $err = Invoke-MoveError @{ Source = 'Inbox/notes.txt'; Dest = 'notes.md' }
+            $err.code | Should -Be 'invalid_argument'
+            $err.data.sourceExtension | Should -Be '.txt'
+            $err.data.destExtension | Should -Be '.md'
+            $err.message | Should -Match 'no override'
+            Test-Path (Join-Path $script:VaultDir 'Inbox/notes.txt') | Should -BeTrue
+        }
+
+        It 'exposes no override parameter for the extension rule' {
+            # There is no -Force, -AllowExtensionChange, or equivalent: an override would have
+            # to bind, and every spelling fails at parameter binding instead.
+            Set-Content -LiteralPath (Join-Path $script:VaultDir 'Inbox/notes.txt') -Value "plain`n"
+            { & $script:ScriptPath -Source 'Inbox/notes.txt' -Dest 'notes.md' -AllowExtensionChange 2>$null } | Should -Throw
+        }
+
+        It 'treats an extension case difference as a spelling, not a conversion' {
+            # ".MD" names the same file type on a case-insensitive filesystem, so it passes and
+            # the caller's chosen spelling is honored verbatim.
+            $output = & $script:ScriptPath -Source 'Resources/Gizmo-Reference.md' -Dest 'Renamed-Gizmo.MD'
+            $result = $output | ConvertFrom-Json
+            $result.newPath | Should -Be 'Resources/Renamed-Gizmo.MD'
+        }
+    }
+
     Context 'scope membership' {
         It 'passes when both source and dest are in scope' {
             $Global:VaultMcpScopeRoots = @{ scratch = @('Resources') }
-            $output = & $script:ScriptPath -Source 'Resources/Gizmo-Reference.md' -Dest 'Renamed-Gizmo'
+            $output = & $script:ScriptPath -Source 'Resources/Gizmo-Reference.md' -Dest 'Renamed-Gizmo.md'
             { $output | ConvertFrom-Json } | Should -Not -Throw
         }
 
         It 'fails out_of_scope naming the source when the source falls outside scope roots' {
             $Global:VaultMcpScopeRoots = @{ scratch = @('Projects') }
-            $err = Invoke-MoveError @{ Source = 'Resources/Gizmo-Reference.md'; Dest = 'Renamed-Gizmo' }
+            $err = Invoke-MoveError @{ Source = 'Resources/Gizmo-Reference.md'; Dest = 'Renamed-Gizmo.md' }
             $err.code | Should -Be 'out_of_scope'
             $err.data.paths | Should -Contain 'Resources/Gizmo-Reference.md'
         }
 
         It 'fails out_of_scope naming the dest when the dest falls outside scope roots' {
             $Global:VaultMcpScopeRoots = @{ scratch = @('Resources') }
-            $err = Invoke-MoveError @{ Source = 'Resources/Gizmo-Reference.md'; Dest = 'Projects/Escaped-Gizmo' }
+            $err = Invoke-MoveError @{ Source = 'Resources/Gizmo-Reference.md'; Dest = 'Projects/Escaped-Gizmo.md' }
             $err.code | Should -Be 'out_of_scope'
             $err.data.paths | Should -Contain 'Projects/Escaped-Gizmo.md'
         }
 
         It 'passes unscoped when the grant has an empty scope-roots set for the vault' {
             $Global:VaultMcpScopeRoots = @{ scratch = @() }
-            $output = & $script:ScriptPath -Source 'Resources/Gizmo-Reference.md' -Dest 'Renamed-Gizmo'
+            $output = & $script:ScriptPath -Source 'Resources/Gizmo-Reference.md' -Dest 'Renamed-Gizmo.md'
             { $output | ConvertFrom-Json } | Should -Not -Throw
         }
 
@@ -272,7 +385,7 @@ Describe 'move (validate + resolve + scope)' {
             # Source and dest are both in Resources; the rewrite must still repair the bare and
             # path-qualified links that live in Projects/ and Inbox/, outside the scope root.
             $Global:VaultMcpScopeRoots = @{ scratch = @('Resources') }
-            $output = & $script:ScriptPath -Source 'Resources/Gizmo-Reference.md' -Dest 'Renamed-Gizmo'
+            $output = & $script:ScriptPath -Source 'Resources/Gizmo-Reference.md' -Dest 'Renamed-Gizmo.md'
             $result = $output | ConvertFrom-Json
             $result.referencesRewritten | Should -Be 6
             (Get-Content (Join-Path $script:VaultDir 'Projects/Widget/Tasks.md') -Raw) | Should -Match '\[\[Renamed-Gizmo'
@@ -281,7 +394,7 @@ Describe 'move (validate + resolve + scope)' {
 
     Context 'reference-rewrite engine' {
         It 'preserves the embed marker, #heading, and |alias, rewriting only the target' {
-            & $script:ScriptPath -Source 'Resources/Gizmo-Reference.md' -Dest 'Renamed-Gizmo' | Out-Null
+            & $script:ScriptPath -Source 'Resources/Gizmo-Reference.md' -Dest 'Renamed-Gizmo.md' | Out-Null
             $plan = Get-Content (Join-Path $script:VaultDir 'Projects/Widget/Inbox/Plan-Widget-Assembly.md') -Raw
             $plan | Should -Match '\[\[Renamed-Gizmo\]\]'
             $plan | Should -Match '\[\[Renamed-Gizmo#Torque Specs\|the torque table\]\]'
@@ -295,7 +408,7 @@ Describe 'move (validate + resolve + scope)' {
             # embed-marker-preservation path is exercised for a file move, not only asserted on
             # a plain wikilink. A bare embed and a path-qualified embed, both with the "!" kept.
             Set-Content -LiteralPath (Join-Path $script:VaultDir 'Inbox/Ref-Embed.md') -Value "Bare ![[Gizmo-Reference]] and qualified ![[Resources/Gizmo-Reference]].`n"
-            & $script:ScriptPath -Source 'Resources/Gizmo-Reference.md' -Dest 'Renamed-Gizmo' | Out-Null
+            & $script:ScriptPath -Source 'Resources/Gizmo-Reference.md' -Dest 'Renamed-Gizmo.md' | Out-Null
             $refs = Get-Content (Join-Path $script:VaultDir 'Inbox/Ref-Embed.md') -Raw
             # Both embeds canonicalize to the bare new name (unique) with the "!" marker intact;
             # the qualified one collapses to bare too, so two "![[Renamed-Gizmo]]" occurrences.
@@ -304,14 +417,14 @@ Describe 'move (validate + resolve + scope)' {
         }
 
         It 'canonicalizes a path-qualified link to the bare new name when it is unique' {
-            & $script:ScriptPath -Source 'Resources/Gizmo-Reference.md' -Dest 'Renamed-Gizmo' | Out-Null
+            & $script:ScriptPath -Source 'Resources/Gizmo-Reference.md' -Dest 'Renamed-Gizmo.md' | Out-Null
             $plan = Get-Content (Join-Path $script:VaultDir 'Projects/Widget/Inbox/Plan-Widget-Assembly.md') -Raw
             # [[Resources/Gizmo-Reference]] -> bare [[Renamed-Gizmo]] (new basename unique).
             $plan | Should -Not -Match '\[\[Resources/'
         }
 
         It 'pureMove repairs path-qualified links but leaves bare links unchanged' {
-            $output = & $script:ScriptPath -Source 'Resources/Gizmo-Reference.md' -Dest 'Archive/Gizmo-Reference'
+            $output = & $script:ScriptPath -Source 'Resources/Gizmo-Reference.md' -Dest 'Archive/Gizmo-Reference.md'
             $result = $output | ConvertFrom-Json
             $result.pureMove | Should -BeTrue
             # Only the one path-qualified link ([[Resources/Gizmo-Reference]]) is repaired;
@@ -324,7 +437,7 @@ Describe 'move (validate + resolve + scope)' {
         }
 
         It 'applies a case-only rename on disk and rewrites bare links to the new case' {
-            $output = & $script:ScriptPath -Source 'Resources/Gizmo-Reference.md' -Dest 'gizmo-reference'
+            $output = & $script:ScriptPath -Source 'Resources/Gizmo-Reference.md' -Dest 'gizmo-reference.md'
             $result = $output | ConvertFrom-Json
             $result.pureMove | Should -BeFalse
             $result.referencesRewritten | Should -Be 6
@@ -348,9 +461,10 @@ Describe 'move (validate + resolve + scope)' {
                 Set-ItResult -Skipped -Because 'creating a symlink needs Developer Mode or elevation'
                 return
             }
-            $output = & $script:ScriptPath -Source 'Resources/Gizmo-Reference.md' -Dest 'Renamed-Gizmo'
+            $output = & $script:ScriptPath -Source 'Resources/Gizmo-Reference.md' -Dest 'Renamed-Gizmo.md'
             $result = $output | ConvertFrom-Json
-            $result.filesSkippedUnreadable | Should -BeGreaterOrEqual 1
+            # Paths, not a count (Return Convention): the envelope names the skipped file.
+            $result.filesSkippedUnreadable | Should -Contain 'Inbox/Dangling.md'
             $result.referencesRewritten | Should -Be 6
         }
     }
@@ -372,7 +486,7 @@ Describe 'move (validate + resolve + scope)' {
             # protect-and-proceed renames and both links FOLLOW the moved file to [[Renamed-Dupe]]
             # (the new basename is unique vault-wide, so a bare emit).
             Set-Content -LiteralPath (Join-Path $script:VaultDir 'Inbox/Refs.md') -Value "See [[Dupe]] and [[A/Dupe]].`n"
-            $output = & $script:ScriptPath -Source 'A/Dupe.md' -Dest 'A/Renamed-Dupe'
+            $output = & $script:ScriptPath -Source 'A/Dupe.md' -Dest 'A/Renamed-Dupe.md'
             { $output | ConvertFrom-Json } | Should -Not -Throw
             $result = $output | ConvertFrom-Json
             $result.referencesRewritten | Should -Be 2
@@ -390,7 +504,7 @@ Describe 'move (validate + resolve + scope)' {
             # pre-move (../A/Dupe.md, 12 chars) but the moved file lands at Resources/Dupe.md
             # (Dupe.md, 7) and would win - so it is PINNED to its pre-move target, A/Dupe.
             Set-Content -LiteralPath (Join-Path $script:VaultDir 'Resources/Note.md') -Value "Link [[Dupe]] here.`n"
-            $output = & $script:ScriptPath -Source 'Resources/Gizmo-Reference.md' -Dest 'Resources/Dupe'
+            $output = & $script:ScriptPath -Source 'Resources/Gizmo-Reference.md' -Dest 'Resources/Dupe.md'
             $result = $output | ConvertFrom-Json
 
             # The moved file's own links emit the full vault path (new basename non-unique).
@@ -406,7 +520,7 @@ Describe 'move (validate + resolve + scope)' {
             # ../B/Dupe.md, A wins). Renaming Gizmo-Reference into Resources/Dupe adds a farther
             # candidate (../Resources/Dupe.md, 20) that does not win - so the link is untouched.
             Set-Content -LiteralPath (Join-Path $script:VaultDir 'Inbox/Refs.md') -Value "See [[Dupe]].`n"
-            $output = & $script:ScriptPath -Source 'Resources/Gizmo-Reference.md' -Dest 'Resources/Dupe'
+            $output = & $script:ScriptPath -Source 'Resources/Gizmo-Reference.md' -Dest 'Resources/Dupe.md'
             $result = $output | ConvertFrom-Json
             $result.referencesQualifiedProtectively | Should -BeNullOrEmpty
             (Get-Content (Join-Path $script:VaultDir 'Inbox/Refs.md') -Raw) | Should -Match '\[\[Dupe\]\]'
@@ -420,7 +534,7 @@ Describe 'move (validate + resolve + scope)' {
             New-Item -ItemType Directory -Path (Join-Path $script:VaultDir 'Far') -Force | Out-Null
             Set-Content -LiteralPath (Join-Path $script:VaultDir 'Far/Dupe.md') -Value "# moved`n"
             Set-Content -LiteralPath (Join-Path $script:VaultDir 'A/B/Link.md') -Value "Points [[Dupe]].`n"
-            $output = & $script:ScriptPath -Source 'Far/Dupe.md' -Dest 'A/B/Dupe'
+            $output = & $script:ScriptPath -Source 'Far/Dupe.md' -Dest 'A/B/Dupe.md'
             $result = $output | ConvertFrom-Json
             $result.pureMove | Should -BeTrue
             $result.referencesQualifiedProtectively.count | Should -Be 1
@@ -436,7 +550,7 @@ Describe 'move (validate + resolve + scope)' {
             New-Item -ItemType Directory -Path (Join-Path $script:VaultDir 'Far/Deep') -Force | Out-Null
             Set-Content -LiteralPath (Join-Path $script:VaultDir 'A/B/Dupe.md') -Value "# moved`n"
             Set-Content -LiteralPath (Join-Path $script:VaultDir 'A/B/Link.md') -Value "Points [[Dupe]].`n"
-            $output = & $script:ScriptPath -Source 'A/B/Dupe.md' -Dest 'Far/Deep/Dupe'
+            $output = & $script:ScriptPath -Source 'A/B/Dupe.md' -Dest 'Far/Deep/Dupe.md'
             $result = $output | ConvertFrom-Json
             $result.pureMove | Should -BeTrue
             # Followed (not pinned): the link tracked the moved file to its new full path.
@@ -447,7 +561,7 @@ Describe 'move (validate + resolve + scope)' {
 
     Context 'folder-note orphan (file move of a folder note)' {
         It 'warns folderNoteOrphaned when a folder note is file-renamed away from its folder name' {
-            $output = & $script:ScriptPath -Source 'Projects/Widget/Widget.md' -Dest 'Renamed-Widget'
+            $output = & $script:ScriptPath -Source 'Projects/Widget/Widget.md' -Dest 'Renamed-Widget.md'
             $result = $output | ConvertFrom-Json
             $result.kind | Should -Be 'file'
             $result.folderNoteOrphaned | Should -BeTrue
@@ -458,7 +572,7 @@ Describe 'move (validate + resolve + scope)' {
             # The moved-away variant (distinct from the rename-away case above): the folder note
             # keeps its basename but leaves its folder, so it is no longer Foo/Foo.md. A pure
             # relocation (basename unchanged) still reports the broken invariant.
-            $output = & $script:ScriptPath -Source 'Projects/Widget/Widget.md' -Dest 'Inbox/Widget'
+            $output = & $script:ScriptPath -Source 'Projects/Widget/Widget.md' -Dest 'Inbox/Widget.md'
             $result = $output | ConvertFrom-Json
             $result.kind | Should -Be 'file'
             $result.pureMove | Should -BeTrue
@@ -679,7 +793,7 @@ Describe 'move (validate + resolve + scope)' {
             $tasks = Join-Path $script:VaultDir 'Projects/Widget/Tasks.md'
             (Get-Item -LiteralPath $tasks).IsReadOnly = $true
             try {
-                $err = Invoke-MoveError @{ Source = 'Resources/Gizmo-Reference.md'; Dest = 'Renamed-Gizmo' }
+                $err = Invoke-MoveError @{ Source = 'Resources/Gizmo-Reference.md'; Dest = 'Renamed-Gizmo.md' }
                 $err.code | Should -Be 'readonly_targets'
                 $err.data.readOnlyFiles | Should -Contain 'Projects/Widget/Tasks.md'
                 # Caught pre-flight: the source is not moved.
@@ -701,7 +815,7 @@ Describe 'move (validate + resolve + scope)' {
             $tasks = Join-Path $script:VaultDir 'Projects/Widget/Tasks.md'
             $handle = [System.IO.File]::Open($tasks, [System.IO.FileMode]::Open, [System.IO.FileAccess]::Read, [System.IO.FileShare]::Read)
             try {
-                $err = Invoke-MoveError @{ Source = 'Resources/Gizmo-Reference.md'; Dest = 'Renamed-Gizmo' }
+                $err = Invoke-MoveError @{ Source = 'Resources/Gizmo-Reference.md'; Dest = 'Renamed-Gizmo.md' }
                 $err.code | Should -Be 'partial_state'
                 # The move landed before the rewrite failed - the torn state partial_state names.
                 $err.data.directoryMoved | Should -BeTrue
@@ -752,7 +866,7 @@ Describe 'move (validate + resolve + scope)' {
                 $prevTimeout = $env:VAULT_MCP_WRITE_LOCK_TIMEOUT_SECONDS
                 $env:VAULT_MCP_WRITE_LOCK_TIMEOUT_SECONDS = '1'
                 try {
-                    $err = Invoke-MoveError @{ Source = 'Resources/Gizmo-Reference.md'; Dest = 'Renamed-Gizmo' }
+                    $err = Invoke-MoveError @{ Source = 'Resources/Gizmo-Reference.md'; Dest = 'Renamed-Gizmo.md' }
                     $err.code | Should -Be 'lock_timeout'
                     # Contended out before any mutation - the source is untouched.
                     Test-Path (Join-Path $script:VaultDir 'Resources/Gizmo-Reference.md') | Should -BeTrue
@@ -769,6 +883,163 @@ Describe 'move (validate + resolve + scope)' {
             finally {
                 Stop-Job $holder -ErrorAction SilentlyContinue
                 Remove-Job $holder -Force -ErrorAction SilentlyContinue
+            }
+        }
+    }
+
+    Context 'write-class envelope' {
+        # Plan-Vault-Tool-Primitives (Return Convention): capabilitiesUsed and
+        # filesSkippedUnreadable[] appear on EVERY write-class return, [] when empty;
+        # lockWarning is absent unless an abandoned mutex was inherited.
+
+        It 'emits capabilitiesUsed as an empty array (move asserts no key over its floor)' {
+            $output = & $script:ScriptPath -Source 'Resources/Gizmo-Reference.md' -Dest 'Renamed-Gizmo.md'
+            $result = $output | ConvertFrom-Json
+            $result.PSObject.Properties.Name | Should -Contain 'capabilitiesUsed'
+            # Present even though move can never populate it - the audit echo is uniform.
+            $output | Should -Match '"capabilitiesUsed":\s*\[\]'
+        }
+
+        It 'emits filesSkippedUnreadable as an array of paths, not an integer count' {
+            $output = & $script:ScriptPath -Source 'Resources/Gizmo-Reference.md' -Dest 'Renamed-Gizmo.md'
+            $result = $output | ConvertFrom-Json
+            $result.PSObject.Properties.Name | Should -Contain 'filesSkippedUnreadable'
+            # The landed integer form is retired: an empty run emits [], never 0.
+            $output | Should -Match '"filesSkippedUnreadable":\s*\[\]'
+            $result.filesSkippedUnreadable | Should -Not -BeOfType [int]
+        }
+
+        It 'omits lockWarning entirely when the lock was not abandoned' {
+            $output = & $script:ScriptPath -Source 'Resources/Gizmo-Reference.md' -Dest 'Renamed-Gizmo.md'
+            $result = $output | ConvertFrom-Json
+            # Absent, not null: an always-present null would read as checked-and-clear.
+            $result.PSObject.Properties.Name | Should -Not -Contain 'lockWarning'
+        }
+
+        It 'carries the same envelope on a folder move' {
+            $output = & $script:ScriptPath -Source 'Projects/Widget' -Dest 'Projects/Renamed-Widget'
+            $result = $output | ConvertFrom-Json
+            $output | Should -Match '"capabilitiesUsed":\s*\[\]'
+            $output | Should -Match '"filesSkippedUnreadable":\s*\[\]'
+            $result.PSObject.Properties.Name | Should -Not -Contain 'lockWarning'
+        }
+
+        It 'carries the same envelope on an apply:false plan' {
+            $output = & $script:ScriptPath -Source 'Resources/Gizmo-Reference.md' -Dest 'Renamed-Gizmo.md' -Apply:$false
+            $result = $output | ConvertFrom-Json
+            $output | Should -Match '"capabilitiesUsed":\s*\[\]'
+            $output | Should -Match '"filesSkippedUnreadable":\s*\[\]'
+            $result.PSObject.Properties.Name | Should -Not -Contain 'lockWarning'
+        }
+    }
+
+    Context 'apply (assess-before-mutate)' {
+        # Plan-Vault-Tool-Primitives (Assess-Before-Mutate Convention): apply defaults TRUE on
+        # move (mutation is the point of the call); apply:false runs plan and validate and
+        # returns the full report without moving or rewriting anything.
+
+        It 'defaults applied: true and mutates, with no apply argument supplied' {
+            $output = & $script:ScriptPath -Source 'Resources/Gizmo-Reference.md' -Dest 'Renamed-Gizmo.md'
+            $result = $output | ConvertFrom-Json
+            $result.applied | Should -BeTrue
+            Test-Path (Join-Path $script:VaultDir 'Resources/Renamed-Gizmo.md') | Should -BeTrue
+        }
+
+        It 'apply:false returns applied: false and mutates nothing' {
+            $tasksBefore = Get-Content (Join-Path $script:VaultDir 'Projects/Widget/Tasks.md') -Raw
+            $planBefore = Get-Content (Join-Path $script:VaultDir 'Projects/Widget/Inbox/Plan-Widget-Assembly.md') -Raw
+
+            $output = & $script:ScriptPath -Source 'Resources/Gizmo-Reference.md' -Dest 'Renamed-Gizmo.md' -Apply:$false
+            $result = $output | ConvertFrom-Json
+            $result.applied | Should -BeFalse
+
+            # Filesystem untouched: the source is still there, the destination was never
+            # created, and no rewrite target's bytes changed.
+            Test-Path (Join-Path $script:VaultDir 'Resources/Gizmo-Reference.md') | Should -BeTrue
+            Test-Path (Join-Path $script:VaultDir 'Resources/Renamed-Gizmo.md') | Should -BeFalse
+            (Get-Content (Join-Path $script:VaultDir 'Projects/Widget/Tasks.md') -Raw) | Should -BeExactly $tasksBefore
+            (Get-Content (Join-Path $script:VaultDir 'Projects/Widget/Inbox/Plan-Widget-Assembly.md') -Raw) | Should -BeExactly $planBefore
+        }
+
+        It 'apply:false returns the COMPLETE report, not a stub' {
+            $output = & $script:ScriptPath -Source 'Resources/Gizmo-Reference.md' -Dest 'Renamed-Gizmo.md' -Apply:$false
+            $result = $output | ConvertFrom-Json
+            $result.oldPath | Should -Be 'Resources/Gizmo-Reference.md'
+            $result.newPath | Should -Be 'Resources/Renamed-Gizmo.md'
+            $result.kind | Should -Be 'file'
+            $result.pureMove | Should -BeFalse
+            # The would-rewrite set: the same six occurrences across the same three files the
+            # applied call reports.
+            $result.referencesRewritten | Should -Be 6
+            $result.filesRewritten.Count | Should -Be 3
+            $result.filesRewritten | Should -Contain 'Projects/Widget/Tasks.md'
+            foreach ($field in 'referencesQualifiedProtectively', 'namingWarnings', 'folderNoteRenamed', 'folderNoteOrphaned', 'containedFilesMoved') {
+                $result.PSObject.Properties.Name | Should -Contain $field
+            }
+        }
+
+        It 'apply:false is a faithful prediction: the plan and the result agree field for field' {
+            # The only difference between a plan and its own result is `applied` - filesRewritten
+            # in particular names the same POST-move paths in both, so a caller never has to
+            # translate between two path vocabularies.
+            $plan = & $script:ScriptPath -Source 'Resources/Gizmo-Reference.md' -Dest 'Renamed-Gizmo.md' -Apply:$false | ConvertFrom-Json
+            $applied = & $script:ScriptPath -Source 'Resources/Gizmo-Reference.md' -Dest 'Renamed-Gizmo.md' | ConvertFrom-Json
+
+            $plan.applied | Should -BeFalse
+            $applied.applied | Should -BeTrue
+            foreach ($field in 'oldPath', 'newPath', 'kind', 'pureMove', 'referencesRewritten') {
+                $plan.$field | Should -Be $applied.$field
+            }
+            (@($plan.filesRewritten) -join '|') | Should -BeExactly (@($applied.filesRewritten) -join '|')
+        }
+
+        It 'apply:false predicts a self-referential rewrite at its post-move path' {
+            # The source note links to itself; applied, the rewrite is written at the
+            # DESTINATION. The plan must name it there too, not at the source path.
+            Add-Content -LiteralPath (Join-Path $script:VaultDir 'Resources/Gizmo-Reference.md') -Value "`nSelf [[Resources/Gizmo-Reference]].`n"
+            $plan = & $script:ScriptPath -Source 'Resources/Gizmo-Reference.md' -Dest 'Renamed-Gizmo.md' -Apply:$false | ConvertFrom-Json
+            $plan.filesRewritten | Should -Contain 'Resources/Renamed-Gizmo.md'
+            $plan.filesRewritten | Should -Not -Contain 'Resources/Gizmo-Reference.md'
+        }
+
+        It 'apply:false on a folder move reports the full folder report and moves nothing' {
+            $output = & $script:ScriptPath -Source 'Projects/Widget' -Dest 'Projects/Renamed-Widget' -Apply:$false
+            $result = $output | ConvertFrom-Json
+            $result.applied | Should -BeFalse
+            $result.kind | Should -Be 'folder'
+            # The would-rename and would-move sets are reported in full.
+            $result.folderNoteRenamed.oldPath | Should -Be 'Projects/Widget/Widget.md'
+            $result.folderNoteRenamed.newPath | Should -Be 'Projects/Renamed-Widget/Renamed-Widget.md'
+            $result.containedFilesMoved | Should -Contain 'Projects/Renamed-Widget/Tasks.md'
+            $result.filesRewritten | Should -Not -BeNullOrEmpty
+
+            # Nothing on disk changed.
+            Test-Path (Join-Path $script:VaultDir 'Projects/Widget/Widget.md') | Should -BeTrue
+            Test-Path (Join-Path $script:VaultDir 'Projects/Renamed-Widget') | Should -BeFalse
+            (Get-Content (Join-Path $script:VaultDir 'Resources/Gizmo-Reference.md') -Raw) | Should -Match '\[\[Widget\]\]'
+        }
+
+        It 'apply:false still refuses in validate (already_exists), mutating nothing' {
+            # A plan is not a bypass: every validate-phase refusal fires exactly as it would
+            # under apply:true.
+            $err = Invoke-MoveError @{ Source = 'Resources/Gizmo-Reference.md'; Dest = 'Projects/Widget/Tasks.md'; Apply = $false }
+            $err.code | Should -Be 'already_exists'
+        }
+
+        It 'apply:false still refuses an extension change' {
+            $err = Invoke-MoveError @{ Source = 'Resources/Gizmo-Reference.md'; Dest = 'Renamed-Gizmo'; Apply = $false }
+            $err.code | Should -Be 'invalid_argument'
+        }
+
+        It 'apply:false still runs the read-only pre-flight' {
+            $tasks = Join-Path $script:VaultDir 'Projects/Widget/Tasks.md'
+            (Get-Item -LiteralPath $tasks).IsReadOnly = $true
+            try {
+                $err = Invoke-MoveError @{ Source = 'Resources/Gizmo-Reference.md'; Dest = 'Renamed-Gizmo.md'; Apply = $false }
+                $err.code | Should -Be 'readonly_targets'
+            }
+            finally {
+                (Get-Item -LiteralPath $tasks).IsReadOnly = $false
             }
         }
     }
@@ -820,7 +1091,7 @@ Describe 'move standalone invocability' {
         # the module's own default-path fallback (module-relative vaults.json) is what
         # standalone invocation against the real vault would otherwise use.
         $psExe = (Get-Process -Id $PID).Path
-        $rawOutput = & $psExe -NoProfile -NonInteractive -Command "`$env:VAULT_MCP_VAULTS_JSON = '$($script:StandaloneConfigPath)'; & '$($script:ScriptPath)' -Source 'Resources/Gizmo-Reference.md' -Dest 'Renamed-Gizmo'"
+        $rawOutput = & $psExe -NoProfile -NonInteractive -Command "`$env:VAULT_MCP_VAULTS_JSON = '$($script:StandaloneConfigPath)'; & '$($script:ScriptPath)' -Source 'Resources/Gizmo-Reference.md' -Dest 'Renamed-Gizmo.md'"
         $LASTEXITCODE | Should -Be 0
 
         { $rawOutput | ConvertFrom-Json } | Should -Not -Throw
@@ -833,7 +1104,7 @@ Describe 'move standalone invocability' {
 
     It 'still degrades open (no scope enforcement) with no injected VaultMcpScopeRoots' {
         $psExe = (Get-Process -Id $PID).Path
-        $rawOutput = & $psExe -NoProfile -NonInteractive -Command "`$env:VAULT_MCP_VAULTS_JSON = '$($script:StandaloneConfigPath)'; & '$($script:ScriptPath)' -Source 'Projects/Widget/Tasks.md' -Dest 'Renamed-Tasks'"
+        $rawOutput = & $psExe -NoProfile -NonInteractive -Command "`$env:VAULT_MCP_VAULTS_JSON = '$($script:StandaloneConfigPath)'; & '$($script:ScriptPath)' -Source 'Projects/Widget/Tasks.md' -Dest 'Renamed-Tasks.md'"
         $LASTEXITCODE | Should -Be 0
         { $rawOutput | ConvertFrom-Json } | Should -Not -Throw
     }
@@ -848,7 +1119,7 @@ Describe 'move standalone invocability' {
         $prev = $env:VAULT_MCP_VAULTS_JSON
         $env:VAULT_MCP_VAULTS_JSON = $script:StandaloneConfigPath
         try {
-            $rawOutput = & $psExe -NoProfile -NonInteractive -File $script:ScriptPath -Source 'Resources/Gizmo-Reference.md' -Dest 'Renamed-Gizmo'
+            $rawOutput = & $psExe -NoProfile -NonInteractive -File $script:ScriptPath -Source 'Resources/Gizmo-Reference.md' -Dest 'Renamed-Gizmo.md'
             $LASTEXITCODE | Should -Be 0
             { $rawOutput | ConvertFrom-Json } | Should -Not -Throw
             $result = $rawOutput | ConvertFrom-Json

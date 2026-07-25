@@ -172,6 +172,35 @@ Describe 'grep' {
         }
     }
 
+    Context 'vault resolution' {
+        # Both failure modes carry a structured code rather than the module's plain text
+        # (Plan-Vault-Tool-Primitives: Error Convention), so the refusal is machine-routable
+        # in a standalone run as well as under the dispatcher.
+        It 'refuses an unconfigured vault with unknown_vault' {
+            $err = Invoke-GrepError -Params @{ Pattern = 'quorvium'; Vault = 'nope' }
+            $err.code | Should -Be 'unknown_vault'
+            $err.data.vault | Should -Be 'nope'
+        }
+
+        It 'refuses a configured vault whose root is missing with vault_unavailable' {
+            $configPath = Join-Path $script:TempRoot 'with-missing.json'
+            @{ default_vault = 'scratch'; vaults = @{ scratch = $script:VaultDir; gone = (Join-Path $script:TempRoot 'no-such-root') } } |
+                ConvertTo-Json | Set-Content -LiteralPath $configPath
+            $env:VAULT_MCP_VAULTS_JSON = $configPath
+
+            $err = Invoke-GrepError -Params @{ Pattern = 'quorvium'; Vault = 'gone' }
+            $err.code | Should -Be 'vault_unavailable'
+            $err.data.reason | Should -Match 'does not exist'
+        }
+
+        It 'classifies an unconfigured vault as unknown_vault even with a path argument' {
+            # The path check resolves the vault internally, so without the up-front resolution
+            # this surfaced as grep's invalid_argument carrying module prose.
+            $err = Invoke-GrepError -Params @{ Pattern = 'quorvium'; Path = 'Projects'; Vault = 'nope' }
+            $err.code | Should -Be 'unknown_vault'
+        }
+    }
+
     Context 'errors - ripgrep classification (spec pinning tests)' {
         It 'maps a malformed regex to invalid_pattern carrying rg stderr (regex-parse signature)' {
             $err = Invoke-GrepError -Params @{ Pattern = '(' }

@@ -1,4 +1,5 @@
-# Public/ToolResult.ps1 - tool-script error/result JSON shaping and name-convention check.
+# Public/ToolResult.ps1 - tool-script error/result JSON shaping, structured vault resolution,
+# and the name-convention check.
 # PowerShell-only: these serve the tool-script contract (Plan-Vault-Tool-Primitives) and have
 # no C# counterpart in VaultAccess.cs. See ../VaultAccess.psm1 for the full mirror policy.
 
@@ -34,6 +35,50 @@ function New-VaultToolError {
     $err = [ordered]@{ code = $Code; message = $Message }
     if ($PSBoundParameters.ContainsKey('Data')) { $err.data = $Data }
     $err | ConvertTo-Json -Compress -Depth 10
+}
+
+function Resolve-VaultToolRoot {
+    <#
+    .SYNOPSIS
+    Tool-facing vault resolution: returns Resolve-VaultRoot's @{ Name; Root } object, and
+    converts its two failure modes into the structured `{code, message, data?}` errors
+    Plan-Vault-Tool-Primitives's Error Convention requires - `unknown_vault` for a name no
+    vaults.json entry configures, `vault_unavailable` for a configured vault whose root
+    directory was missing at load and was therefore skipped (Initialize-VaultAccess). Both
+    codes are cross-tool core codes, so every tool script calls this instead of
+    Resolve-VaultRoot and a resolution refusal is machine-routable under the dispatcher and
+    under a standalone `pwsh -File` run alike.
+
+    Resolve-VaultRoot itself keeps throwing plain text - it is mirrored core - and its
+    message is carried through verbatim as `message`, so both sides still say the same
+    thing and only the envelope differs.
+
+    Config-load failures (missing or malformed vaults.json) are not vault resolution and
+    carry no code here - they propagate from Get-VaultAccessConfig unchanged.
+    .PARAMETER Vault
+    Vault name to resolve; empty or omitted resolves the configured default vault, exactly
+    as Resolve-VaultRoot.
+    #>
+    [CmdletBinding()]
+    param(
+        [string] $Vault
+    )
+
+    # The config is read before the attempt so the failure branch classifies from the config
+    # state (which map holds the name) rather than by matching Resolve-VaultRoot's message
+    # text - the two codes stay distinct even if that wording changes.
+    $config = Get-VaultAccessConfig
+    $name = if ([string]::IsNullOrWhiteSpace($Vault)) { $config.DefaultVault } else { $Vault }
+
+    try {
+        return Resolve-VaultRoot -Vault $Vault
+    }
+    catch {
+        if ($config.SkippedVaults.ContainsKey($name)) {
+            throw (New-VaultToolError -Code 'vault_unavailable' -Message $_.Exception.Message -Data @{ vault = $name; reason = $config.SkippedVaults[$name] })
+        }
+        throw (New-VaultToolError -Code 'unknown_vault' -Message $_.Exception.Message -Data @{ vault = $name; configuredVaults = @($config.Vaults.Keys) })
+    }
 }
 
 function ConvertTo-VaultToolResult {

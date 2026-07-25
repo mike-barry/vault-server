@@ -46,6 +46,12 @@ if ([string]::IsNullOrWhiteSpace($Pattern)) {
     throw (New-VaultToolError -Code 'invalid_argument' -Message 'pattern is empty or whitespace-only.' -Data @{ pattern = $Pattern })
 }
 
+# Vault resolution before enumeration: Get-VaultFilePath resolves the vault internally through
+# the mirrored-core Resolve-VaultRoot, which raises plain text, so glob resolves first to refuse
+# an unconfigured name as unknown_vault and a configured-but-root-missing vault as
+# vault_unavailable (Plan-Vault-Tool-Primitives: Error Convention).
+[void](Resolve-VaultToolRoot -Vault $Vault)
+
 # Tier-1 plain text: one vault-relative, forward-slash path per line, in ripgrep's order (no
 # sorting). Get-VaultFilePath applies the scope post-filter and the vault-root containment guard;
 # no matches yields no output, per the native Glob convention. Scope roots default to the ambient

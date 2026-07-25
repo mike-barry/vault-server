@@ -13,7 +13,8 @@ Vault-relative path of the file or folder to move.
 .PARAMETER Dest
 Dual semantics on the "/" discriminator: a bare name (no "/") renames in place, keeping
 the current parent; a value containing "/" is the full vault-relative destination. A
-leading "/" targets the vault root. ".md" is optional for notes.
+leading "/" targets the vault root. Dest must preserve the source's extension, both-absent
+included - ".md" is never inferred and an extension is never converted.
 .PARAMETER Kind
 Intent assertion - "file" or "folder" - inferred from the source's shape when omitted;
 fails fast (kind_mismatch) when supplied and wrong. Deliberately not a ValidateSet: the
@@ -22,22 +23,32 @@ spec requires "project"/"area" to be rejected with move's own invalid_argument J
 error, so any value reaches the script body for in-script validation.
 .PARAMETER Vault
 The vault to operate in. Defaults to the configured default vault.
+.PARAMETER Apply
+Mutation opt-in, default true (mutation is the point of a move). False runs plan and
+validate and returns the full report - what would be moved, renamed, and rewritten -
+without touching the vault; the return's `applied` field distinguishes a plan from a
+result. See Plan-Vault-Tool-Primitives's Assess-Before-Mutate Convention.
+
+Declared last so it appends to the existing positional order rather than displacing
+$Vault, which a standalone positional caller already binds at position 4.
 .NOTES
 OpClass: content:write
 
 move asserts no additional op class ("key") beyond its content:write floor, even when a
 reference rewrite lands inside nav.*/agent.* frontmatter - its rewrites preserve routing
-intent rather than author it. See Plan-Tool-Move's Op Classes section. Runs under the
-per-vault write lock as plan -> validate -> apply once the later slices land; this slice's
-scriptblock performs the full validate phase (no apply yet) inside that same lock, since
-validation reads link-graph-adjacent vault state (existence, occupancy, scope) that a
-concurrent operation could invalidate between resolution and a later slice's apply.
+intent rather than author it, so `capabilitiesUsed` is always empty. See Plan-Tool-Move's
+Op Classes section. Runs under the per-vault write lock as plan -> validate -> apply;
+apply:false returns after validate, having mutated nothing. The return carries the
+write-class envelope (Plan-Vault-Tool-Primitives: Return Convention): capabilitiesUsed and
+filesSkippedUnreadable[] always, [] when empty; lockWarning only when an abandoned mutex
+was inherited.
 #>
 param(
     [Parameter(Mandatory)] [string] $Source,
     [Parameter(Mandatory)] [string] $Dest,
     [string] $Kind,
-    [string] $Vault
+    [string] $Vault,
+    [bool] $Apply = $true
 )
 
 Set-StrictMode -Version Latest
@@ -70,35 +81,55 @@ function Resolve-VaultMoveDestPath {
     Constructs the dest vault-relative path from the raw Dest argument per the spec's dual
     bare-name/full-path semantics: a bare name (no "/") renames in place, keeping the
     source's current parent; a value containing "/" is read as the full vault-relative
-    destination, with a leading "/" (vault-root spelling) normalized away. ".md" is
-    appended when missing, but only when the source is itself a markdown note - a non-md
-    file or a folder gets no forced extension.
+    destination, with a leading "/" (vault-root spelling) normalized away.
+
+    No extension is ever inferred or appended - the path is taken verbatim after separator
+    normalization (Plan-Vault-Tool-Primitives: Path Convention). Whether the resulting
+    basename carries the source's extension is a separate, refusing check in the validate
+    phase; this function only shapes the path.
 
     Dest is constructed, not resolved (Plan-Tool-Move): it names a target that does not yet
     exist, so this never touches the filesystem.
     #>
     param(
         [Parameter(Mandatory)] [string] $RawDest,
-        [Parameter(Mandatory)] [string] $SourcePath,
-        [Parameter(Mandatory)] [bool] $IsNote
+        [Parameter(Mandatory)] [string] $SourcePath
     )
 
     $trimmed = $RawDest.Trim().Replace('\', '/')
     if ($trimmed.Contains('/')) {
         # Full vault-relative destination; a leading "/" (vault root) is normalized away.
-        $destPath = $trimmed.TrimStart('/')
+        $trimmed.TrimStart('/')
     }
     else {
         # Bare name: rename in place, keeping the source's current parent folder.
         $slashIndex = $SourcePath.LastIndexOf('/')
         $parent = if ($slashIndex -ge 0) { $SourcePath.Substring(0, $slashIndex) } else { '' }
-        $destPath = if ($parent) { "$parent/$trimmed" } else { $trimmed }
+        if ($parent) { "$parent/$trimmed" } else { $trimmed }
     }
+}
 
-    if ($IsNote -and -not $destPath.ToLowerInvariant().EndsWith('.md')) {
-        $destPath = "$destPath.md"
+function Get-VaultMoveDestSuggestion {
+    <#
+    .SYNOPSIS
+    Rewrites the caller's raw Dest argument to carry $Extension, so an extension-preservation
+    refusal can name the exact value that would have worked and the caller retries in one
+    call. Operates on the raw spelling (bare name, relative path, or "/"-rooted path) rather
+    than the constructed path, because that is what the caller passes back. An empty
+    $Extension strips the extension AND its period by hand rather than through
+    ChangeExtension: PowerShell binds $null to that overload's string parameter as "", which
+    leaves a trailing dot - itself an invalid basename, so the suggestion would not work.
+    #>
+    param(
+        [Parameter(Mandatory)] [string] $RawDest,
+        [Parameter(Mandatory)] [AllowEmptyString()] [string] $Extension
+    )
+    $normalized = $RawDest.Trim().Replace('\', '/')
+    if ([string]::IsNullOrEmpty($Extension)) {
+        $current = [System.IO.Path]::GetExtension($normalized)
+        if ($current) { $normalized.Substring(0, $normalized.Length - $current.Length) } else { $normalized }
     }
-    $destPath
+    else { [System.IO.Path]::ChangeExtension($normalized, $Extension) }
 }
 
 # ---------------------------------------------------------------------------
@@ -467,6 +498,13 @@ function Convert-VaultFolderLinkReferences {
     }
 }
 
+# Vault resolution before the write lock: the lock's mutex name is derived from the resolved
+# vault root, so Invoke-VaultWriteLock resolves the vault itself and would raise the
+# mirrored-core plain text before the locked scriptblock ever runs. Resolving here refuses an
+# unconfigured name as unknown_vault and a configured-but-root-missing vault as
+# vault_unavailable (Plan-Vault-Tool-Primitives: Error Convention), with nothing locked.
+[void](Resolve-VaultToolRoot -Vault $Vault)
+
 $lockAbandoned = $false
 try {
     $result = Invoke-VaultWriteLock -Vault $Vault -Abandoned ([ref]$lockAbandoned) -ScriptBlock {
@@ -522,8 +560,9 @@ try {
 
     $isNote = $isFile -and $sourcePath.ToLowerInvariant().EndsWith('.md')
 
-    # --- Construct dest from the raw Dest argument's dual bare-name/full-path semantics. ---
-    $destPath = Resolve-VaultMoveDestPath -RawDest $Dest -SourcePath $sourcePath -IsNote $isNote
+    # --- Construct dest from the raw Dest argument's dual bare-name/full-path semantics.
+    # Verbatim: no extension is inferred (Plan-Vault-Tool-Primitives: Path Convention). ---
+    $destPath = Resolve-VaultMoveDestPath -RawDest $Dest -SourcePath $sourcePath
 
     $sourceBasename = ($sourcePath -split '/')[-1]
     $destBasename = ($destPath -split '/')[-1]
@@ -547,6 +586,33 @@ try {
     # --- link-breaking / OS-invalid characters in the dest basename. ---
     if (-not (Test-VaultMoveDestBasenameValid -Basename $destBasename)) {
         throw (New-VaultToolError -Code 'invalid_argument' -Message "dest basename contains a link-breaking or OS-invalid character: $destBasename")
+    }
+
+    # --- Extension preservation. dest must carry the resolved source's extension,
+    # both-absent included (Plan-Vault-Tool-Primitives: Path Convention). This is the whole
+    # of move's extension policy: nothing is inferred and nothing is converted, because
+    # changing what a file *is* is not a move primitive's job - so "Foo.md" -> "Bar" and
+    # "diagram.png" -> "photo" both refuse, "LICENSE" -> "COPYING" passes, and there is no
+    # override. A folder source has no extension to preserve, so the rule is file-only; the
+    # check needs only the resolved source, never a note-versus-file conditional. The
+    # message names the value that would have worked so the caller retries in one call. ---
+    if ($resolvedKind -eq 'file') {
+        $sourceExtension = [System.IO.Path]::GetExtension($sourceBasename)
+        $destExtension = [System.IO.Path]::GetExtension($destBasename)
+        # Case-insensitive: the filesystem is, and ".MD" names the same file type as ".md",
+        # so a case difference is a spelling the caller chose, not a conversion.
+        if ($destExtension -ine $sourceExtension) {
+            $suggestion = Get-VaultMoveDestSuggestion -RawDest $Dest -Extension $sourceExtension
+            $sourceLabel = if ($sourceExtension) { "extension '$sourceExtension'" } else { 'no extension' }
+            $destLabel = if ($destExtension) { "extension '$destExtension'" } else { 'no extension' }
+            throw (New-VaultToolError -Code 'invalid_argument' -Message "dest must preserve the source's extension: source '$sourceBasename' has $sourceLabel but dest '$destBasename' has $destLabel. Retry with dest '$suggestion'. move never infers or converts an extension, and there is no override." -Data @{
+                    source          = $sourcePath
+                    dest            = $destPath
+                    sourceExtension = $sourceExtension
+                    destExtension   = $destExtension
+                    suggestedDest   = $suggestion
+                })
+        }
     }
 
     # --- Naming-convention check: warn only, never fail the operation. ---
@@ -698,7 +764,9 @@ try {
         $pinnedFiles = [System.Collections.Generic.List[string]]::new()
         $referencesRewritten = 0
         $referencesPinned = 0
-        $filesSkippedUnreadable = 0
+        # Paths, not a count (Plan-Vault-Tool-Primitives: Return Convention) - the count is
+        # derivable and the paths are the actionable half.
+        $filesSkippedUnreadable = [System.Collections.Generic.List[string]]::new()
 
         foreach ($rel in (Get-VaultNotePath -Vault $Vault -ScopeRoots $null)) {
             $full = Resolve-VaultPath -Path $rel -Vault $Vault
@@ -706,7 +774,7 @@ try {
                 $content = [System.IO.File]::ReadAllText($full)
             }
             catch {
-                if (Test-VaultNoteMissingError -ErrorRecord $_) { $filesSkippedUnreadable++; continue }
+                if (Test-VaultNoteMissingError -ErrorRecord $_) { $filesSkippedUnreadable.Add($rel); continue }
                 throw (New-VaultToolError -Code 'read_failure' -Message "Could not read '$rel' during the reference scan: $($_.Exception.Message)" -Data @{ path = $rel; error = $_.Exception.Message })
             }
 
@@ -750,6 +818,39 @@ try {
         }
         if ($readOnlyFiles.Count -gt 0) {
             throw (New-VaultToolError -Code 'readonly_targets' -Message "The move cannot proceed: $($readOnlyFiles.Count) target file(s) are read-only: $($readOnlyFiles.ToArray() -join ', ')." -Data @{ readOnlyFiles = $readOnlyFiles.ToArray() })
+        }
+
+        # =======================================================================
+        # ASSESS-BEFORE-MUTATE (folder). apply:false stops here (Plan-Vault-Tool-Primitives:
+        # Assess-Before-Mutate Convention): plan and validate have both run, so the report is
+        # complete, and nothing above this line has written to the vault.
+        #
+        # filesRewritten holds the WOULD-rewrite set at the POST-move paths the same call
+        # with apply:true would report - a contained note is named where it will live, not
+        # where it lives now - so a plan is a faithful prediction of its own result rather
+        # than a second path vocabulary the caller has to translate. containedFilesMoved and
+        # folderNoteRenamed read the same way (would-move, would-rename). `applied: false` is
+        # the single field that distinguishes a plan from a result.
+        # =======================================================================
+        if (-not $Apply) {
+            return [ordered]@{
+                oldPath                         = $sourcePath
+                newPath                         = $destPath
+                kind                            = $resolvedKind
+                applied                         = $false
+                pureMove                        = $pureMove
+                referencesRewritten             = $referencesRewritten
+                filesRewritten                  = @($rewriteTargets | ForEach-Object {
+                        if ($_.Path.StartsWith($folderPrefix, [System.StringComparison]::OrdinalIgnoreCase)) { & $remapContained $_.Path } else { $_.Path }
+                    })
+                referencesQualifiedProtectively = if ($referencesPinned -gt 0) { [ordered]@{ count = $referencesPinned; files = $pinnedFiles.ToArray() } } else { $null }
+                folderNoteOrphaned              = $false
+                namingWarnings                  = $namingWarnings
+                folderNoteRenamed               = if ($folderNoteBasenameChanged) { [ordered]@{ oldPath = $folderNoteOldRel; newPath = $folderNoteNewRel } } else { $null }
+                containedFilesMoved             = @($containedRels | ForEach-Object { & $remapContained $_ })
+                capabilitiesUsed                = @()
+                filesSkippedUnreadable          = $filesSkippedUnreadable.ToArray()
+            }
         }
 
         # =======================================================================
@@ -826,16 +927,19 @@ try {
             oldPath                         = $sourcePath
             newPath                         = $destPath
             kind                            = $resolvedKind
+            applied                         = $true
             pureMove                        = $pureMove
             referencesRewritten             = $referencesRewritten
             filesRewritten                  = $rewrittenFiles.ToArray()
             referencesQualifiedProtectively = if ($referencesPinned -gt 0) { [ordered]@{ count = $referencesPinned; files = $pinnedFiles.ToArray() } } else { $null }
             folderNoteOrphaned              = $false
             namingWarnings                  = $namingWarnings
-            filesSkippedUnreadable          = $filesSkippedUnreadable
             folderNoteRenamed               = if ($folderNoteRenamedApplied) { [ordered]@{ oldPath = $folderNoteOldRel; newPath = $folderNoteNewRel } } else { $null }
             containedFilesMoved             = $containedFilesMoved
-            lockWarning                     = $null
+            # Write-class envelope: always present, [] when empty. lockWarning is the
+            # deliberate exception and is attached post-lock only when it fires.
+            capabilitiesUsed                = @()
+            filesSkippedUnreadable          = $filesSkippedUnreadable.ToArray()
         }
     }
 
@@ -899,7 +1003,8 @@ try {
     $pinnedFiles = [System.Collections.Generic.List[string]]::new()
     $referencesRewritten = 0
     $referencesPinned = 0
-    $filesSkippedUnreadable = 0
+    # Paths, not a count (Plan-Vault-Tool-Primitives: Return Convention).
+    $filesSkippedUnreadable = [System.Collections.Generic.List[string]]::new()
 
     foreach ($rel in (Get-VaultNotePath -Vault $Vault -ScopeRoots $null)) {
         $full = Resolve-VaultPath -Path $rel -Vault $Vault
@@ -907,9 +1012,9 @@ try {
             $content = [System.IO.File]::ReadAllText($full)
         }
         catch {
-            # Vanished between enumeration and read (or a broken link) - skip and count.
-            # A present-but-unreadable file (permissions, sharing, I/O) blocks the whole move.
-            if (Test-VaultNoteMissingError -ErrorRecord $_) { $filesSkippedUnreadable++; continue }
+            # Vanished between enumeration and read (or a broken link) - skip and record the
+            # path. A present-but-unreadable file (permissions, sharing, I/O) blocks the move.
+            if (Test-VaultNoteMissingError -ErrorRecord $_) { $filesSkippedUnreadable.Add($rel); continue }
             throw (New-VaultToolError -Code 'read_failure' -Message "Could not read '$rel' during the reference scan: $($_.Exception.Message)" -Data @{ path = $rel; error = $_.Exception.Message })
         }
 
@@ -957,6 +1062,36 @@ try {
     $sourceWasFolderNote = $isNote -and $sourceParentName -and ($oldKeyBasename -ieq $sourceParentName)
     $destIsFolderNote = $destParentName -and ($newKeyBasename -ieq $destParentName)
     $folderNoteOrphaned = [bool]($sourceWasFolderNote -and -not $destIsFolderNote)
+
+    # =======================================================================
+    # ASSESS-BEFORE-MUTATE (file). apply:false stops here (Plan-Vault-Tool-Primitives:
+    # Assess-Before-Mutate Convention): plan and validate have both run - censuses, the
+    # protection scan, and the read-only pre-flight - so the report is complete, and nothing
+    # above this line has written to the vault.
+    #
+    # filesRewritten holds the WOULD-rewrite set at the POST-move paths the same call with
+    # apply:true would report (a self-referential source note is named at the destination),
+    # so a plan is a faithful prediction of its own result rather than a second path
+    # vocabulary. `applied: false` is the single field that distinguishes a plan from a result.
+    # =======================================================================
+    if (-not $Apply) {
+        return [ordered]@{
+            oldPath                         = $sourcePath
+            newPath                         = $destPath
+            kind                            = $resolvedKind
+            applied                         = $false
+            pureMove                        = $pureMove
+            referencesRewritten             = $referencesRewritten
+            filesRewritten                  = @($rewriteTargets | ForEach-Object { if ($_.Path -ceq $sourcePath) { $destPath } else { $_.Path } })
+            referencesQualifiedProtectively = if ($referencesPinned -gt 0) { [ordered]@{ count = $referencesPinned; files = $pinnedFiles.ToArray() } } else { $null }
+            folderNoteOrphaned              = $folderNoteOrphaned
+            namingWarnings                  = $namingWarnings
+            folderNoteRenamed               = $null
+            containedFilesMoved             = @()
+            capabilitiesUsed                = @()
+            filesSkippedUnreadable          = $filesSkippedUnreadable.ToArray()
+        }
+    }
 
     # =======================================================================
     # APPLY. Validation is complete; from here the vault is mutated. The move runs first, then
@@ -1017,16 +1152,19 @@ try {
         oldPath                         = $sourcePath
         newPath                         = $destPath
         kind                            = $resolvedKind
+        applied                         = $true
         pureMove                        = $pureMove
         referencesRewritten             = $referencesRewritten
         filesRewritten                  = $rewrittenFiles.ToArray()
         referencesQualifiedProtectively = if ($referencesPinned -gt 0) { [ordered]@{ count = $referencesPinned; files = $pinnedFiles.ToArray() } } else { $null }
         folderNoteOrphaned              = $folderNoteOrphaned
         namingWarnings                  = $namingWarnings
-        filesSkippedUnreadable          = $filesSkippedUnreadable
         folderNoteRenamed               = $null
         containedFilesMoved             = @()
-        lockWarning                     = $null
+        # Write-class envelope: always present, [] when empty. lockWarning is the deliberate
+        # exception and is attached post-lock only when it fires.
+        capabilitiesUsed                = @()
+        filesSkippedUnreadable          = $filesSkippedUnreadable.ToArray()
     }
     }
 }
@@ -1041,8 +1179,12 @@ catch {
     throw
 }
 
+# lockWarning is present ONLY when the write inherited an abandoned mutex and is omitted
+# entirely otherwise - the envelope's deliberate exception to always-present (Plan-Vault-Tool-
+# Primitives: Return Convention): it is a warning, not a status field, and an always-present
+# null would read as a checked-and-clear signal.
 if ($lockAbandoned) {
-    $result.lockWarning = 'Write lock was abandoned by a process that died mid-operation - an earlier vault write may be incomplete. Check "git status" and "git diff".'
+    $result['lockWarning'] = 'Write lock was abandoned by a process that died mid-operation - an earlier vault write may be incomplete. Check "git status" and "git diff".'
 }
 
 ConvertTo-VaultToolResult -Result $result

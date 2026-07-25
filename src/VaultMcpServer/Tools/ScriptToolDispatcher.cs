@@ -18,7 +18,9 @@ namespace VaultMcpServer.Tools;
 /// runtime. Enforces op class here: the bearer middleware (see
 /// <see cref="BearerGrantMiddleware"/>) only authenticates the caller and scopes the
 /// vault; per-tool read/write authorization happens against the grant it attached to
-/// <c>HttpContext.Items</c>.
+/// <c>HttpContext.Items</c>. Every denial made here - before any tool script runs - is emitted
+/// through <see cref="ToolError"/> in the same <c>{code, message, data?}</c> shape a tool script's
+/// own error carries, so a caller branches on <c>code</c> whichever layer refused.
 ///
 /// Also tracks the <see cref="McpServer"/> for every session that has made a request, so
 /// the `tools/` file watcher (<see cref="ScriptToolsWatcher"/>) can push a
@@ -90,7 +92,7 @@ public sealed class ScriptToolDispatcher(ScriptToolRegistry registry, NativeTool
         {
             var nativeGrant = httpContextAccessor.HttpContext?.Items[BearerGrantMiddleware.GrantItemKey] as Grant;
             if (nativeGrant is null)
-                return ErrorResult($"Grant does not permit {nativeTool.OpClass} operations for tool \"{name}\".");
+                return NoGrantError(name);
 
             // Two native tools are gated by something other than an op class, so they are
             // special-cased past the usual grant.Allows(tool.OpClass) check by name:
@@ -100,7 +102,7 @@ public sealed class ScriptToolDispatcher(ScriptToolRegistry registry, NativeTool
             // set). Both declare OpClass "" so they could never satisfy an op-class check anyway.
             var isOpClassExempt = nativeTool.Name is HealthCheckTool.ToolName or ElevationRequestTool.ToolName;
             if (!isOpClassExempt && !nativeGrant.Allows(nativeTool.OpClass))
-                return ErrorResult($"Grant does not permit {nativeTool.OpClass} operations for tool \"{name}\".");
+                return OpClassError(name, nativeTool.OpClass);
 
             var nativeArguments = context.Params?.Arguments?.ToDictionary(kv => kv.Key, kv => kv.Value)
                 ?? new Dictionary<string, JsonElement>();
@@ -109,11 +111,13 @@ public sealed class ScriptToolDispatcher(ScriptToolRegistry registry, NativeTool
 
         var tool = registry.Tools.FirstOrDefault(t => t.Name == name);
         if (tool is null)
-            return ErrorResult($"Unknown tool: \"{name}\".");
+            return ToolError.Result("not_found", $"Unknown tool: \"{name}\".", new { tool = name });
 
         var grant = httpContextAccessor.HttpContext?.Items[BearerGrantMiddleware.GrantItemKey] as Grant;
-        if (grant is null || !grant.Allows(tool.OpClass))
-            return ErrorResult($"Grant does not permit {tool.OpClass} operations for tool \"{name}\".");
+        if (grant is null)
+            return NoGrantError(name);
+        if (!grant.Allows(tool.OpClass))
+            return OpClassError(name, tool.OpClass);
 
         // Authoritative vault-membership enforcement, alongside the op-class check above and off
         // the same deserialized arguments the runner will use. The middleware's body-peek (see
@@ -128,15 +132,50 @@ public sealed class ScriptToolDispatcher(ScriptToolRegistry registry, NativeTool
         {
             var effectiveVault = ResolveEffectiveVault(context.Params?.Arguments);
             if (!grant.CanAccessVault(effectiveVault))
-                return ErrorResult($"Grant \"{grant.Id}\" is not scoped to vault \"{effectiveVault}\".");
+                return ToolError.Result(
+                    "out_of_scope",
+                    $"Grant \"{grant.Id}\" is not scoped to vault \"{effectiveVault}\".",
+                    // data carries only the call's own coordinates - the tool, and the vault the
+                    // call effectively targeted (which the caller may not have named, so it is the
+                    // one thing here it cannot already know). The grant's vault set, op classes, and
+                    // id stay out: a denial must not become an enumeration surface for authority the
+                    // caller does not hold. Same posture as the middleware's detail-free 401.
+                    new { tool = name, vault = effectiveVault });
         }
 
         var arguments = ConvertArguments(context.Params?.Arguments);
         var execution = await runner.InvokeAsync(tool.ScriptPath, arguments, cancellationToken, grant.ScopeRoots, grant.OpClasses);
+        // A script's own error text is surfaced verbatim, never re-wrapped: a tool script that threw
+        // a New-VaultToolError already carries the {code, message, data?} shape, and re-shaping here
+        // would either double-encode it or overwrite its code with a dispatcher-chosen one.
         return execution.HadErrors
             ? ErrorResult(execution.ErrorText)
             : new CallToolResult { Content = [new TextContentBlock { Text = execution.OutputText }] };
     }
+
+    /// <summary>
+    /// The dispatcher's op-class (floor) denial. Uses the same <c>insufficient_capability</c> code
+    /// as the in-script key assertion (<c>Assert-VaultOpClass</c>), because it is the same condition
+    /// at a different layer - a caller retrying after elevation must not have to know whether the
+    /// floor or a key refused. <c>data</c> names the required class (a property of the tool, and the
+    /// class an elevation request would ask for) but never the classes the grant actually holds.
+    /// </summary>
+    private static CallToolResult OpClassError(string toolName, string opClass) => ToolError.Result(
+        "insufficient_capability",
+        $"Grant does not permit {opClass} operations for tool \"{toolName}\".",
+        new { tool = toolName, requiredOpClass = opClass });
+
+    /// <summary>
+    /// Defensive branch: no grant on <c>HttpContext.Items</c>, meaning the request did not pass
+    /// through <see cref="BearerGrantMiddleware"/> (which always attaches one, down to the
+    /// minimum-access floor). Coded as a capability denial because the effect is identical - the
+    /// call holds no authority - and a caller should not have to distinguish "no grant" from
+    /// "grant lacking the class" to route the failure.
+    /// </summary>
+    private static CallToolResult NoGrantError(string toolName) => ToolError.Result(
+        "insufficient_capability",
+        $"No grant is attached to this request, so tool \"{toolName}\" cannot be dispatched.",
+        new { tool = toolName });
 
     /// <summary>Whether <paramref name="tool"/> declares a vault-targeting parameter (see
     /// <see cref="VaultParameterName"/>) - the tools this dispatcher's membership check applies to.</summary>
@@ -187,6 +226,9 @@ public sealed class ScriptToolDispatcher(ScriptToolRegistry registry, NativeTool
         _ => null,
     };
 
+    /// <summary>Passes an already-formed error text through as an <c>isError</c> result. Used only for
+    /// a script's own thrown text, which must not be re-shaped - every denial the dispatcher itself
+    /// makes goes through <see cref="ToolError"/> instead.</summary>
     private static CallToolResult ErrorResult(string message) => new()
     {
         IsError = true,

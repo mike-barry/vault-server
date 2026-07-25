@@ -185,6 +185,28 @@ Describe 'read' {
         }
     }
 
+    Context 'vault resolution' {
+        # Both failure modes carry a structured code rather than the module's plain text
+        # (Plan-Vault-Tool-Primitives: Error Convention), so the refusal is machine-routable
+        # in a standalone run as well as under the dispatcher.
+        It 'refuses an unconfigured vault with unknown_vault' {
+            $err = Invoke-ReadError @{ Path = 'Projects/Widget/Widget.md'; Vault = 'nope' }
+            $err.code | Should -Be 'unknown_vault'
+            $err.data.vault | Should -Be 'nope'
+        }
+
+        It 'refuses a configured vault whose root is missing with vault_unavailable' {
+            $configPath = Join-Path $script:TempRoot 'with-missing.json'
+            @{ default_vault = 'scratch'; vaults = @{ scratch = $script:VaultDir; gone = (Join-Path $script:TempRoot 'no-such-root') } } |
+                ConvertTo-Json | Set-Content -LiteralPath $configPath
+            $env:VAULT_MCP_VAULTS_JSON = $configPath
+
+            $err = Invoke-ReadError @{ Path = 'Projects/Widget/Widget.md'; Vault = 'gone' }
+            $err.code | Should -Be 'vault_unavailable'
+            $err.data.reason | Should -Match 'does not exist'
+        }
+    }
+
     Context 'scope' {
         It 'errors out_of_scope when the path falls outside the ambient scope roots' {
             $Global:VaultMcpScopeRoots = @{ scratch = @('Projects') }

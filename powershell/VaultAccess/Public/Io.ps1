@@ -59,7 +59,9 @@ function Test-VaultNoteMissingError {
 function Write-VaultNote {
     <#
     .SYNOPSIS
-    Writes a note as UTF-8 without BOM, creating parent directories as needed.
+    Writes a note as UTF-8 without BOM to an existing directory. Enforces the chokepoint
+    invariant that a write never brings a directory into existence: a missing parent is
+    refused with the shared `parent_not_found` code naming it, never created.
     #>
     [CmdletBinding()]
     param(
@@ -75,10 +77,11 @@ function Write-VaultNote {
     $full = Resolve-VaultPath -Path $Path -Vault $Vault
     $dir = [System.IO.Path]::GetDirectoryName($full)
     if (-not (Test-Path -LiteralPath $dir -PathType Container)) {
-        # -ErrorAction Stop is explicit because $ErrorActionPreference does not reach this
-        # scope when the caller runs inside a module-function scriptblock; without it a
-        # failed mutation is non-terminating and the caller reports success.
-        New-Item -ItemType Directory -Path $dir -Force -ErrorAction Stop | Out-Null
+        # The missing parent is reported vault-relative with forward slashes - the same path
+        # vocabulary the caller supplied - so a tool surfaces this error unchanged rather
+        # than re-deriving the parent or leaking the absolute vault root.
+        $missingParent = ($dir.Substring($resolved.Root.Length) -replace '^[\\/]+', '') -replace '\\', '/'
+        throw (New-VaultToolError -Code 'parent_not_found' -Message "Parent directory does not exist: $missingParent" -Data @{ path = $Path; parent = $missingParent })
     }
     [System.IO.File]::WriteAllText($full, $Content)
 }

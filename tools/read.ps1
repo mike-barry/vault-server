@@ -53,10 +53,12 @@ if ([string]::IsNullOrWhiteSpace($notePath)) {
     throw (New-VaultToolError -Code 'invalid_argument' -Message 'path is empty.' -Data @{ path = $Path })
 }
 
-# Vault resolution stays outside the JSON convention by design: the dispatcher's
-# vault-membership pre-flight owns that refusal server-side, and a standalone run surfaces
-# Resolve-VaultRoot's plain message (Plan-Tool-Read: Errors).
-$resolvedVault = Resolve-VaultRoot -Vault $Vault
+# Vault resolution before any path work: an unconfigured name refuses unknown_vault and a
+# configured-but-root-missing vault refuses vault_unavailable, in the shared {code, message,
+# data?} shape (Plan-Vault-Tool-Primitives: Error Convention). Resolving here also keeps a
+# vault failure from reaching the invalid_argument wrapper below, which Resolve-VaultPath
+# would otherwise trip on the same condition.
+$resolvedVault = Resolve-VaultToolRoot -Vault $Vault
 
 # A rooted or vault-escaping path is a malformed operand, not a miss.
 try {
