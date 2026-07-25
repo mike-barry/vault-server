@@ -512,8 +512,7 @@ function Convert-VaultFolderLinkReferences {
 [void](Resolve-VaultToolRoot -Vault $Vault)
 
 $lockAbandoned = $false
-try {
-    $result = Invoke-VaultWriteLock -Vault $Vault -Abandoned ([ref]$lockAbandoned) -ScriptBlock {
+$result = Invoke-VaultWriteLock -Vault $Vault -Abandoned ([ref]$lockAbandoned) -ScriptBlock {
     # Required: the script-scope preference does not reach cmdlets invoked from inside a
     # module-function scriptblock, and without it a failed mutation is non-terminating and
     # gets reported as success.
@@ -1172,17 +1171,6 @@ try {
         capabilitiesUsed                = @()
         filesSkippedUnreadable          = $filesSkippedUnreadable.ToArray()
     }
-    }
-}
-catch {
-    # A clean {code, message, data?} error (validate-stage refusal, partial_state, ...) passes
-    # through unchanged. Invoke-VaultWriteLock's acquire-timeout is a plain string, outside that
-    # convention - map it to the spec's lock_timeout code so callers see one shape.
-    if ($_.Exception.Message -match '^\s*\{.*"code"') { throw }
-    if ($_.Exception.Message -match 'waiting for the vault write lock') {
-        throw (New-VaultToolError -Code 'lock_timeout' -Message $_.Exception.Message)
-    }
-    throw
 }
 
 # lockWarning is present ONLY when the write inherited an abandoned mutex and is omitted

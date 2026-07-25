@@ -127,15 +127,24 @@ Describe 'Vault write lock cross-process behavior' {
         }
     }
 
-    It 'times out when another process holds the lock' {
+    It 'times out when another process holds the lock, raising the coded lock_timeout shape' {
+        # The acquire timeout is raised as {code, message, data?} at the chokepoint, so no tool
+        # has to re-derive the code by matching the message text.
         New-IsolatedVault -Label 'timeout'
         try {
             $name = Get-VaultWriteLockName -Vault iso
             $signal = Join-Path $script:TempRoot 'held-timeout.txt'
             $job = Start-LockHolder -Name $name -SignalPath $signal
             try {
-                { Invoke-VaultWriteLock -Vault iso -TimeoutSeconds 2 -ScriptBlock { 'never' } } |
-                    Should -Throw '*Timed out*waiting for the vault write lock*'
+                $thrown = $null
+                try { Invoke-VaultWriteLock -Vault iso -TimeoutSeconds 2 -ScriptBlock { 'never' } }
+                catch { $thrown = $_.Exception.Message }
+
+                $thrown | Should -Not -BeNullOrEmpty
+                $err = $thrown | ConvertFrom-Json
+                $err.code | Should -Be 'lock_timeout'
+                $err.message | Should -BeLike '*Timed out*waiting for the vault write lock*'
+                $err.data.timeoutSeconds | Should -Be 2
             }
             finally {
                 Stop-Job $job -ErrorAction SilentlyContinue

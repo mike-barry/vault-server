@@ -89,7 +89,13 @@ function Invoke-VaultWriteLock {
         }
 
         if (-not $acquired) {
-            throw "Timed out after ${TimeoutSeconds}s waiting for the vault write lock. Another vault operation is holding it - if nothing else is running, a process may be wedged while holding the lock."
+            # Raised as the coded {code, message, data?} shape rather than plain text: this is a
+            # chokepoint, so every write-class tool would otherwise re-derive lock_timeout by
+            # matching this message string - the discrimination the error convention retired.
+            # Tools do not catch it; it surfaces unchanged.
+            throw (New-VaultToolError -Code 'lock_timeout' `
+                -Message "Timed out after ${TimeoutSeconds}s waiting for the vault write lock. Another vault operation is holding it - if nothing else is running, a process may be wedged while holding the lock." `
+                -Data @{ timeoutSeconds = $TimeoutSeconds })
         }
 
         try {
