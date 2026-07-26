@@ -824,8 +824,41 @@ Describe 'move (validate + resolve + scope)' {
                 # written - the one that produced the failure.
                 $err.data.PSObject.Properties.Name | Should -Contain 'filesRewritten'
                 $err.data.filesRewritten | Should -Not -Contain 'Projects/Widget/Tasks.md'
-                # The recovery hint names git checkout.
-                $err.message | Should -Match 'git checkout'
+                # The recovery hint must be executable as written. Nothing is staged, so the
+                # destination is an UNTRACKED copy: git checkout can neither restore nor delete
+                # it, and restoring the source alone would leave the note at two paths - the
+                # duplicate basename move exists to prevent. So the destination is cleaned first.
+                $err.message | Should -BeLike "*git clean -f -- 'Resources/Renamed-Gizmo.md'*"
+                $err.message | Should -BeLike "*git checkout -- 'Resources/Gizmo-Reference.md'*"
+                # ...and the checkout list must exclude the destination, which is not in the index.
+                $err.message | Should -BeLike "*except 'Resources/Renamed-Gizmo.md'*"
+                $err.message | Should -BeLike "*untracked*"
+            }
+            finally {
+                $handle.Close(); $handle.Dispose()
+            }
+        }
+
+        It 'gives the folder-move partial_state its own recovery: clean the destination TREE, restore the source folder' {
+            # Same held-write-handle seam, folder side. The handle is held on a rewrite target
+            # OUTSIDE the moved folder (Gizmo-Reference links [[Widget]] bare, so the folder-note
+            # rename makes it a target) - a handle on a contained file would block the directory
+            # move itself and never reach the apply-phase rewrite.
+            $gizmo = Join-Path $script:VaultDir 'Resources/Gizmo-Reference.md'
+            $handle = [System.IO.File]::Open($gizmo, [System.IO.FileMode]::Open, [System.IO.FileAccess]::Read, [System.IO.FileShare]::Read)
+            try {
+                $err = Invoke-MoveError @{ Source = 'Projects/Widget'; Dest = 'Projects/Renamed-Widget' }
+                $err.code | Should -Be 'partial_state'
+                $err.data.directoryMoved | Should -BeTrue
+                $err.data.folderNoteRenamed | Should -BeTrue
+                Test-Path (Join-Path $script:VaultDir 'Projects/Renamed-Widget/Renamed-Widget.md') | Should -BeTrue
+                # A moved DIRECTORY does not recover like a moved file: the whole destination tree
+                # is untracked (-fd, not -f), and restoring the source folder brings its contained
+                # rewrites back with it - so only the rewrites outside the destination are listed.
+                $err.message | Should -BeLike "*git clean -fd -- 'Projects/Renamed-Widget'*"
+                $err.message | Should -BeLike "*git checkout -- 'Projects/Widget'*"
+                $err.message | Should -BeLike "*outside 'Projects/Renamed-Widget'*"
+                $err.message | Should -BeLike '*contained rewrites*'
             }
             finally {
                 $handle.Close(); $handle.Dispose()

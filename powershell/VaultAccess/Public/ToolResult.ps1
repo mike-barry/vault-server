@@ -11,10 +11,12 @@ function New-VaultToolError {
     compact JSON string. A tool script throws the return value directly
     (`throw (New-VaultToolError -Code ... -Message ...)`) so the dispatcher - and a
     standalone `pwsh -File` run, which surfaces the same string on stderr - present one
-    error shape regardless of which layer raised it. This is the tool-script-facing
-    counterpart to Assert-VaultOpClass's inline `insufficient_capability` JSON, factored
-    out so every tool script builds its own error codes (not_found, invalid_argument,
-    kind_mismatch, ...) the same way instead of hand-rolling the object per call site.
+    error shape regardless of which layer raised it. Tool scripts and the library
+    functions they call both raise through it - Get-VaultFilePath and
+    Search-VaultContent's ripgrep exit codes, Resolve-VaultRgPath's
+    `dependency_unavailable`, Write-VaultNote's `parent_not_found`, Assert-VaultOpClass's
+    `insufficient_capability` floor check - so every code (not_found, invalid_argument,
+    kind_mismatch, ...) is built here rather than hand-rolled per call site.
     .PARAMETER Code
     Machine-routing error code - the stable field callers and tests branch on (e.g.
     not_found, already_exists, invalid_argument, kind_mismatch, out_of_scope).

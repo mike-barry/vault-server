@@ -916,7 +916,10 @@ $result = Invoke-VaultWriteLock -Vault $Vault -Abandoned ([ref]$lockAbandoned) -
         catch {
             if ($_.Exception.Message -match '^\s*\{.*"code"') { throw }
             if ($dirMoved) {
-                throw (New-VaultToolError -Code 'partial_state' -Message "Folder move partially applied then failed: '$sourcePath' was moved to '$destPath'$(if ($folderNoteRenamedApplied) { ' and the folder note renamed' }) and $($rewrittenFiles.Count) file(s) rewritten before the error: $($_.Exception.Message). Recover with: git checkout -- <files>." -Data @{
+                # Recovery is git-shaped but NOT a bare `git checkout`: nothing is staged, so the
+                # destination tree is untracked and git checkout can neither restore nor delete it.
+                # Clean the destination first, or the source restore leaves the folder at two paths.
+                throw (New-VaultToolError -Code 'partial_state' -Message "Folder move partially applied then failed: '$sourcePath' was moved to '$destPath'$(if ($folderNoteRenamedApplied) { ' and the folder note renamed' }) and $($rewrittenFiles.Count) file(s) rewritten before the error: $($_.Exception.Message). Nothing was staged, so '$destPath' is untracked. Recover with: git clean -fd -- '$destPath', then git checkout -- '$sourcePath' (which also restores the contained rewrites) plus any data.filesRewritten entry outside '$destPath'." -Data @{
                         filesRewritten     = $rewrittenFiles.ToArray()
                         directoryMoved     = $dirMoved
                         folderNoteRenamed  = $folderNoteRenamedApplied
@@ -1144,7 +1147,12 @@ $result = Invoke-VaultWriteLock -Vault $Vault -Abandoned ([ref]$lockAbandoned) -
         # vault untouched and should surface as its own error).
         if ($_.Exception.Message -match '^\s*\{.*"code"') { throw }
         if ($movedApplied) {
-            throw (New-VaultToolError -Code 'partial_state' -Message "Move partially applied then failed: '$sourcePath' was moved to '$destPath' and $($rewrittenFiles.Count) file(s) rewritten before the error: $($_.Exception.Message). Recover with: git checkout -- <files>." -Data @{
+            # Recovery is git-shaped but NOT a bare `git checkout`: nothing is staged, so the
+            # destination is an untracked copy git checkout can neither restore nor delete - and a
+            # self-referential source note is rewritten AT the destination, so filesRewritten can
+            # name it. Clean the destination first, or the source restore leaves a duplicate
+            # basename - exactly the state move exists to prevent.
+            throw (New-VaultToolError -Code 'partial_state' -Message "Move partially applied then failed: '$sourcePath' was moved to '$destPath' and $($rewrittenFiles.Count) file(s) rewritten before the error: $($_.Exception.Message). Nothing was staged, so '$destPath' is untracked. Recover with: git clean -f -- '$destPath', then git checkout -- '$sourcePath' plus every data.filesRewritten entry except '$destPath'." -Data @{
                     filesRewritten = $rewrittenFiles.ToArray()
                     directoryMoved = $movedApplied
                     error          = $_.Exception.Message
