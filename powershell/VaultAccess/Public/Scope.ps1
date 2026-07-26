@@ -1,9 +1,13 @@
 # Public/Scope.ps1 - path-scope containment and grant checks.
 # Mirrored core: Test-VaultPathInScope <-> VaultAccess.IsPathInScope, Resolve-VaultScopeRoots
-# <-> VaultAccess.ResolveVaultScopeRoots, Assert-VaultOperationAllowed <-> EnsureAllowed.
-# Changes to scope-containment semantics land as a shared tests/cases/*.json case.
-# Assert-VaultOpClass is PowerShell-only: the C# host enforces op-class in its dispatcher, not
-# in VaultAccess.cs. See ../VaultAccess.psm1 for the full mirror policy.
+# <-> VaultAccess.ResolveVaultScopeRoots. Changes to scope-containment semantics land as a
+# shared tests/cases/*.json case.
+# Assert-VaultOperationAllowed is PowerShell-only: it composes those two primitives into the
+# pre-operation gate this module's note ops call, and the C# side has no cognate - it mirrors
+# the chokepoint only where the host has real callers, and nothing in the host performs
+# note operations. Assert-VaultOpClass is PowerShell-only for a different reason: the C# host
+# does enforce op-class, but in its dispatcher, not in VaultAccess.cs.
+# See ../VaultAccess.psm1 for the full mirror policy.
 
 function Test-VaultPathInScope {
     <#

@@ -1,7 +1,9 @@
-# Public/Io.ps1 - note read/write/move and the skip-missing classifier.
-# PowerShell-only: the C# ReadNote/WriteNote/MoveNote instance ops were removed as caller-less
-# drift liability (2026-07-19), leaving this module the sole full-operation implementation.
-# No C# counterpart to keep in step. See ../VaultAccess.psm1 for the full mirror policy.
+# Public/Io.ps1 - note read/write and the skip-missing classifier.
+# PowerShell-only: the C# side mirrors the chokepoint only where the host has real callers, and
+# nothing in the host reads or writes notes - so these ops have no C# counterpart to keep in
+# step and this module is the sole full-operation implementation. The chokepoint has no move
+# operation at all: the `move` tool runs its own Move-Item over paths resolved and scope-checked
+# through this module. See ../VaultAccess.psm1 for the full mirror policy.
 
 function Read-VaultNote {
     <#

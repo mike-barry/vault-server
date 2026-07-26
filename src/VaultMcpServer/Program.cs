@@ -44,7 +44,6 @@ var vaultsConfigPath = Path.GetFullPath(Path.Combine(
     builder.Configuration["VaultsConfigPath"] ?? "../../vaults.json"));
 var vaultConfig = VaultConfig.Load(vaultsConfigPath, healthState);
 builder.Services.AddSingleton(vaultConfig);
-builder.Services.AddSingleton<VaultAccess>();
 
 // GrantStore.Load validates each row's opClasses/vaults against opClassRegistry/vaultConfig,
 // so if either already went fatal above, a real parse of grants.json would fail every row

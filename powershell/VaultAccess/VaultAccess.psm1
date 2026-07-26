@@ -1,22 +1,27 @@
 # VaultAccess.psm1 - the vault-access chokepoint for PowerShell script tools.
 #
-# ALL vault I/O in tool scripts flows through this module - path resolution, wikilink
-# resolution, reads, writes, moves, enumeration, the grant check, and write-locking. Tool
-# scripts never run raw Get-Content/Set-Content against vault paths.
+# ALL vault I/O in tool scripts flows through this module - path resolution, bare-wikilink
+# resolution, reads, writes, enumeration, the grant check, and write-locking. Tool scripts
+# never run raw Get-Content/Set-Content against vault paths. A tool needing an operation the
+# module does not expose (e.g. `move`'s Move-Item) still resolves and scope-checks its paths
+# through here first.
 #
 # This module is the SOLE full-operation implementation. The C# side
-# (src/VaultMcpServer/Vault/VaultAccess.cs) is NOT a full mirror: it keeps only the surface
-# with real host callers - config load, the scope primitives, and wikilink/path resolution.
-# The instance operations (read/write/move) live only here; the C# cognates were removed as
-# caller-less drift liability (2026-07-19). Only three semantics remain mirrored across the
-# two sides - wikilink resolution, path validity, and scope containment - and a change to
-# those lands as a shared tests/cases/*.json case run by both suites, never as hand-copied
-# code. Everything else here (note I/O, enumeration, write-locking, tool-result/error
-# shaping, name convention, the ripgrep file census) is PowerShell-only with no C#
-# counterpart to keep in step. See Vault-MCP-Server/Corpus/Server-Structure.md and Testing.md.
+# (src/VaultMcpServer/Vault/VaultAccess.cs) is deliberately NOT a full mirror: it carries only
+# what the host itself calls - config load and the static scope primitives, used by
+# GrantFileLoader, MintTokenTool, and ElevationRequestTool - plus the instance path resolvers,
+# which have no production caller and are held, pinned by the shared cases, against the first
+# native vault tool. The instance operations (read/write/enumerate/search) live only here. Two
+# semantics remain mirrored across the two sides - path validity and scope containment - and a
+# change to those lands as a shared tests/cases/*.json case run by both suites, never as
+# hand-copied code. Everything else here (note I/O, enumeration, bare-wikilink resolution,
+# write-locking, tool-result/error shaping, name convention, the ripgrep file census) is
+# PowerShell-only with no C# counterpart to keep in step; re-mirror an operation by porting
+# from the then-current PowerShell implementation only when a host caller actually needs it.
+# See Vault-MCP-Server/Corpus/Server-Structure.md and Testing.md.
 #
 # Vault conventions (wikilink forms, filename rules, layout) are encoded here (and, for the
-# still-mirrored resolution/scope core, in the C# class); they implement the vault's
+# mirrored path/scope core, in the C# class); they implement the vault's
 # Document-Conventions.md and Vault-Guide.md (Resources/Vault/Guides/ in the vault repo).
 #
 # ---------------------------------------------------------------------------------------------

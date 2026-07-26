@@ -23,33 +23,10 @@ public sealed class VaultAccess(VaultConfig config)
     private static bool IsHiddenSegment(string segment) => segment.StartsWith('.');
 
     /// <summary>
-    /// Grant-check hook: checks a resolved vault-relative path against the grant's
-    /// folder-prefix <paramref name="scopeRoots"/> before a read, write, or enumeration
-    /// proceeds. Op-class enforcement happens separately in the bearer middleware /
-    /// <c>ScriptToolDispatcher</c> (grants.json); this hook is path scope only, distinct from
-    /// which vault a grant may touch at all (<see cref="VaultConfig.Resolve"/>).
-    ///
-    /// <paramref name="scopeRoots"/> null or empty means the caller's grant is unscoped: full
-    /// access within its granted vaults, so this is a no-op. The literal path <c>"."</c> - used
-    /// to gate a listing/enumeration operation itself, not any one note - is always allowed here
-    /// even under a scoped grant; per-note filtering is applied after listing, via
-    /// <see cref="IsPathInScope"/>.
-    /// </summary>
-    private static void EnsureAllowed(string vault, string relativePath, IReadOnlyCollection<string>? scopeRoots)
-    {
-        if (scopeRoots is not { Count: > 0 })
-            return;
-        if (relativePath == ".")
-            return;
-        if (!IsPathInScope(relativePath, scopeRoots))
-            throw new UnauthorizedAccessException($"Path is outside the grant's scope for vault \"{vault}\": {relativePath}");
-    }
-
-    /// <summary>
     /// Resolves a grant's per-vault <see cref="Auth.Grant.ScopeRoots"/> map down to the flat,
     /// already-vault-scoped root list for one specific <paramref name="vault"/> - the shape
-    /// every other chokepoint function in this class (and <see cref="EnsureAllowed"/>,
-    /// <see cref="IsPathInScope"/>) expects. This is where "a scope root configured for one
+    /// <see cref="IsPathInScope"/>, and every other scope-checking caller in this class,
+    /// expects. This is where "a scope root configured for one
     /// vault must not leak into another vault the same grant can access" is enforced: only the
     /// entry keyed to <paramref name="vault"/> is ever consulted.
     ///
