@@ -125,11 +125,22 @@ function Assert-VaultOpClass {
     Matching is case-insensitive by design: op-class names are case-insensitive everywhere -
     the C# OpClassRegistry canonicalizes lookups case-insensitively - and this gate follows
     the same rule via `-contains`' case-insensitive default.
+    .PARAMETER OpClass
+    The op class this operation requires beyond the tool's dispatcher-gated floor.
+    .PARAMETER GrantClasses
+    The classes the calling grant holds; defaults to the host-injected $Global:VaultMcpOpClasses.
+    .PARAMETER Data
+    Optional structured payload attached to the refusal's `data` member - retry material such as
+    `{opIndex, requiredClass}`. Omitted, the thrown JSON is byte-identical to a `{code, message}`
+    refusal with no data, so existing callers and tests are unaffected. It exists because the
+    error convention forbids a caller catching this refusal and re-shaping it to add context: the
+    context has to be attachable at the throw.
     #>
     [CmdletBinding()]
     param(
         [Parameter(Mandatory)] [string] $OpClass,
-        $GrantClasses = $Global:VaultMcpOpClasses
+        $GrantClasses = $Global:VaultMcpOpClasses,
+        $Data
     )
 
     # $null means "no injected host context at all" - degrade open, same posture as an unscoped
@@ -138,13 +149,12 @@ function Assert-VaultOpClass {
 
     if ($GrantClasses -contains $OpClass) { return }
 
-    # No shared PowerShell error-helper exists in this repo (tool scripts throw plain strings and
-    # the C# runner surfaces the thrown message verbatim as the tool call's error text). Throw a
-    # compact JSON object so the error carries a machine-inspectable { code, message } shape - the
-    # code is the stable contract, the message is human-facing and names the missing class.
-    $err = [ordered]@{
-        code    = 'insufficient_capability'
-        message = "Grant does not hold the required op class '$OpClass' for this operation."
+    # Built through the shared New-VaultToolError (Public/ToolResult.ps1) so this refusal carries
+    # the same { code, message, data? } shape every other coded refusal does - the code is the
+    # stable contract, the message is human-facing and names the missing class.
+    $message = "Grant does not hold the required op class '$OpClass' for this operation."
+    if ($PSBoundParameters.ContainsKey('Data')) {
+        throw (New-VaultToolError -Code 'insufficient_capability' -Message $message -Data $Data)
     }
-    throw ($err | ConvertTo-Json -Compress)
+    throw (New-VaultToolError -Code 'insufficient_capability' -Message $message)
 }

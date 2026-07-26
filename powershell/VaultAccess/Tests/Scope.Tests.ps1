@@ -97,6 +97,24 @@ Describe 'Assert-VaultOpClass' {
         { Assert-VaultOpClass -OpClass 'content:write' } | Should -Throw '*insufficient_capability*'
     }
 
+    It 'omits data entirely when -Data is not supplied, byte-for-byte as before it existed' {
+        # The parameter was added so a chokepoint can attach retry material at the throw - the
+        # error convention forbids a caller catching this refusal and re-shaping it. Callers that
+        # do not use it must see exactly the string they saw before.
+        $Global:VaultMcpOpClasses = @('content:read')
+        $err = { Assert-VaultOpClass -OpClass 'content:write' } | Should -Throw -PassThru
+        $err.Exception.Message | Should -BeExactly '{"code":"insufficient_capability","message":"Grant does not hold the required op class ''content:write'' for this operation."}'
+    }
+
+    It 'attaches structured data to the refusal when -Data is supplied' {
+        $Global:VaultMcpOpClasses = @('content:read')
+        $err = { Assert-VaultOpClass -OpClass 'agentic:write' -Data @{ opIndex = 2; requiredClass = 'agentic:write' } } | Should -Throw -PassThru
+        $obj = $err.Exception.Message | ConvertFrom-Json
+        $obj.code | Should -Be 'insufficient_capability'
+        $obj.data.opIndex | Should -Be 2
+        $obj.data.requiredClass | Should -Be 'agentic:write'
+    }
+
     It 'matches op classes case-insensitively (by design)' {
         # Op-class names are case-insensitive everywhere - the C# OpClassRegistry canonicalizes
         # lookups case-insensitively, and this gate follows the same rule via `-contains`'

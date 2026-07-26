@@ -27,6 +27,22 @@
         'Get-VaultFilePath'
         'Search-VaultContent'
         'Resolve-VaultBareLink'
+        'Get-VaultNoteFenceState'
+        'Split-VaultNoteContent'
+        'Get-VaultFrontmatterLines'
+        'Get-VaultFrontmatterBlocks'
+        'Get-VaultFrontmatterListItems'
+        'Get-VaultFrontmatterFieldShape'
+        'Get-VaultFrontmatterField'
+        'Set-VaultFrontmatterField'
+        'Remove-VaultFrontmatterField'
+        'Remove-VaultFrontmatterBlock'
+        'Add-VaultAgentInstructionEntry'
+        'Remove-VaultUseSkillAgentInstructions'
+        'Remove-VaultPinnedAgentInstruction'
+        'Get-VaultFrontmatterSchemaViolation'
+        'Get-VaultAgenticFrontmatterDiff'
+        'Invoke-VaultFrontmatterWrite'
     )
     CmdletsToExport   = @()
     VariablesToExport = @()
