@@ -7,8 +7,9 @@
 # directly in tools/ would itself be loaded as a (broken) tool.
 #
 # SCOPE NOTE: this suite covers the Tier-1 return across the part enum (full /
-# frontmatter / body, including the fence-less and empty-note cases and body's
-# verbatim-after-fence contract), path normalization and the no-.md-inference rule, the
+# frontmatter / body / sha, including the fence-less and empty-note cases, body's
+# verbatim-after-fence contract, and sha's whole-file-bytes contract), path normalization
+# and the no-.md-inference rule, the
 # not_found / kind_mismatch / invalid_argument / out_of_scope / read_failure error codes,
 # the content:read op-class metadata declaration (dispatcher floor-gating itself is proven
 # generically C#-side), and standalone invocability.
@@ -124,6 +125,76 @@ Describe 'read' {
         }
     }
 
+    Context 'Tier-1 return - part sha' {
+        # sha is the staleness token edit consumes as expected_sha: a caller reads the sha,
+        # reads the content, then hands the sha back. The digest therefore covers the whole
+        # file's bytes on disk, never the slice a caller happened to read.
+        It 'returns the SHA-256 of the file bytes as lowercase 64-char hex for a known fixture' {
+            $notePath = Join-Path $script:VaultDir 'Inbox/Sha-Case.md'
+            # Byte-precise fixture (WriteAllText is UTF-8 with no BOM), so the expected digest
+            # is a literal constant rather than one recomputed by the same code under test.
+            [System.IO.File]::WriteAllText($notePath, "---`ndoc.type: Test`n---`n`n# Sha-Case`nline two`n")
+            $sha = (& $script:ScriptPath -Path 'Inbox/Sha-Case.md' -Part 'sha' | Out-String).Trim()
+            $sha | Should -Be '395b96389461e3349dc411539f5c54228bdccc9b5ec833c2accbd7afd67c3f63'
+            $sha | Should -Match '^[0-9a-f]{64}$'
+        }
+
+        It 'returns the SHA-256 of an empty note (no special-casing of empty content)' {
+            [System.IO.File]::WriteAllText((Join-Path $script:VaultDir 'Inbox/Empty-Sha.md'), '')
+            $sha = (& $script:ScriptPath -Path 'Inbox/Empty-Sha.md' -Part 'sha' | Out-String).Trim()
+            $sha | Should -Be 'e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855'
+        }
+
+        It 'matches the digest of the raw bytes on disk for a real fixture note' {
+            $expected = [System.BitConverter]::ToString(
+                [System.Security.Cryptography.SHA256]::HashData(
+                    [System.IO.File]::ReadAllBytes((Join-Path $script:VaultDir 'Projects/Widget/Widget.md')))).Replace('-', '').ToLowerInvariant()
+            $sha = (& $script:ScriptPath -Path 'Projects/Widget/Widget.md' -Part 'sha' | Out-String).Trim()
+            $sha | Should -Be $expected
+        }
+
+        It 'returns the same digest on a no-op re-read' {
+            $first = (& $script:ScriptPath -Path 'Projects/Widget/Widget.md' -Part 'sha' | Out-String).Trim()
+            $second = (& $script:ScriptPath -Path 'Projects/Widget/Widget.md' -Part 'sha' | Out-String).Trim()
+            $second | Should -Be $first
+        }
+
+        It 'changes when the body changes' {
+            $notePath = Join-Path $script:VaultDir 'Inbox/Sha-Body-Change.md'
+            [System.IO.File]::WriteAllText($notePath, "---`ndoc.type: Test`n---`n`nbody one`n")
+            $before = (& $script:ScriptPath -Path 'Inbox/Sha-Body-Change.md' -Part 'sha' | Out-String).Trim()
+            [System.IO.File]::WriteAllText($notePath, "---`ndoc.type: Test`n---`n`nbody two`n")
+            $after = (& $script:ScriptPath -Path 'Inbox/Sha-Body-Change.md' -Part 'sha' | Out-String).Trim()
+            $after | Should -Not -Be $before
+        }
+
+        It 'changes when only the frontmatter changes (the digest covers the whole file)' {
+            $notePath = Join-Path $script:VaultDir 'Inbox/Sha-Frontmatter-Change.md'
+            [System.IO.File]::WriteAllText($notePath, "---`ndoc.type: Test`n---`n`nunchanged body`n")
+            $before = (& $script:ScriptPath -Path 'Inbox/Sha-Frontmatter-Change.md' -Part 'sha' | Out-String).Trim()
+            $bodyBefore = & $script:ScriptPath -Path 'Inbox/Sha-Frontmatter-Change.md' -Part 'body' | Out-String
+
+            [System.IO.File]::WriteAllText($notePath, "---`ndoc.type: Test`ndoc.created: 2026-07-25`n---`n`nunchanged body`n")
+            $after = (& $script:ScriptPath -Path 'Inbox/Sha-Frontmatter-Change.md' -Part 'sha' | Out-String).Trim()
+            $bodyAfter = & $script:ScriptPath -Path 'Inbox/Sha-Frontmatter-Change.md' -Part 'body' | Out-String
+
+            $bodyAfter | Should -Be $bodyBefore
+            $after | Should -Not -Be $before
+        }
+
+        It 'matches part sha case-insensitively' {
+            $lower = (& $script:ScriptPath -Path 'Projects/Widget/Widget.md' -Part 'sha' | Out-String).Trim()
+            $mixed = (& $script:ScriptPath -Path 'Projects/Widget/Widget.md' -Part ' SHA ' | Out-String).Trim()
+            $mixed | Should -Be $lower
+        }
+
+        It 'names sha among the accepted values when rejecting an unrecognized part' {
+            $err = Invoke-ReadError @{ Path = 'Projects/Widget/Widget.md'; Part = 'banana' }
+            $err.code | Should -Be 'invalid_argument'
+            $err.message | Should -Match "'sha'"
+        }
+    }
+
     Context 'path normalization' {
         It 'folds backslashes and trims a leading slash' {
             $content = & $script:ScriptPath -Path '\Projects\Widget\Widget.md' | Out-String
@@ -182,6 +253,47 @@ Describe 'read' {
             finally {
                 $handle.Dispose()
             }
+        }
+
+        # part sha reads the file as bytes rather than through Read-VaultNote, so it carries
+        # its own copy of the error surface: the codes must be the ones every other part
+        # raises, not a second vocabulary.
+        It 'errors not_found for part sha on a missing note' {
+            $err = Invoke-ReadError @{ Path = 'Inbox/Nonexistent-Note.md'; Part = 'sha' }
+            $err.code | Should -Be 'not_found'
+            $err.data.path | Should -Be 'Inbox/Nonexistent-Note.md'
+        }
+
+        It 'rejects a folder target as kind_mismatch for part sha' {
+            $err = Invoke-ReadError @{ Path = 'Projects/Widget'; Part = 'sha' }
+            $err.code | Should -Be 'kind_mismatch'
+            $err.data.resolvedKind | Should -Be 'folder'
+        }
+
+        It 'rejects an existing non-md file as kind_mismatch for part sha' {
+            Set-Content -LiteralPath (Join-Path $script:VaultDir 'Inbox/attachment.txt') -Value 'not a note'
+            $err = Invoke-ReadError @{ Path = 'Inbox/attachment.txt'; Part = 'sha' }
+            $err.code | Should -Be 'kind_mismatch'
+            $err.data.resolvedKind | Should -Be 'file'
+        }
+
+        It 'errors read_failure for part sha when the note exists but is locked' {
+            $lockedPath = Join-Path $script:VaultDir 'Resources/Gizmo-Reference.md'
+            $handle = [System.IO.File]::Open($lockedPath, [System.IO.FileMode]::Open, [System.IO.FileAccess]::Read, [System.IO.FileShare]::None)
+            try {
+                $err = Invoke-ReadError @{ Path = 'Resources/Gizmo-Reference.md'; Part = 'sha' }
+                $err.code | Should -Be 'read_failure'
+                $err.data.path | Should -Be 'Resources/Gizmo-Reference.md'
+            }
+            finally {
+                $handle.Dispose()
+            }
+        }
+
+        It 'errors out_of_scope for part sha before any file access' {
+            $Global:VaultMcpScopeRoots = @{ scratch = @('Projects') }
+            $err = Invoke-ReadError @{ Path = 'Resources/Gizmo-Reference.md'; Part = 'sha' }
+            $err.code | Should -Be 'out_of_scope'
         }
     }
 
@@ -270,6 +382,24 @@ Describe 'read standalone invocability' {
             $rawOutput = & $psExe -NoProfile -NonInteractive -File $scriptFile -Path 'Projects/Widget/Widget.md' | Out-String
             $LASTEXITCODE | Should -Be 0
             $rawOutput | Should -Match '# Widget\.md - Sample Project for Fixture Testing'
+        }
+        finally {
+            if ($null -ne $prev) { $env:VAULT_MCP_VAULTS_JSON = $prev } else { Remove-Item Env:\VAULT_MCP_VAULTS_JSON -ErrorAction SilentlyContinue }
+        }
+    }
+
+    It 'returns part sha under a literal "pwsh -File read.ps1" invocation' {
+        $psExe = (Get-Process -Id $PID).Path
+        $prev = $env:VAULT_MCP_VAULTS_JSON
+        $env:VAULT_MCP_VAULTS_JSON = $script:StandaloneConfigPath
+        try {
+            $scriptFile = (Resolve-Path (Join-Path $PSScriptRoot '..' 'read.ps1')).Path
+            $rawOutput = & $psExe -NoProfile -NonInteractive -File $scriptFile -Path 'Projects/Widget/Widget.md' -Part 'sha' | Out-String
+            $LASTEXITCODE | Should -Be 0
+            $expected = [System.BitConverter]::ToString(
+                [System.Security.Cryptography.SHA256]::HashData(
+                    [System.IO.File]::ReadAllBytes((Join-Path $script:StandaloneVaultDir 'Projects/Widget/Widget.md')))).Replace('-', '').ToLowerInvariant()
+            $rawOutput.Trim() | Should -Be $expected
         }
         finally {
             if ($null -ne $prev) { $env:VAULT_MCP_VAULTS_JSON = $prev } else { Remove-Item Env:\VAULT_MCP_VAULTS_JSON -ErrorAction SilentlyContinue }

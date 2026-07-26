@@ -1,9 +1,10 @@
 <#
 .SYNOPSIS
 Returns the content of the note at a vault-relative path (successor of read_note). Tier-1
-return: the raw text of the requested part, no line numbers, no path echo. Callers holding
-only a name resolve it to a path with glob first (Plan-Vault-Tool-Primitives: Path
-Convention); the path is taken verbatim after separator normalization - no ".md" inference.
+return: the raw text of the requested part (a hex digest for part "sha"), no line numbers,
+no path echo. Callers holding only a name resolve it to a path with glob first
+(Plan-Vault-Tool-Primitives: Path Convention); the path is taken verbatim after separator
+normalization - no ".md" inference.
 .PARAMETER Path
 Vault-relative path of the note to read. An operate-on tool requires exactly one existing
 target: a miss errors not_found. A path that resolves to a folder or a non-.md file errors
@@ -12,10 +13,12 @@ kind_mismatch - read is note-semantic.
 Which part of the note to return: "full" (default) is the whole content, "frontmatter" is
 the raw YAML block between the leading "---" fences (raw block text by ratified contract,
 never parsed; empty for a note with no frontmatter), "body" is everything after the closing
-fence, verbatim (the whole content for a note with no frontmatter). Deliberately not a
-ValidateSet: an unrecognized value must surface as read's own invalid_argument JSON error,
-not a PowerShell binding error, so any value reaches the script body for in-script
-validation.
+fence, verbatim (the whole content for a note with no frontmatter), "sha" is the SHA-256
+digest of the whole file's bytes on disk as lowercase hex - the staleness token a caller
+passes to edit as expected_sha, covering the entire file no matter which part was read.
+Deliberately not a ValidateSet: an unrecognized value must surface as read's own
+invalid_argument JSON error, not a PowerShell binding error, so any value reaches the script
+body for in-script validation.
 .PARAMETER Vault
 The vault to operate in. Defaults to the configured default vault.
 .NOTES
@@ -42,8 +45,8 @@ Import-Module (Join-Path $PSScriptRoot '..' 'powershell' 'VaultAccess' 'VaultAcc
 
 # --- part: the one enum read owns. Empty means the default (full). ---
 $normalizedPart = if ($Part) { $Part.Trim().ToLowerInvariant() } else { 'full' }
-if ($normalizedPart -notin @('full', 'frontmatter', 'body')) {
-    throw (New-VaultToolError -Code 'invalid_argument' -Message "part '$Part' is not a recognized value - read accepts 'full', 'frontmatter', or 'body'." -Data @{ part = $Part })
+if ($normalizedPart -notin @('full', 'frontmatter', 'body', 'sha')) {
+    throw (New-VaultToolError -Code 'invalid_argument' -Message "part '$Part' is not a recognized value - read accepts 'full', 'frontmatter', 'body', or 'sha'." -Data @{ part = $Part })
 }
 
 # --- Path normalization: separators fold to "/", a leading "/" (vault-root spelling) is
@@ -91,7 +94,16 @@ if (-not $notePath.ToLowerInvariant().EndsWith('.md') -and (Test-Path -LiteralPa
 # not_found; present-but-unreadable (permissions, sharing, I/O) is read_failure - a missing
 # sole target is a real error, never a silent skip. ---
 try {
-    $content = Read-VaultNote -Path $notePath -Vault $Vault
+    if ($normalizedPart -eq 'sha') {
+        # sha reads the file as bytes rather than through the text read: the digest must
+        # identify the file exactly as stored, so no decoding, newline translation, or
+        # encoding choice can enter into it. Same try/catch, so the classification below is
+        # the one error surface for every part.
+        $fileBytes = [System.IO.File]::ReadAllBytes($fullPath)
+    }
+    else {
+        $content = Read-VaultNote -Path $notePath -Vault $Vault
+    }
 }
 catch {
     if (Test-VaultNoteMissingError -ErrorRecord $_) {
@@ -99,6 +111,23 @@ catch {
     }
     throw (New-VaultToolError -Code 'read_failure' -Message "Note exists but could not be read: $($_.Exception.Message)" -Data @{ path = $notePath; error = $_.Exception.Message })
 }
+# --- part: sha. SHA-256 over the whole file's bytes, emitted as lowercase hex (64 chars).
+# The digest covers the entire file regardless of which part a caller read, so a caller that
+# read one slice still holds a token identifying the whole on-disk state - the invariant
+# edit's expected_sha check depends on. Returns before the content branches: $content is
+# unassigned on this path. ---
+if ($normalizedPart -eq 'sha') {
+    $sha256 = [System.Security.Cryptography.SHA256]::Create()
+    try {
+        $digest = $sha256.ComputeHash($fileBytes)
+    }
+    finally {
+        $sha256.Dispose()
+    }
+    Write-Output ([System.BitConverter]::ToString($digest).Replace('-', '').ToLowerInvariant())
+    return
+}
+
 if ($null -eq $content) { $content = '' }
 
 if ($normalizedPart -eq 'full') {
