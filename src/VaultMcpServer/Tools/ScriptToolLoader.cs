@@ -10,8 +10,8 @@ namespace VaultMcpServer.Tools;
 /// Per script: the tool name is the file's base name; description, per-parameter
 /// descriptions, and op class come from a leading `&lt;# ... #&gt;` comment-based-help
 /// block (`.SYNOPSIS`, `.PARAMETER &lt;name&gt;`, `.NOTES` containing "OpClass: Read" or
-/// "OpClass: Write"); the parameter list, types, and required/optional status come from
-/// static AST parsing of the script's `param()` block.
+/// "OpClass: Write"); the parameter list, types, required/optional status, and any
+/// `[ValidateSet(...)]` members come from static AST parsing of the script's `param()` block.
 ///
 /// A script that fails validation (parse error, missing `.SYNOPSIS`, missing/invalid
 /// `.NOTES` op class, an undocumented parameter) loads zero tools from that file and is
@@ -104,7 +104,7 @@ public static partial class ScriptToolLoader
             var paramName = p.Name.VariablePath.UserPath;
             if (!help.Parameters.TryGetValue(paramName, out var description))
                 throw new InvalidDataException($"parameter \"{paramName}\" is missing a .PARAMETER comment-help entry.");
-            parameters.Add(new ScriptToolParameter(paramName, MapJsonType(p.StaticType), IsMandatory(p), description));
+            parameters.Add(new ScriptToolParameter(paramName, MapJsonType(p.StaticType), IsMandatory(p), description, AllowedValues(p)));
         }
 
         return new ScriptTool(name, help.Synopsis!, opClass, path, parameters);
@@ -168,6 +168,22 @@ public static partial class ScriptToolLoader
             }
         }
         return false;
+    }
+
+    /// <summary>The string members of the parameter's `[ValidateSet(...)]`, or null when it declares none.</summary>
+    private static IReadOnlyList<string>? AllowedValues(ParameterAst param)
+    {
+        foreach (var attr in param.Attributes.OfType<AttributeAst>())
+        {
+            // Attribute types are matched by the name as written, the same way IsMandatory
+            // matches "Parameter" - the AST is parsed statically, never type-resolved.
+            if (attr.TypeName.Name is not ("ValidateSet" or "ValidateSetAttribute"))
+                continue;
+            var values = attr.PositionalArguments.OfType<StringConstantExpressionAst>().Select(a => a.Value).ToList();
+            if (values.Count > 0)
+                return values;
+        }
+        return null;
     }
 
     private static string MapJsonType(Type type)

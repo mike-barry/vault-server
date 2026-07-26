@@ -40,6 +40,39 @@ public sealed class ScriptToolLoaderTests : IDisposable
         Write-Output "renamed $From to $To"
         """;
 
+    private const string ValidateSetScript = """
+        <#
+        .SYNOPSIS
+        Exercises a mode.
+        .PARAMETER Mode
+        Which seam to exercise.
+        .PARAMETER Label
+        A free-form label for the run.
+        .NOTES
+        OpClass: content:read
+        #>
+        param(
+            [ValidateSet('read', 'elevated')] [string]$Mode = 'read',
+            [string]$Label
+        )
+        Write-Output "$Mode $Label"
+        """;
+
+    private const string ValidateSetArrayScript = """
+        <#
+        .SYNOPSIS
+        Runs a set of passes.
+        .PARAMETER Passes
+        Which passes to run.
+        .NOTES
+        OpClass: content:read
+        #>
+        param(
+            [ValidateSet('typography', 'whitespace')] [string[]]$Passes
+        )
+        Write-Output "$Passes"
+        """;
+
     [Fact]
     public void Load_MissingDirectoryReturnsEmpty()
     {
@@ -320,6 +353,48 @@ public sealed class ScriptToolLoaderTests : IDisposable
         Assert.Contains("From", required);
         Assert.Contains("To", required);
         Assert.DoesNotContain("Force", required);
+    }
+
+    [Fact]
+    public void Load_ValidateSetParameter_CarriesItsMembers()
+    {
+        WriteScript("probe.ps1", ValidateSetScript);
+        var tool = Assert.Single(ScriptToolLoader.Load(_tempDir, OpClasses, new ServerHealthState()));
+
+        var mode = Assert.Single(tool.Parameters, p => p.Name == "Mode");
+        Assert.Equal(new[] { "read", "elevated" }, mode.AllowedValues);
+
+        var label = Assert.Single(tool.Parameters, p => p.Name == "Label");
+        Assert.Null(label.AllowedValues);
+    }
+
+    [Fact]
+    public void BuildInputSchema_ValidateSetParameter_EmitsEnumOnlyWhereConstrained()
+    {
+        WriteScript("probe.ps1", ValidateSetScript);
+        var tool = Assert.Single(ScriptToolLoader.Load(_tempDir, OpClasses, new ServerHealthState()));
+
+        var properties = tool.BuildInputSchema().GetProperty("properties");
+        var members = properties.GetProperty("Mode").GetProperty("enum").EnumerateArray().Select(e => e.GetString()).ToList();
+        Assert.Equal(new string?[] { "read", "elevated" }, members);
+        // A parameter with no ValidateSet omits the key entirely, rather than carrying an
+        // empty array or a null that a client would have to special-case.
+        Assert.False(properties.GetProperty("Label").TryGetProperty("enum", out _));
+    }
+
+    [Fact]
+    public void BuildInputSchema_ValidateSetOnArrayParameter_ConstrainsItemsNotTheArray()
+    {
+        WriteScript("probe.ps1", ValidateSetArrayScript);
+        var tool = Assert.Single(ScriptToolLoader.Load(_tempDir, OpClasses, new ServerHealthState()));
+
+        var passes = tool.BuildInputSchema().GetProperty("properties").GetProperty("Passes");
+        Assert.Equal("array", passes.GetProperty("type").GetString());
+        // A set on an array constrains each element. A property-level enum would demand the
+        // array itself equal a member string, which no array satisfies.
+        Assert.False(passes.TryGetProperty("enum", out _));
+        var members = passes.GetProperty("items").GetProperty("enum").EnumerateArray().Select(e => e.GetString()).ToList();
+        Assert.Equal(new string?[] { "typography", "whitespace" }, members);
     }
 
     /// <summary>Shared assertion for every per-script skip case above (single bad.ps1 in the

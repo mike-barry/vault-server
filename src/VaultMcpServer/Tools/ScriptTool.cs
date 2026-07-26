@@ -2,8 +2,12 @@ using System.Text.Json;
 
 namespace VaultMcpServer.Tools;
 
-/// <summary>One parameter of a script tool, derived from its param() block and comment-based help.</summary>
-public sealed record ScriptToolParameter(string Name, string JsonType, bool Required, string Description);
+/// <summary>
+/// One parameter of a script tool, derived from its param() block and comment-based help.
+/// <paramref name="AllowedValues"/> carries the members of a `[ValidateSet(...)]` on the
+/// parameter, and is null for a parameter that declares no such set.
+/// </summary>
+public sealed record ScriptToolParameter(string Name, string JsonType, bool Required, string Description, IReadOnlyList<string>? AllowedValues);
 
 /// <summary>
 /// An MCP tool backed by a PowerShell script: name and description from comment-based
@@ -20,7 +24,19 @@ public sealed record ScriptTool(string Name, string Description, string OpClass,
         var required = new List<string>();
         foreach (var p in Parameters)
         {
-            properties[p.Name] = new Dictionary<string, object> { ["type"] = p.JsonType, ["description"] = p.Description };
+            var property = new Dictionary<string, object> { ["type"] = p.JsonType, ["description"] = p.Description };
+            // `enum` is emitted only for a parameter that constrains its values, so an
+            // unconstrained one carries no `enum` key rather than an empty or null one.
+            // A set on an array parameter constrains each element, so it lands under
+            // `items`: at the property level it would demand the array itself equal a member.
+            if (p.AllowedValues is { Count: > 0 })
+            {
+                if (p.JsonType == "array")
+                    property["items"] = new Dictionary<string, object> { ["enum"] = p.AllowedValues };
+                else
+                    property["enum"] = p.AllowedValues;
+            }
+            properties[p.Name] = property;
             if (p.Required)
                 required.Add(p.Name);
         }
