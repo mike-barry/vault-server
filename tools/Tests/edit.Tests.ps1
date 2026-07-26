@@ -116,13 +116,79 @@ Describe 'edit' {
         }
 
         It 'returns resultingFrontmatter byte-identical to read part: frontmatter' {
-            # The contract locked in the spec: resultingFrontmatter is raw block text matching
-            # read's own extractor, so the caller can verify without a follow-up read - which
-            # matters because several ops are silently idempotent.
+            # The contract locked in the spec: resultingFrontmatter is raw block text matching what
+            # read returns, so the caller can verify without a follow-up read - which matters
+            # because several ops are silently idempotent. Both tools take the split from the same
+            # substrate function, so the match is structural.
             $result = & $script:ScriptPath -Path $script:NotePath -FrontmatterOps '[{"op":"set_field","field":"doc.archived","value":"2026-07-25"}]' | ConvertFrom-Json
             $viaRead = & $script:ReadScriptPath -Path $script:NotePath -Part 'frontmatter'
             $result.resultingFrontmatter | Should -BeExactly $viaRead
             $result.resultingFrontmatter | Should -BeExactly "doc.created: 2026-07-16`ndoc.type: Note`ndoc.archived: 2026-07-25"
+        }
+
+        # --- The parity contract above, exercised on the fence shapes that strain it: a
+        # whitespace-padded fence, an inner line that opens with "---", and a "----" line that
+        # looks like a fence and is not. The contract is only worth as much as the shapes it is
+        # tested on, and a clean fence reaches none of these. Both tools take the split from the
+        # substrate's Split-VaultNoteContent, so each case pins that one authority's answer
+        # arriving on both sides of the contract. ---
+
+        It 'returns resultingFrontmatter matching read on a whitespace-padded opening fence' {
+            # A fence line is recognized on its trimmed text, so "--- " opens a block exactly as
+            # "---" does and both tools see the same closed block.
+            $padded = 'Inbox/Edit-Padded-Open.md'
+            [System.IO.File]::WriteAllText((Join-Path $script:VaultDir $padded), "--- `ndoc.type: Note`n---`nBody`n")
+
+            $result = & $script:ScriptPath -Path $padded -FrontmatterOps '[{"op":"set_field","field":"doc.archived","value":"2026-07-25"}]' | ConvertFrom-Json
+            $viaRead = & $script:ReadScriptPath -Path $padded -Part 'frontmatter'
+            $result.resultingFrontmatter | Should -BeExactly $viaRead
+            $result.resultingFrontmatter | Should -BeExactly "doc.type: Note`ndoc.archived: 2026-07-25"
+            # The padded fence line itself is preserved byte for byte - recognizing it is not
+            # licence to normalize it.
+            [System.IO.File]::ReadAllText((Join-Path $script:VaultDir $padded)) |
+                Should -BeExactly "--- `ndoc.type: Note`ndoc.archived: 2026-07-25`n---`nBody`n"
+        }
+
+        It 'returns resultingFrontmatter matching read on a whitespace-padded closing fence' {
+            # The same trimming closes a block, and the closing line is consumed whole - no " \n"
+            # fragment heads the body. Both facets are asserted here rather than inferred from the
+            # opening-fence case above, since padding on the closing line is a separate path.
+            $padded = 'Inbox/Edit-Padded-Close.md'
+            [System.IO.File]::WriteAllText((Join-Path $script:VaultDir $padded), "---`ndoc.type: Note`n--- `nBody`n")
+
+            $result = & $script:ScriptPath -Path $padded -FrontmatterOps '[{"op":"set_field","field":"doc.archived","value":"2026-07-25"}]' | ConvertFrom-Json
+            $viaRead = & $script:ReadScriptPath -Path $padded -Part 'frontmatter'
+            $result.resultingFrontmatter | Should -BeExactly $viaRead
+            $result.resultingFrontmatter | Should -BeExactly "doc.type: Note`ndoc.archived: 2026-07-25"
+            # The body facet carries no fence fragment: the closing line is consumed whole.
+            & $script:ReadScriptPath -Path $padded -Part 'body' | Should -BeExactly "Body`n"
+        }
+
+        It 'returns resultingFrontmatter matching read when an inner line starts with "---"' {
+            # The sharpest case. A fence is a whole line, not a prefix: "---junk" is not one, so
+            # the block runs on to the real "---" three lines down and both tools report every
+            # inner line - "---junk" among them - as block text.
+            $inner = 'Inbox/Edit-Inner-Dashes.md'
+            [System.IO.File]::WriteAllText((Join-Path $script:VaultDir $inner), "---`ndoc.type: Note`n---junk`nmore`n---`nBody`n")
+
+            $result = & $script:ScriptPath -Path $inner -FrontmatterOps '[{"op":"set_field","field":"doc.archived","value":"2026-07-25"}]' | ConvertFrom-Json
+            $viaRead = & $script:ReadScriptPath -Path $inner -Part 'frontmatter'
+            $result.resultingFrontmatter | Should -BeExactly $viaRead
+            $result.resultingFrontmatter | Should -BeExactly "doc.type: Note`n---junk`nmore`ndoc.archived: 2026-07-25"
+        }
+
+        It 'agrees with read that a "----" closing line closes nothing' {
+            # The whole-line rule from the other direction: "----" is not a fence, so the opening
+            # one never closes. read reports no frontmatter and hands back the whole file as body,
+            # and edit refuses the note outright rather than editing a block it invented.
+            $dashes = 'Inbox/Edit-Four-Dashes.md'
+            [System.IO.File]::WriteAllText((Join-Path $script:VaultDir $dashes), "---`ndoc.type: Note`n----`nBody`n")
+
+            $err = Invoke-EditError @{ Path = $dashes; FrontmatterOps = '[{"op":"set_field","field":"doc.archived","value":"2026-07-25"}]' }
+            $err.code | Should -Be 'frontmatter_integrity'
+            $err.data.reason | Should -Be 'unclosed_fence'
+            & $script:ReadScriptPath -Path $dashes -Part 'frontmatter' | Should -BeExactly ''
+            & $script:ReadScriptPath -Path $dashes -Part 'body' | Should -BeExactly "---`ndoc.type: Note`n----`nBody`n"
         }
 
         It 'returns an empty resultingFrontmatter for a note that has no frontmatter block' {

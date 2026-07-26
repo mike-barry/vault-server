@@ -84,6 +84,31 @@ Describe 'Split-VaultNoteContent' {
         (Split-VaultNoteContent -Content "---`na: 1`n---`n").Body | Should -BeExactly ''
     }
 
+    It 'splits an EMPTY frontmatter block - a fence closed with no inner line' {
+        # The shape Remove-VaultUseSkillAgentInstructions leaves when it strips the last entry
+        # from a note whose only key was agent.instructions. read.ps1 and edit.ps1 both take their
+        # split from this function, so the answer pinned here is the one both tools give: a block
+        # with no inner line is Closed and empty, and the body is what follows it.
+        $split = Split-VaultNoteContent -Content "---`n---`nBody"
+        $split.FenceState | Should -Be 'Closed'
+        $split.Frontmatter | Should -BeExactly ''
+        $split.Body | Should -BeExactly 'Body'
+    }
+
+    It 'splits an empty frontmatter block under CRLF endings' {
+        $split = Split-VaultNoteContent -Content "---`r`n---`r`nBody`r`n"
+        $split.FenceState | Should -Be 'Closed'
+        $split.Frontmatter | Should -BeExactly ''
+        $split.Body | Should -BeExactly "Body`r`n"
+    }
+
+    It 'reports an empty body for an empty frontmatter block with nothing after it' {
+        $split = Split-VaultNoteContent -Content "---`n---`n"
+        $split.FenceState | Should -Be 'Closed'
+        $split.Frontmatter | Should -BeExactly ''
+        $split.Body | Should -BeExactly ''
+    }
+
     It 'gives a BodyOffset that splices exactly at the body' {
         $content = "---`na: 1`n---`n# Body"
         $split = Split-VaultNoteContent -Content $content

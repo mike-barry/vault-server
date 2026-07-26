@@ -107,6 +107,52 @@ Describe 'read' {
             $body | Should -Be $full
         }
 
+        # An EMPTY frontmatter block - a "---" line immediately closed by another, with no
+        # inner line at all - is a real shape, not a curiosity:
+        # Remove-VaultUseSkillAgentInstructions leaves exactly it behind when it strips the last
+        # entry from a note whose only key was agent.instructions. A zero-line block is still a
+        # block, so part "body" is what follows it and not the whole file with its fences: `edit`
+        # matches its patch against the substrate's body facet, and a part "body" reading that
+        # disagreed would hand a caller a patch anchor resolving to patch_target_not_found.
+        It 'returns the body, not the whole file, for an empty frontmatter block' {
+            $notePath = Join-Path $script:VaultDir 'Inbox/Empty-Fence.md'
+            [System.IO.File]::WriteAllText($notePath, "---`n---`nBody")
+            $body = & $script:ScriptPath -Path 'Inbox/Empty-Fence.md' -Part 'body'
+            $body | Should -Be 'Body'
+        }
+
+        It 'returns an empty result for part frontmatter on an empty frontmatter block' {
+            $notePath = Join-Path $script:VaultDir 'Inbox/Empty-Fence-Fm.md'
+            [System.IO.File]::WriteAllText($notePath, "---`n---`nBody")
+            $frontmatter = & $script:ScriptPath -Path 'Inbox/Empty-Fence-Fm.md' -Part 'frontmatter'
+            $frontmatter | Should -Be ''
+        }
+
+        It 'returns the body after an empty frontmatter block under CRLF endings' {
+            $notePath = Join-Path $script:VaultDir 'Inbox/Empty-Fence-Crlf.md'
+            [System.IO.File]::WriteAllText($notePath, "---`r`n---`r`n# Note`r`nline two`r`n")
+            $body = & $script:ScriptPath -Path 'Inbox/Empty-Fence-Crlf.md' -Part 'body'
+            $body | Should -Be "# Note`r`nline two`r`n"
+        }
+
+        It 'returns an empty body for an empty frontmatter block with nothing after it' {
+            $notePath = Join-Path $script:VaultDir 'Inbox/Empty-Fence-Only.md'
+            [System.IO.File]::WriteAllText($notePath, "---`n---`n")
+            $body = & $script:ScriptPath -Path 'Inbox/Empty-Fence-Only.md' -Part 'body' | Out-String
+            $body.Trim() | Should -Be ''
+        }
+
+        It 'agrees with the substrate body facet edit patches against, for an empty fence' {
+            # Pins the coupling directly: part body is where a caller takes a patch anchor from,
+            # and edit resolves that anchor against Split-VaultNoteContent's body.
+            Import-Module (Join-Path $script:RepoRoot 'powershell' 'VaultAccess' 'VaultAccess.psd1') -Force
+            $content = "---`n---`n# Note`nbody line`n"
+            $notePath = Join-Path $script:VaultDir 'Inbox/Empty-Fence-Parity.md'
+            [System.IO.File]::WriteAllText($notePath, $content)
+            $body = & $script:ScriptPath -Path 'Inbox/Empty-Fence-Parity.md' -Part 'body'
+            $body | Should -BeExactly (Split-VaultNoteContent -Content $content).Body
+        }
+
         It 'matches part values case-insensitively' {
             $content = & $script:ScriptPath -Path 'Projects/Widget/Widget.md' -Part 'Frontmatter' | Out-String
             $content | Should -Match 'nav\.contents:'

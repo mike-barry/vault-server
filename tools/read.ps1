@@ -136,15 +136,18 @@ if ($normalizedPart -eq 'full') {
 }
 
 # Vault convention: YAML frontmatter is a block delimited by a "---" line at the very start
-# of the file and a matching "---" line that closes it. The one regex serves both remaining
-# parts: "frontmatter" is the fenced block's inner text (raw by ratified contract, never
-# parsed), "body" is everything after the closing fence's line ending, verbatim. A note
-# with no frontmatter has an empty frontmatter and is its own body.
-$frontmatterPattern = [regex]::new('^---\r?\n(.*?)\r?\n---\r?\n?', [System.Text.RegularExpressions.RegexOptions]::Singleline)
-$match = $frontmatterPattern.Match($content)
+# of the file and a matching "---" line that closes it. The split itself is DELEGATED to the
+# substrate's Split-VaultNoteContent - the line-based authority for this exact split - rather
+# than restated here: "frontmatter" is its .Frontmatter (the fenced block's inner text, raw by
+# ratified contract, never parsed), "body" is its .Body (everything after the closing fence
+# line, verbatim). A note with no closed fence has an empty frontmatter and is its own body.
+# Delegating is what holds read and `edit` to one definition of the split: `edit` matches its
+# patch against the substrate's body facet, so a caller can read part "body", anchor a patch
+# in what it got back, and have that patch resolve.
+$split = Split-VaultNoteContent -Content $content
 if ($normalizedPart -eq 'frontmatter') {
-    if ($match.Success) { Write-Output $match.Groups[1].Value } else { Write-Output '' }
+    Write-Output $split.Frontmatter
 }
 else {
-    if ($match.Success) { Write-Output $content.Substring($match.Length) } else { Write-Output $content }
+    Write-Output $split.Body
 }

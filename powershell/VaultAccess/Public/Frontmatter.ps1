@@ -65,8 +65,10 @@ function Split-VaultNoteContent {
     $sb = New-Object System.Text.StringBuilder
     for ($i = 1; $i -lt $bounds.End; $i++) {
         [void]$sb.Append($lines[$i].Text)
-        # The final inner line's terminator is dropped so the block text matches read's
-        # `^---\r?\n(.*?)\r?\n---` capture exactly; every interior terminator is kept verbatim.
+        # The final inner line's terminator is dropped - the block text is the fence's inner
+        # content, not the line ending that closes it; every interior terminator is kept verbatim.
+        # This function is where that shape is defined: `read part: frontmatter` and `edit`'s
+        # resultingFrontmatter both delegate here, so the convention runs outward from this line.
         if ($i -lt $bounds.End - 1) { [void]$sb.Append($lines[$i].Terminator) }
     }
 

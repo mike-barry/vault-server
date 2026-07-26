@@ -83,16 +83,6 @@ $ErrorActionPreference = 'Stop'
 
 Import-Module (Join-Path $PSScriptRoot '..' 'powershell' 'VaultAccess' 'VaultAccess.psd1') -Force
 
-# ---------------------------------------------------------------------------
-# resultingFrontmatter is contracted to match `read part: frontmatter` byte for byte, so it is
-# produced by READ's extractor - this regex, copied from read.ps1 - and not by the substrate's
-# Split-VaultNoteContent. The two disagree on a padded fence (read requires a literal
-# line-initial "---"), and the substrate's is the one the fence-introduction guard uses
-# internally, where self-consistency is what matters. Using each where its contract points is
-# what keeps both promises at once.
-# ---------------------------------------------------------------------------
-$script:ReadFrontmatterPattern = [regex]::new('^---\r?\n(.*?)\r?\n---\r?\n?', [System.Text.RegularExpressions.RegexOptions]::Singleline)
-
 # Facet presence is decided here, in script scope, from $PSBoundParameters - the only way to tell
 # an unset -Body (leave the body alone) from -Body '' (truncate it). A parameter bound to an
 # explicit JSON null counts as unsupplied: the dispatcher converts JSON null to $null, and
@@ -335,8 +325,12 @@ $result = Invoke-VaultWriteLock -Vault $Vault -Abandoned ([ref]$lockAbandoned) -
     # edits needs no interleaved read.
     $resultingSha = Get-VaultEditSha -Bytes ([System.IO.File]::ReadAllBytes($fullPath))
 
-    $frontmatterMatch = $script:ReadFrontmatterPattern.Match($write.Content)
-    $resultingFrontmatter = if ($frontmatterMatch.Success) { $frontmatterMatch.Groups[1].Value } else { '' }
+    # resultingFrontmatter is contracted to match `read part: frontmatter` byte for byte, and it
+    # keeps that promise by delegating to the same authority read does: the substrate's
+    # Split-VaultNoteContent, whose .Frontmatter is the fenced block's inner text and '' for a
+    # note with no closed fence. Re-split from $write.Content rather than reusing the pre-op
+    # $split, because the ops are exactly what moved the block.
+    $resultingFrontmatter = (Split-VaultNoteContent -Content $write.Content).Frontmatter
 
     $opsApplied = @(foreach ($record in $write.OpsApplied) {
             $entry = [ordered]@{ op = $record.Op }
