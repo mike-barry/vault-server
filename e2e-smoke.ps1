@@ -1,5 +1,5 @@
 # e2e-smoke.ps1
-# Deployment-seam smoke test: builds the server, starts the real exe against this
+# Deployment-seam smoke test: builds the server, starts the real build against this
 # machine's real config (appsettings.json, gitignored grants.json), and runs a fixed
 # set of live probes over HTTP. Not a second test matrix - the xUnit integration
 # tests already cover behavioral HTTP semantics in-process; this covers only what
@@ -23,7 +23,7 @@ $ErrorActionPreference = 'Stop'
 
 $repoRoot = $PSScriptRoot
 $projectDir = Join-Path $repoRoot 'src\VaultMcpServer'
-$exePath = Join-Path $projectDir 'bin\Release\net10.0\VaultMcpServer.exe'
+$dllPath = Join-Path $projectDir 'bin\Release\net10.0\VaultMcpServer.dll'
 $baseUrl = "http://localhost:$Port"
 $selectorToken = 'vault-mcp-localhost-selector'
 $bogusToken = 'e2e-smoke-bogus-token'
@@ -109,15 +109,20 @@ if (-not $SkipBuild) {
         exit 1
     }
 }
-if (-not (Test-Path $exePath)) {
-    Write-Host "Built exe not found at $exePath" -ForegroundColor Red
+if (-not (Test-Path $dllPath)) {
+    Write-Host "Built assembly not found at $dllPath" -ForegroundColor Red
     exit 1
 }
 
+# Launched through the shared `dotnet` host, the same way `dotnet run` starts it: the
+# project emits no apphost (see the Application Control note in the Dev-Setup corpus doc).
+# The host runs the assembly in-process rather than spawning a child, so the teardown
+# below owns the whole server by killing this one process.
+#
 # Working directory = project dir, so the content root matches `dotnet run` and the
 # ../../ config paths in appsettings.json resolve to this repo's real config files.
-Write-Host "Starting $exePath ..."
-$proc = Start-Process -FilePath $exePath -WorkingDirectory $projectDir -PassThru -WindowStyle Hidden
+Write-Host "Starting $dllPath ..."
+$proc = Start-Process -FilePath 'dotnet' -ArgumentList $dllPath -WorkingDirectory $projectDir -PassThru -WindowStyle Hidden
 
 try {
     $deadline = (Get-Date).AddSeconds($StartTimeoutSec)
