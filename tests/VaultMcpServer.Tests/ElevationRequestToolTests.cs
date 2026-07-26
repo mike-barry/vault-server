@@ -204,6 +204,48 @@ public sealed class ElevationRequestToolTests(TestVaultFixture fixture) : IClass
         Assert.Equal("insufficient_capability", Code(afterWindow));
     }
 
+    /// <summary>
+    /// Pins the invariant that licenses keeping <c>not_found</c> distinct from
+    /// <c>insufficient_capability</c>: the per-principal throttle is consumed <b>before</b> the
+    /// requested target is resolved, so a mistyped/unknown grant id still spends rate-limit budget.
+    /// Without this ordering the <c>not_found</c> code would be an unthrottled oracle for
+    /// enumerating which named grants are configured. This is a security property, not an incidental
+    /// statement order - a refactor that moves resolution ahead of the throttle must fail here.
+    /// </summary>
+    [Fact]
+    public async Task Invoke_UnknownNamedGrant_ConsumesRateLimitBudget()
+    {
+        var timeProvider = new FixedTimeProvider(DateTimeOffset.UtcNow);
+        var store = MakeStore(timeProvider);
+        var tool = MakeTool(store, new AutoDenyElevationApprover(), AccessorFor(CallerToken), timeProvider, new ElevationOptions(MaxRequestsPerMinute: 2));
+        var caller = store.Authenticate(CallerToken)!;
+
+        // Spend the whole window on requests that fail target resolution.
+        var firstProbe = await tool.InvokeAsync(Args(new { grant = "does-not-exist-1" }), caller, CancellationToken.None);
+        var secondProbe = await tool.InvokeAsync(Args(new { grant = "does-not-exist-2" }), caller, CancellationToken.None);
+        Assert.Equal("not_found", Code(firstProbe));
+        Assert.Equal("not_found", Code(secondProbe));
+
+        // (a) Those not_found responses consumed the budget: a well-formed request for a target that
+        // really exists is now throttled, which is only possible if the throttle ran first.
+        var afterExhaustion = await tool.InvokeAsync(Args(new { grant = "elevated" }), caller, CancellationToken.None);
+        Assert.True(IsError(afterExhaustion));
+        Assert.Equal("rate_limited", Code(afterExhaustion));
+        Assert.Equal("2", Data(afterExhaustion)!["limitPerMinute"]);
+
+        // (b) And enumeration stops with the budget: a further unknown target answers rate_limited,
+        // not not_found, so the probe rate is capped at MaxRequestsPerMinute.
+        var throttledProbe = await tool.InvokeAsync(Args(new { grant = "does-not-exist-3" }), caller, CancellationToken.None);
+        Assert.Equal("rate_limited", Code(throttledProbe));
+        // No target-existence datum leaks past the throttle - only the caller's configured limit.
+        Assert.Null(Data(throttledProbe)!.GetValueOrDefault("grant"));
+
+        // Once the window rolls over, probing resumes at the same capped rate.
+        timeProvider.Now = timeProvider.Now.AddMinutes(2);
+        var afterWindow = await tool.InvokeAsync(Args(new { grant = "does-not-exist-4" }), caller, CancellationToken.None);
+        Assert.Equal("not_found", Code(afterWindow));
+    }
+
     [Fact]
     public async Task Invoke_ApprovedScopedMint_RebindsToAScopedGrant()
     {
