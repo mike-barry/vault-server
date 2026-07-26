@@ -39,6 +39,11 @@ $script:VaultAccessModuleRoot = $PSScriptRoot
 
 $script:VaultConfig = $null
 
+# The vault's wikilink grammar, compiled once and handed out by Get-VaultLinkPattern
+# (Public/LinkResolve.ps1, which documents the named groups). Load-time state, so it lives here
+# with the loader's other module-scope assignments rather than in the concern file.
+$script:VaultAccessLinkPattern = [regex]'(?<embed>!?)\[\[(?<target>[^\[\]\|#]+)(?<heading>#[^\[\]\|]*)?(?<alias>\|[^\[\]]*)?\]\]'
+
 foreach ($folder in @('Private', 'Public')) {
     $dir = Join-Path $PSScriptRoot $folder
     if (-not (Test-Path -LiteralPath $dir -PathType Container)) { continue }

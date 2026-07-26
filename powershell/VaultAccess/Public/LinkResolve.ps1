@@ -1,9 +1,75 @@
-# Public/LinkResolve.ps1 - bare-wikilink resolution under same-basename duplication.
+# Public/LinkResolve.ps1 - the wikilink grammar and bare-wikilink resolution under
+# same-basename duplication.
 # PowerShell-only: this encodes Obsidian's empirically-mapped bare-link resolution rule
 # (Resources/Software/Obsidian-Link-Behavior.md in vault-primary), with no C# counterpart in
-# VaultAccess.cs. It is the shared comparator move's protection pass keys on, and the future
-# `delete` and `lint` primitives need the identical rule - so it lives in the module, not
-# script-local to move.ps1. See ../VaultAccess.psm1 for the full mirror policy.
+# VaultAccess.cs. It is the shared comparator move's protection pass keys on, and `delete` and
+# `lint` need the identical rule - so it lives in the module, not script-local to move.ps1.
+# See ../VaultAccess.psm1 for the full mirror policy.
+#
+# The grammar below (pattern, key normalization, suffix match) joined it here at `lint`'s
+# landing, on the rule of three: move rewrites links, delete censuses them, and lint's
+# broken-wikilinks pass scans them, and all three must agree on what a link is and on what
+# "the same name" means. Three verbatim copies is how that agreement drifts.
+
+function Get-VaultLinkPattern {
+    <#
+    .SYNOPSIS
+    The vault's wikilink grammar: (!?)[[ target (#heading)? (|alias)? ]], as a compiled [regex]
+    with named groups embed / target / heading / alias.
+
+    The target class excludes the link-structural characters, so it captures a bare basename or
+    a vault-relative path but stops at the heading, the alias, or the closing brackets. Only the
+    target is ever rewritten by a consumer; the embed marker, #heading, and |alias are preserved
+    verbatim. The `embed` group is empty for a plain link and "!" for a transclusion, which is
+    how a consumer that must not treat an attachment embed as a note link tells the two apart.
+
+    Returns the one shared instance (constructed at module load, in VaultAccess.psm1 with the
+    module's other load-time state) rather than compiling a new regex per call.
+    #>
+    [CmdletBinding()]
+    param()
+    $script:VaultAccessLinkPattern
+}
+
+function Get-VaultLinkKey {
+    <#
+    .SYNOPSIS
+    Normalizes a filename or link target to its wikilink-namespace key: a trailing ".md" is
+    stripped (notes are linked extension-less), any other extension is kept (an image or
+    attachment is linked by its full filename). Backslashes fold to "/" and a trailing "/" is
+    trimmed.
+
+    This one function keys move's basename censuses and the moved item's old/new identity,
+    delete's deleted set, lint's note index, and each scanned link's target - so every consumer
+    agrees on what "the same name" means.
+    #>
+    [CmdletBinding()]
+    param([Parameter(Mandatory)] [AllowEmptyString()] [string] $Name)
+    $n = $Name.Trim().Replace('\', '/').TrimEnd('/')
+    if ($n.ToLowerInvariant().EndsWith('.md')) { $n = $n.Substring(0, $n.Length - 3) }
+    $n
+}
+
+function Test-VaultPathSuffixMatch {
+    <#
+    .SYNOPSIS
+    True when $Candidate's path components are a component-aligned suffix of $Target's - the
+    match Obsidian's "shortest path when possible" links need, since it writes partial suffixes
+    like [[Foo/Note]] for a note at Deep/Foo/Note. Comparison is case-insensitive (Windows
+    filesystem). A single-component candidate is handled by the bare-basename rule, not here, so
+    callers pass only path-qualified (slash-bearing) candidates.
+    #>
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)] [string[]] $Target,
+        [Parameter(Mandatory)] [string[]] $Candidate
+    )
+    if ($Candidate.Count -eq 0 -or $Candidate.Count -gt $Target.Count) { return $false }
+    for ($i = 1; $i -le $Candidate.Count; $i++) {
+        if ($Target[$Target.Count - $i] -ine $Candidate[$Candidate.Count - $i]) { return $false }
+    }
+    $true
+}
 
 function Resolve-VaultBareLink {
     <#

@@ -1,9 +1,88 @@
-# Tests for VaultAccess Public/LinkResolve.ps1 (Obsidian bare-link resolution ranking).
+# Tests for VaultAccess Public/LinkResolve.ps1 - the wikilink grammar (pattern, key
+# normalization, suffix match) and Obsidian bare-link resolution ranking.
 # Pure - no vault fixture needed, just the imported module.
 # Run with: Invoke-Pester powershell/VaultAccess/Tests
 
 BeforeAll {
     Import-Module (Join-Path $PSScriptRoot '../VaultAccess.psd1') -Force
+}
+
+Describe 'Get-VaultLinkPattern' {
+    # A small suite deliberately: move's and delete's own tool suites already pin this grammar's
+    # behavior end to end and are the regression net for the promotion out of those scripts.
+    # What is pinned here is the contract a third consumer (lint) now reads it through.
+
+    It 'returns the same compiled instance on every call' {
+        $a = Get-VaultLinkPattern
+        $b = Get-VaultLinkPattern
+        $a | Should -BeOfType ([regex])
+        [object]::ReferenceEquals($a, $b) | Should -BeTrue
+    }
+
+    It 'captures target, heading, and alias separately and leaves embed empty for a plain link' {
+        $m = (Get-VaultLinkPattern).Match('see [[Folder/Note#Heading|Display]] here')
+        $m.Success | Should -BeTrue
+        $m.Groups['embed'].Value | Should -Be ''
+        $m.Groups['target'].Value | Should -Be 'Folder/Note'
+        $m.Groups['heading'].Value | Should -Be '#Heading'
+        $m.Groups['alias'].Value | Should -Be '|Display'
+    }
+
+    It 'marks a transclusion through the embed group' {
+        $m = (Get-VaultLinkPattern).Match('![[diagram.png]]')
+        $m.Groups['embed'].Value | Should -Be '!'
+        $m.Groups['target'].Value | Should -Be 'diagram.png'
+    }
+
+    It 'does not match an unclosed or single-bracket link' {
+        (Get-VaultLinkPattern).IsMatch('[[Unclosed') | Should -BeFalse
+        (Get-VaultLinkPattern).IsMatch('[Not-A-Wikilink](x.md)') | Should -BeFalse
+    }
+}
+
+Describe 'Get-VaultLinkKey' {
+    It 'strips a trailing .md so a filename and a bare link share one key' {
+        Get-VaultLinkKey -Name 'Gizmo-Reference.md' | Should -Be 'Gizmo-Reference'
+        Get-VaultLinkKey -Name 'Gizmo-Reference' | Should -Be 'Gizmo-Reference'
+    }
+
+    It 'keeps any other extension - an attachment is linked by its full filename' {
+        Get-VaultLinkKey -Name 'diagram.png' | Should -Be 'diagram.png'
+    }
+
+    It 'folds backslashes to forward slashes and trims a trailing slash' {
+        Get-VaultLinkKey -Name 'Areas\Homelab\Note.md' | Should -Be 'Areas/Homelab/Note'
+        Get-VaultLinkKey -Name 'Areas/Homelab/' | Should -Be 'Areas/Homelab'
+    }
+
+    It 'is case-insensitive about the extension only, preserving the name as written' {
+        Get-VaultLinkKey -Name 'Note.MD' | Should -Be 'Note'
+    }
+
+    It 'accepts an empty name' {
+        Get-VaultLinkKey -Name '' | Should -Be ''
+    }
+}
+
+Describe 'Test-VaultPathSuffixMatch' {
+    It 'matches a component-aligned suffix' {
+        Test-VaultPathSuffixMatch -Target @('Deep', 'Foo', 'Note') -Candidate @('Foo', 'Note') | Should -BeTrue
+    }
+
+    It 'is case-insensitive' {
+        Test-VaultPathSuffixMatch -Target @('Deep', 'Foo', 'Note') -Candidate @('foo', 'NOTE') | Should -BeTrue
+    }
+
+    It 'refuses a partial component match' {
+        Test-VaultPathSuffixMatch -Target @('Deep', 'Foobar', 'Note') -Candidate @('Foo', 'Note') | Should -BeFalse
+    }
+
+    It 'refuses a candidate longer than the target' {
+        Test-VaultPathSuffixMatch -Target @('Foo', 'Note') -Candidate @('Deep', 'Foo', 'Note') | Should -BeFalse
+    }
+
+    # No empty-candidate case: [string[]] with no AllowEmptyCollection rejects @() at binding,
+    # exactly as the script-local original did. The function's own empty guard is defensive.
 }
 
 Describe 'Resolve-VaultBareLink' {

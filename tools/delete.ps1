@@ -70,46 +70,12 @@ Import-Module (Join-Path $PSScriptRoot '..' 'powershell' 'VaultAccess' 'VaultAcc
 $script:RecursiveBound = $PSBoundParameters.ContainsKey('Recursive') -and $null -ne $Recursive
 
 # ---------------------------------------------------------------------------
-# Link grammar, shared verbatim with move: (!?)[[ target (#heading)? (|alias)? ]]. delete uses
-# it report-only - it identifies links that pointed at a deleted target and never rewrites one,
-# because a deletion leaves no new name to point at.
+# Link grammar and its comparators are the module's (VaultAccess Public/LinkResolve.ps1),
+# shared with move and lint. delete uses them report-only - it identifies links that pointed at
+# a deleted target and never rewrites one, because a deletion leaves no new name to point at.
+# The pattern is bound to a script variable so the match call site below stays unchanged.
 # ---------------------------------------------------------------------------
-$script:VaultLinkPattern = [regex]'(?<embed>!?)\[\[(?<target>[^\[\]\|#]+)(?<heading>#[^\[\]\|]*)?(?<alias>\|[^\[\]]*)?\]\]'
-
-function Get-VaultLinkKey {
-    <#
-    .SYNOPSIS
-    Normalizes a filename or link target to its wikilink-namespace key: a trailing ".md" is
-    stripped (notes are linked extension-less), any other extension is kept (an image or
-    attachment is linked by its full filename). Backslashes fold to "/" and a trailing "/" is
-    trimmed. Keys the deleted set and each scanned link's target, so both agree on what "the
-    same name" means. Same definition as move's.
-    #>
-    param([Parameter(Mandatory)] [AllowEmptyString()] [string] $Name)
-    $n = $Name.Trim().Replace('\', '/').TrimEnd('/')
-    if ($n.ToLowerInvariant().EndsWith('.md')) { $n = $n.Substring(0, $n.Length - 3) }
-    $n
-}
-
-function Test-VaultPathSuffixMatch {
-    <#
-    .SYNOPSIS
-    True when $Candidate's path components are a component-aligned suffix of $Target's - the
-    match Obsidian's "shortest path when possible" links need, since it writes partial suffixes
-    like [[Foo/Note]] for a note at Deep/Foo/Note. Case-insensitive (Windows filesystem).
-    Callers pass only path-qualified (slash-bearing) candidates; a single-component candidate is
-    handled by the bare-basename rule.
-    #>
-    param(
-        [Parameter(Mandatory)] [string[]] $Target,
-        [Parameter(Mandatory)] [string[]] $Candidate
-    )
-    if ($Candidate.Count -eq 0 -or $Candidate.Count -gt $Target.Count) { return $false }
-    for ($i = 1; $i -le $Candidate.Count; $i++) {
-        if ($Target[$Target.Count - $i] -ine $Candidate[$Candidate.Count - $i]) { return $false }
-    }
-    $true
-}
+$script:VaultLinkPattern = Get-VaultLinkPattern
 
 function Get-VaultDeleteFolderPlan {
     <#

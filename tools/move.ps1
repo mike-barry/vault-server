@@ -146,46 +146,11 @@ function Get-VaultMoveDestSuggestion {
 # ever rewritten - the embed marker, #heading, and |alias are preserved verbatim.
 # ---------------------------------------------------------------------------
 
-# (!?)[[ target (#heading)? (|alias)? ]]  - target excludes the link-structural
-# characters, so it captures a bare basename or a vault-relative path but stops at
-# the heading / alias / closing brackets.
-$script:VaultLinkPattern = [regex]'(?<embed>!?)\[\[(?<target>[^\[\]\|#]+)(?<heading>#[^\[\]\|]*)?(?<alias>\|[^\[\]]*)?\]\]'
-
-function Get-VaultLinkKey {
-    <#
-    .SYNOPSIS
-    Normalizes a filename or link target to its wikilink-namespace key: a trailing ".md"
-    is stripped (notes are linked extension-less), any other extension is kept (an image or
-    attachment is linked by its full filename). Backslashes fold to "/" and a trailing "/"
-    is trimmed. This one function keys the basename censuses, the moved item's old/new
-    identity, and each scanned link's target, so all three agree on what "the same name"
-    means.
-    #>
-    param([Parameter(Mandatory)] [AllowEmptyString()] [string] $Name)
-    $n = $Name.Trim().Replace('\', '/').TrimEnd('/')
-    if ($n.ToLowerInvariant().EndsWith('.md')) { $n = $n.Substring(0, $n.Length - 3) }
-    $n
-}
-
-function Test-VaultPathSuffixMatch {
-    <#
-    .SYNOPSIS
-    True when $Candidate's path components are a component-aligned suffix of $Target's - the
-    match Obsidian's "shortest path when possible" links need, since it writes partial
-    suffixes like [[Foo/Note]] for a note at Deep/Foo/Note. Comparison is case-insensitive
-    (Windows filesystem). A single-component candidate is handled by the bare-basename rule,
-    not here, so callers pass only path-qualified (slash-bearing) candidates.
-    #>
-    param(
-        [Parameter(Mandatory)] [string[]] $Target,
-        [Parameter(Mandatory)] [string[]] $Candidate
-    )
-    if ($Candidate.Count -eq 0 -or $Candidate.Count -gt $Target.Count) { return $false }
-    for ($i = 1; $i -le $Candidate.Count; $i++) {
-        if ($Target[$Target.Count - $i] -ine $Candidate[$Candidate.Count - $i]) { return $false }
-    }
-    $true
-}
+# The grammar and its two comparators are the module's (VaultAccess Public/LinkResolve.ps1):
+# move rewrites links, delete censuses them, and lint scans them, so all three read one
+# definition of what a link is and of what "the same name" means. The pattern is bound to a
+# script variable here so the match call sites below stay unchanged.
+$script:VaultLinkPattern = Get-VaultLinkPattern
 
 function New-VaultMoveBareNamespaces {
     <#
