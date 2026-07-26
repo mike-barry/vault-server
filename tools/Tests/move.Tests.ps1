@@ -818,7 +818,7 @@ Describe 'move (validate + resolve + scope)' {
                 $err = Invoke-MoveError @{ Source = 'Resources/Gizmo-Reference.md'; Dest = 'Renamed-Gizmo.md' }
                 $err.code | Should -Be 'partial_state'
                 # The move landed before the rewrite failed - the torn state partial_state names.
-                $err.data.directoryMoved | Should -BeTrue
+                $err.data.moveApplied | Should -BeTrue
                 Test-Path (Join-Path $script:VaultDir 'Resources/Renamed-Gizmo.md') | Should -BeTrue
                 # filesRewritten is present (an array) and never includes the file that could not be
                 # written - the one that produced the failure.
@@ -849,7 +849,7 @@ Describe 'move (validate + resolve + scope)' {
             try {
                 $err = Invoke-MoveError @{ Source = 'Projects/Widget'; Dest = 'Projects/Renamed-Widget' }
                 $err.code | Should -Be 'partial_state'
-                $err.data.directoryMoved | Should -BeTrue
+                $err.data.moveApplied | Should -BeTrue
                 $err.data.folderNoteRenamed | Should -BeTrue
                 Test-Path (Join-Path $script:VaultDir 'Projects/Renamed-Widget/Renamed-Widget.md') | Should -BeTrue
                 # A moved DIRECTORY does not recover like a moved file: the whole destination tree
