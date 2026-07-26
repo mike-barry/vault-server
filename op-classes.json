@@ -4,5 +4,6 @@
   { "name": "agentic:write", "description": "Mutation of the agentic frontmatter layer (the agent.* / nav.* metadata) on vault notes." },
   { "name": "git:sync", "description": "Converging the vault repository toward the remote without introducing agent-authored content into history: fetch, fast-forward, clean merge commits, submodule checkout and the pointer commit that records one, and reattach." },
   { "name": "git:commit", "description": "Introducing agent-authored content into the vault repository's history: committing agent-authored working-tree changes, resolving conflicts, and pushing." },
+  { "name": "lint:manage", "description": "Lint suppression-list management: adding and removing the entries that silence a lint finding - authority over the linter's own judgment, not over vault content." },
   { "name": "grants:manage", "description": "Grant administration: minting new scoped, time-limited bearer tokens." }
 ]
