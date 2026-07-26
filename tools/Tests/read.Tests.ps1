@@ -247,9 +247,11 @@ Describe 'read' {
             $content | Should -Match '# Widget\.md - Sample Project for Fixture Testing'
         }
 
-        It 'does not infer .md: a bare extensionless path is a miss, not a resolution' {
+        It 'does not infer .md: a bare extensionless path is refused, not resolved' {
             $err = Invoke-ReadError @{ Path = 'Projects/Widget/Widget' }
-            $err.code | Should -Be 'not_found'
+            $err.code | Should -Be 'invalid_argument'
+            $err.message | Should -Match 'Projects/Widget/Widget\.md'
+            $err.data.suggestedPath | Should -Be 'Projects/Widget/Widget.md'
         }
     }
 
@@ -261,6 +263,9 @@ Describe 'read' {
         }
 
         It 'rejects a folder target as kind_mismatch (read is note-semantic)' {
+            # Also pins the ordering: this operand is extensionless, and the folder probe runs
+            # first so it is named as a folder rather than suggested a ".md" sibling that is
+            # not where its folder note lives.
             $err = Invoke-ReadError @{ Path = 'Projects/Widget' }
             $err.code | Should -Be 'kind_mismatch'
             $err.data.requiredKind | Should -Be 'note'
@@ -270,6 +275,37 @@ Describe 'read' {
         It 'rejects an existing non-md file as kind_mismatch' {
             Set-Content -LiteralPath (Join-Path $script:VaultDir 'Inbox/attachment.txt') -Value 'not a note'
             $err = Invoke-ReadError @{ Path = 'Inbox/attachment.txt' }
+            $err.code | Should -Be 'kind_mismatch'
+            $err.data.resolvedKind | Should -Be 'file'
+        }
+
+        It 'refuses an extensionless path naming nothing as invalid_argument, not not_found' {
+            $err = Invoke-ReadError @{ Path = 'Inbox/Nonexistent-Note' }
+            $err.code | Should -Be 'invalid_argument'
+            $err.message | Should -Match 'Inbox/Nonexistent-Note\.md'
+            $err.data.path | Should -Be 'Inbox/Nonexistent-Note'
+            $err.data.suggestedPath | Should -Be 'Inbox/Nonexistent-Note.md'
+        }
+
+        It 'refuses an existing extensionless file as invalid_argument (the rule precedes existence)' {
+            Set-Content -LiteralPath (Join-Path $script:VaultDir 'Inbox/LICENSE') -Value 'not a note'
+            $err = Invoke-ReadError @{ Path = 'Inbox/LICENSE' }
+            $err.code | Should -Be 'invalid_argument'
+            $err.data.suggestedPath | Should -Be 'Inbox/LICENSE.md'
+        }
+
+        It 'reads the extension from the last segment, not the whole path' {
+            # A dotted folder name is not the operand's extension: the leaf is extensionless
+            # and is refused as such rather than read as a ".md" note.
+            New-Item -ItemType Directory -Path (Join-Path $script:VaultDir 'Inbox/Archive.md') | Out-Null
+            $err = Invoke-ReadError @{ Path = 'Inbox/Archive.md/Notes' }
+            $err.code | Should -Be 'invalid_argument'
+            $err.data.suggestedPath | Should -Be 'Inbox/Archive.md/Notes.md'
+        }
+
+        It 'admits a dotted non-md leaf to the kind_mismatch rule, not the extension rule' {
+            Set-Content -LiteralPath (Join-Path $script:VaultDir 'Inbox/.placeholder') -Value ''
+            $err = Invoke-ReadError @{ Path = 'Inbox/.placeholder' }
             $err.code | Should -Be 'kind_mismatch'
             $err.data.resolvedKind | Should -Be 'file'
         }
@@ -314,6 +350,12 @@ Describe 'read' {
             $err = Invoke-ReadError @{ Path = 'Projects/Widget'; Part = 'sha' }
             $err.code | Should -Be 'kind_mismatch'
             $err.data.resolvedKind | Should -Be 'folder'
+        }
+
+        It 'refuses an extensionless path as invalid_argument for part sha' {
+            $err = Invoke-ReadError @{ Path = 'Projects/Widget/Widget'; Part = 'sha' }
+            $err.code | Should -Be 'invalid_argument'
+            $err.data.suggestedPath | Should -Be 'Projects/Widget/Widget.md'
         }
 
         It 'rejects an existing non-md file as kind_mismatch for part sha' {

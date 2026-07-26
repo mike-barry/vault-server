@@ -7,8 +7,9 @@ no path echo. Callers holding only a name resolve it to a path with glob first
 normalization - no ".md" inference.
 .PARAMETER Path
 Vault-relative path of the note to read. An operate-on tool requires exactly one existing
-target: a miss errors not_found. A path that resolves to a folder or a non-.md file errors
-kind_mismatch - read is note-semantic.
+target: a miss errors not_found. An extensionless path is refused as invalid_argument naming
+the ".md" form rather than guessed at. read is note-semantic: a path resolving to a folder or
+to an existing non-".md" file is kind_mismatch.
 .PARAMETER Part
 Which part of the note to return: "full" (default) is the whole content, "frontmatter" is
 the raw YAML block between the leading "---" fences (raw block text by ratified contract,
@@ -79,13 +80,24 @@ if ($null -ne $flatScopeRoots -and $flatScopeRoots.Count -gt 0 -and -not (Test-V
     throw (New-VaultToolError -Code 'out_of_scope' -Message "Path is outside the grant's scope for vault `"$($resolvedVault.Name)`": $notePath" -Data @{ vault = $resolvedVault.Name; path = $notePath })
 }
 
-# --- Shape check: read is note-semantic, so an existing folder or non-.md file is a
-# kind_mismatch, not a miss. The read itself re-classifies a vanished-since-probe target
-# below, so this probe is a courtesy shape check, not the existence authority. ---
+# --- Operand shape: read is note-semantic, so an existing folder or non-.md file is a
+# kind_mismatch, not a miss. The folder probe runs before the extension rule so an existing
+# folder is named as a folder rather than suggested a ".md" sibling that is not where its
+# folder note lives; an extensionless path that resolves to nothing is invalid_argument
+# naming the ".md" form, so the miss is loud and retryable in one call rather than an
+# ambiguous not_found (Tool-Contracts: Path Convention). "Extension" is the last
+# dot-delimited segment of the last path segment - the contract's own definition - so the
+# two rules below read one notion of it and cannot drift apart. The read itself
+# re-classifies a vanished-since-probe target below, so the leaf probe here is a courtesy
+# shape check, not the existence authority. ---
 if (Test-Path -LiteralPath $fullPath -PathType Container) {
     throw (New-VaultToolError -Code 'kind_mismatch' -Message "Path is a folder, not a note: $notePath" -Data @{ requiredKind = 'note'; resolvedKind = 'folder' })
 }
-if (-not $notePath.ToLowerInvariant().EndsWith('.md') -and (Test-Path -LiteralPath $fullPath -PathType Leaf)) {
+$noteExtension = [System.IO.Path]::GetExtension(($notePath -split '/')[-1])
+if ([string]::IsNullOrEmpty($noteExtension)) {
+    throw (New-VaultToolError -Code 'invalid_argument' -Message "path has no extension and read never infers one: retry with '$notePath.md' if that is the note you mean." -Data @{ path = $notePath; suggestedPath = "$notePath.md" })
+}
+if ($noteExtension -ine '.md' -and (Test-Path -LiteralPath $fullPath -PathType Leaf)) {
     throw (New-VaultToolError -Code 'kind_mismatch' -Message "Path is not a markdown note: $notePath" -Data @{ requiredKind = 'note'; resolvedKind = 'file' })
 }
 

@@ -436,8 +436,8 @@ Describe 'edit' {
         }
 
         It 'refuses an extensionless path as invalid_argument naming the .md form' {
-            # A deliberate divergence from read, which lets an extensionless miss fall through to
-            # not_found: the Path Convention wants the miss loud and retryable in one call.
+            # The Path Convention's rule, shared with read: the miss is loud and retryable in
+            # one call rather than an ambiguous not_found.
             $err = Invoke-EditError @{ Path = 'Inbox/Edit-Case'; FrontmatterOps = '[{"op":"set_field","field":"doc.type","value":"Note"}]' }
             $err.code | Should -Be 'invalid_argument'
             $err.message | Should -Match 'Inbox/Edit-Case\.md'
