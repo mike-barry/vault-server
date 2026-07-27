@@ -63,6 +63,7 @@ write-class envelope (Plan-Vault-Tool-Primitives: Return Convention): capabiliti
 filesSkippedUnreadable[] always, [] when empty; lockWarning only when an abandoned mutex
 was inherited.
 #>
+[CmdletBinding()]
 param(
     [Parameter(Mandatory)] [string] $Source,
     [Parameter(Mandatory)] [string] $Dest,

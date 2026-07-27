@@ -94,6 +94,7 @@ The return carries the write-class envelope: capabilitiesUsed and filesSkippedUn
 (the latter always [] - sync runs no enumerate-then-read loop over notes), lockWarning only when an
 abandoned mutex was inherited.
 #>
+[CmdletBinding()]
 param(
     [bool] $Apply = $false,
     [string] $Commit,

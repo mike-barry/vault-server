@@ -146,6 +146,32 @@ public sealed class ScriptToolDispatcher(ScriptToolRegistry registry, NativeTool
                     new { tool = name, vault = effectiveVault });
         }
 
+        // Argument-name validation, deliberately the last of the dispatcher's pre-runner checks.
+        // Every client-supplied name must match one of the tool's advertised parameters, matched
+        // case-insensitively because that is how PowerShell's binder matches - a stricter check
+        // here would refuse a name the binder would have bound. Ordering: after the grant,
+        // op-class, and vault-membership checks, so a caller holding no authority over this tool
+        // gets the authorization denial and a malformed call never doubles as a way to probe which
+        // argument names a tool it cannot call advertises; before the runner, because under
+        // [CmdletBinding()] an unadvertised name is refused by the binder as a raw
+        // ParameterBindingException string surfaced through ErrorResult - outside the
+        // {code, message, data?} shape every other refusal here carries. The same binding change
+        // is also what would otherwise make PowerShell's common parameters (-Verbose, -Debug,
+        // -ErrorAction, -ErrorVariable, -OutVariable, ...) settable by the client on every tool:
+        // they are unadvertised names like any other and are refused by this check, so a tool's
+        // param() block stays its entire client-facing argument surface. Name-only - type and
+        // value validation stay in-script, where the tools already do them and the refusal is
+        // already coded.
+        if (UnadvertisedArgumentName(tool, context.Params?.Arguments) is { } unknownArgument)
+            return ToolError.Result(
+                "invalid_argument",
+                $"Tool \"{name}\" has no parameter named \"{unknownArgument}\".",
+                // Same posture as the denials above: data carries only the call's own coordinates -
+                // the tool named and the offending argument name, both of them the caller's own
+                // input. The tool's advertised parameter set stays out; tools/list is where a
+                // caller learns it, not a denial.
+                new { tool = name, param = unknownArgument });
+
         var arguments = ConvertArguments(context.Params?.Arguments);
         var execution = await runner.InvokeAsync(tool.ScriptPath, arguments, cancellationToken, grant.ScopeRoots, grant.OpClasses);
         // A script's own error text is surfaced verbatim, never re-wrapped: a tool script that threw
@@ -184,6 +210,28 @@ public sealed class ScriptToolDispatcher(ScriptToolRegistry registry, NativeTool
     /// <see cref="VaultParameterName"/>) - the tools this dispatcher's membership check applies to.</summary>
     private static bool ToolTakesVaultParameter(ScriptTool tool) =>
         tool.Parameters.Any(p => string.Equals(p.Name, VaultParameterName, StringComparison.OrdinalIgnoreCase));
+
+    /// <summary>
+    /// The first client-supplied argument name that matches no parameter <paramref name="tool"/>
+    /// advertises, or null when every supplied name is recognized. Matched case-insensitively, the
+    /// same way PowerShell's binder matches (and the same reason
+    /// <see cref="ResolveEffectiveVault"/> looks up the vault argument case-insensitively). The
+    /// tool's advertised parameters are exactly its <c>param()</c> block, so PowerShell's common
+    /// parameters - which <c>[CmdletBinding()]</c> adds at bind time but which never appear in the
+    /// AST param block <see cref="ScriptToolLoader"/> derives from - are unrecognized here like any
+    /// other unadvertised name.
+    /// </summary>
+    private static string? UnadvertisedArgumentName(ScriptTool tool, IDictionary<string, JsonElement>? arguments)
+    {
+        if (arguments is null)
+            return null;
+        foreach (var key in arguments.Keys)
+        {
+            if (!tool.Parameters.Any(p => string.Equals(p.Name, key, StringComparison.OrdinalIgnoreCase)))
+                return key;
+        }
+        return null;
+    }
 
     /// <summary>
     /// The vault a call effectively targets: the string <c>vault</c> argument when present

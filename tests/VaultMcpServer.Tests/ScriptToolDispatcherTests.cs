@@ -21,6 +21,18 @@ public sealed class ScriptToolDispatcherTests : IClassFixture<ScriptToolDispatch
 
     private static StringContent JsonBody(string json) => new(json, Encoding.UTF8, "application/json");
 
+    /// <summary>A `tools/call` request body, serialized rather than spelled as a literal so an
+    /// argument name or value supplied by the test (a file path, a theory case) is escaped rather
+    /// than pasted into JSON.</summary>
+    private static string ToolCallBody(string toolName, Dictionary<string, string> arguments) =>
+        JsonSerializer.Serialize(new
+        {
+            jsonrpc = "2.0",
+            id = 1,
+            method = "tools/call",
+            @params = new { name = toolName, arguments },
+        });
+
     private static HttpClient AuthedClient(Fixture fixture, string token)
     {
         var client = fixture.CreateClient();
@@ -177,12 +189,113 @@ public sealed class ScriptToolDispatcherTests : IClassFixture<ScriptToolDispatch
         Assert.Equal("no_such_tool", error.RootElement.GetProperty("data").GetProperty("tool").GetString());
     }
 
+    /// <summary>
+    /// The dispatcher's argument-name check matches case-insensitively because that is how
+    /// PowerShell's binder matches - a name that would have bound must not be refused here, or the
+    /// check becomes stricter than the thing it stands in front of.
+    /// </summary>
+    [Fact]
+    public async Task ToolsCall_KnownArgumentInNonMatchingCase_StillDispatches()
+    {
+        using var client = AuthedClient(_fixture, Fixture.AdminToken);
+        // The param() block (and so the advertised schema) spells this "Name".
+        var body = """{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"greet","arguments":{"nAmE":"Mike"}}}""";
+        using var response = await client.PostAsync("/mcp", JsonBody(body));
+        var text = await response.Content.ReadAsStringAsync();
+
+        using var doc = JsonDocument.Parse(ExtractJsonRpcPayload(text));
+        var result = doc.RootElement.GetProperty("result");
+        Assert.False(result.TryGetProperty("isError", out var isError) && isError.GetBoolean());
+        Assert.Equal("hello Mike", result.GetProperty("content").EnumerateArray().First().GetProperty("text").GetString());
+    }
+
+    /// <summary>
+    /// An argument naming no advertised parameter is refused by the dispatcher as a coded
+    /// <c>invalid_argument</c>, rather than reaching the runspace where <c>[CmdletBinding()]</c>
+    /// would refuse it as a raw PowerShell binding string outside the shared error shape.
+    /// </summary>
+    [Fact]
+    public async Task ToolsCall_UnknownArgumentName_IsRejectedAsInvalidArgument()
+    {
+        using var client = AuthedClient(_fixture, Fixture.AdminToken);
+        var body = """{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"greet","arguments":{"Name":"Mike","Nmae":"typo"}}}""";
+        using var response = await client.PostAsync("/mcp", JsonBody(body));
+        var text = await response.Content.ReadAsStringAsync();
+
+        using var doc = JsonDocument.Parse(ExtractJsonRpcPayload(text));
+        var result = doc.RootElement.GetProperty("result");
+        Assert.True(result.GetProperty("isError").GetBoolean());
+
+        var errorText = result.GetProperty("content").EnumerateArray().First().GetProperty("text").GetString()!;
+        using var error = JsonDocument.Parse(errorText);
+        Assert.Equal("invalid_argument", error.RootElement.GetProperty("code").GetString());
+        var data = error.RootElement.GetProperty("data");
+        Assert.Equal("greet", data.GetProperty("tool").GetString());
+        Assert.Equal("Nmae", data.GetProperty("param").GetString());
+    }
+
+    /// <summary>
+    /// <c>[CmdletBinding()]</c> makes PowerShell's common parameters bindable on every tool script.
+    /// They are not special-cased: they name no entry in the param() block, so the same check
+    /// refuses them, and a tool's param() block stays its entire client-facing argument surface.
+    /// </summary>
+    [Theory]
+    [InlineData("Verbose")]
+    [InlineData("ErrorAction")]
+    [InlineData("OutVariable")]
+    public async Task ToolsCall_CommonParameter_IsRefusedByTheSameCheck(string commonParameter)
+    {
+        using var client = AuthedClient(_fixture, Fixture.AdminToken);
+        var body = ToolCallBody("greet", new() { ["Name"] = "Mike", [commonParameter] = "Continue" });
+        using var response = await client.PostAsync("/mcp", JsonBody(body));
+        var text = await response.Content.ReadAsStringAsync();
+
+        using var doc = JsonDocument.Parse(ExtractJsonRpcPayload(text));
+        var result = doc.RootElement.GetProperty("result");
+        Assert.True(result.GetProperty("isError").GetBoolean());
+
+        var errorText = result.GetProperty("content").EnumerateArray().First().GetProperty("text").GetString()!;
+        using var error = JsonDocument.Parse(errorText);
+        Assert.Equal("invalid_argument", error.RootElement.GetProperty("code").GetString());
+        Assert.Equal(commonParameter, error.RootElement.GetProperty("data").GetProperty("param").GetString());
+    }
+
+    /// <summary>
+    /// The refusal happens before the runner is invoked, not after the script has already had its
+    /// effect: the same call minus the bogus argument writes the marker file, so the absence of the
+    /// file on the refused call is proof the script never ran.
+    /// </summary>
+    [Fact]
+    public async Task ToolsCall_UnknownArgumentName_RefusesBeforeTheScriptRuns()
+    {
+        using var client = AuthedClient(_fixture, Fixture.AdminToken);
+        var refusedMarker = Path.Combine(_fixture.MarkerDir, $"marker-refused-{Guid.NewGuid():N}.txt");
+        var allowedMarker = Path.Combine(_fixture.MarkerDir, $"marker-allowed-{Guid.NewGuid():N}.txt");
+
+        using var refused = await client.PostAsync("/mcp", JsonBody(ToolCallBody("mark", new() { ["Marker"] = refusedMarker, ["Bogus"] = "x" })));
+        using var refusedDoc = JsonDocument.Parse(ExtractJsonRpcPayload(await refused.Content.ReadAsStringAsync()));
+        Assert.True(refusedDoc.RootElement.GetProperty("result").GetProperty("isError").GetBoolean());
+        Assert.False(File.Exists(refusedMarker));
+
+        // Control: the identical call without the unadvertised name does run the script, so the
+        // assertion above is about the check and not about the fixture script being inert.
+        using var allowed = await client.PostAsync("/mcp", JsonBody(ToolCallBody("mark", new() { ["Marker"] = allowedMarker })));
+        using var allowedDoc = JsonDocument.Parse(ExtractJsonRpcPayload(await allowed.Content.ReadAsStringAsync()));
+        var allowedResult = allowedDoc.RootElement.GetProperty("result");
+        Assert.False(allowedResult.TryGetProperty("isError", out var isError) && isError.GetBoolean());
+        Assert.True(File.Exists(allowedMarker));
+    }
+
     public sealed class Fixture : ProgramHostFixtureBase
     {
         public const string AdminToken = "test-admin-token";
         public const string ReadOnlyToken = "test-readonly-token";
 
         public string ToolsDir { get; }
+
+        /// <summary>Where the <c>mark</c> fixture tool writes its marker files - the observable side
+        /// effect a test uses to tell whether a script actually ran.</summary>
+        public string MarkerDir { get; }
 
         public Fixture() : base("vault-mcp-tools-dispatch-tests-")
         {
@@ -216,6 +329,26 @@ public sealed class ScriptToolDispatcherTests : IClassFixture<ScriptToolDispatch
                 #>
                 param([Parameter(Mandatory=$true)] [string]$Name)
                 Write-Output "hello $Name"
+                """);
+
+            MarkerDir = Path.Combine(TempDir, "markers");
+            Directory.CreateDirectory(MarkerDir);
+            // Carries [CmdletBinding()] like the real tool scripts, so a call that reaches the
+            // runspace with an unadvertised name would be refused by the binder - which is exactly
+            // what the dispatcher's own check has to get in front of.
+            File.WriteAllText(Path.Combine(toolsDir, "mark.ps1"), """
+                <#
+                .SYNOPSIS
+                Writes a marker file, so a test can tell whether the script actually ran.
+                .PARAMETER Marker
+                Full path of the marker file to write.
+                .NOTES
+                OpClass: content:write
+                #>
+                [CmdletBinding()]
+                param([Parameter(Mandatory=$true)] [string]$Marker)
+                Set-Content -LiteralPath $Marker -Value 'ran'
+                Write-Output "marked"
                 """);
 
             ConfigureEnvironment(vaultsPath, grantsPath, toolsDirectory: toolsDir);

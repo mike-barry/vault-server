@@ -42,6 +42,7 @@ resolves unscoped, exactly as the shared enumeration already degrades.
 # whitespace-only pattern to surface as glob's own invalid_argument {code} JSON, so the value
 # must reach the script body for in-script validation (the same reason move.ps1's Kind is not
 # Mandatory).
+[CmdletBinding()]
 param(
     [string] $Pattern,
     [string] $Vault

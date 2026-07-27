@@ -66,6 +66,7 @@ census keeps the shared ripgrep layers, because that is a link-graph question ov
 files. The return carries the write-class envelope: capabilitiesUsed and filesSkippedUnreadable[]
 always ([] when empty), lockWarning only when an abandoned mutex was inherited.
 #>
+[CmdletBinding()]
 param(
     [Parameter(Mandatory)] [string] $Path,
     [string] $Kind,

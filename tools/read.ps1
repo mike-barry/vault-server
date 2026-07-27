@@ -46,6 +46,7 @@ so no write lock is taken. See Plan-Tool-Read (vault-primary).
 There is no Kind parameter: read's only legal value would be "note", and the tool enforces
 note-ness on the target regardless - the assertion would be inert (Plan-Tool-Read).
 #>
+[CmdletBinding()]
 param(
     [Parameter(Mandatory)] [string] $Path,
     [string] $Part,

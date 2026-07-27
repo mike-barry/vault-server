@@ -96,6 +96,7 @@ The return carries the write-class envelope: capabilitiesUsed and filesSkippedUn
 always ([] in report mode, which drops skips silently per the read-class convention),
 lockWarning only when an abandoned mutex was inherited.
 #>
+[CmdletBinding()]
 param(
     [string[]] $Passes = @('default'),
     [bool] $Apply = $false,

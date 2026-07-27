@@ -55,6 +55,7 @@ capability denial is the dispatcher's pre-flight floor refusal. A read-class too
 write lock. Standalone (`pwsh -File`) has no injected scope and resolves unscoped, exactly as the
 shared search already degrades. See Plan-Tool-Grep (vault-primary).
 #>
+[CmdletBinding()]
 param(
     [string] $Pattern,
     [string] $Path,

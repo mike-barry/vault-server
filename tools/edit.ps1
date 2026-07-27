@@ -92,6 +92,7 @@ lockWarning only when an abandoned mutex was inherited. filesSkippedUnreadable i
 always [] - edit is single-target, so a missing or unreadable sole target is not_found /
 read_failure, never a skip.
 #>
+[CmdletBinding()]
 param(
     [Parameter(Mandatory)] [string] $Path,
     [string] $FrontmatterOps,

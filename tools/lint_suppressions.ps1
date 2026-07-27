@@ -92,6 +92,7 @@ original terminator, comments and blank lines are untouched, and the file is wri
 no BOM. A file that does not exist yet is created by "add" (with its parent directory) and reads
 as empty for "list".
 #>
+[CmdletBinding()]
 param(
     [Parameter(Mandatory)] [string] $Action,
     [Parameter(Mandatory)] [string] $List,

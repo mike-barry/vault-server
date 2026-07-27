@@ -70,6 +70,7 @@ envelope: capabilitiesUsed and filesSkippedUnreadable[] always ([] when empty), 
 when an abandoned mutex was inherited. filesSkippedUnreadable is structurally always [] - create
 is single-target and reads nothing it could skip.
 #>
+[CmdletBinding()]
 param(
     [Parameter(Mandatory)] [string] $Kind,
     [Parameter(Mandatory)] [string] $Path,
