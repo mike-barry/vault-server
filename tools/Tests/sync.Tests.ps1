@@ -15,7 +15,9 @@
 # pathspec commit, the state token (mismatch carrying the fresh token, required-for-files-all),
 # directive guards, the git:commit capability three-way split plus the incidental-versus-explicit
 # denial split, offline fetch tolerance, cross-process lock contention and abandonment, standalone
-# invocability, and the ported New-ConflictFilePath in isolation.
+# invocability, and the ported New-ConflictFilePath in isolation. Also DISPATCHES each sync-directive
+# remedy back through sync, taken off a real result rather than hand-authored - the rule that payload
+# shape assertions alone do not satisfy.
 
 BeforeAll {
     $script:ScriptPath = (Resolve-Path (Join-Path $PSScriptRoot '..' 'sync.ps1')).Path
@@ -97,6 +99,56 @@ BeforeAll {
     function Get-SyncHeadMessage {
         param([Parameter(Mandatory)] [string] $Repo, [int] $Index = 1)
         (git -C $Repo log -$Index --pretty=%B) -join "`n"
+    }
+
+    function ConvertTo-SyncDispatchValue {
+        # Mirrors ScriptToolDispatcher.ConvertJsonElement: a JSON object becomes a dictionary, an
+        # array stays an array, scalars pass through. A remedy read back off a real sync result is a
+        # PSCustomObject tree; this puts it in the shape the dispatcher actually splats, so a
+        # dispatch-through-sync test exercises the real call boundary rather than a hand-authored
+        # approximation of it.
+        param($Value)
+        if ($null -eq $Value) { return $null }
+        if ($Value -is [object[]]) {
+            # Comma-wrapped so a ONE-element array survives the return: PowerShell enumerates a
+            # function's output, and an unrolled commit.files would re-encode as a bare string, which
+            # sync (correctly) refuses. The same guard the tool scripts' -NoEnumerate parses carry.
+            return , @($Value | ForEach-Object { ConvertTo-SyncDispatchValue -Value $_ })
+        }
+        if ($Value.PSObject.TypeNames[0] -eq 'System.Management.Automation.PSCustomObject') {
+            $map = @{}
+            foreach ($prop in $Value.PSObject.Properties) {
+                $map[$prop.Name] = ConvertTo-SyncDispatchValue -Value $prop.Value
+            }
+            return $map
+        }
+        $Value
+    }
+
+    function ConvertTo-SyncRemedySplat {
+        # A remedy's params, verbatim, as a splattable hashtable. Nothing is filled in and nothing is
+        # encoded - what sync emitted is what the second call receives.
+        param([Parameter(Mandatory)] $Params)
+        ConvertTo-SyncDispatchValue -Value $Params
+    }
+
+    function Resolve-SyncCommitRemedySplat {
+        # A commit remedy's params made dispatchable: the caller fills the one dotted path `requires`
+        # names (commit.message), and the nested commit object is JSON-encoded on its way into sync's
+        # [string] $commit - which is exactly what the call-boundary encoding item will do for the
+        # caller. Everything else (apply, commit.files, commit.staged, state_token) is verbatim.
+        param([Parameter(Mandatory)] $Params, [Parameter(Mandatory)] [string] $Message)
+        $splat = ConvertTo-SyncRemedySplat -Params $Params
+        $splat['commit']['message'] = $Message
+        $splat['commit'] = ($splat['commit'] | ConvertTo-Json -Compress)
+        $splat
+    }
+
+    function Get-SyncBlockedResolution {
+        param([Parameter(Mandatory)] $Result, [Parameter(Mandatory)] [string] $Reason)
+        $blocked = @($Result.blocked | Where-Object { $_.reason -eq $Reason })
+        $blocked.Count | Should -Be 1 -Because "the fixture must have driven sync into the $Reason blocked state"
+        $blocked[0].resolution
     }
 }
 
@@ -524,6 +576,149 @@ Describe 'sync' {
             Set-SyncRepoFile -Repo $script:VaultDir -Rel 'File.md' -Content "modified`n"
             $result = & $script:ScriptPath -Apply $true -Commit '{"message":"No token needed","files":["File.md"]}' | ConvertFrom-Json
             $result.synced | Should -BeTrue
+        }
+    }
+
+    Context 'remedy dispatch - every computed payload exercised against sync itself' {
+        # Tool-Contracts' durable rule: a computed payload that NAMES another tool must be dispatched
+        # against that tool in test - shape assertions do not substitute. sync's three sync-directive
+        # remedies name sync, so each one is taken off a REAL result (never hand-authored: that is the
+        # failure mode being retired) and splatted back in. Three breaks lived here undetected behind
+        # payload-shape assertions alone; two closed with the snake_case rename, one is pinned below.
+
+        It 'dispatches apply-conflict-strategy VERBATIM - it declares no requires, so it must be' {
+            $peer = New-SyncPeerClone -Base $script:TempRoot -Remote $script:Fixture.Remote
+            Set-SyncRepoFile -Repo $peer -Rel 'File.md' -Content "remote version`n"
+            Add-SyncCommit -Repo $peer -Message 'remote edit'
+            git -C $peer push -q 2>&1 | Out-Null
+            Set-SyncRepoFile -Repo $script:VaultDir -Rel 'File.md' -Content "local version`n"
+            Add-SyncCommit -Repo $script:VaultDir -Message 'local edit'
+
+            $blockedResult = & $script:ScriptPath -Apply $true | ConvertFrom-Json
+            $remedy = Get-SyncBlockedResolution -Result $blockedResult -Reason 'merge_conflicts'
+            $remedy.action | Should -Be 'sync-directive'
+            $remedy.requires.Count | Should -Be 0
+
+            # Nothing is filled in and nothing is encoded - all three keys are scalars sync emitted.
+            $splat = ConvertTo-SyncRemedySplat -Params $remedy.params
+            @($splat.Keys | Sort-Object) | Should -Be @('apply', 'on_conflict', 'state_token')
+            $result = & $script:ScriptPath @splat | ConvertFrom-Json
+
+            # The strategy the remedy advertised actually applied: local won, the remote body survives
+            # as a sibling, and the repo is not left mid-merge.
+            @($result.actions | ForEach-Object { $_.action }) | Should -Contain 'resolve-conflicts'
+            $result.capabilitiesUsed | Should -Contain 'git:commit'
+            [System.IO.File]::ReadAllText((Join-Path $script:VaultDir 'File.md')).Trim() | Should -Be 'local version'
+            @(Get-ChildItem -LiteralPath $script:VaultDir -Filter '*CONFLICT*').Count | Should -Be 1
+            $result.repos.'.'.midMerge | Should -BeFalse
+        }
+
+        It 'gates apply-conflict-strategy on the token it carries - a moved remote is state_mismatch with nothing merged' {
+            $peer = New-SyncPeerClone -Base $script:TempRoot -Remote $script:Fixture.Remote
+            Set-SyncRepoFile -Repo $peer -Rel 'File.md' -Content "remote version`n"
+            Add-SyncCommit -Repo $peer -Message 'remote edit'
+            git -C $peer push -q 2>&1 | Out-Null
+            Set-SyncRepoFile -Repo $script:VaultDir -Rel 'File.md' -Content "local version`n"
+            Add-SyncCommit -Repo $script:VaultDir -Message 'local edit'
+
+            $remedy = Get-SyncBlockedResolution -Result (& $script:ScriptPath -Apply $true | ConvertFrom-Json) -Reason 'merge_conflicts'
+            $splat = ConvertTo-SyncRemedySplat -Params $remedy.params
+
+            # The remote moves after the strategy was authorized, so the carried token is now stale.
+            Set-SyncRepoFile -Repo $peer -Rel 'Later.md' -Content "later remote`n"
+            Add-SyncCommit -Repo $peer -Message 'later remote commit'
+            git -C $peer push -q 2>&1 | Out-Null
+            $headBefore = (git -C $script:VaultDir rev-parse HEAD).Trim()
+
+            $err = Invoke-SyncError $splat
+            $err.code | Should -Be 'state_mismatch'
+            $err.data.suppliedToken | Should -Be $remedy.params.state_token
+            $err.data.stateToken | Should -Not -Be $remedy.params.state_token
+            # Zero mutation: HEAD unmoved, no merge state, no conflict sibling written.
+            (git -C $script:VaultDir rev-parse HEAD).Trim() | Should -Be $headBefore
+            Test-Path -LiteralPath (Join-Path $script:VaultDir '.git/MERGE_HEAD') | Should -BeFalse
+            @(Get-ChildItem -LiteralPath $script:VaultDir -Filter '*CONFLICT*').Count | Should -Be 0
+        }
+
+        It 'accepts the state_token commit-changes emitted, with only commit.message filled in' {
+            Set-SyncRepoFile -Repo $script:VaultDir -Rel 'File.md' -Content "modified`n"
+            $blockedResult = & $script:ScriptPath -Apply $true | ConvertFrom-Json
+            $remedy = Get-SyncBlockedResolution -Result $blockedResult -Reason 'uncommitted_changes'
+            $remedy.requires | Should -Be @('commit.message')
+
+            $splat = Resolve-SyncCommitRemedySplat -Params $remedy.params -Message 'Record the change'
+            $splat['state_token'] | Should -Be $blockedResult.stateToken
+
+            $result = & $script:ScriptPath @splat | ConvertFrom-Json
+            $result.synced | Should -BeTrue
+            @($result.actions | ForEach-Object { $_.action }) | Should -Be @('commit', 'push')
+            Get-SyncHeadMessage -Repo $script:VaultDir | Should -Match 'Record the change'
+            (git -C $script:VaultDir show --name-only --pretty=format: HEAD).Trim() | Should -Be 'File.md'
+        }
+
+        It 'refuses commit-changes'' own token once another actor stages something, mutating nothing' {
+            # The gate that was silently BYPASSED before this branch: state_token did not bind, so the
+            # argument was dropped and this call committed under a token that no longer described the
+            # repo. The refusal is the whole reason the remedy carries a token at all.
+            Set-SyncRepoFile -Repo $script:VaultDir -Rel 'File.md' -Content "modified`n"
+            $remedy = Get-SyncBlockedResolution -Result (& $script:ScriptPath -Apply $true | ConvertFrom-Json) -Reason 'uncommitted_changes'
+            $splat = Resolve-SyncCommitRemedySplat -Params $remedy.params -Message 'Record the change'
+
+            Set-SyncRepoFile -Repo $script:VaultDir -Rel 'Foreign.md' -Content "x`n"
+            git -C $script:VaultDir add -- 'Foreign.md' 2>&1 | Out-Null
+
+            $err = Invoke-SyncError $splat
+            $err.code | Should -Be 'state_mismatch'
+            $err.data.suppliedToken | Should -Be $remedy.params.state_token
+            $err.data.stateToken | Should -Not -Be $remedy.params.state_token
+            Get-SyncHeadMessage -Repo $script:VaultDir | Should -Match 'initial commit'
+            ((git -C $script:VaultDir status --porcelain) -join "`n") | Should -Match 'File.md'
+        }
+
+        It 'dispatches include-staged, folding the staged set the remedy named into the commit' {
+            $peer = New-SyncPeerClone -Base $script:TempRoot -Remote $script:Fixture.Remote
+            Set-SyncRepoFile -Repo $peer -Rel 'Other.md' -Content "peer file`n"
+            Add-SyncCommit -Repo $peer -Message 'peer commit'
+            git -C $peer push -q 2>&1 | Out-Null
+
+            Set-SyncRepoFile -Repo $script:VaultDir -Rel 'Foreign.md' -Content "staged by someone else`n"
+            git -C $script:VaultDir add -- 'Foreign.md' 2>&1 | Out-Null
+
+            $blockedResult = & $script:ScriptPath -Apply $true | ConvertFrom-Json
+            $remedy = Get-SyncBlockedResolution -Result $blockedResult -Reason 'staged_changes'
+            $remedy.params.commit.staged | Should -Be 'include'
+
+            $splat = Resolve-SyncCommitRemedySplat -Params $remedy.params -Message 'Fold the index in'
+            $splat['state_token'] | Should -Be $blockedResult.stateToken
+
+            $result = & $script:ScriptPath @splat | ConvertFrom-Json
+            @($result.actions | ForEach-Object { $_.action }) | Should -Contain 'commit'
+            ((git -C $script:VaultDir log --pretty=%B) -join "`n") | Should -Match 'Fold the index in'
+            (git -C $script:VaultDir ls-files -- 'Foreign.md') | Should -Be 'Foreign.md'
+            # The staged entry the block named is folded in, so the merge it blocked ran on top.
+            @($result.actions | ForEach-Object { $_.action }) | Should -Contain 'merge'
+            (git -C $script:VaultDir status --porcelain) | Should -BeNullOrEmpty
+        }
+
+        It 'KNOWN OPEN: a commit remedy''s nested commit object still cannot enter [string] $commit' {
+            # PINNED FAILURE, not a passing contract. This asserts the WRONG behavior the plan's
+            # "Undispatchable Remedy Payloads" section names as the third break: the dispatcher hands a
+            # JSON object across as a dictionary, which stringifies into [string] $commit as a type
+            # name, and sync refuses it. Its fix is call-boundary argument encoding, which lands with
+            # sync's `commit` .SCHEMA side-car - at which point THIS test flips to assert the commit
+            # lands, exactly as Resolve-SyncCommitRemedySplat's hand-encoding does above.
+            Set-SyncRepoFile -Repo $script:VaultDir -Rel 'File.md' -Content "modified`n"
+            $remedy = Get-SyncBlockedResolution -Result (& $script:ScriptPath -Apply $true | ConvertFrom-Json) -Reason 'uncommitted_changes'
+
+            # Only the one path `requires` names is filled; commit stays the nested object sync emitted.
+            $splat = ConvertTo-SyncRemedySplat -Params $remedy.params
+            $splat['commit'] -is [hashtable] | Should -BeTrue
+            $splat['commit']['message'] = 'Record the change'
+
+            $err = Invoke-SyncError $splat
+            $err.code | Should -Be 'malformed_op'
+            $err.data.reason | Should -Match 'not valid JSON'
+            Get-SyncHeadMessage -Repo $script:VaultDir | Should -Match 'initial commit'
         }
     }
 
