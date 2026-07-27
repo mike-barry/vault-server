@@ -140,7 +140,7 @@ Describe 'create' {
         It 'chains straight into an edit whole-body replace with no interleaved read' {
             # The reason create returns a sha at all: the caller hands it back as expected_sha.
             $created = & $script:ScriptPath -Kind 'note' -Path 'Inbox/Chained.md' -Frontmatter 'doc.type: Note' -Body "# First`n" | ConvertFrom-Json
-            $edited = & $script:EditScriptPath -Path 'Inbox/Chained.md' -Body "# Second`n" -ExpectedSha $created.sha | ConvertFrom-Json
+            $edited = & $script:EditScriptPath -Path 'Inbox/Chained.md' -Body "# Second`n" -expected_sha $created.sha | ConvertFrom-Json
             $edited.bodyChanged | Should -BeTrue
             [System.IO.File]::ReadAllText((Join-Path $script:VaultDir 'Inbox/Chained.md')) |
                 Should -BeExactly "---`ndoc.type: Note`n---`n# Second`n"
@@ -539,7 +539,7 @@ Describe 'create' {
 
         It 'documents every parameter in comment-help, which the loader requires to load the tool' {
             $scriptText = Get-Content -LiteralPath $script:ScriptPath -Raw
-            foreach ($p in @('Kind', 'Path', 'Frontmatter', 'Body', 'Vault')) {
+            foreach ($p in @('kind', 'path', 'frontmatter', 'body', 'vault')) {
                 $scriptText | Should -Match "(?m)^\s*\.PARAMETER\s+$p\s*$"
             }
         }
@@ -549,12 +549,12 @@ Describe 'create' {
             # tool result, so the members are advertised in the .PARAMETER prose instead.
             $scriptText = Get-Content -LiteralPath $script:ScriptPath -Raw
             $scriptText | Should -Not -Match '\[ValidateSet\('
-            $scriptText | Should -Match '(?ms)\.PARAMETER Kind.*\bnote\b.*\bfolder\b'
+            $scriptText | Should -Match '(?ms).PARAMETER kind.*\bnote\b.*\bfolder\b'
         }
 
         It 'declares no apply parameter (create takes caller-supplied content)' {
             $scriptText = Get-Content -LiteralPath $script:ScriptPath -Raw
-            $scriptText | Should -Not -Match '(?m)^\s*\.PARAMETER\s+Apply\s*$'
+            $scriptText | Should -Not -Match '(?m)^\s*\.PARAMETER\s+apply\s*$'
         }
     }
 }

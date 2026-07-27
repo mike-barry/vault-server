@@ -19,7 +19,7 @@ opaque ".txt" under .vault/state/, and create refuses a path that already exists
 the only door. Its subject is one tool's configuration, not vault content.
 
 See the Lint corpus doc (vault-primary) for the full contract.
-.PARAMETER Action
+.PARAMETER action
 What to do to the list. Members:
   list   - returns the list's current entries. Takes no lock and asserts no op class.
   add    - appends one entry. Asserts lint:manage.
@@ -28,26 +28,26 @@ There is no "update": entries are atomic values, so an update is a remove follow
 Matched case-insensitively after a trim. Deliberately not a ValidateSet, so every value reaches
 the script body and an unrecognized one is refused with this tool's own invalid_argument JSON
 error rather than a PowerShell binding error.
-.PARAMETER List
+.PARAMETER list
 Which suppression list to operate on. Members:
   broken-wikilinks    - .vault/state/vault-lint/known-broken-wikilinks.txt. Suppresses
                         broken-wikilinks findings. SECTIONED: entries before any [path:...]
                         header are global; a [path:prefix] header scopes the entries under it to
-                        files whose vault-relative path starts with that prefix. ScopePath
+                        files whose vault-relative path starts with that prefix. scope_path
                         selects the section.
   ignored-subfolders  - .vault/state/vault-lint/known-ignored-subfolders.txt. Suppresses
                         unreferenced-subfolder findings in the folder-note completeness scan.
   filename-exceptions - .vault/state/vault-lint/filename-exceptions.txt. Suppresses Title-Case
                         findings for brand names and literal extension references.
 Matched case-insensitively after a trim; deliberately not a ValidateSet, same reasoning as Action.
-.PARAMETER Entry
+.PARAMETER entry
 The suppression entry to add or remove - required for those actions and inert for "list"
 (supplying it there is invalid_argument rather than silently ignored). One line's worth of
 value: it is trimmed, and a value carrying a newline, a "#" (which would start a comment and
 truncate it on the next read), or the [path:...] section-header spelling is refused, since any
 of the three would mean the file no longer round-trips what was written. Matching against
 existing entries is case-INSENSITIVE, which is how all three consuming checks match.
-.PARAMETER ScopePath
+.PARAMETER scope_path
 broken-wikilinks only - any other list is invalid_argument. Vault-relative path prefix naming a
 [path:...] section; omitted means the global (pre-header) section. Separators fold to "/" and a
 leading or trailing "/" is trimmed. On "add" a named section that does not exist yet is CREATED,
@@ -56,7 +56,7 @@ only way a section comes into being. On "list" and "remove" a section that does 
 not_found, so "the section you named is not there" is one answer rather than an empty result a
 caller could read as an existing-but-empty section. Global and scoped namespaces are distinct: a
 target may be listed globally AND under a section without either being a duplicate.
-.PARAMETER Vault
+.PARAMETER vault
 The vault to operate in. Defaults to the configured default vault.
 .NOTES
 OpClass: content:read
@@ -94,11 +94,11 @@ as empty for "list".
 #>
 [CmdletBinding()]
 param(
-    [Parameter(Mandatory)] [string] $Action,
-    [Parameter(Mandatory)] [string] $List,
-    [string] $Entry,
-    [string] $ScopePath,
-    [string] $Vault
+    [Parameter(Mandatory)] [string] $action,
+    [Parameter(Mandatory)] [string] $list,
+    [string] $entry,
+    [string] $scope_path,
+    [string] $vault
 )
 
 Set-StrictMode -Version Latest
@@ -110,11 +110,11 @@ Import-Module (Join-Path $PSScriptRoot '..' 'powershell' 'VaultAccess' 'VaultAcc
 # tell an unsupplied -Entry from -Entry '' (which is a refusal, not an absence). A parameter
 # bound to an explicit JSON null counts as unsupplied: the dispatcher converts JSON null to
 # $null, and "present but null" is not a value the caller asked to write.
-$script:EntryBound = $PSBoundParameters.ContainsKey('Entry') -and $null -ne $Entry
-$script:ScopePathBound = $PSBoundParameters.ContainsKey('ScopePath') -and $null -ne $ScopePath
+$script:EntryBound = $PSBoundParameters.ContainsKey('entry') -and $null -ne $Entry
+$script:ScopePathBound = $PSBoundParameters.ContainsKey('scope_path') -and $null -ne $scope_path
 
 # list name -> file under .vault/state/vault-lint/, plus whether that file carries [path:...]
-# sections. Sectioned is a property of the file format, not of the tool, so ScopePath's
+# sections. Sectioned is a property of the file format, not of the tool, so scope_path's
 # admissibility is read from here rather than from a name comparison scattered through the body.
 $script:ListFiles = @{
     'broken-wikilinks'    = @{ File = 'known-broken-wikilinks.txt'; Sectioned = $true }
@@ -236,15 +236,15 @@ if (-not $script:ListFiles.ContainsKey($normalizedList)) {
 }
 $listSpec = $script:ListFiles[$normalizedList]
 
-# --- ScopePath is a property of the sectioned file format, so it is refused rather than ignored
+# --- scope_path is a property of the sectioned file format, so it is refused rather than ignored
 # on a flat list: silently dropping it would let a caller believe an entry was scoped when it
 # was written globally, which is precisely the mistake path-scoped sections exist to prevent. ---
 if ($script:ScopePathBound -and -not $listSpec.Sectioned) {
-    throw (New-VaultToolError -Code 'invalid_argument' -Message "scope_path applies only to the sectioned 'broken-wikilinks' list - '$normalizedList' has no [path:...] sections." -Data @{ list = $normalizedList; scopePath = $ScopePath })
+    throw (New-VaultToolError -Code 'invalid_argument' -Message "scope_path applies only to the sectioned 'broken-wikilinks' list - '$normalizedList' has no [path:...] sections." -Data @{ list = $normalizedList; scopePath = $scope_path })
 }
-$normalizedScope = if ($script:ScopePathBound) { ConvertTo-VaultSuppressionScope -Prefix $ScopePath } else { $null }
+$normalizedScope = if ($script:ScopePathBound) { ConvertTo-VaultSuppressionScope -Prefix $scope_path } else { $null }
 if ($script:ScopePathBound -and [string]::IsNullOrEmpty($normalizedScope)) {
-    throw (New-VaultToolError -Code 'invalid_argument' -Message 'scope_path is empty - omit it to target the global section.' -Data @{ scopePath = $ScopePath })
+    throw (New-VaultToolError -Code 'invalid_argument' -Message 'scope_path is empty - omit it to target the global section.' -Data @{ scopePath = $scope_path })
 }
 
 # --- Conditional requiredness and the inert-parameter refusal, neither expressible in the

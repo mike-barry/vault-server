@@ -6,7 +6,7 @@
 # (top-directory-only) for MCP tools, so a *.Tests.ps1 in tools/ would load as a broken tool.
 #
 # Covers: the three output modes (content path:line:text, files_with_matches, count),
-# case-sensitive-by-default vs. IgnoreCase, Path narrowing, the Glob file filter, empty output on
+# case-sensitive-by-default vs. ignore_case, Path narrowing, the Glob file filter, empty output on
 # no matches, the silent scope post-filter, the invalid_argument surface (empty/whitespace
 # pattern, unrecognized output_mode, rooted/escaping path), the content:read op-class floor
 # declaration, standalone invocability, and the two spec pinning tests: (1) rg exits 2 on a
@@ -73,7 +73,7 @@ Describe 'grep' {
 
     Context 'files_with_matches mode' {
         It 'emits one vault-relative path per matching file, no line/text' {
-            $out = @(& $script:ScriptPath -Pattern 'quorvium' -OutputMode 'files_with_matches')
+            $out = @(& $script:ScriptPath -Pattern 'quorvium' -output_mode 'files_with_matches')
             $out | Should -Contain 'Resources/Gizmo-Reference.md'
             $out | ForEach-Object { $_ | Should -Match '^[^:]+\.md$' }
             # One line per file: Gizmo-Reference appears once despite two matching lines.
@@ -81,26 +81,26 @@ Describe 'grep' {
         }
 
         It 'matches output_mode case-insensitively' {
-            $out = @(& $script:ScriptPath -Pattern 'quorvium' -OutputMode 'Files_With_Matches')
+            $out = @(& $script:ScriptPath -Pattern 'quorvium' -output_mode 'Files_With_Matches')
             $out | Should -Contain 'Resources/Gizmo-Reference.md'
         }
     }
 
     Context 'count mode' {
         It 'emits path:count per file with matches' {
-            $out = @(& $script:ScriptPath -Pattern 'quorvium' -OutputMode 'count')
+            $out = @(& $script:ScriptPath -Pattern 'quorvium' -output_mode 'count')
             $out | Should -Contain 'Resources/Gizmo-Reference.md:2'
             $out | ForEach-Object { $_ | Should -Match '^[^:]+\.md:\d+$' }
         }
     }
 
-    Context 'IgnoreCase' {
+    Context 'ignore_case' {
         It 'is case-sensitive by default (native-Grep fidelity)' {
             @(& $script:ScriptPath -Pattern 'QUORVIUM') | Should -BeNullOrEmpty
         }
 
-        It 'matches case-insensitively when IgnoreCase is set' {
-            $out = @(& $script:ScriptPath -Pattern 'QUORVIUM' -IgnoreCase $true)
+        It 'matches case-insensitively when ignore_case is set' {
+            $out = @(& $script:ScriptPath -Pattern 'QUORVIUM' -ignore_case $true)
             $out | Should -Not -BeNullOrEmpty
             $out | Where-Object { $_ -like 'Resources/Gizmo-Reference.md:*' } | Should -Not -BeNullOrEmpty
         }
@@ -119,7 +119,7 @@ Describe 'grep' {
         }
 
         It 'a subtree with no matches is empty output, not an error' {
-            @(& $script:ScriptPath -Pattern 'quorvium' -Path 'Projects/Widget/Inbox' -OutputMode 'files_with_matches') |
+            @(& $script:ScriptPath -Pattern 'quorvium' -Path 'Projects/Widget/Inbox' -output_mode 'files_with_matches') |
                 Should -Be @('Projects/Widget/Inbox/Plan-Widget-Assembly.md')
             @(& $script:ScriptPath -Pattern 'zzz-nope-zzz' -Path 'Resources') | Should -BeNullOrEmpty
         }
@@ -127,7 +127,7 @@ Describe 'grep' {
 
     Context 'Glob file filter' {
         It 'restricts matches to files the glob selects' {
-            $out = @(& $script:ScriptPath -Pattern 'quorvium' -Glob 'Tasks.md' -OutputMode 'files_with_matches')
+            $out = @(& $script:ScriptPath -Pattern 'quorvium' -Glob 'Tasks.md' -output_mode 'files_with_matches')
             $out | Should -Be @('Projects/Widget/Tasks.md')
         }
     }
@@ -158,7 +158,7 @@ Describe 'grep' {
         }
 
         It 'rejects an unrecognized output_mode, echoing the value' {
-            $err = Invoke-GrepError -Params @{ Pattern = 'quorvium'; OutputMode = 'banana' }
+            $err = Invoke-GrepError -Params @{ Pattern = 'quorvium'; output_mode = 'banana' }
             $err.code | Should -Be 'invalid_argument'
             $err.data.outputMode | Should -Be 'banana'
         }

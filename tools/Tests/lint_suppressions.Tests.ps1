@@ -175,7 +175,7 @@ Describe 'lint_suppressions' {
         }
 
         It 'filters the listing to one section under scope_path, matched case-insensitively' {
-            $entries = (& $script:ScriptPath -Action 'list' -List 'broken-wikilinks' -ScopePath 'areas/vault-dev/' | ConvertFrom-Json).entries
+            $entries = (& $script:ScriptPath -Action 'list' -List 'broken-wikilinks' -scope_path 'areas/vault-dev/' | ConvertFrom-Json).entries
             $entries.Count | Should -Be 1
             $entries[0].entry | Should -Be 'Gamma'
         }
@@ -188,10 +188,10 @@ Describe 'lint_suppressions' {
         }
 
         It 'adds into an existing section and reports the scope' {
-            $result = & $script:ScriptPath -Action 'add' -List 'broken-wikilinks' -Entry 'Zeta' -ScopePath 'Areas/Vault-Dev' | ConvertFrom-Json
+            $result = & $script:ScriptPath -Action 'add' -List 'broken-wikilinks' -Entry 'Zeta' -scope_path 'Areas/Vault-Dev' | ConvertFrom-Json
             $result.scope | Should -Be 'Areas/Vault-Dev'
             $result.scopeCreated | Should -BeFalse
-            $entries = (& $script:ScriptPath -Action 'list' -List 'broken-wikilinks' -ScopePath 'Areas/Vault-Dev' | ConvertFrom-Json).entries
+            $entries = (& $script:ScriptPath -Action 'list' -List 'broken-wikilinks' -scope_path 'Areas/Vault-Dev' | ConvertFrom-Json).entries
             $entries.entry | Should -Be @('Gamma', 'Zeta')
         }
 
@@ -199,7 +199,7 @@ Describe 'lint_suppressions' {
             # Decided and documented: there is no create-section action, so an add is the only
             # way a section comes into being. It is appended at the end of the file, which leaves
             # every existing section's contents where they are.
-            $result = & $script:ScriptPath -Action 'add' -List 'broken-wikilinks' -Entry 'Eta' -ScopePath 'Inbox/' | ConvertFrom-Json
+            $result = & $script:ScriptPath -Action 'add' -List 'broken-wikilinks' -Entry 'Eta' -scope_path 'Inbox/' | ConvertFrom-Json
             $result.scope | Should -Be 'Inbox'
             $result.scopeCreated | Should -BeTrue
             [System.IO.File]::ReadAllText($script:BrokenFile) | Should -BeExactly ($script:BrokenOriginal + "[path:Inbox]`nEta`n")
@@ -214,7 +214,7 @@ Describe 'lint_suppressions' {
         }
 
         It 'errors already_exists on a duplicate within the SAME section' {
-            $err = Invoke-SuppressionsError @{ Action = 'add'; List = 'broken-wikilinks'; Entry = 'Gamma'; ScopePath = 'Areas/Vault-Dev' }
+            $err = Invoke-SuppressionsError @{ Action = 'add'; List = 'broken-wikilinks'; Entry = 'Gamma'; scope_path = 'Areas/Vault-Dev' }
             $err.code | Should -Be 'already_exists'
             $err.data.scopePath | Should -Be 'Areas/Vault-Dev'
             [System.IO.File]::ReadAllText($script:BrokenFile) | Should -BeExactly $script:BrokenOriginal
@@ -228,21 +228,21 @@ Describe 'lint_suppressions' {
 
         It 'removes only from the targeted section' {
             & $script:ScriptPath -Action 'add' -List 'broken-wikilinks' -Entry 'Gamma' | Out-Null
-            & $script:ScriptPath -Action 'remove' -List 'broken-wikilinks' -Entry 'Gamma' -ScopePath 'Areas/Vault-Dev' | Out-Null
+            & $script:ScriptPath -Action 'remove' -List 'broken-wikilinks' -Entry 'Gamma' -scope_path 'Areas/Vault-Dev' | Out-Null
             $entries = (& $script:ScriptPath -Action 'list' -List 'broken-wikilinks' | ConvertFrom-Json).entries
             @($entries | Where-Object { $_.entry -eq 'Gamma' }).Count | Should -Be 1
             ($entries | Where-Object { $_.entry -eq 'Gamma' }).scope | Should -BeNullOrEmpty
         }
 
         It 'errors not_found removing a global entry through a scope_path it is not in' {
-            $err = Invoke-SuppressionsError @{ Action = 'remove'; List = 'broken-wikilinks'; Entry = 'Alpha'; ScopePath = 'Areas/Vault-Dev' }
+            $err = Invoke-SuppressionsError @{ Action = 'remove'; List = 'broken-wikilinks'; Entry = 'Alpha'; scope_path = 'Areas/Vault-Dev' }
             $err.code | Should -Be 'not_found'
             [System.IO.File]::ReadAllText($script:BrokenFile) | Should -BeExactly $script:BrokenOriginal
         }
 
         It 'errors not_found on a scope_path section that does not exist (list and remove)' {
             foreach ($action in @('list', 'remove')) {
-                $params = @{ Action = $action; List = 'broken-wikilinks'; ScopePath = 'Nowhere' }
+                $params = @{ Action = $action; List = 'broken-wikilinks'; scope_path = 'Nowhere' }
                 if ($action -eq 'remove') { $params['Entry'] = 'Alpha' }
                 $err = Invoke-SuppressionsError $params
                 $err.code | Should -Be 'not_found'
@@ -253,7 +253,7 @@ Describe 'lint_suppressions' {
 
     Context 'byte-faithful rewrite' {
         It 'leaves every untouched line exactly as it was, comments and blanks included' {
-            & $script:ScriptPath -Action 'remove' -List 'broken-wikilinks' -Entry 'Delta' -ScopePath 'Projects/Widget' | Out-Null
+            & $script:ScriptPath -Action 'remove' -List 'broken-wikilinks' -Entry 'Delta' -scope_path 'Projects/Widget' | Out-Null
             [System.IO.File]::ReadAllText($script:BrokenFile) |
                 Should -BeExactly "# ignore list header`nAlpha`nBeta   # placeholder`n`n[path:Areas/Vault-Dev/]`nGamma`n`n[path:Projects/Widget]`n"
         }
@@ -307,14 +307,14 @@ Describe 'lint_suppressions' {
 
         It 'errors invalid_argument on scope_path against a non-sectioned list' {
             foreach ($flat in @('ignored-subfolders', 'filename-exceptions')) {
-                $err = Invoke-SuppressionsError @{ Action = 'add'; List = $flat; Entry = 'x'; ScopePath = 'Projects' }
+                $err = Invoke-SuppressionsError @{ Action = 'add'; List = $flat; Entry = 'x'; scope_path = 'Projects' }
                 $err.code | Should -Be 'invalid_argument'
                 $err.data.list | Should -Be $flat
             }
         }
 
         It 'errors invalid_argument on an empty scope_path' {
-            $err = Invoke-SuppressionsError @{ Action = 'list'; List = 'broken-wikilinks'; ScopePath = '  /  ' }
+            $err = Invoke-SuppressionsError @{ Action = 'list'; List = 'broken-wikilinks'; scope_path = '  /  ' }
             $err.code | Should -Be 'invalid_argument'
         }
 
@@ -545,7 +545,7 @@ Describe 'lint_suppressions' {
 
         It 'documents every parameter in comment-help, which the loader requires to load the tool' {
             $scriptText = Get-Content -LiteralPath $script:ScriptPath -Raw
-            foreach ($p in @('Action', 'List', 'Entry', 'ScopePath', 'Vault')) {
+            foreach ($p in @('action', 'list', 'entry', 'scope_path', 'vault')) {
                 $scriptText | Should -Match "(?m)^\s*\.PARAMETER\s+$p\s*$"
             }
         }
@@ -553,7 +553,7 @@ Describe 'lint_suppressions' {
         It 'declares no ValidateSet, so an unrecognized value is this tool''s own error' {
             $scriptText = Get-Content -LiteralPath $script:ScriptPath -Raw
             $scriptText | Should -Not -Match '\[ValidateSet\('
-            $scriptText | Should -Match '(?ms)\.PARAMETER Action.*\blist\b.*\badd\b.*\bremove\b'
+            $scriptText | Should -Match '(?ms)\.PARAMETER action.*\blist\b.*\badd\b.*\bremove\b'
         }
 
         It 'registers lint:manage in op-classes.json, without which the floor-plus-key model cannot express it' {

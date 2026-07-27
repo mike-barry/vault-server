@@ -78,7 +78,7 @@ Describe 'edit' {
 
     Context 'Tier-2 return shape and the write-class envelope' {
         It 'returns a single well-formed JSON object for a frontmatter op' {
-            $output = & $script:ScriptPath -Path $script:NotePath -FrontmatterOps '[{"op":"set_field","field":"doc.type","value":"Corpus"}]'
+            $output = & $script:ScriptPath -Path $script:NotePath -frontmatter_ops '[{"op":"set_field","field":"doc.type","value":"Corpus"}]'
             { $output | ConvertFrom-Json } | Should -Not -Throw
 
             $result = $output | ConvertFrom-Json
@@ -94,7 +94,7 @@ Describe 'edit' {
         }
 
         It 'emits capabilitiesUsed and filesSkippedUnreadable as arrays, [] when empty' {
-            $output = & $script:ScriptPath -Path $script:NotePath -FrontmatterOps '[{"op":"set_field","field":"doc.type","value":"Corpus"}]'
+            $output = & $script:ScriptPath -Path $script:NotePath -frontmatter_ops '[{"op":"set_field","field":"doc.type","value":"Corpus"}]'
             $result = $output | ConvertFrom-Json
             $result.PSObject.Properties.Name | Should -Contain 'capabilitiesUsed'
             $result.PSObject.Properties.Name | Should -Contain 'filesSkippedUnreadable'
@@ -105,13 +105,13 @@ Describe 'edit' {
         }
 
         It 'omits lockWarning entirely when the lock was not abandoned' {
-            $result = & $script:ScriptPath -Path $script:NotePath -FrontmatterOps '[{"op":"set_field","field":"doc.type","value":"Corpus"}]' | ConvertFrom-Json
+            $result = & $script:ScriptPath -Path $script:NotePath -frontmatter_ops '[{"op":"set_field","field":"doc.type","value":"Corpus"}]' | ConvertFrom-Json
             # Absent, not null: an always-present null would read as checked-and-clear.
             $result.PSObject.Properties.Name | Should -Not -Contain 'lockWarning'
         }
 
         It 'echoes agentic:write in capabilitiesUsed when the agentic layer moved' {
-            $result = & $script:ScriptPath -Path $script:NotePath -FrontmatterOps '[{"op":"add_hint","text":"Prefer the torque table"}]' | ConvertFrom-Json
+            $result = & $script:ScriptPath -Path $script:NotePath -frontmatter_ops '[{"op":"add_hint","text":"Prefer the torque table"}]' | ConvertFrom-Json
             $result.capabilitiesUsed | Should -Be @('agentic:write')
         }
 
@@ -120,7 +120,7 @@ Describe 'edit' {
             # read returns, so the caller can verify without a follow-up read - which matters
             # because several ops are silently idempotent. Both tools take the split from the same
             # substrate function, so the match is structural.
-            $result = & $script:ScriptPath -Path $script:NotePath -FrontmatterOps '[{"op":"set_field","field":"doc.archived","value":"2026-07-25"}]' | ConvertFrom-Json
+            $result = & $script:ScriptPath -Path $script:NotePath -frontmatter_ops '[{"op":"set_field","field":"doc.archived","value":"2026-07-25"}]' | ConvertFrom-Json
             $viaRead = & $script:ReadScriptPath -Path $script:NotePath -Part 'frontmatter'
             $result.resultingFrontmatter | Should -BeExactly $viaRead
             $result.resultingFrontmatter | Should -BeExactly "doc.created: 2026-07-16`ndoc.type: Note`ndoc.archived: 2026-07-25"
@@ -139,7 +139,7 @@ Describe 'edit' {
             $padded = 'Inbox/Edit-Padded-Open.md'
             [System.IO.File]::WriteAllText((Join-Path $script:VaultDir $padded), "--- `ndoc.type: Note`n---`nBody`n")
 
-            $result = & $script:ScriptPath -Path $padded -FrontmatterOps '[{"op":"set_field","field":"doc.archived","value":"2026-07-25"}]' | ConvertFrom-Json
+            $result = & $script:ScriptPath -Path $padded -frontmatter_ops '[{"op":"set_field","field":"doc.archived","value":"2026-07-25"}]' | ConvertFrom-Json
             $viaRead = & $script:ReadScriptPath -Path $padded -Part 'frontmatter'
             $result.resultingFrontmatter | Should -BeExactly $viaRead
             $result.resultingFrontmatter | Should -BeExactly "doc.type: Note`ndoc.archived: 2026-07-25"
@@ -156,7 +156,7 @@ Describe 'edit' {
             $padded = 'Inbox/Edit-Padded-Close.md'
             [System.IO.File]::WriteAllText((Join-Path $script:VaultDir $padded), "---`ndoc.type: Note`n--- `nBody`n")
 
-            $result = & $script:ScriptPath -Path $padded -FrontmatterOps '[{"op":"set_field","field":"doc.archived","value":"2026-07-25"}]' | ConvertFrom-Json
+            $result = & $script:ScriptPath -Path $padded -frontmatter_ops '[{"op":"set_field","field":"doc.archived","value":"2026-07-25"}]' | ConvertFrom-Json
             $viaRead = & $script:ReadScriptPath -Path $padded -Part 'frontmatter'
             $result.resultingFrontmatter | Should -BeExactly $viaRead
             $result.resultingFrontmatter | Should -BeExactly "doc.type: Note`ndoc.archived: 2026-07-25"
@@ -171,7 +171,7 @@ Describe 'edit' {
             $inner = 'Inbox/Edit-Inner-Dashes.md'
             [System.IO.File]::WriteAllText((Join-Path $script:VaultDir $inner), "---`ndoc.type: Note`n---junk`nmore`n---`nBody`n")
 
-            $result = & $script:ScriptPath -Path $inner -FrontmatterOps '[{"op":"set_field","field":"doc.archived","value":"2026-07-25"}]' | ConvertFrom-Json
+            $result = & $script:ScriptPath -Path $inner -frontmatter_ops '[{"op":"set_field","field":"doc.archived","value":"2026-07-25"}]' | ConvertFrom-Json
             $viaRead = & $script:ReadScriptPath -Path $inner -Part 'frontmatter'
             $result.resultingFrontmatter | Should -BeExactly $viaRead
             $result.resultingFrontmatter | Should -BeExactly "doc.type: Note`n---junk`nmore`ndoc.archived: 2026-07-25"
@@ -184,7 +184,7 @@ Describe 'edit' {
             $dashes = 'Inbox/Edit-Four-Dashes.md'
             [System.IO.File]::WriteAllText((Join-Path $script:VaultDir $dashes), "---`ndoc.type: Note`n----`nBody`n")
 
-            $err = Invoke-EditError @{ Path = $dashes; FrontmatterOps = '[{"op":"set_field","field":"doc.archived","value":"2026-07-25"}]' }
+            $err = Invoke-EditError @{ Path = $dashes; frontmatter_ops = '[{"op":"set_field","field":"doc.archived","value":"2026-07-25"}]' }
             $err.code | Should -Be 'frontmatter_integrity'
             $err.data.reason | Should -Be 'unclosed_fence'
             & $script:ReadScriptPath -Path $dashes -Part 'frontmatter' | Should -BeExactly ''
@@ -193,18 +193,18 @@ Describe 'edit' {
 
         It 'returns an empty resultingFrontmatter for a note that has no frontmatter block' {
             $result = & $script:ScriptPath -Path 'Projects/Widget/Tasks.md' `
-                -FrontmatterOps '[{"op":"add_directive","kind":"use_skill","skill":"vault-tasks","when":"managing tasks"}]' | ConvertFrom-Json
+                -frontmatter_ops '[{"op":"add_directive","kind":"use_skill","skill":"vault-tasks","when":"managing tasks"}]' | ConvertFrom-Json
             # The op above creates the block, so this is asserted on the pre-op state via a note
             # that stays fence-less: a body-only patch.
             $result.resultingFrontmatter | Should -Not -BeNullOrEmpty
 
-            $bodyOnly = & $script:ScriptPath -Path 'Inbox/Note-Loose-Thought.md' -OldString 'Loose Thought' -NewString 'Loose Thoughts' | ConvertFrom-Json
+            $bodyOnly = & $script:ScriptPath -Path 'Inbox/Note-Loose-Thought.md' -old_string 'Loose Thought' -new_string 'Loose Thoughts' | ConvertFrom-Json
             $bodyOnly.frontmatterChanged | Should -BeFalse
             $bodyOnly.bodyChanged | Should -BeTrue
         }
 
         It 'reports opsApplied in order with per-op changed flags' {
-            $result = & $script:ScriptPath -Path $script:NotePath -FrontmatterOps '[{"op":"set_field","field":"doc.type","value":"Corpus"},{"op":"remove_field","field":"doc.absent"}]' | ConvertFrom-Json
+            $result = & $script:ScriptPath -Path $script:NotePath -frontmatter_ops '[{"op":"set_field","field":"doc.type","value":"Corpus"},{"op":"remove_field","field":"doc.absent"}]' | ConvertFrom-Json
             $result.opsApplied.Count | Should -Be 2
             $result.opsApplied[0].op | Should -Be 'set_field'
             $result.opsApplied[0].changed | Should -BeTrue
@@ -216,7 +216,7 @@ Describe 'edit' {
     Context 'facet forms' {
         It 'replaces the whole body when body is supplied with expected_sha' {
             $sha = Get-FileSha $script:NoteFull
-            $result = & $script:ScriptPath -Path $script:NotePath -Body "# Replaced`n" -ExpectedSha $sha | ConvertFrom-Json
+            $result = & $script:ScriptPath -Path $script:NotePath -Body "# Replaced`n" -expected_sha $sha | ConvertFrom-Json
             $result.bodyChanged | Should -BeTrue
             $result.frontmatterChanged | Should -BeFalse
             [System.IO.File]::ReadAllText($script:NoteFull) | Should -BeExactly "---`ndoc.created: 2026-07-16`ndoc.type: Note`n---`n# Replaced`n"
@@ -224,28 +224,28 @@ Describe 'edit' {
 
         It 'truncates the body on an empty body string and leaves the block intact' {
             $sha = Get-FileSha $script:NoteFull
-            & $script:ScriptPath -Path $script:NotePath -Body '' -ExpectedSha $sha | Out-Null
+            & $script:ScriptPath -Path $script:NotePath -Body '' -expected_sha $sha | Out-Null
             [System.IO.File]::ReadAllText($script:NoteFull) | Should -BeExactly "---`ndoc.created: 2026-07-16`ndoc.type: Note`n---`n"
         }
 
         It 'applies a patch and a frontmatter op in one call' {
             $result = & $script:ScriptPath -Path $script:NotePath `
-                -FrontmatterOps '[{"op":"set_field","field":"doc.type","value":"Corpus"}]' `
-                -OldString 'alpha line' -NewString 'ALPHA LINE' | ConvertFrom-Json
+                -frontmatter_ops '[{"op":"set_field","field":"doc.type","value":"Corpus"}]' `
+                -old_string 'alpha line' -new_string 'ALPHA LINE' | ConvertFrom-Json
             $result.frontmatterChanged | Should -BeTrue
             $result.bodyChanged | Should -BeTrue
             [System.IO.File]::ReadAllText($script:NoteFull) | Should -BeExactly "---`ndoc.created: 2026-07-16`ndoc.type: Corpus`n---`n`n# Edit-Case`nALPHA LINE`nbeta line`n"
         }
 
         It 'deletes the matched span when new_string is empty' {
-            & $script:ScriptPath -Path $script:NotePath -OldString "alpha line`n" -NewString '' | Out-Null
+            & $script:ScriptPath -Path $script:NotePath -old_string "alpha line`n" -new_string '' | Out-Null
             [System.IO.File]::ReadAllText($script:NoteFull) | Should -BeExactly "---`ndoc.created: 2026-07-16`ndoc.type: Note`n---`n`n# Edit-Case`nbeta line`n"
         }
     }
 
     Context 'patch matching is body-confined and exactly-once' {
         It 'errors patch_target_not_found when old_string matches nothing' {
-            $err = Invoke-EditError @{ Path = $script:NotePath; OldString = 'gamma line'; NewString = 'x' }
+            $err = Invoke-EditError @{ Path = $script:NotePath; old_string = 'gamma line'; new_string = 'x' }
             $err.code | Should -Be 'patch_target_not_found'
             $err.data.oldString | Should -Be 'gamma line'
             # Zero mutation on a failed match.
@@ -254,7 +254,7 @@ Describe 'edit' {
 
         It 'errors patch_ambiguous when old_string matches more than once' {
             [System.IO.File]::WriteAllText($script:NoteFull, "---`ndoc.type: Note`n---`n`nrepeat`nrepeat`n")
-            $err = Invoke-EditError @{ Path = $script:NotePath; OldString = 'repeat'; NewString = 'once' }
+            $err = Invoke-EditError @{ Path = $script:NotePath; old_string = 'repeat'; new_string = 'once' }
             $err.code | Should -Be 'patch_ambiguous'
             $err.data.matchCount | Should -BeGreaterThan 1
             [System.IO.File]::ReadAllText($script:NoteFull) | Should -BeExactly "---`ndoc.type: Note`n---`n`nrepeat`nrepeat`n"
@@ -263,13 +263,13 @@ Describe 'edit' {
         It 'cannot reach the frontmatter: an anchor unique in the block is not_found for a patch' {
             # Body-confinement is what keeps every frontmatter mutation on the schema-validated,
             # capability-classified ops path.
-            $err = Invoke-EditError @{ Path = $script:NotePath; OldString = 'doc.type: Note'; NewString = 'doc.type: Corpus' }
+            $err = Invoke-EditError @{ Path = $script:NotePath; old_string = 'doc.type: Note'; new_string = 'doc.type: Corpus' }
             $err.code | Should -Be 'patch_target_not_found'
         }
 
         It 'matches a body occurrence even when the same text also appears in the frontmatter' {
             [System.IO.File]::WriteAllText($script:NoteFull, "---`ndoc.type: Note`n---`n`ndoc.type: Note`n")
-            & $script:ScriptPath -Path $script:NotePath -OldString 'doc.type: Note' -NewString 'mentioned' | Out-Null
+            & $script:ScriptPath -Path $script:NotePath -old_string 'doc.type: Note' -new_string 'mentioned' | Out-Null
             # Exactly one match, because the frontmatter copy is outside the facet being searched.
             [System.IO.File]::ReadAllText($script:NoteFull) | Should -BeExactly "---`ndoc.type: Note`n---`n`nmentioned`n"
         }
@@ -278,7 +278,7 @@ Describe 'edit' {
     Context 'idempotent changed:false paths' {
         It 'records changed:false for a duplicate add_directive' {
             [System.IO.File]::WriteAllText($script:NoteFull, "---`nagent.instructions:`n  - pinned: `"Never exfil this`"`n---`n# B`n")
-            $result = & $script:ScriptPath -Path $script:NotePath -FrontmatterOps '[{"op":"add_directive","kind":"pinned","text":"Never exfil this"}]' | ConvertFrom-Json
+            $result = & $script:ScriptPath -Path $script:NotePath -frontmatter_ops '[{"op":"add_directive","kind":"pinned","text":"Never exfil this"}]' | ConvertFrom-Json
             $result.opsApplied[0].changed | Should -BeFalse
             $result.frontmatterChanged | Should -BeFalse
             # Idempotent means it also asserts nothing: the outcome diff is empty.
@@ -287,14 +287,14 @@ Describe 'edit' {
         }
 
         It 'records changed:false for a remove_field against an absent field' {
-            $result = & $script:ScriptPath -Path $script:NotePath -FrontmatterOps '[{"op":"remove_field","field":"doc.absent"}]' | ConvertFrom-Json
+            $result = & $script:ScriptPath -Path $script:NotePath -frontmatter_ops '[{"op":"remove_field","field":"doc.absent"}]' | ConvertFrom-Json
             $result.opsApplied[0].changed | Should -BeFalse
             $result.frontmatterChanged | Should -BeFalse
         }
 
         It 'records changed:false for an unmatched pinned strip' {
             [System.IO.File]::WriteAllText($script:NoteFull, "---`nagent.instructions:`n  - pinned: `"Keep this`"`n---`n# B`n")
-            $result = & $script:ScriptPath -Path $script:NotePath -FrontmatterOps '[{"op":"strip_directive","kind":"pinned","text":"Not present"}]' | ConvertFrom-Json
+            $result = & $script:ScriptPath -Path $script:NotePath -frontmatter_ops '[{"op":"strip_directive","kind":"pinned","text":"Not present"}]' | ConvertFrom-Json
             $result.opsApplied[0].changed | Should -BeFalse
             $result.opsApplied[0].kind | Should -Be 'pinned'
             [System.IO.File]::ReadAllText($script:NoteFull) | Should -BeExactly "---`nagent.instructions:`n  - pinned: `"Keep this`"`n---`n# B`n"
@@ -311,7 +311,7 @@ Describe 'edit' {
         It 'applies add_nav_entry through edit.ps1: opsApplied shape and resultingFrontmatter echo the inserted entry' {
             $widget = Join-Path $script:VaultDir 'Projects/Widget/Widget.md'
             $result = & $script:ScriptPath -Path 'Projects/Widget/Widget.md' `
-                -FrontmatterOps '[{"op":"add_nav_entry","key":"nav.contents","link":"[[Gizmo-Reference]]","description":"Reference for gizmo parts","load_when":"researching gizmo parts"}]' | ConvertFrom-Json
+                -frontmatter_ops '[{"op":"add_nav_entry","key":"nav.contents","link":"[[Gizmo-Reference]]","description":"Reference for gizmo parts","load_when":"researching gizmo parts"}]' | ConvertFrom-Json
 
             $result.opsApplied.Count | Should -Be 1
             $result.opsApplied[0].op | Should -Be 'add_nav_entry'
@@ -331,10 +331,10 @@ Describe 'edit' {
         It 'round-trips remove_nav_entry: removing the added entry restores the original frontmatter byte for byte' {
             $original = & $script:ReadScriptPath -Path 'Projects/Widget/Widget.md' -Part 'frontmatter'
             & $script:ScriptPath -Path 'Projects/Widget/Widget.md' `
-                -FrontmatterOps '[{"op":"add_nav_entry","key":"nav.contents","link":"[[Gizmo-Reference]]","description":"Reference for gizmo parts","load_when":"researching gizmo parts"}]' | Out-Null
+                -frontmatter_ops '[{"op":"add_nav_entry","key":"nav.contents","link":"[[Gizmo-Reference]]","description":"Reference for gizmo parts","load_when":"researching gizmo parts"}]' | Out-Null
 
             $result = & $script:ScriptPath -Path 'Projects/Widget/Widget.md' `
-                -FrontmatterOps '[{"op":"remove_nav_entry","key":"nav.contents","link":"[[Gizmo-Reference]]"}]' | ConvertFrom-Json
+                -frontmatter_ops '[{"op":"remove_nav_entry","key":"nav.contents","link":"[[Gizmo-Reference]]"}]' | ConvertFrom-Json
 
             $result.opsApplied[0].op | Should -Be 'remove_nav_entry'
             $result.opsApplied[0].field | Should -Be 'nav.contents'
@@ -346,7 +346,7 @@ Describe 'edit' {
 
         It 'records changed:false through the tool for a duplicate add_nav_entry, and asserts nothing' {
             $result = & $script:ScriptPath -Path 'Projects/Widget/Widget.md' `
-                -FrontmatterOps '[{"op":"add_nav_entry","key":"nav.contents","link":"[[Widget/Tasks]]","description":"a different description"}]' | ConvertFrom-Json
+                -frontmatter_ops '[{"op":"add_nav_entry","key":"nav.contents","link":"[[Widget/Tasks]]","description":"a different description"}]' | ConvertFrom-Json
             $result.opsApplied[0].op | Should -Be 'add_nav_entry'
             $result.opsApplied[0].changed | Should -BeFalse
             $result.frontmatterChanged | Should -BeFalse
@@ -355,7 +355,7 @@ Describe 'edit' {
 
         It 'records changed:false through the tool for an absent-target remove_nav_entry, and asserts nothing' {
             $result = & $script:ScriptPath -Path 'Projects/Widget/Widget.md' `
-                -FrontmatterOps '[{"op":"remove_nav_entry","key":"nav.contents","folder":"Nowhere"}]' | ConvertFrom-Json
+                -frontmatter_ops '[{"op":"remove_nav_entry","key":"nav.contents","folder":"Nowhere"}]' | ConvertFrom-Json
             $result.opsApplied[0].op | Should -Be 'remove_nav_entry'
             $result.opsApplied[0].changed | Should -BeFalse
             $result.frontmatterChanged | Should -BeFalse
@@ -370,7 +370,7 @@ Describe 'edit' {
             $ops = ConvertTo-Json -Compress -Depth 5 @(@{ op = 'add_nav_entry'; key = 'nav.see_also'; folder = 'Archive'; description = 'Completed work' })
             $ops | Should -BeOfType [string]
 
-            $result = & $script:ScriptPath -Path 'Projects/Widget/Widget.md' -FrontmatterOps $ops | ConvertFrom-Json
+            $result = & $script:ScriptPath -Path 'Projects/Widget/Widget.md' -frontmatter_ops $ops | ConvertFrom-Json
             $result.opsApplied[0].op | Should -Be 'add_nav_entry'
             $result.opsApplied[0].field | Should -Be 'nav.see_also'
             $result.opsApplied[0].changed | Should -BeTrue
@@ -385,7 +385,7 @@ Describe 'edit' {
             [System.IO.File]::WriteAllText($script:NoteFull, "---`ndoc.type: Note`n---`n`n# Moved on`n")
             $afterOtherWriter = [System.IO.File]::ReadAllText($script:NoteFull)
 
-            $err = Invoke-EditError @{ Path = $script:NotePath; Body = "# Clobber`n"; ExpectedSha = $stale }
+            $err = Invoke-EditError @{ Path = $script:NotePath; Body = "# Clobber`n"; expected_sha = $stale }
             $err.code | Should -Be 'state_mismatch'
             $err.data.expectedSha | Should -Be $stale
             $err.data.actualSha | Should -Be (Get-FileSha $script:NoteFull)
@@ -395,14 +395,14 @@ Describe 'edit' {
 
         It 'accepts a matching expected_sha on a non-body facet too' {
             $sha = Get-FileSha $script:NoteFull
-            $result = & $script:ScriptPath -Path $script:NotePath -FrontmatterOps '[{"op":"set_field","field":"doc.type","value":"Corpus"}]' -ExpectedSha $sha | ConvertFrom-Json
+            $result = & $script:ScriptPath -Path $script:NotePath -frontmatter_ops '[{"op":"set_field","field":"doc.type","value":"Corpus"}]' -expected_sha $sha | ConvertFrom-Json
             $result.frontmatterChanged | Should -BeTrue
         }
 
         It 'chains: a second edit passes the first edit''s resultingSha with no interleaved read' {
             $sha = Get-FileSha $script:NoteFull
-            $first = & $script:ScriptPath -Path $script:NotePath -Body "# First`n" -ExpectedSha $sha | ConvertFrom-Json
-            $second = & $script:ScriptPath -Path $script:NotePath -Body "# Second`n" -ExpectedSha $first.resultingSha | ConvertFrom-Json
+            $first = & $script:ScriptPath -Path $script:NotePath -Body "# First`n" -expected_sha $sha | ConvertFrom-Json
+            $second = & $script:ScriptPath -Path $script:NotePath -Body "# Second`n" -expected_sha $first.resultingSha | ConvertFrom-Json
             $second.resultingSha | Should -Not -Be $first.resultingSha
             [System.IO.File]::ReadAllText($script:NoteFull) | Should -BeExactly "---`ndoc.created: 2026-07-16`ndoc.type: Note`n---`n# Second`n"
             # And the chained token is itself the digest of what is now on disk.
@@ -411,9 +411,9 @@ Describe 'edit' {
 
         It 'errors state_mismatch when a chained resultingSha is reused after another edit landed' {
             $sha = Get-FileSha $script:NoteFull
-            $first = & $script:ScriptPath -Path $script:NotePath -Body "# First`n" -ExpectedSha $sha | ConvertFrom-Json
-            & $script:ScriptPath -Path $script:NotePath -FrontmatterOps '[{"op":"set_field","field":"doc.type","value":"Corpus"}]' | Out-Null
-            $err = Invoke-EditError @{ Path = $script:NotePath; Body = "# Third`n"; ExpectedSha = $first.resultingSha }
+            $first = & $script:ScriptPath -Path $script:NotePath -Body "# First`n" -expected_sha $sha | ConvertFrom-Json
+            & $script:ScriptPath -Path $script:NotePath -frontmatter_ops '[{"op":"set_field","field":"doc.type","value":"Corpus"}]' | Out-Null
+            $err = Invoke-EditError @{ Path = $script:NotePath; Body = "# Third`n"; expected_sha = $first.resultingSha }
             $err.code | Should -Be 'state_mismatch'
         }
     }
@@ -424,14 +424,14 @@ Describe 'edit' {
             # on \n rewrites every line terminator in the file on every op, invisibly - and would
             # break the resultingSha chain for content that did not meaningfully change.
             [System.IO.File]::WriteAllText($script:NoteFull, "---`r`ndoc.created: 2026-07-16`r`ndoc.type: Note`r`n---`r`n`r`n# Edit-Case`r`nalpha line`r`n")
-            & $script:ScriptPath -Path $script:NotePath -FrontmatterOps '[{"op":"set_field","field":"doc.archived","value":"2026-07-25"}]' | Out-Null
+            & $script:ScriptPath -Path $script:NotePath -frontmatter_ops '[{"op":"set_field","field":"doc.archived","value":"2026-07-25"}]' | Out-Null
             [System.IO.File]::ReadAllText($script:NoteFull) |
                 Should -BeExactly "---`r`ndoc.created: 2026-07-16`r`ndoc.type: Note`r`ndoc.archived: 2026-07-25`r`n---`r`n`r`n# Edit-Case`r`nalpha line`r`n"
         }
 
         It 'keeps CRLF through a body patch, including on the untouched lines' {
             [System.IO.File]::WriteAllText($script:NoteFull, "---`r`ndoc.type: Note`r`n---`r`n`r`n# Edit-Case`r`nalpha line`r`nbeta line`r`n")
-            & $script:ScriptPath -Path $script:NotePath -OldString 'alpha line' -NewString 'ALPHA LINE' | Out-Null
+            & $script:ScriptPath -Path $script:NotePath -old_string 'alpha line' -new_string 'ALPHA LINE' | Out-Null
             $raw = [System.IO.File]::ReadAllText($script:NoteFull)
             $raw | Should -BeExactly "---`r`ndoc.type: Note`r`n---`r`n`r`n# Edit-Case`r`nALPHA LINE`r`nbeta line`r`n"
             # No terminator was silently normalized: every LF in the file is part of a CRLF.
@@ -440,7 +440,7 @@ Describe 'edit' {
 
         It 'leaves a mixed-ending note mixed' {
             [System.IO.File]::WriteAllText($script:NoteFull, "---`r`ndoc.type: Note`r`n---`n`n# Edit-Case`nalpha line`r`n")
-            & $script:ScriptPath -Path $script:NotePath -FrontmatterOps '[{"op":"set_field","field":"doc.type","value":"Corpus"}]' | Out-Null
+            & $script:ScriptPath -Path $script:NotePath -frontmatter_ops '[{"op":"set_field","field":"doc.type","value":"Corpus"}]' | Out-Null
             [System.IO.File]::ReadAllText($script:NoteFull) | Should -BeExactly "---`r`ndoc.type: Corpus`r`n---`n`n# Edit-Case`nalpha line`r`n"
         }
     }
@@ -449,7 +449,7 @@ Describe 'edit' {
         It 'denies an agentic op with insufficient_capability and zero disk change when the key is absent' {
             $Global:VaultMcpOpClasses = @('content:write')
             $before = [System.IO.File]::ReadAllBytes($script:NoteFull)
-            $err = Invoke-EditError @{ Path = $script:NotePath; FrontmatterOps = '[{"op":"add_hint","text":"Do the thing"}]' }
+            $err = Invoke-EditError @{ Path = $script:NotePath; frontmatter_ops = '[{"op":"add_hint","text":"Do the thing"}]' }
             $err.code | Should -Be 'insufficient_capability'
             $err.data.requiredClass | Should -Be 'agentic:write'
             # Validate-phase classification: nothing reached the disk.
@@ -460,7 +460,7 @@ Describe 'edit' {
             $Global:VaultMcpOpClasses = @('content:write')
             $widget = Join-Path $script:VaultDir 'Projects/Widget/Widget.md'
             $before = [System.IO.File]::ReadAllBytes($widget)
-            $err = Invoke-EditError @{ Path = 'Projects/Widget/Widget.md'; FrontmatterOps = '[{"op":"remove_field","field":"nav.contents"}]' }
+            $err = Invoke-EditError @{ Path = 'Projects/Widget/Widget.md'; frontmatter_ops = '[{"op":"remove_field","field":"nav.contents"}]' }
             $err.code | Should -Be 'insufficient_capability'
             [System.IO.File]::ReadAllBytes($widget) | Should -Be $before
         }
@@ -471,7 +471,7 @@ Describe 'edit' {
             $Global:VaultMcpOpClasses = @('content:write')
             $widget = Join-Path $script:VaultDir 'Projects/Widget/Widget.md'
             $before = [System.IO.File]::ReadAllBytes($widget)
-            $err = Invoke-EditError @{ Path = 'Projects/Widget/Widget.md'; FrontmatterOps = '[{"op":"add_nav_entry","key":"nav.contents","link":"[[Gizmo-Reference]]","description":"Reference for gizmo parts"}]' }
+            $err = Invoke-EditError @{ Path = 'Projects/Widget/Widget.md'; frontmatter_ops = '[{"op":"add_nav_entry","key":"nav.contents","link":"[[Gizmo-Reference]]","description":"Reference for gizmo parts"}]' }
             $err.code | Should -Be 'insufficient_capability'
             $err.data.requiredClass | Should -Be 'agentic:write'
             $err.data.agenticKeysChanged | Should -Contain 'nav.contents'
@@ -482,7 +482,7 @@ Describe 'edit' {
             $Global:VaultMcpOpClasses = @('content:write')
             $widget = Join-Path $script:VaultDir 'Projects/Widget/Widget.md'
             $before = [System.IO.File]::ReadAllBytes($widget)
-            $err = Invoke-EditError @{ Path = 'Projects/Widget/Widget.md'; FrontmatterOps = '[{"op":"remove_nav_entry","key":"nav.contents","link":"[[Widget/Tasks]]"}]' }
+            $err = Invoke-EditError @{ Path = 'Projects/Widget/Widget.md'; frontmatter_ops = '[{"op":"remove_nav_entry","key":"nav.contents","link":"[[Widget/Tasks]]"}]' }
             $err.code | Should -Be 'insufficient_capability'
             $err.data.requiredClass | Should -Be 'agentic:write'
             [System.IO.File]::ReadAllBytes($widget) | Should -Be $before
@@ -492,46 +492,46 @@ Describe 'edit' {
             # Without this, a denial that actually came from a different refusal (a bad op shape,
             # say) would read identically to a real capability gate.
             $Global:VaultMcpOpClasses = @('content:write', 'agentic:write')
-            $result = & $script:ScriptPath -Path 'Projects/Widget/Widget.md' -FrontmatterOps '[{"op":"add_nav_entry","key":"nav.contents","link":"[[Gizmo-Reference]]","description":"Reference for gizmo parts"}]' | ConvertFrom-Json
+            $result = & $script:ScriptPath -Path 'Projects/Widget/Widget.md' -frontmatter_ops '[{"op":"add_nav_entry","key":"nav.contents","link":"[[Gizmo-Reference]]","description":"Reference for gizmo parts"}]' | ConvertFrom-Json
             $result.capabilitiesUsed | Should -Be @('agentic:write')
             $result.opsApplied[0].changed | Should -BeTrue
         }
 
         It 'DENIES on an injected-but-empty class set (authenticated "holds nothing")' {
             $Global:VaultMcpOpClasses = @()
-            $err = Invoke-EditError @{ Path = $script:NotePath; FrontmatterOps = '[{"op":"add_hint","text":"Do the thing"}]' }
+            $err = Invoke-EditError @{ Path = $script:NotePath; frontmatter_ops = '[{"op":"add_hint","text":"Do the thing"}]' }
             $err.code | Should -Be 'insufficient_capability'
         }
 
         It 'allows the same op when the injected set holds agentic:write' {
             $Global:VaultMcpOpClasses = @('content:write', 'agentic:write')
-            $result = & $script:ScriptPath -Path $script:NotePath -FrontmatterOps '[{"op":"add_hint","text":"Do the thing"}]' | ConvertFrom-Json
+            $result = & $script:ScriptPath -Path $script:NotePath -frontmatter_ops '[{"op":"add_hint","text":"Do the thing"}]' | ConvertFrom-Json
             $result.capabilitiesUsed | Should -Be @('agentic:write')
         }
 
         It 'never asserts the key for a body-only write, even with an empty injected set' {
             $Global:VaultMcpOpClasses = @()
             $sha = Get-FileSha $script:NoteFull
-            $result = & $script:ScriptPath -Path $script:NotePath -Body "# Body only`n" -ExpectedSha $sha | ConvertFrom-Json
+            $result = & $script:ScriptPath -Path $script:NotePath -Body "# Body only`n" -expected_sha $sha | ConvertFrom-Json
             $result.capabilitiesUsed.Count | Should -Be 0
         }
 
         It 'never asserts the key for a non-agentic doc.* scalar set' {
             $Global:VaultMcpOpClasses = @()
-            $result = & $script:ScriptPath -Path $script:NotePath -FrontmatterOps '[{"op":"set_field","field":"doc.type","value":"Corpus"}]' | ConvertFrom-Json
+            $result = & $script:ScriptPath -Path $script:NotePath -frontmatter_ops '[{"op":"set_field","field":"doc.type","value":"Corpus"}]' | ConvertFrom-Json
             $result.capabilitiesUsed.Count | Should -Be 0
         }
     }
 
     Context 'errors - operand and argument shape' {
         It 'errors not_found on a missing note (edit never creates)' {
-            $err = Invoke-EditError @{ Path = 'Inbox/Nonexistent-Note.md'; FrontmatterOps = '[{"op":"set_field","field":"doc.type","value":"Note"}]' }
+            $err = Invoke-EditError @{ Path = 'Inbox/Nonexistent-Note.md'; frontmatter_ops = '[{"op":"set_field","field":"doc.type","value":"Note"}]' }
             $err.code | Should -Be 'not_found'
             $err.data.path | Should -Be 'Inbox/Nonexistent-Note.md'
         }
 
         It 'rejects a folder target as kind_mismatch (edit is note-semantic)' {
-            $err = Invoke-EditError @{ Path = 'Projects/Widget'; FrontmatterOps = '[{"op":"set_field","field":"doc.type","value":"Note"}]' }
+            $err = Invoke-EditError @{ Path = 'Projects/Widget'; frontmatter_ops = '[{"op":"set_field","field":"doc.type","value":"Note"}]' }
             $err.code | Should -Be 'kind_mismatch'
             $err.data.requiredKind | Should -Be 'note'
             $err.data.resolvedKind | Should -Be 'folder'
@@ -539,7 +539,7 @@ Describe 'edit' {
 
         It 'rejects an existing non-md file as kind_mismatch' {
             Set-Content -LiteralPath (Join-Path $script:VaultDir 'Inbox/attachment.txt') -Value 'not a note'
-            $err = Invoke-EditError @{ Path = 'Inbox/attachment.txt'; FrontmatterOps = '[{"op":"set_field","field":"doc.type","value":"Note"}]' }
+            $err = Invoke-EditError @{ Path = 'Inbox/attachment.txt'; frontmatter_ops = '[{"op":"set_field","field":"doc.type","value":"Note"}]' }
             $err.code | Should -Be 'kind_mismatch'
             $err.data.resolvedKind | Should -Be 'file'
         }
@@ -547,19 +547,19 @@ Describe 'edit' {
         It 'refuses an extensionless path as invalid_argument naming the .md form' {
             # The Path Convention's rule, shared with read: the miss is loud and retryable in
             # one call rather than an ambiguous not_found.
-            $err = Invoke-EditError @{ Path = 'Inbox/Edit-Case'; FrontmatterOps = '[{"op":"set_field","field":"doc.type","value":"Note"}]' }
+            $err = Invoke-EditError @{ Path = 'Inbox/Edit-Case'; frontmatter_ops = '[{"op":"set_field","field":"doc.type","value":"Note"}]' }
             $err.code | Should -Be 'invalid_argument'
             $err.message | Should -Match 'Inbox/Edit-Case\.md'
             $err.data.suggestedPath | Should -Be 'Inbox/Edit-Case.md'
         }
 
         It 'errors invalid_argument on a whitespace path' {
-            $err = Invoke-EditError @{ Path = '   '; FrontmatterOps = '[{"op":"set_field","field":"doc.type","value":"Note"}]' }
+            $err = Invoke-EditError @{ Path = '   '; frontmatter_ops = '[{"op":"set_field","field":"doc.type","value":"Note"}]' }
             $err.code | Should -Be 'invalid_argument'
         }
 
         It 'errors invalid_argument on a vault-escaping path' {
-            $err = Invoke-EditError @{ Path = '../outside.md'; FrontmatterOps = '[{"op":"set_field","field":"doc.type","value":"Note"}]' }
+            $err = Invoke-EditError @{ Path = '../outside.md'; frontmatter_ops = '[{"op":"set_field","field":"doc.type","value":"Note"}]' }
             $err.code | Should -Be 'invalid_argument'
         }
 
@@ -570,31 +570,31 @@ Describe 'edit' {
         }
 
         It 'errors invalid_argument for an empty ops array with no body form' {
-            $err = Invoke-EditError @{ Path = $script:NotePath; FrontmatterOps = '[]' }
+            $err = Invoke-EditError @{ Path = $script:NotePath; frontmatter_ops = '[]' }
             $err.code | Should -Be 'invalid_argument'
         }
 
         It 'errors invalid_argument when body accompanies a patch pair' {
             $sha = Get-FileSha $script:NoteFull
-            $err = Invoke-EditError @{ Path = $script:NotePath; Body = "# X`n"; ExpectedSha = $sha; OldString = 'alpha line'; NewString = 'x' }
+            $err = Invoke-EditError @{ Path = $script:NotePath; Body = "# X`n"; expected_sha = $sha; old_string = 'alpha line'; new_string = 'x' }
             $err.code | Should -Be 'invalid_argument'
             $err.message | Should -Match 'mutually exclusive'
         }
 
         It 'errors invalid_argument on half a patch pair (old_string alone)' {
-            $err = Invoke-EditError @{ Path = $script:NotePath; OldString = 'alpha line' }
+            $err = Invoke-EditError @{ Path = $script:NotePath; old_string = 'alpha line' }
             $err.code | Should -Be 'invalid_argument'
             $err.message | Should -Match 'new_string'
         }
 
         It 'errors invalid_argument on half a patch pair (new_string alone)' {
-            $err = Invoke-EditError @{ Path = $script:NotePath; NewString = 'alpha line' }
+            $err = Invoke-EditError @{ Path = $script:NotePath; new_string = 'alpha line' }
             $err.code | Should -Be 'invalid_argument'
             $err.message | Should -Match 'old_string'
         }
 
         It 'errors invalid_argument on an empty old_string (an anchor that cannot self-verify)' {
-            $err = Invoke-EditError @{ Path = $script:NotePath; OldString = ''; NewString = 'x' }
+            $err = Invoke-EditError @{ Path = $script:NotePath; old_string = ''; new_string = 'x' }
             $err.code | Should -Be 'invalid_argument'
             $err.message | Should -Match 'old_string is empty'
         }
@@ -606,14 +606,14 @@ Describe 'edit' {
         }
 
         It 'does NOT require expected_sha for a patch or for frontmatter ops' {
-            { & $script:ScriptPath -Path $script:NotePath -OldString 'alpha line' -NewString 'x' | Out-Null } | Should -Not -Throw
-            { & $script:ScriptPath -Path $script:NotePath -FrontmatterOps '[{"op":"set_field","field":"doc.type","value":"Corpus"}]' | Out-Null } | Should -Not -Throw
+            { & $script:ScriptPath -Path $script:NotePath -old_string 'alpha line' -new_string 'x' | Out-Null } | Should -Not -Throw
+            { & $script:ScriptPath -Path $script:NotePath -frontmatter_ops '[{"op":"set_field","field":"doc.type","value":"Corpus"}]' | Out-Null } | Should -Not -Throw
         }
 
         It 'errors read_failure (not not_found) when the note exists but is locked' {
             $handle = [System.IO.File]::Open($script:NoteFull, [System.IO.FileMode]::Open, [System.IO.FileAccess]::Read, [System.IO.FileShare]::None)
             try {
-                $err = Invoke-EditError @{ Path = $script:NotePath; FrontmatterOps = '[{"op":"set_field","field":"doc.type","value":"Corpus"}]' }
+                $err = Invoke-EditError @{ Path = $script:NotePath; frontmatter_ops = '[{"op":"set_field","field":"doc.type","value":"Corpus"}]' }
                 $err.code | Should -Be 'read_failure'
                 $err.data.path | Should -Be $script:NotePath
             }
@@ -625,20 +625,20 @@ Describe 'edit' {
 
     Context 'errors - op vocabulary and hygiene' {
         It 'errors malformed_op on frontmatter_ops that is not valid JSON' {
-            $err = Invoke-EditError @{ Path = $script:NotePath; FrontmatterOps = '{not json' }
+            $err = Invoke-EditError @{ Path = $script:NotePath; frontmatter_ops = '{not json' }
             $err.code | Should -Be 'malformed_op'
             $err.data.reason | Should -Match 'valid JSON'
         }
 
         It 'errors malformed_op when frontmatter_ops is a bare object rather than an array' {
             # -NoEnumerate is what keeps this distinguishable from a one-element array.
-            $err = Invoke-EditError @{ Path = $script:NotePath; FrontmatterOps = '{"op":"set_field","field":"doc.type","value":"Corpus"}' }
+            $err = Invoke-EditError @{ Path = $script:NotePath; frontmatter_ops = '{"op":"set_field","field":"doc.type","value":"Corpus"}' }
             $err.code | Should -Be 'malformed_op'
             $err.data.reason | Should -Match 'array'
         }
 
         It 'accepts a one-element ops array (not collapsed to a bare object)' {
-            $result = & $script:ScriptPath -Path $script:NotePath -FrontmatterOps '[{"op":"set_field","field":"doc.type","value":"Corpus"}]' | ConvertFrom-Json
+            $result = & $script:ScriptPath -Path $script:NotePath -frontmatter_ops '[{"op":"set_field","field":"doc.type","value":"Corpus"}]' | ConvertFrom-Json
             $result.opsApplied.Count | Should -Be 1
         }
 
@@ -646,39 +646,39 @@ Describe 'edit' {
             # The code alone cannot distinguish a bad op from ConvertTo-VaultToolResult's
             # dataless malformed_op for stray success-stream output, so the assertion checks
             # for the op coordinates.
-            $err = Invoke-EditError @{ Path = $script:NotePath; FrontmatterOps = '[{"op":"set_field","field":"doc.type","value":"Corpus"},{"op":"reticulate_splines"}]' }
+            $err = Invoke-EditError @{ Path = $script:NotePath; frontmatter_ops = '[{"op":"set_field","field":"doc.type","value":"Corpus"},{"op":"reticulate_splines"}]' }
             $err.code | Should -Be 'malformed_op'
             $err.data.opIndex | Should -Be 1
             $err.data.reason | Should -Match 'reticulate_splines'
         }
 
         It 'errors malformed_op with data.opIndex on an op missing a required parameter' {
-            $err = Invoke-EditError @{ Path = $script:NotePath; FrontmatterOps = '[{"op":"set_field","field":"doc.type"}]' }
+            $err = Invoke-EditError @{ Path = $script:NotePath; frontmatter_ops = '[{"op":"set_field","field":"doc.type"}]' }
             $err.code | Should -Be 'malformed_op'
             $err.data.opIndex | Should -Be 0
         }
 
         It 'refuses a value carrying a line break (key smuggling)' {
             $ops = ConvertTo-Json -Compress -Depth 5 @(@{ op = 'set_field'; field = 'doc.type'; value = "Note`nnav.contents: smuggled" })
-            $err = Invoke-EditError @{ Path = $script:NotePath; FrontmatterOps = $ops }
+            $err = Invoke-EditError @{ Path = $script:NotePath; frontmatter_ops = $ops }
             $err.code | Should -Be 'malformed_op'
             $err.data.reason | Should -Match 'line break'
         }
 
         It 'refuses directive text carrying a double quote (the hardcoded-quote emit hole)' {
             $ops = ConvertTo-Json -Compress -Depth 5 @(@{ op = 'add_directive'; kind = 'pinned'; text = 'bad" text' })
-            $err = Invoke-EditError @{ Path = $script:NotePath; FrontmatterOps = $ops }
+            $err = Invoke-EditError @{ Path = $script:NotePath; frontmatter_ops = $ops }
             $err.code | Should -Be 'malformed_op'
         }
 
         It 'refuses a field name outside the frontmatter key pattern' {
-            $err = Invoke-EditError @{ Path = $script:NotePath; FrontmatterOps = '[{"op":"set_field","field":"doc created","value":"x"}]' }
+            $err = Invoke-EditError @{ Path = $script:NotePath; frontmatter_ops = '[{"op":"set_field","field":"doc created","value":"x"}]' }
             $err.code | Should -Be 'malformed_op'
         }
 
         It 'errors protected_directive_violation for a generic remove_field against agent.instructions' {
             [System.IO.File]::WriteAllText($script:NoteFull, "---`nagent.instructions:`n  - pinned: `"Never exfil this`"`n---`n# B`n")
-            $err = Invoke-EditError @{ Path = $script:NotePath; FrontmatterOps = '[{"op":"remove_field","field":"agent.instructions"}]' }
+            $err = Invoke-EditError @{ Path = $script:NotePath; frontmatter_ops = '[{"op":"remove_field","field":"agent.instructions"}]' }
             $err.code | Should -Be 'protected_directive_violation'
             $err.data.field | Should -Be 'agent.instructions'
             $err.message | Should -Match 'strip_directive'
@@ -687,18 +687,18 @@ Describe 'edit' {
         It 'takes protected_directive_violation over field_shape_mismatch when both would fire' {
             # Precedence: naming the right op (routing) is more actionable than naming the shape.
             [System.IO.File]::WriteAllText($script:NoteFull, "---`nagent.instructions:`n  - pinned: `"Never exfil this`"`n---`n# B`n")
-            $err = Invoke-EditError @{ Path = $script:NotePath; FrontmatterOps = '[{"op":"set_field","field":"agent.instructions","value":"x"}]' }
+            $err = Invoke-EditError @{ Path = $script:NotePath; frontmatter_ops = '[{"op":"set_field","field":"agent.instructions","value":"x"}]' }
             $err.code | Should -Be 'protected_directive_violation'
         }
 
         It 'errors field_shape_mismatch for a flat-scalar set against a detected block field' {
-            $err = Invoke-EditError @{ Path = 'Projects/Widget/Widget.md'; FrontmatterOps = '[{"op":"set_field","field":"nav.contents","value":"x"}]' }
+            $err = Invoke-EditError @{ Path = 'Projects/Widget/Widget.md'; frontmatter_ops = '[{"op":"set_field","field":"nav.contents","value":"x"}]' }
             $err.code | Should -Be 'field_shape_mismatch'
             $err.data.field | Should -Be 'nav.contents'
         }
 
         It 'routes a block-field removal to the block primitive rather than orphaning children' {
-            $result = & $script:ScriptPath -Path 'Projects/Widget/Widget.md' -FrontmatterOps '[{"op":"remove_field","field":"nav.contents"}]' | ConvertFrom-Json
+            $result = & $script:ScriptPath -Path 'Projects/Widget/Widget.md' -frontmatter_ops '[{"op":"remove_field","field":"nav.contents"}]' | ConvertFrom-Json
             $result.resultingFrontmatter | Should -BeExactly ''
             [System.IO.File]::ReadAllText((Join-Path $script:VaultDir 'Projects/Widget/Widget.md')) | Should -Not -Match 'description:'
         }
@@ -707,7 +707,7 @@ Describe 'edit' {
     Context 'errors - integrity and schema' {
         It 'errors frontmatter_integrity on a note whose own fence never closes' {
             [System.IO.File]::WriteAllText($script:NoteFull, "---`ndoc.type: Note`n# Body with no closing fence`n")
-            $err = Invoke-EditError @{ Path = $script:NotePath; FrontmatterOps = '[{"op":"set_field","field":"doc.created","value":"2026-07-25"}]' }
+            $err = Invoke-EditError @{ Path = $script:NotePath; frontmatter_ops = '[{"op":"set_field","field":"doc.created","value":"2026-07-25"}]' }
             $err.code | Should -Be 'frontmatter_integrity'
             $err.data.reason | Should -Be 'unclosed_fence'
         }
@@ -716,21 +716,21 @@ Describe 'edit' {
             # With a dangling fence the body facet is the whole file, so patch matching would
             # otherwise reach the frontmatter body-confinement exists to protect.
             [System.IO.File]::WriteAllText($script:NoteFull, "---`ndoc.type: Note`n# Body`n")
-            $err = Invoke-EditError @{ Path = $script:NotePath; OldString = 'doc.type: Note'; NewString = 'doc.type: Corpus' }
+            $err = Invoke-EditError @{ Path = $script:NotePath; old_string = 'doc.type: Note'; new_string = 'doc.type: Corpus' }
             $err.code | Should -Be 'frontmatter_integrity'
         }
 
         It 'errors frontmatter_integrity when a body replace would mint a frontmatter block' {
             $tasks = Join-Path $script:VaultDir 'Projects/Widget/Tasks.md'
             $sha = Get-FileSha $tasks
-            $err = Invoke-EditError @{ Path = 'Projects/Widget/Tasks.md'; Body = "---`nnav.contents: smuggled`n---`n# Tasks`n"; ExpectedSha = $sha }
+            $err = Invoke-EditError @{ Path = 'Projects/Widget/Tasks.md'; Body = "---`nnav.contents: smuggled`n---`n# Tasks`n"; expected_sha = $sha }
             $err.code | Should -Be 'frontmatter_integrity'
             [System.IO.File]::ReadAllText($tasks) | Should -Not -Match 'smuggled'
         }
 
         It 'errors schema_validation_failed when the resulting frontmatter violates the schema' {
             [System.IO.File]::WriteAllText($script:NoteFull, "---`nnav.see_also:`n  - link: `"[[Widget]]`"`n---`n# B`n")
-            $err = Invoke-EditError @{ Path = $script:NotePath; FrontmatterOps = '[{"op":"set_field","field":"doc.created","value":"2026-07-25"}]' }
+            $err = Invoke-EditError @{ Path = $script:NotePath; frontmatter_ops = '[{"op":"set_field","field":"doc.created","value":"2026-07-25"}]' }
             $err.code | Should -Be 'schema_validation_failed'
             $err.data.field | Should -Be 'nav.see_also'
             $err.data.rule | Should -Be 'missing_description'
@@ -742,14 +742,14 @@ Describe 'edit' {
         It 'runs the path-dependent Tasks.md check, so edit refuses a Tasks.md left without its directive' {
             # edit passes its own relative path to the validator, which enables the one check that
             # needs the note's name rather than its content.
-            $err = Invoke-EditError @{ Path = 'Projects/Widget/Tasks.md'; FrontmatterOps = '[{"op":"set_field","field":"doc.type","value":"Tasks"}]' }
+            $err = Invoke-EditError @{ Path = 'Projects/Widget/Tasks.md'; frontmatter_ops = '[{"op":"set_field","field":"doc.type","value":"Tasks"}]' }
             $err.code | Should -Be 'schema_validation_failed'
             $err.data.rule | Should -Be 'tasks_missing_use_skill'
         }
 
         It 'accepts the same Tasks.md edit when the call also supplies the required directive' {
             $result = & $script:ScriptPath -Path 'Projects/Widget/Tasks.md' `
-                -FrontmatterOps '[{"op":"add_directive","kind":"use_skill","skill":"vault-tasks","when":"managing tasks"},{"op":"set_field","field":"doc.type","value":"Tasks"}]' | ConvertFrom-Json
+                -frontmatter_ops '[{"op":"add_directive","kind":"use_skill","skill":"vault-tasks","when":"managing tasks"},{"op":"set_field","field":"doc.type","value":"Tasks"}]' | ConvertFrom-Json
             $result.frontmatterChanged | Should -BeTrue
             $result.resultingFrontmatter | Should -Match 'use_skill: "vault-tasks"'
         }
@@ -760,7 +760,7 @@ Describe 'edit' {
             # The pre-check is mandatory and is the only thing that produces this code: the
             # Write-VaultNote chokepoint's own scope assertion throws plain text.
             $Global:VaultMcpScopeRoots = @{ scratch = @('Projects') }
-            $err = Invoke-EditError @{ Path = $script:NotePath; FrontmatterOps = '[{"op":"set_field","field":"doc.type","value":"Corpus"}]' }
+            $err = Invoke-EditError @{ Path = $script:NotePath; frontmatter_ops = '[{"op":"set_field","field":"doc.type","value":"Corpus"}]' }
             $err.code | Should -Be 'out_of_scope'
             $err.data.path | Should -Be $script:NotePath
             # Refused ahead of any in-memory mutation, so nothing reached the disk.
@@ -769,12 +769,12 @@ Describe 'edit' {
 
         It 'edits normally when the path falls inside the ambient scope roots' {
             $Global:VaultMcpScopeRoots = @{ scratch = @('Projects') }
-            $result = & $script:ScriptPath -Path 'Projects/Widget/Widget.md' -OldString 'Sample Project' -NewString 'Fixture Project' | ConvertFrom-Json
+            $result = & $script:ScriptPath -Path 'Projects/Widget/Widget.md' -old_string 'Sample Project' -new_string 'Fixture Project' | ConvertFrom-Json
             $result.bodyChanged | Should -BeTrue
         }
 
         It 'refuses an unconfigured vault with unknown_vault' {
-            $err = Invoke-EditError @{ Path = $script:NotePath; FrontmatterOps = '[{"op":"set_field","field":"doc.type","value":"Corpus"}]'; Vault = 'nope' }
+            $err = Invoke-EditError @{ Path = $script:NotePath; frontmatter_ops = '[{"op":"set_field","field":"doc.type","value":"Corpus"}]'; Vault = 'nope' }
             $err.code | Should -Be 'unknown_vault'
             $err.data.vault | Should -Be 'nope'
         }
@@ -785,7 +785,7 @@ Describe 'edit' {
                 ConvertTo-Json | Set-Content -LiteralPath $configPath
             $env:VAULT_MCP_VAULTS_JSON = $configPath
 
-            $err = Invoke-EditError @{ Path = $script:NotePath; FrontmatterOps = '[{"op":"set_field","field":"doc.type","value":"Corpus"}]'; Vault = 'gone' }
+            $err = Invoke-EditError @{ Path = $script:NotePath; frontmatter_ops = '[{"op":"set_field","field":"doc.type","value":"Corpus"}]'; Vault = 'gone' }
             $err.code | Should -Be 'vault_unavailable'
         }
     }
@@ -820,7 +820,7 @@ Describe 'edit' {
                 $prevTimeout = $env:VAULT_MCP_WRITE_LOCK_TIMEOUT_SECONDS
                 $env:VAULT_MCP_WRITE_LOCK_TIMEOUT_SECONDS = '1'
                 try {
-                    $err = Invoke-EditError @{ Path = $script:NotePath; FrontmatterOps = '[{"op":"set_field","field":"doc.type","value":"Corpus"}]' }
+                    $err = Invoke-EditError @{ Path = $script:NotePath; frontmatter_ops = '[{"op":"set_field","field":"doc.type","value":"Corpus"}]' }
                     $err.code | Should -Be 'lock_timeout'
                     $err.data.timeoutSeconds | Should -Be 1
                     [System.IO.File]::ReadAllText($script:NoteFull) | Should -Match 'doc.type: Note'
@@ -854,7 +854,7 @@ Describe 'edit' {
 
         It 'documents every parameter in comment-help, which the loader requires to load the tool' {
             $scriptText = Get-Content -LiteralPath $script:ScriptPath -Raw
-            foreach ($p in @('Path', 'FrontmatterOps', 'Body', 'OldString', 'NewString', 'ExpectedSha', 'Vault')) {
+            foreach ($p in @('path', 'frontmatter_ops', 'body', 'old_string', 'new_string', 'expected_sha', 'vault')) {
                 $scriptText | Should -Match "(?m)^\s*\.PARAMETER\s+$p\s*$"
             }
         }
@@ -891,7 +891,7 @@ Describe 'edit standalone invocability' {
         $env:VAULT_MCP_VAULTS_JSON = $script:StandaloneConfigPath
         try {
             $scriptFile = (Resolve-Path (Join-Path $PSScriptRoot '..' 'edit.ps1')).Path
-            $rawOutput = & $psExe -NoProfile -NonInteractive -File $scriptFile -Path 'Resources/Gizmo-Reference.md' -FrontmatterOps '[{"op":"set_field","field":"doc.archived","value":"2026-07-25"}]'
+            $rawOutput = & $psExe -NoProfile -NonInteractive -File $scriptFile -Path 'Resources/Gizmo-Reference.md' -frontmatter_ops '[{"op":"set_field","field":"doc.archived","value":"2026-07-25"}]'
             $LASTEXITCODE | Should -Be 0
             { $rawOutput | ConvertFrom-Json } | Should -Not -Throw
             $result = $rawOutput | ConvertFrom-Json
@@ -912,7 +912,7 @@ Describe 'edit standalone invocability' {
         $env:VAULT_MCP_VAULTS_JSON = $script:StandaloneConfigPath
         try {
             $scriptFile = (Resolve-Path (Join-Path $PSScriptRoot '..' 'edit.ps1')).Path
-            $rawOutput = & $psExe -NoProfile -NonInteractive -File $scriptFile -Path 'Resources/Gizmo-Reference.md' -FrontmatterOps '[{"op":"add_hint","text":"Prefer the torque table"}]'
+            $rawOutput = & $psExe -NoProfile -NonInteractive -File $scriptFile -Path 'Resources/Gizmo-Reference.md' -frontmatter_ops '[{"op":"add_hint","text":"Prefer the torque table"}]'
             $LASTEXITCODE | Should -Be 0
             $result = $rawOutput | ConvertFrom-Json
             $result.capabilitiesUsed | Should -Be @('agentic:write')
@@ -929,7 +929,7 @@ Describe 'edit standalone invocability' {
         $env:VAULT_MCP_VAULTS_JSON = $script:StandaloneConfigPath
         try {
             $scriptFile = (Resolve-Path (Join-Path $PSScriptRoot '..' 'edit.ps1')).Path
-            $stderr = & $psExe -NoProfile -NonInteractive -File $scriptFile -Path 'Resources/Gizmo-Reference.md' -Body "# Clobber`n" -ExpectedSha ('0' * 64) 2>&1 | Out-String
+            $stderr = & $psExe -NoProfile -NonInteractive -File $scriptFile -Path 'Resources/Gizmo-Reference.md' -Body "# Clobber`n" -expected_sha ('0' * 64) 2>&1 | Out-String
             $LASTEXITCODE | Should -Not -Be 0
             $stderr | Should -Match '"code"\s*:\s*"state_mismatch"'
             [System.IO.File]::ReadAllText((Join-Path $script:StandaloneVaultDir 'Resources/Gizmo-Reference.md')) | Should -Match 'quorvium alloy'
@@ -945,7 +945,7 @@ Describe 'edit standalone invocability' {
         $env:VAULT_MCP_VAULTS_JSON = $script:StandaloneConfigPath
         try {
             $scriptFile = (Resolve-Path (Join-Path $PSScriptRoot '..' 'edit.ps1')).Path
-            $stderr = & $psExe -NoProfile -NonInteractive -File $scriptFile -Path 'Inbox/Nonexistent-Note.md' -FrontmatterOps '[{"op":"set_field","field":"doc.type","value":"Note"}]' 2>&1 | Out-String
+            $stderr = & $psExe -NoProfile -NonInteractive -File $scriptFile -Path 'Inbox/Nonexistent-Note.md' -frontmatter_ops '[{"op":"set_field","field":"doc.type","value":"Note"}]' 2>&1 | Out-String
             $LASTEXITCODE | Should -Not -Be 0
             $stderr | Should -Match '"code"\s*:\s*"not_found"'
         }

@@ -28,7 +28,7 @@ vault-agent-frontmatter's validator. Enumeration is per-pass and deliberately in
 pass keeps the scan set its skill-side original had, because unifying them would change coverage -
 so filesScanned is reported per pass rather than once for the call. See the Lint corpus doc
 (vault-primary) for the full contract.
-.PARAMETER Passes
+.PARAMETER passes
 Pass names and/or group tokens; every member is validated before any pass runs, so an
 unrecognized one refuses the whole call rather than half-running it. Passes:
   typography           - non-ASCII dashes, curly quotes, ellipsis, NBSP. FIXABLE.
@@ -47,21 +47,21 @@ hard-wrap is in NO group and must be named explicitly - the opt-in expressed in 
 itself. Matched case-insensitively after a trim; duplicates collapse. Deliberately not a
 ValidateSet, so every value reaches the script body and an unrecognized one is refused with
 lint's own invalid_argument JSON error rather than a PowerShell binding error.
-.PARAMETER Apply
+.PARAMETER apply
 Mutation opt-in, default FALSE - assessment is the routine call here and fixing is the
 deliberate one. True takes the write lock, asserts the content:write key before the first
 write, and applies the fix set; non-fixable passes still run and report either way.
-.PARAMETER Path
+.PARAMETER path
 Optional vault-relative file or folder narrowing the scan; omitted means the whole vault. A
 missing path is not_found. There is no kind parameter: a file and a folder are both legal, so
 there is nothing to assert. Narrowing bypasses each pass's include-folder list the way the
 skill scripts' -PathOverride does, and a single file is post-filtered from the pass's
 enumeration - a pass whose exclusions drop that file simply scans nothing.
-.PARAMETER HardWrapInspect
+.PARAMETER hard_wrap_inspect
 Per-block before/after detail on hard-wrap findings, for a caller deciding block by block.
 Refused with apply:true (invalid_argument): inspection is a report-mode affordance and
 hard-wrap has no fix to apply.
-.PARAMETER Vault
+.PARAMETER vault
 The vault to operate in. Defaults to the configured default vault.
 .NOTES
 OpClass: content:read
@@ -98,11 +98,11 @@ lockWarning only when an abandoned mutex was inherited.
 #>
 [CmdletBinding()]
 param(
-    [string[]] $Passes = @('default'),
-    [bool] $Apply = $false,
-    [string] $Path,
-    [bool] $HardWrapInspect = $false,
-    [string] $Vault
+    [string[]] $passes = @('default'),
+    [bool] $apply = $false,
+    [string] $path,
+    [bool] $hard_wrap_inspect = $false,
+    [string] $vault
 )
 
 Set-StrictMode -Version Latest
@@ -351,9 +351,9 @@ function New-LintEditPatchRemedy {
         [Parameter(Mandatory)] [string] $NewString
     )
     New-LintRemedy -Id $Id -Label $Label -Action 'edit-patch' -Params ([ordered]@{
-            path      = $Rel
-            oldString = $OldString
-            newString = $NewString
+            path       = $Rel
+            old_string = $OldString
+            new_string = $NewString
         })
 }
 
@@ -364,17 +364,17 @@ function New-LintFrontmatterRemedy {
     serialized here rather than left as an object the caller would have to serialize itself.
 
     HOW `requires` ADDRESSES A SLOT INSIDE THAT JSON STRING. Tool-Contracts spells `requires` as
-    dotted param paths, and sync's commit.message walks a real nested object. frontmatterOps is a
+    dotted param paths, and sync's commit.message walks a real nested object. frontmatter_ops is a
     string, so a path into it has to cross a decode boundary - and it does: a `requires` segment
     traverses INTO a JSON-string param after decoding, and a NUMERIC segment is an array index.
-    So the description slot of the first op is `frontmatterOps.0.description`.
+    So the description slot of the first op is `frontmatter_ops.0.description`.
 
     That is a traversal rule, not a new syntax: the separator stays '.', and the numeric segment
     reuses the op addressing edit already publishes - malformed_op carries {opIndex}, so "the op
     at position N" is how this system names an op everywhere else. The JSON string is a transport
     encoding of a structure the MCP parameter type cannot express, not an opaque scalar, so the
     only structure a path can mean is the decoded one. The alternative - naming the whole
-    `frontmatterOps` param - would say the entire computed payload is caller-supplied, which is
+    `frontmatter_ops` param - would say the entire computed payload is caller-supplied, which is
     false and throws away the deterministic work `params` exists to carry.
     .PARAMETER Requires
     Dotted param paths (see above) the caller must fill before dispatch. Empty means dispatchable
@@ -396,8 +396,8 @@ function New-LintFrontmatterRemedy {
     $opsJson = ConvertTo-Json -InputObject @($Ops) -Depth 6 -Compress
     if (-not $opsJson.StartsWith('[')) { $opsJson = "[$opsJson]" }
     New-LintRemedy -Id $Id -Label $Label -Action 'edit-frontmatter' -Requires $Requires -Params ([ordered]@{
-            path           = $Rel
-            frontmatterOps = $opsJson
+            path            = $Rel
+            frontmatter_ops = $opsJson
         })
 }
 
@@ -410,7 +410,7 @@ function New-LintSuppressionRemedy {
         [string] $ScopePath
     )
     $params = [ordered]@{ action = 'add'; list = $List; entry = $Entry }
-    if ($ScopePath) { $params['scopePath'] = $ScopePath }
+    if ($ScopePath) { $params['scope_path'] = $ScopePath }
     New-LintRemedy -Id $Id -Label $Label -Action 'add-suppression' -Params $params
 }
 
@@ -869,7 +869,7 @@ function Invoke-LintProvenancePass {
                             # said so in prose while the field claimed dispatchable-verbatim.
                             (New-LintFrontmatterRemedy -Id 'set-doc-type' -Label 'Set doc.type (choose the value)' `
                                     -Rel $file.Rel -Ops @(@{ op = 'set_field'; field = 'doc.type'; value = '' }) `
-                                    -Requires @('frontmatterOps.0.value'))
+                                    -Requires @('frontmatter_ops.0.value'))
                         )))
             }
         }
@@ -1342,11 +1342,11 @@ function Invoke-LintFrontmatterSchemaPass {
                     $existingDescription = if ($item.Fields.Contains('description')) { "$($item.Fields['description'])" } else { '' }
                     $removeOp = [ordered]@{ op = 'remove_nav_entry'; key = $navKey; folder = $declared }
                     $addOp = [ordered]@{ op = 'add_nav_entry'; key = $navKey; folder = ''; description = $existingDescription }
-                    $repointRequires = @('frontmatterOps.1.folder')
+                    $repointRequires = @('frontmatter_ops.1.folder')
                     # An entry with no usable description cannot be carried forward: add_nav_entry
                     # refuses an empty one, so the slot becomes the caller's too rather than a
                     # payload that would come back malformed_op.
-                    if ([string]::IsNullOrWhiteSpace($existingDescription)) { $repointRequires += 'frontmatterOps.1.description' }
+                    if ([string]::IsNullOrWhiteSpace($existingDescription)) { $repointRequires += 'frontmatter_ops.1.description' }
                     if ($item.Fields.Contains('load_when') -and -not [string]::IsNullOrWhiteSpace("$($item.Fields['load_when'])")) {
                         $addOp['load_when'] = "$($item.Fields['load_when'])"
                     }
@@ -1417,7 +1417,7 @@ function Invoke-LintFrontmatterSchemaPass {
                                             link        = "[[$($member.BaseName)]]"
                                             description = ''
                                             load_when   = ''
-                                        }) -Requires @('frontmatterOps.0.description', 'frontmatterOps.0.load_when'))
+                                        }) -Requires @('frontmatter_ops.0.description', 'frontmatter_ops.0.load_when'))
                             )))
                 }
             }
@@ -1437,7 +1437,7 @@ function Invoke-LintFrontmatterSchemaPass {
                                         folder      = $childRel
                                         description = ''
                                         load_when   = ''
-                                    }) -Requires @('frontmatterOps.0.description', 'frontmatterOps.0.load_when')),
+                                    }) -Requires @('frontmatter_ops.0.description', 'frontmatter_ops.0.load_when')),
                             (New-LintSuppressionRemedy -Id 'ignore-subfolder' -Label "Record '$childRel' as intentionally unreferenced" -List 'ignored-subfolders' -Entry $childRel)
                         )))
             }
@@ -1746,7 +1746,7 @@ function Invoke-LintHardWrapPass {
                     -Issue 'hard-wrapped-block-unsafe' -Detail $detail `
                     -RemedyOptions @((New-LintRemedy -Id 'manual-join' -Label 'Join by hand - the automatic join is not safe here' -Action 'manual' -Params ([ordered]@{ path = $file.Rel; startLine = $block.StartLine; endLine = $endLine; reason = $block.Reason })))
             }
-            if ($HardWrapInspect) {
+            if ($hard_wrap_inspect) {
                 $finding['inspect'] = [ordered]@{ before = @($block.Lines); after = $(if ($block.Safe) { $block.Text } else { $null }) }
             }
             $findings.Add($finding)
@@ -1766,7 +1766,7 @@ function Invoke-LintHardWrapPass {
 $resolvedVault = Resolve-VaultToolRoot -Vault $Vault
 $script:VaultRoot = $resolvedVault.Root
 
-if ($HardWrapInspect -and $Apply) {
+if ($hard_wrap_inspect -and $Apply) {
     throw (New-VaultToolError -Code 'invalid_argument' -Message 'hard_wrap_inspect is a report-mode affordance and is refused with apply:true - hard-wrap has no fix to apply.' -Data @{ param = 'hard_wrap_inspect'; apply = $true })
 }
 
@@ -1808,7 +1808,7 @@ $script:ScopeRoots = [string[]] ((Resolve-VaultScopeRoots -Vault $resolvedVault.
 $script:OverrideRootFull = $null
 $script:SingleFileRel = $null
 $normalizedPath = $null
-if ($PSBoundParameters.ContainsKey('Path') -and -not [string]::IsNullOrWhiteSpace($Path)) {
+if ($PSBoundParameters.ContainsKey('path') -and -not [string]::IsNullOrWhiteSpace($Path)) {
     $normalizedPath = $Path.Trim().Replace('\', '/').Trim('/')
     try { $fullPath = Resolve-VaultPath -Path $normalizedPath -Vault $Vault }
     catch {

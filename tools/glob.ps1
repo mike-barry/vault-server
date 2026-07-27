@@ -22,10 +22,10 @@ glob matching; it delegates to ripgrep through the shared Get-VaultFilePath enum
 the vault, so pattern semantics match the native Glob tool and results stay confined to the vault),
 so glob and move can never drift to independent notions of what exists. See the Glob spec
 (Plan-Tool-Glob, vault-primary) for the full contract.
-.PARAMETER Pattern
+.PARAMETER pattern
 Glob pattern with native Glob semantics (e.g. `**/Note-Name.md`, `Projects/**/*.md`). Expresses
 location as well as name. Matching is case-insensitive on Windows, like the native Glob tool.
-.PARAMETER Vault
+.PARAMETER vault
 The vault to operate in. Defaults to the configured default vault.
 .NOTES
 OpClass: content:read
@@ -44,8 +44,8 @@ resolves unscoped, exactly as the shared enumeration already degrades.
 # Mandatory).
 [CmdletBinding()]
 param(
-    [string] $Pattern,
-    [string] $Vault
+    [string] $pattern,
+    [string] $vault
 )
 
 Set-StrictMode -Version Latest

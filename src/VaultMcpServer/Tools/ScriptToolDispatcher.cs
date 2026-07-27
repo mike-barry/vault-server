@@ -34,8 +34,9 @@ public sealed class ScriptToolDispatcher(ScriptToolRegistry registry, NativeTool
 {
     private readonly ConcurrentDictionary<McpServer, byte> _sessions = new();
 
-    /// <summary>The script-tool parameter name that targets a vault. Matched case-insensitively -
-    /// a schema exposes it verbatim from its PowerShell param() block ("Vault"), the same reason
+    /// <summary>The script-tool parameter name that targets a vault. A schema exposes it verbatim
+    /// from its PowerShell param() block, which spells it "vault" by the snake_case wire-name rule.
+    /// Still matched case-insensitively, because the PowerShell binder is - the same reason
     /// <see cref="BearerGrantMiddleware"/>'s body-peek looks it up case-insensitively.</summary>
     private const string VaultParameterName = "vault";
 

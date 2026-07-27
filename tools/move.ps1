@@ -25,14 +25,14 @@ would change any bare link's resolution proceeds and protects the affected links
 moved file, or pinning a threatened same-basename bystander link to its current target's full
 vault-relative path (Reference Rewrite / Protection). There is no ambiguity gate and no Force
 override. See the Move corpus doc (vault-primary) for the full contract.
-.PARAMETER Source
+.PARAMETER source
 Vault-relative path of the file or folder to move.
-.PARAMETER Dest
+.PARAMETER dest
 Dual semantics on the "/" discriminator: a bare name (no "/") renames in place, keeping
 the current parent; a value containing "/" is the full vault-relative destination. A
 leading "/" targets the vault root. Dest must preserve the source's extension, both-absent
 included - ".md" is never inferred and an extension is never converted.
-.PARAMETER Kind
+.PARAMETER kind
 Intent assertion - "file" or "folder" - inferred from the source's shape when omitted;
 fails fast (kind_mismatch) when supplied and wrong. Deliberately not a ValidateSet, so
 every value reaches the script body and is refused with move's own invalid_argument JSON
@@ -41,9 +41,9 @@ vocabulary in 2026-07 and are kept as an explicit legacy-argument refusal: the g
 branch would refuse them anyway, so the specific branch exists only to name the
 replacement (kind "folder" plus skill-side registry composition) for a caller still
 carrying the old vocabulary.
-.PARAMETER Vault
+.PARAMETER vault
 The vault to operate in. Defaults to the configured default vault.
-.PARAMETER Apply
+.PARAMETER apply
 Mutation opt-in, default true (mutation is the point of a move). False runs plan and
 validate and returns the full report - what would be moved, renamed, and rewritten -
 without touching the vault; the return's `applied` field distinguishes a plan from a
@@ -65,11 +65,11 @@ was inherited.
 #>
 [CmdletBinding()]
 param(
-    [Parameter(Mandatory)] [string] $Source,
-    [Parameter(Mandatory)] [string] $Dest,
-    [string] $Kind,
-    [string] $Vault,
-    [bool] $Apply = $true
+    [Parameter(Mandatory)] [string] $source,
+    [Parameter(Mandatory)] [string] $dest,
+    [string] $kind,
+    [string] $vault,
+    [bool] $apply = $true
 )
 
 Set-StrictMode -Version Latest

@@ -28,11 +28,11 @@ The tool never returns a repository mid-merge: a conflict is predicted read-only
 --write-tree before any merge starts, and an authorized strategy runs the real merge and its
 resolution inside ONE lock span that exits clean. See the Sync corpus doc (vault-primary) for the
 full contract.
-.PARAMETER Apply
+.PARAMETER apply
 Mutation opt-in, default FALSE - assessment is the routine call here and converging is the
 deliberate one. False assesses and reports (plannedActions) with no effect beyond a fetch, which
 touches remote-tracking refs only.
-.PARAMETER Commit
+.PARAMETER commit
 Authorization to commit agent-authored working-tree changes, as a JSON string object (the derived
 MCP schema cannot express a typed object), deserialized and validated in-script:
   {"message":"Note the thing","files":["Inbox/Note.md"]}
@@ -48,7 +48,7 @@ MCP schema cannot express a typed object), deserialized and validated in-script:
 Malformed JSON, a non-object payload, or a missing/invalid member is malformed_op with {reason}.
 Supplying this parameter ASSERTS git:commit, so a caller lacking the key is refused
 insufficient_capability rather than reported as blocked.
-.PARAMETER OnConflict
+.PARAMETER on_conflict
 Conflict-resolution strategy authorization. One member in V1:
   keep_local_save_remote - merge with the local side winning each conflicted file, preserving the
                            remote body as a "<name> [CONFLICT yyyyMMdd HHmm]<ext>" sibling, with
@@ -56,12 +56,12 @@ Conflict-resolution strategy authorization. One member in V1:
 Deliberately not a ValidateSet, so every value reaches the script body and an unrecognized one is
 refused with sync's own invalid_argument JSON error rather than a PowerShell binding error.
 Matched case-insensitively after a trim. Supplying this parameter ASSERTS git:commit.
-.PARAMETER StateToken
+.PARAMETER state_token
 Opaque gate from a prior call's stateToken, comparing the state a directive was authorized over
 against the state now. A mismatch is state_mismatch with the fresh token in data and ZERO
 mutation. REQUIRED when commit.files is "all"; optional otherwise, because an explicit file array
 already pins the set structurally.
-.PARAMETER Vault
+.PARAMETER vault
 The vault to operate in. Defaults to the configured default vault.
 .NOTES
 OpClass: git:sync
@@ -96,11 +96,11 @@ abandoned mutex was inherited.
 #>
 [CmdletBinding()]
 param(
-    [bool] $Apply = $false,
-    [string] $Commit,
-    [string] $OnConflict,
-    [string] $StateToken,
-    [string] $Vault
+    [bool] $apply = $false,
+    [string] $commit,
+    [string] $on_conflict,
+    [string] $state_token,
+    [string] $vault
 )
 
 Set-StrictMode -Version Latest
@@ -1134,7 +1134,7 @@ if (-not [string]::IsNullOrWhiteSpace($Commit)) {
     # Conditional requiredness, enforced in the script body because the derived schema cannot express
     # it: an explicit file array pins the commit set structurally, so only "all" - where nothing else
     # defines the set - needs the token.
-    if ($filesAll -and [string]::IsNullOrWhiteSpace($StateToken)) {
+    if ($filesAll -and [string]::IsNullOrWhiteSpace($state_token)) {
         throw (New-VaultToolError -Code 'invalid_argument' -Message 'state_token is required when commit.files is "all": nothing else pins which files the message authorizes. Call sync with no arguments to obtain one.' -Data @{ param = 'state_token' })
     }
     $script:CommitDirective = [pscustomobject]@{
@@ -1146,10 +1146,10 @@ if (-not [string]::IsNullOrWhiteSpace($Commit)) {
 }
 
 $script:OnConflictStrategy = $null
-if (-not [string]::IsNullOrWhiteSpace($OnConflict)) {
-    $normalized = $OnConflict.Trim().ToLowerInvariant()
+if (-not [string]::IsNullOrWhiteSpace($on_conflict)) {
+    $normalized = $on_conflict.Trim().ToLowerInvariant()
     if ($normalized -ne 'keep_local_save_remote') {
-        throw (New-VaultToolError -Code 'invalid_argument' -Message "on_conflict '$OnConflict' is not a recognized strategy - sync accepts 'keep_local_save_remote' in V1." -Data @{ param = 'on_conflict'; value = $OnConflict })
+        throw (New-VaultToolError -Code 'invalid_argument' -Message "on_conflict '$on_conflict' is not a recognized strategy - sync accepts 'keep_local_save_remote' in V1." -Data @{ param = 'on_conflict'; value = $on_conflict })
     }
     $script:OnConflictStrategy = $normalized
 }
@@ -1206,11 +1206,11 @@ foreach ($repo in $script:RepoTree) {
 $preStates = Get-SyncAllState
 $script:PreApplyToken = Get-SyncStateToken -States $preStates
 
-if (-not [string]::IsNullOrWhiteSpace($StateToken)) {
-    if ($StateToken.Trim() -ne $script:PreApplyToken) {
+if (-not [string]::IsNullOrWhiteSpace($state_token)) {
+    if ($state_token.Trim() -ne $script:PreApplyToken) {
         # The gate can only fail closed: a stale token after compaction and a fabricated one both miss
         # the comparison. The fresh token rides along so the retry is one call.
-        throw (New-VaultToolError -Code 'state_mismatch' -Message "state_token '$($StateToken.Trim())' does not describe the repository state as it is now - another actor moved it between calls. Nothing was mutated; re-read the state and re-issue with the token in data." -Data @{ suppliedToken = $StateToken.Trim(); stateToken = $script:PreApplyToken })
+        throw (New-VaultToolError -Code 'state_mismatch' -Message "state_token '$($state_token.Trim())' does not describe the repository state as it is now - another actor moved it between calls. Nothing was mutated; re-read the state and re-issue with the token in data." -Data @{ suppliedToken = $state_token.Trim(); stateToken = $script:PreApplyToken })
     }
 }
 

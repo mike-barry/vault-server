@@ -168,9 +168,9 @@ public sealed class BearerGrantMiddlewareTests : IClassFixture<BearerGrantMiddle
     /// <summary>
     /// The vault-scope peek must match the "vault" argument property case-insensitively:
     /// script-tool schemas expose parameter names verbatim from their PowerShell param()
-    /// blocks (capitalized "Vault"), so a schema-conformant client using that casing must
-    /// still hit the informative 403 gate rather than falling through to the vaguer
-    /// op-class/path-scope denial one layer down.
+    /// blocks, which spell it "vault", but the binder accepts any casing, so a client
+    /// sending "Vault" must still hit the informative 403 gate rather than falling through
+    /// to the vaguer op-class/path-scope denial one layer down.
     /// </summary>
     [Theory]
     [InlineData("vault")]

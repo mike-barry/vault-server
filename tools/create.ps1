@@ -19,7 +19,7 @@ expected_sha parameter here because there is no prior state to assert - already_
 whole guard.
 
 See the Create corpus doc (vault-primary) for the full contract.
-.PARAMETER Kind
+.PARAMETER kind
 Required discriminator over two disjoint parameter surfaces - unlike the intent-assertion `kind`
 on other tools, this one does real work, so it is mandatory. Members:
   note   - creates a markdown note from Frontmatter + Body. Path must end in ".md". A missing
@@ -29,7 +29,7 @@ on other tools, this one does real work, so it is mandatory. Members:
 Matched case-insensitively after a trim. Deliberately not a ValidateSet, so every value reaches
 the script body and an unrecognized one is refused with create's own invalid_argument JSON error
 rather than a PowerShell binding error.
-.PARAMETER Path
+.PARAMETER path
 Vault-relative path of the item to create. Constructed, not resolved: it names something that
 does not yet exist, so the resolve-to-exactly-one rule does not apply. Separators fold to "/" and
 a leading "/" (vault-root spelling) is trimmed; nothing else is inferred. ".md" is REQUIRED for
@@ -38,7 +38,7 @@ naming the ".md" form, so create and a following edit can never disagree about w
 was. Link-breaking ("[", "]", "#", "^", "|") and OS-invalid characters in the basename are
 refused; a basename that does not follow Title-Case-With-Hyphens is allowed and reported through
 namingWarnings.
-.PARAMETER Frontmatter
+.PARAMETER frontmatter
 kind "note" only, and required for it: the caller-supplied frontmatter block, accepted either
 already fenced or as bare inner lines, and empty for a note deliberately carrying no block. An
 opening fence that never closes, or content trailing the closing fence, is frontmatter_integrity.
@@ -46,11 +46,11 @@ The block is schema-validated through the shared VaultAccess validator; a violat
 schema_validation_failed. Keys under the agent.* / nav.* prefixes assert the agentic:write op
 class (see .NOTES). There is no server-side templating: a template is read with `read` and filled
 in by the caller, which is why this parameter takes finished text.
-.PARAMETER Body
+.PARAMETER body
 kind "note" only: the note's body, everything after the frontmatter block's closing fence.
 Defaults to empty. Body text that opens its own "---" fence is refused frontmatter_integrity - a
 frontmatter block can only be authored through Frontmatter, where it is validated and classified.
-.PARAMETER Vault
+.PARAMETER vault
 The vault to operate in. Defaults to the configured default vault.
 .NOTES
 OpClass: content:write
@@ -72,11 +72,11 @@ is single-target and reads nothing it could skip.
 #>
 [CmdletBinding()]
 param(
-    [Parameter(Mandatory)] [string] $Kind,
-    [Parameter(Mandatory)] [string] $Path,
-    [string] $Frontmatter,
-    [string] $Body,
-    [string] $Vault
+    [Parameter(Mandatory)] [string] $kind,
+    [Parameter(Mandatory)] [string] $path,
+    [string] $frontmatter,
+    [string] $body,
+    [string] $vault
 )
 
 Set-StrictMode -Version Latest
@@ -89,8 +89,8 @@ Import-Module (Join-Path $PSScriptRoot '..' 'powershell' 'VaultAccess' 'VaultAcc
 # (a note deliberately carrying no block). A parameter bound to an explicit JSON null counts as
 # unsupplied: the dispatcher converts JSON null to $null, and "present but null" is not a value
 # the caller asked to write.
-$script:FrontmatterBound = $PSBoundParameters.ContainsKey('Frontmatter') -and $null -ne $Frontmatter
-$script:BodyBound = $PSBoundParameters.ContainsKey('Body') -and $null -ne $Body
+$script:FrontmatterBound = $PSBoundParameters.ContainsKey('frontmatter') -and $null -ne $Frontmatter
+$script:BodyBound = $PSBoundParameters.ContainsKey('body') -and $null -ne $Body
 
 # Link-breaking characters Obsidian itself forbids in filenames ([, ], #, ^, |) plus
 # Windows-invalid filename characters. Checked against the basename only - never the full path,

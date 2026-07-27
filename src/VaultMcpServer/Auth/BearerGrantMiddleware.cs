@@ -176,8 +176,10 @@ public sealed class BearerGrantMiddleware(RequestDelegate next, GrantStore grant
 
     /// <summary>
     /// Looks up a JSON object property by name, case-insensitively. Tool-argument property
-    /// names are client-schema-cased (e.g. PowerShell script tools expose "Vault", not
-    /// "vault"), unlike the JSON-RPC envelope's protocol-defined lowercase field names.
+    /// names are client-schema-cased: a script tool exposes its parameters verbatim from the
+    /// param() block, which spells them snake_case, but the PowerShell binder itself matches
+    /// case-insensitively, so a client may legitimately send "Vault" and must still be gated
+    /// here. The JSON-RPC envelope's own field names are protocol-defined lowercase and exact.
     /// </summary>
     private static bool TryGetPropertyIgnoreCase(JsonElement obj, string name, out JsonElement value)
     {

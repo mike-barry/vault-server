@@ -233,7 +233,7 @@ Describe 'sync' {
             Set-SyncRepoFile -Repo $script:VaultDir -Rel 'File.md' -Content "modified`n"
             $token = (& $script:ScriptPath | ConvertFrom-Json).stateToken
 
-            $result = & $script:ScriptPath -Apply $true -Commit '{"message":"Record the change","files":["File.md"]}' -StateToken $token | ConvertFrom-Json
+            $result = & $script:ScriptPath -Apply $true -Commit '{"message":"Record the change","files":["File.md"]}' -state_token $token | ConvertFrom-Json
             $result.synced | Should -BeTrue
             @($result.actions | ForEach-Object { $_.action }) | Should -Be @('commit', 'push')
             $result.capabilitiesUsed | Should -Be @('git:commit')
@@ -289,7 +289,7 @@ Describe 'sync' {
             Set-SyncRepoFile -Repo $script:VaultDir -Rel 'File.md' -Content "mine`n"
             $token = (& $script:ScriptPath | ConvertFrom-Json).stateToken
 
-            $result = & $script:ScriptPath -Apply $true -Commit '{"message":"Sweep","files":"all"}' -StateToken $token | ConvertFrom-Json
+            $result = & $script:ScriptPath -Apply $true -Commit '{"message":"Sweep","files":"all"}' -state_token $token | ConvertFrom-Json
             @($result.blocked | ForEach-Object { $_.reason }) | Should -Contain 'staged_changes'
             Get-SyncHeadMessage -Repo $script:VaultDir | Should -Match 'initial commit'
         }
@@ -300,7 +300,7 @@ Describe 'sync' {
             Set-SyncRepoFile -Repo $script:VaultDir -Rel 'File.md' -Content "mine`n"
             $token = (& $script:ScriptPath | ConvertFrom-Json).stateToken
 
-            $result = & $script:ScriptPath -Apply $true -Commit '{"message":"Sweep","files":"all","staged":"include"}' -StateToken $token | ConvertFrom-Json
+            $result = & $script:ScriptPath -Apply $true -Commit '{"message":"Sweep","files":"all","staged":"include"}' -state_token $token | ConvertFrom-Json
             $result.synced | Should -BeTrue
             $files = @((git -C $script:VaultDir show --name-only --pretty=format: HEAD) | Where-Object { $_ })
             $files | Should -Contain 'File.md'
@@ -357,7 +357,7 @@ Describe 'sync' {
             Set-SyncRepoFile -Repo $script:VaultDir -Rel 'File.md' -Content "local version`n"
             Add-SyncCommit -Repo $script:VaultDir -Message 'local edit'
 
-            $result = & $script:ScriptPath -Apply $true -OnConflict 'keep_local_save_remote' | ConvertFrom-Json
+            $result = & $script:ScriptPath -Apply $true -on_conflict 'keep_local_save_remote' | ConvertFrom-Json
             @($result.actions | ForEach-Object { $_.action }) | Should -Contain 'resolve-conflicts'
             $result.capabilitiesUsed | Should -Contain 'git:commit'
 
@@ -497,7 +497,7 @@ Describe 'sync' {
     Context 'state token' {
         It 'refuses a stale token with state_mismatch, carrying the fresh one, and mutates nothing' {
             Set-SyncRepoFile -Repo $script:VaultDir -Rel 'File.md' -Content "modified`n"
-            $err = Invoke-SyncError @{ Apply = $true; Commit = '{"message":"m","files":["File.md"]}'; StateToken = 'deadbeef0000' }
+            $err = Invoke-SyncError @{ Apply = $true; Commit = '{"message":"m","files":["File.md"]}'; state_token = 'deadbeef0000' }
 
             $err.code | Should -Be 'state_mismatch'
             $err.data.stateToken | Should -Match '^[0-9a-f]{12}$'
@@ -563,13 +563,13 @@ Describe 'sync' {
         }
 
         It 'refuses an unrecognized on_conflict member as invalid_argument, not a binding error' {
-            $err = Invoke-SyncError @{ OnConflict = 'take_remote' }
+            $err = Invoke-SyncError @{ on_conflict = 'take_remote' }
             $err.code | Should -Be 'invalid_argument'
             $err.data.param | Should -Be 'on_conflict'
         }
 
         It 'accepts the strategy name case-insensitively after a trim' {
-            $result = & $script:ScriptPath -OnConflict '  Keep_Local_Save_Remote ' | ConvertFrom-Json
+            $result = & $script:ScriptPath -on_conflict '  Keep_Local_Save_Remote ' | ConvertFrom-Json
             $result.synced | Should -BeTrue
         }
     }
@@ -588,7 +588,7 @@ Describe 'sync' {
 
         It 'EXPLICIT: an on_conflict directive without git:commit is insufficient_capability' {
             $Global:VaultMcpOpClasses = @('git:sync')
-            $err = Invoke-SyncError @{ Apply = $true; OnConflict = 'keep_local_save_remote' }
+            $err = Invoke-SyncError @{ Apply = $true; on_conflict = 'keep_local_save_remote' }
             $err.code | Should -Be 'insufficient_capability'
             $err.data.directive | Should -Be 'on_conflict'
         }
@@ -785,7 +785,7 @@ catch {
 
         It 'documents every parameter in comment-help, which the loader requires to load the tool' {
             $scriptText = Get-Content -LiteralPath $script:ScriptPath -Raw
-            foreach ($p in @('Apply', 'Commit', 'OnConflict', 'StateToken', 'Vault')) {
+            foreach ($p in @('apply', 'commit', 'on_conflict', 'state_token', 'vault')) {
                 $scriptText | Should -Match "(?m)^\s*\.PARAMETER\s+$p\s*$"
             }
         }
@@ -793,7 +793,7 @@ catch {
         It 'declares no ValidateSet on on_conflict, so an unrecognized value is sync''s own error' {
             $scriptText = Get-Content -LiteralPath $script:ScriptPath -Raw
             $scriptText | Should -Not -Match '\[ValidateSet\('
-            $scriptText | Should -Match '(?ms)\.PARAMETER OnConflict.*keep_local_save_remote'
+            $scriptText | Should -Match '(?ms)\.PARAMETER on_conflict.*keep_local_save_remote'
         }
 
         It 'exposes no test-only injection hook on the MCP surface' {
@@ -900,7 +900,7 @@ Describe 'sync standalone invocability' {
         $env:VAULT_MCP_VAULTS_JSON = $script:StandaloneFixture.Config
         try {
             $scriptFile = (Resolve-Path (Join-Path $PSScriptRoot '..' 'sync.ps1')).Path
-            $stderr = & $psExe -NoProfile -NonInteractive -File $scriptFile -OnConflict 'take_remote' 2>&1 | Out-String
+            $stderr = & $psExe -NoProfile -NonInteractive -File $scriptFile -on_conflict 'take_remote' 2>&1 | Out-String
             $LASTEXITCODE | Should -Not -Be 0
             $stderr | Should -Match '"code"\s*:\s*"invalid_argument"'
         }

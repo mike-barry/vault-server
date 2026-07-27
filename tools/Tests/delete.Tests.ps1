@@ -536,7 +536,7 @@ Describe 'delete' {
 
         It 'documents every parameter in comment-help, which the loader requires to load the tool' {
             $scriptText = Get-Content -LiteralPath $script:ScriptPath -Raw
-            foreach ($p in @('Path', 'Kind', 'Recursive', 'Apply', 'Vault')) {
+            foreach ($p in @('path', 'kind', 'recursive', 'apply', 'vault')) {
                 $scriptText | Should -Match "(?m)^\s*\.PARAMETER\s+$p\s*$"
             }
         }
@@ -544,12 +544,12 @@ Describe 'delete' {
         It 'declares no ValidateSet on kind, so an unrecognized value is delete''s own error' {
             $scriptText = Get-Content -LiteralPath $script:ScriptPath -Raw
             $scriptText | Should -Not -Match '\[ValidateSet\('
-            $scriptText | Should -Match '(?ms)\.PARAMETER Kind.*"file" or "folder"'
+            $scriptText | Should -Match '(?ms)\.PARAMETER kind.*"file" or "folder"'
         }
 
         It 'declares no force/purge parameter - git is the undo' {
             $scriptText = Get-Content -LiteralPath $script:ScriptPath -Raw
-            $scriptText | Should -Not -Match '(?m)^\s*\.PARAMETER\s+(Force|Purge)\s*$'
+            $scriptText | Should -Not -Match '(?m)^\s*\.PARAMETER\s+(force|purge)\s*$'
         }
     }
 }

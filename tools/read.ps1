@@ -18,12 +18,12 @@ folder or an existing non-".md" file: read is note-semantic and refuses both as 
 There is no recursive or multi-path form - glob the folder, then read the paths you actually want.
 
 An operate-on tool: exactly one existing target, and a miss is not_found.
-.PARAMETER Path
+.PARAMETER path
 Vault-relative path of the note to read. An operate-on tool requires exactly one existing
 target: a miss errors not_found. An extensionless path is refused as invalid_argument naming
 the ".md" form rather than guessed at. read is note-semantic: a path resolving to a folder or
 to an existing non-".md" file is kind_mismatch.
-.PARAMETER Part
+.PARAMETER part
 Which part of the note to return: "full" (default) is the whole content, "frontmatter" is
 the raw YAML block between the leading "---" fences (raw block text by ratified contract,
 never parsed; empty for a note with no frontmatter), "body" is everything after the closing
@@ -33,7 +33,7 @@ passes to edit as expected_sha, covering the entire file no matter which part wa
 Deliberately not a ValidateSet: an unrecognized value must surface as read's own
 invalid_argument JSON error, not a PowerShell binding error, so any value reaches the script
 body for in-script validation.
-.PARAMETER Vault
+.PARAMETER vault
 The vault to operate in. Defaults to the configured default vault.
 .NOTES
 OpClass: content:read
@@ -48,9 +48,9 @@ note-ness on the target regardless - the assertion would be inert (Plan-Tool-Rea
 #>
 [CmdletBinding()]
 param(
-    [Parameter(Mandatory)] [string] $Path,
-    [string] $Part,
-    [string] $Vault
+    [Parameter(Mandatory)] [string] $path,
+    [string] $part,
+    [string] $vault
 )
 
 Set-StrictMode -Version Latest

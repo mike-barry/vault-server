@@ -23,26 +23,26 @@ vault, so pattern semantics are native-Grep regex and results stay vault-relativ
 the vault), so grep, glob, and move share one notion of what exists. It matches any text file rg
 reaches, not only ".md" notes. See the Grep spec (Plan-Tool-Grep, vault-primary) for the full
 contract.
-.PARAMETER Pattern
+.PARAMETER pattern
 Content regex, ripgrep syntax (native Grep semantics). Deliberately not [Parameter(Mandatory)]:
 a Mandatory [string] rejects an empty value at binding time with a PowerShell error, but the
 spec requires an empty or whitespace-only pattern to surface as grep's own invalid_argument
 {code} JSON, so the value must reach the script body for in-script validation (matching glob.ps1
 and move.ps1's Kind).
-.PARAMETER Path
+.PARAMETER path
 Optional vault-relative folder to search under, narrowing the rg walk. A rooted or vault-escaping
 value is a malformed operand - invalid_argument. Omit for the whole vault.
-.PARAMETER Glob
+.PARAMETER glob
 Optional file-filter glob passed as rg's -g (e.g. *.md, Projects/**), case-insensitive like the
 glob tool's matching.
-.PARAMETER OutputMode
+.PARAMETER output_mode
 content (path:line:text per matching line, the default), files_with_matches (one path per file
 with a match), or count (path:count per file). Deliberately not a ValidateSet: an unrecognized
 value must surface as grep's own invalid_argument JSON, not a PowerShell binding error, so any
 value reaches the script body for in-script validation.
-.PARAMETER IgnoreCase
+.PARAMETER ignore_case
 Opt-in case-insensitive matching (rg -i). Default is case-sensitive, matching the native cognate.
-.PARAMETER Vault
+.PARAMETER vault
 The vault to operate in. Defaults to the configured default vault.
 .NOTES
 OpClass: content:read
@@ -57,12 +57,12 @@ shared search already degrades. See Plan-Tool-Grep (vault-primary).
 #>
 [CmdletBinding()]
 param(
-    [string] $Pattern,
-    [string] $Path,
-    [string] $Glob,
-    [string] $OutputMode,
-    [bool] $IgnoreCase,
-    [string] $Vault
+    [string] $pattern,
+    [string] $path,
+    [string] $glob,
+    [string] $output_mode,
+    [bool] $ignore_case,
+    [string] $vault
 )
 
 Set-StrictMode -Version Latest
@@ -78,9 +78,9 @@ if ([string]::IsNullOrWhiteSpace($Pattern)) {
 }
 
 # --- output_mode: the one enum grep owns. Empty means the default (content). ---
-$mode = if ($OutputMode) { $OutputMode.Trim().ToLowerInvariant() } else { 'content' }
+$mode = if ($output_mode) { $output_mode.Trim().ToLowerInvariant() } else { 'content' }
 if ($mode -notin @('content', 'files_with_matches', 'count')) {
-    throw (New-VaultToolError -Code 'invalid_argument' -Message "output_mode '$OutputMode' is not a recognized value - grep accepts 'content', 'files_with_matches', or 'count'." -Data @{ outputMode = $OutputMode })
+    throw (New-VaultToolError -Code 'invalid_argument' -Message "output_mode '$output_mode' is not a recognized value - grep accepts 'content', 'files_with_matches', or 'count'." -Data @{ outputMode = $output_mode })
 }
 
 # Vault resolution before the path check and the search: both Resolve-VaultPath and
@@ -114,4 +114,4 @@ if (-not [string]::IsNullOrWhiteSpace($Path)) {
 # normalizes and scope-filters the output, and applies the scope post-filter; no matches yields
 # no output, per the query-tool convention. Scope roots default to the ambient host-injected set,
 # so no runspace context (standalone) degrades open.
-Search-VaultContent -Pattern $Pattern -Path $searchTarget -Glob $Glob -Mode $mode -IgnoreCase:$IgnoreCase -Vault $Vault
+Search-VaultContent -Pattern $Pattern -Path $searchTarget -Glob $Glob -Mode $mode -IgnoreCase:$ignore_case -Vault $Vault

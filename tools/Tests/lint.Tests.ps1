@@ -74,7 +74,7 @@ BeforeAll {
 
     function Invoke-RemedyThroughEdit {
         param($Remedy)
-        & $script:EditScriptPath -Path $Remedy.params.path -FrontmatterOps $Remedy.params.frontmatterOps | ConvertFrom-Json
+        & $script:EditScriptPath -Path $Remedy.params.path -frontmatter_ops $Remedy.params.frontmatter_ops | ConvertFrom-Json
     }
 
     function Invoke-RemedyThroughEditError {
@@ -83,7 +83,7 @@ BeforeAll {
         param($Remedy)
         $errorRecord = $null
         try {
-            & $script:EditScriptPath -Path $Remedy.params.path -FrontmatterOps $Remedy.params.frontmatterOps | Out-Null
+            & $script:EditScriptPath -Path $Remedy.params.path -frontmatter_ops $Remedy.params.frontmatter_ops | Out-Null
             throw 'edit.ps1 was expected to throw but did not.'
         }
         catch {
@@ -97,7 +97,7 @@ BeforeAll {
         # unrolls the outer array and would silently flatten a DOUBLE-wrapped payload back into
         # the shape the test expected, hiding the malformation edit would refuse.
         param($Remedy)
-        @($Remedy.params.frontmatterOps | ConvertFrom-Json -NoEnumerate)
+        @($Remedy.params.frontmatter_ops | ConvertFrom-Json -NoEnumerate)
     }
 
     function Set-RemedyOpField {
@@ -105,9 +105,9 @@ BeforeAll {
         # named field, re-serialize. -InputObject over an array already emits a JSON array, so
         # -AsArray here would double-wrap it - the same trap lint's own serializer fell into.
         param($Remedy, [int] $OpIndex, [string] $Field, [string] $Value)
-        $ops = @($Remedy.params.frontmatterOps | ConvertFrom-Json)
+        $ops = @($Remedy.params.frontmatter_ops | ConvertFrom-Json)
         $ops[$OpIndex].$Field = $Value
-        $Remedy.params.frontmatterOps = (ConvertTo-Json -InputObject $ops -Depth 6 -Compress)
+        $Remedy.params.frontmatter_ops = (ConvertTo-Json -InputObject $ops -Depth 6 -Compress)
         $Remedy
     }
 }
@@ -388,7 +388,7 @@ An archived note whose doc.created is recoverable from its filename date.
             $remedy.action | Should -Be 'edit-frontmatter'
             # NOT dispatchable verbatim: the value is a judgment, which the label always said and
             # the field now says too.
-            @($remedy.requires) | Should -Be @('frontmatterOps.0.value')
+            @($remedy.requires) | Should -Be @('frontmatter_ops.0.value')
             # edit requires an array of ops, and a bare object - or a nested array - is refused.
             $ops = Get-RemedyOps $remedy
             $ops[0].op | Should -Be 'set_field'
@@ -435,9 +435,9 @@ agent.instructions:
             $global.params.action | Should -Be 'add'
             $global.params.list | Should -Be 'broken-wikilinks'
             $global.params.entry | Should -Be 'No-Such-Note'
-            $global.params.PSObject.Properties.Name | Should -Not -Contain 'scopePath'
+            $global.params.PSObject.Properties.Name | Should -Not -Contain 'scope_path'
             $scoped = $finding.remedyOptions | Where-Object { $_.id -eq 'suppress-scoped' }
-            $scoped.params.scopePath | Should -Be 'Resources'
+            $scoped.params.scope_path | Should -Be 'Resources'
 
             # The payload is dispatchable verbatim: hand it to lint_suppressions and the finding
             # goes away on the next run.
@@ -493,8 +493,8 @@ Links [[Gizmo-Reference]], which lives outside this folder entirely.
             $finding.line | Should -BeGreaterThan 0
             $remedy = $finding.remedyOptions[0]
             $remedy.action | Should -Be 'edit-patch'
-            $remedy.params.oldString | Should -Be '[Torque Specs](Gizmo-Reference#torque-specs)'
-            $remedy.params.newString | Should -Be '[[Gizmo-Reference#Torque Specs]]'
+            $remedy.params.old_string | Should -Be '[Torque Specs](Gizmo-Reference#torque-specs)'
+            $remedy.params.new_string | Should -Be '[[Gizmo-Reference#Torque Specs]]'
         }
 
         It 'flags a fragment matching no heading for manual review rather than guessing' {
@@ -635,7 +635,7 @@ nav.contents:
             # forward so the new path is the only thing left for the caller.
             $repoint = $finding.remedyOptions[0]
             $repoint.action | Should -Be 'edit-frontmatter'
-            @($repoint.requires) | Should -Be @('frontmatterOps.1.folder')
+            @($repoint.requires) | Should -Be @('frontmatter_ops.1.folder')
             $ops = Get-RemedyOps $repoint
             $ops.Count | Should -Be 2
             $ops[0].op | Should -Be 'remove_nav_entry'
@@ -695,7 +695,7 @@ nav.contents:
             $remedy.params.path | Should -Be 'Projects/Widget/Widget.md'
             # A single op serializes as a JSON ARRAY - and as a FLAT one. A double-wrapped
             # payload is what edit refuses with malformed_op "missing 'op' member".
-            $remedy.params.frontmatterOps | Should -Match '^\[\{'
+            $remedy.params.frontmatter_ops | Should -Match '^\[\{'
             # The boilerplate table supplies both prose fields, so nothing is left to judgment.
             @($remedy.requires).Count | Should -Be 0
             $ops = Get-RemedyOps $remedy
@@ -733,7 +733,7 @@ nav.contents:
                 Where-Object { $_.issue -eq 'unlinked-corpus-member' }
             $remedy = $finding.remedyOptions[0]
             $remedy.action | Should -Be 'edit-frontmatter'
-            @($remedy.requires) | Should -Be @('frontmatterOps.0.description', 'frontmatterOps.0.load_when')
+            @($remedy.requires) | Should -Be @('frontmatter_ops.0.description', 'frontmatter_ops.0.load_when')
             $ops = Get-RemedyOps $remedy
             $ops[0].op | Should -Be 'add_nav_entry'
             $ops[0].link | Should -Be '[[Widget-Design]]'
@@ -782,7 +782,7 @@ nav.contents:
                 Where-Object { $_.issue -eq 'unreferenced-subfolder' }
             @($finding.remedyOptions.id) | Should -Be @('add-nav-entry', 'ignore-subfolder')
             $remedy = $finding.remedyOptions[0]
-            @($remedy.requires) | Should -Be @('frontmatterOps.0.description', 'frontmatterOps.0.load_when')
+            @($remedy.requires) | Should -Be @('frontmatter_ops.0.description', 'frontmatter_ops.0.load_when')
             $ops = Get-RemedyOps $remedy
             $ops[0].op | Should -Be 'add_nav_entry'
             $ops[0].folder | Should -Be 'Projects/Widget/Scratch'
@@ -835,7 +835,7 @@ nav.contents:
                         for ($i = 0; $i -lt $ops.Count; $i++) {
                             foreach ($prop in $ops[$i].PSObject.Properties) {
                                 if ("$($prop.Value)" -ne '') { continue }
-                                $path = "frontmatterOps.$i.$($prop.Name)"
+                                $path = "frontmatter_ops.$i.$($prop.Name)"
                                 if (@($remedy.requires) -notcontains $path) { $unnamed += "$($remedy.id): $path" }
                             }
                         }
@@ -851,7 +851,7 @@ nav.contents:
                 -Content "---`ndoc.created: 2026-07-16`n---`n# No Type`n"
             $finding = (Get-LintPass (Invoke-Lint @{ Passes = @('provenance') }) 'provenance').findings |
                 Where-Object { $_.issue -eq 'missing-doc-type' -and $_.file -eq 'Resources/No-Type.md' }
-            @($finding.remedyOptions[0].requires) | Should -Be @('frontmatterOps.0.value')
+            @($finding.remedyOptions[0].requires) | Should -Be @('frontmatter_ops.0.value')
         }
     }
 
@@ -863,7 +863,7 @@ nav.contents:
             $pass.reportOnly | Should -BeTrue
             $finding = $pass.findings | Where-Object { $_.issue -eq 'hard-wrapped-block' -and $_.file -eq 'Resources/Wrapped-Note.md' }
             $finding.remedyOptions[0].action | Should -Be 'edit-patch'
-            $finding.remedyOptions[0].params.newString | Should -Match 'eighty columns which is the continuation'
+            $finding.remedyOptions[0].params.new_string | Should -Match 'eighty columns which is the continuation'
             [System.IO.File]::ReadAllText($script:WrapFile) | Should -BeExactly $before
         }
 
@@ -886,7 +886,7 @@ for another line so the pair of lines is a genuine join candidate for the checke
         }
 
         It 'adds per-block before/after detail under hard_wrap_inspect' {
-            $result = Invoke-Lint @{ Passes = @('hard-wrap'); HardWrapInspect = $true }
+            $result = Invoke-Lint @{ Passes = @('hard-wrap'); hard_wrap_inspect = $true }
             $finding = (Get-LintPass $result 'hard-wrap').findings |
                 Where-Object { $_.issue -eq 'hard-wrapped-block' -and $_.file -eq 'Resources/Wrapped-Note.md' }
             @($finding.inspect.before).Count | Should -Be 2
@@ -937,7 +937,7 @@ for another line so the pair of lines is a genuine join candidate for the checke
         }
 
         It 'refuses hard_wrap_inspect with apply' {
-            $err = Invoke-LintError @{ Passes = @('hard-wrap'); HardWrapInspect = $true; Apply = $true }
+            $err = Invoke-LintError @{ Passes = @('hard-wrap'); hard_wrap_inspect = $true; Apply = $true }
             $err.code | Should -Be 'invalid_argument'
             $err.data.param | Should -Be 'hard_wrap_inspect'
         }

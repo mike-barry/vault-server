@@ -151,18 +151,18 @@ try {
     Check 'zero problems (real grants.json parses clean)' ($null -ne $health -and @($health.problems).Count -eq 0) "problems=$(if ($health) { @($health.problems).Count })"
 
     Write-Host 'Probe: read on vault "test" with selector token (selector -> default binding)'
-    $r = Invoke-McpCall -Tool 'read' -Arguments @{ Path = 'Resources/Gizmo-Reference.md'; Vault = 'test' } -Token $selectorToken
+    $r = Invoke-McpCall -Tool 'read' -Arguments @{ path = 'Resources/Gizmo-Reference.md'; vault = 'test' } -Token $selectorToken
     Check 'succeeds with content' ($r.StatusCode -eq 200 -and -not $r.IsError -and $r.Text) "status=$($r.StatusCode) isError=$($r.IsError)"
 
     # The middleware's vault gate matches the vault argument's property name
-    # case-insensitively (schemas expose param()-block casing, "Vault") - probe both
-    # casings so a regression to a case-sensitive peek is caught.
-    Write-Host 'Probe: read on vault "test" with bogus token, lowercase args (middleware vault gate)'
+    # case-insensitively. The schema now spells it "vault" (param() blocks are snake_case),
+    # so probe an off-schema casing too and catch a regression to a case-sensitive peek.
+    Write-Host 'Probe: read on vault "test" with bogus token, schema-cased args (middleware vault gate)'
     $r = Invoke-McpCall -Tool 'read' -Arguments @{ path = 'Resources/Gizmo-Reference.md'; vault = 'test' } -Token $bogusToken
     Check 'is not a 401 (floor supersedes 401 on localhost)' ($r.StatusCode -ne 401) "status=$($r.StatusCode)"
     Check 'is HTTP 403 naming the minimum-access vault scope' ($r.StatusCode -eq 403 -and $r.RawBody -like '*Grant "minimum-access" is not scoped to vault "test"*') "status=$($r.StatusCode) body=$($r.RawBody)"
 
-    Write-Host 'Probe: read on vault "test" with bogus token, schema-cased args (same gate, case-insensitive peek)'
+    Write-Host 'Probe: read on vault "test" with bogus token, off-schema casing (same gate, case-insensitive peek)'
     $r = Invoke-McpCall -Tool 'read' -Arguments @{ Path = 'Resources/Gizmo-Reference.md'; Vault = 'test' } -Token $bogusToken
     Check 'is HTTP 403 naming the minimum-access vault scope' ($r.StatusCode -eq 403 -and $r.RawBody -like '*Grant "minimum-access" is not scoped to vault "test"*') "status=$($r.StatusCode) body=$($r.RawBody)"
 

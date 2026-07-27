@@ -26,28 +26,28 @@ There is deliberately no force/purge parameter: git is the undo, and the tool ne
 git-bypassing hard delete. Because git is the backstop, the return names the subset git cannot
 restore (unrecoverableFiles) rather than letting recoveryHint imply cover it does not have. See the
 Delete corpus doc (vault-primary) for the full contract.
-.PARAMETER Path
+.PARAMETER path
 Vault-relative path of the file or folder to delete. Taken verbatim after separator
 normalization - ".md" is NEVER inferred, so "Foo" and "Foo.md" are different values. Nothing
 at the path is not_found: a missing sole target is a real error, never a silent no-op.
-.PARAMETER Kind
+.PARAMETER kind
 Intent assertion - "file" or "folder" - inferred from the target's shape when omitted; fails
 fast (kind_mismatch) when supplied and wrong. Deliberately not a ValidateSet, so every value
 reaches the script body and an unrecognized one is refused with delete's own invalid_argument
 JSON error rather than a PowerShell binding error.
-.PARAMETER Recursive
+.PARAMETER recursive
 Folder-only: required $true to delete a folder that has any contents. Supplied against a file
 target it is refused invalid_argument (inert-param fail-fast) rather than ignored - silently
 accepting a flag that does nothing is how a caller's wrong mental model survives a call. It is
 NOT an override for the nested-repository refusal.
-.PARAMETER Apply
+.PARAMETER apply
 Mutation opt-in, default TRUE - uniquely among the tools that carry it, because for delete
 mutation is the point of the call and a single-file delete should not need a ceremony. False
 runs plan and validate and returns the identical report - the complete blast radius, hidden
 files and unrecoverableFiles included - without removing anything; `applied` is the single
 field that distinguishes a plan from a result. A plan still takes the write lock and still
 refuses everything a real call would refuse.
-.PARAMETER Vault
+.PARAMETER vault
 The vault to operate in. Defaults to the configured default vault.
 .NOTES
 OpClass: content:write
@@ -68,11 +68,11 @@ always ([] when empty), lockWarning only when an abandoned mutex was inherited.
 #>
 [CmdletBinding()]
 param(
-    [Parameter(Mandatory)] [string] $Path,
-    [string] $Kind,
-    [bool] $Recursive = $false,
-    [bool] $Apply = $true,
-    [string] $Vault
+    [Parameter(Mandatory)] [string] $path,
+    [string] $kind,
+    [bool] $recursive = $false,
+    [bool] $apply = $true,
+    [string] $vault
 )
 
 Set-StrictMode -Version Latest
@@ -83,7 +83,7 @@ Import-Module (Join-Path $PSScriptRoot '..' 'powershell' 'VaultAccess' 'VaultAcc
 # Presence is decided here, in script scope, from $PSBoundParameters: -Recursive $false and an
 # unsupplied -Recursive are the same value but not the same request, and only the supplied one
 # is refused as inert against a file target.
-$script:RecursiveBound = $PSBoundParameters.ContainsKey('Recursive') -and $null -ne $Recursive
+$script:RecursiveBound = $PSBoundParameters.ContainsKey('recursive') -and $null -ne $Recursive
 
 # ---------------------------------------------------------------------------
 # Link grammar and its comparators are the module's (VaultAccess Public/LinkResolve.ps1),

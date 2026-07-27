@@ -26,13 +26,13 @@ Every op applies to an in-memory string and the result is written once, so a val
 means zero mutation and there is no partial-op disk state. See the Edit corpus doc (vault-primary)
 for the full contract, including the documented "read part: sha then read part: full" staleness
 flow.
-.PARAMETER Path
+.PARAMETER path
 Vault-relative path of the note to edit, per the Path Convention: taken verbatim after
 separator normalization (backslashes fold to "/", a leading "/" is trimmed), with no ".md"
 inference. An extensionless path is refused as invalid_argument naming the ".md" form rather
 than guessed at. edit is note-semantic: a path resolving to a folder or to an existing
 non-".md" file is kind_mismatch.
-.PARAMETER FrontmatterOps
+.PARAMETER frontmatter_ops
 A JSON string holding an ORDERED array of frontmatter op objects, deserialized and validated
 in-script (the derived MCP schema cannot express an array of typed objects). Order and
 repetition are semantic - each op sees the result of the previous one. Vocabulary:
@@ -52,26 +52,26 @@ repetition are semantic - each op sees the result of the previous one. Vocabular
 An unknown op, a missing op parameter, or text carrying a line break, a control character, or a
 '"' is malformed_op with {opIndex, reason}. agent.instructions is reachable only through the
 directive ops - a generic set_field/remove_field against it is protected_directive_violation.
-.PARAMETER Body
+.PARAMETER body
 Whole-body replacement: everything after the frontmatter block's closing fence. Unset leaves the
-body untouched; an empty string truncates it. Mutually exclusive with the OldString/NewString
-patch pair, and REQUIRES ExpectedSha - a whole-body replace is the one facet that can destroy
+body untouched; an empty string truncates it. Mutually exclusive with the old_string/new_string
+patch pair, and REQUIRES expected_sha - a whole-body replace is the one facet that can destroy
 content the caller never saw.
-.PARAMETER OldString
+.PARAMETER old_string
 Edit-style patch anchor. Matched against the BODY facet only, so frontmatter is unreachable by
 patch, and it must match exactly once: zero matches is patch_target_not_found, more than one is
-patch_ambiguous (widen the anchor). Must be supplied together with NewString, and is mutually
-exclusive with Body. One patch per call.
-.PARAMETER NewString
-Replacement for the span OldString matched; an empty string deletes it. Must be supplied
-together with OldString.
-.PARAMETER ExpectedSha
+patch_ambiguous (widen the anchor). Must be supplied together with new_string, and is mutually
+exclusive with body. One patch per call.
+.PARAMETER new_string
+Replacement for the span old_string matched; an empty string deletes it. Must be supplied
+together with old_string.
+.PARAMETER expected_sha
 The whole file's SHA-256 as the caller last saw it - from "read part: sha" or a prior edit's
 resultingSha - compared in the validate phase, so a stale write is refused with zero mutation.
 A mismatch is state_mismatch; recovery is a re-read, never a retry with the reported digest.
-Required with Body, optional on every other facet (a patch self-verifies through its
+Required with body, optional on every other facet (a patch self-verifies through its
 exactly-once anchor, and frontmatter ops are surgical).
-.PARAMETER Vault
+.PARAMETER vault
 The vault to operate in. Defaults to the configured default vault.
 .NOTES
 OpClass: content:write
@@ -94,13 +94,13 @@ read_failure, never a skip.
 #>
 [CmdletBinding()]
 param(
-    [Parameter(Mandatory)] [string] $Path,
-    [string] $FrontmatterOps,
-    [string] $Body,
-    [string] $OldString,
-    [string] $NewString,
-    [string] $ExpectedSha,
-    [string] $Vault
+    [Parameter(Mandatory)] [string] $path,
+    [string] $frontmatter_ops,
+    [string] $body,
+    [string] $old_string,
+    [string] $new_string,
+    [string] $expected_sha,
+    [string] $vault
 )
 
 Set-StrictMode -Version Latest
@@ -112,10 +112,10 @@ Import-Module (Join-Path $PSScriptRoot '..' 'powershell' 'VaultAccess' 'VaultAcc
 # an unset -Body (leave the body alone) from -Body '' (truncate it). A parameter bound to an
 # explicit JSON null counts as unsupplied: the dispatcher converts JSON null to $null, and
 # "present but null" is not a facet the caller asked to mutate.
-$script:BodyBound = $PSBoundParameters.ContainsKey('Body') -and $null -ne $Body
-$script:OldStringBound = $PSBoundParameters.ContainsKey('OldString') -and $null -ne $OldString
-$script:NewStringBound = $PSBoundParameters.ContainsKey('NewString') -and $null -ne $NewString
-$script:ExpectedShaBound = $PSBoundParameters.ContainsKey('ExpectedSha') -and -not [string]::IsNullOrWhiteSpace($ExpectedSha)
+$script:BodyBound = $PSBoundParameters.ContainsKey('body') -and $null -ne $Body
+$script:OldStringBound = $PSBoundParameters.ContainsKey('old_string') -and $null -ne $old_string
+$script:NewStringBound = $PSBoundParameters.ContainsKey('new_string') -and $null -ne $new_string
+$script:ExpectedShaBound = $PSBoundParameters.ContainsKey('expected_sha') -and -not [string]::IsNullOrWhiteSpace($expected_sha)
 
 function Get-VaultEditSha {
     <#
@@ -190,9 +190,9 @@ $result = Invoke-VaultWriteLock -Vault $Vault -Abandoned ([ref]$lockAbandoned) -
     # single-element ops array is unrolled to a bare object and becomes indistinguishable from a
     # caller who sent one op object instead of the required array. ---
     $ops = @()
-    if (-not [string]::IsNullOrWhiteSpace($FrontmatterOps)) {
+    if (-not [string]::IsNullOrWhiteSpace($frontmatter_ops)) {
         try {
-            $parsedOps = ConvertFrom-Json -InputObject $FrontmatterOps -NoEnumerate
+            $parsedOps = ConvertFrom-Json -InputObject $frontmatter_ops -NoEnumerate
         }
         catch {
             throw (New-VaultToolError -Code 'malformed_op' -Message "frontmatter_ops is not valid JSON: $($_.Exception.Message)" -Data @{ reason = 'frontmatter_ops is not valid JSON' })
@@ -217,7 +217,7 @@ $result = Invoke-VaultWriteLock -Vault $Vault -Abandoned ([ref]$lockAbandoned) -
         $missing = if ($OldStringBound) { 'new_string' } else { 'old_string' }
         throw (New-VaultToolError -Code 'invalid_argument' -Message "$supplied was supplied without $missing - a patch is the pair, not half of it." -Data @{ path = $notePath })
     }
-    if ($hasPatch -and $OldString -eq '') {
+    if ($hasPatch -and $old_string -eq '') {
         # An empty anchor matches at every position, so it can neither locate a span nor
         # self-verify against a stale view - the two things the patch facet exists to do.
         throw (New-VaultToolError -Code 'invalid_argument' -Message 'old_string is empty - a patch anchor must be a non-empty span of the body.' -Data @{ path = $notePath })
@@ -288,8 +288,8 @@ $result = Invoke-VaultWriteLock -Vault $Vault -Abandoned ([ref]$lockAbandoned) -
     # clobber without re-reading. Recovery is a re-read. ---
     if ($ExpectedShaBound) {
         $actualSha = Get-VaultEditSha -Bytes $fileBytes
-        if ($ExpectedSha.Trim().ToLowerInvariant() -cne $actualSha) {
-            throw (New-VaultToolError -Code 'state_mismatch' -Message "The note changed since expected_sha was taken - read it again before editing: $notePath" -Data @{ expectedSha = $ExpectedSha.Trim().ToLowerInvariant(); actualSha = $actualSha; path = $notePath })
+        if ($expected_sha.Trim().ToLowerInvariant() -cne $actualSha) {
+            throw (New-VaultToolError -Code 'state_mismatch' -Message "The note changed since expected_sha was taken - read it again before editing: $notePath" -Data @{ expectedSha = $expected_sha.Trim().ToLowerInvariant(); actualSha = $actualSha; path = $notePath })
         }
     }
 
@@ -311,14 +311,14 @@ $result = Invoke-VaultWriteLock -Vault $Vault -Abandoned ([ref]$lockAbandoned) -
         # unreachable by patch, so every frontmatter mutation flows through the schema-validated,
         # capability-classified ops path. The patched body then goes to the wrapper like any
         # other body facet, so the fence-introduction guard still catches a fence a patch created.
-        $probe = Measure-VaultEditPatchMatch -Text $split.Body -Anchor $OldString
+        $probe = Measure-VaultEditPatchMatch -Text $split.Body -Anchor $old_string
         if ($probe.Count -eq 0) {
-            throw (New-VaultToolError -Code 'patch_target_not_found' -Message 'old_string does not appear in the note body - the view it was taken from may be stale, or the anchor may span the frontmatter, which a patch cannot reach.' -Data @{ path = $notePath; oldString = $(if ($OldString.Length -gt 200) { $OldString.Substring(0, 200) } else { $OldString }) })
+            throw (New-VaultToolError -Code 'patch_target_not_found' -Message 'old_string does not appear in the note body - the view it was taken from may be stale, or the anchor may span the frontmatter, which a patch cannot reach.' -Data @{ path = $notePath; oldString = $(if ($old_string.Length -gt 200) { $old_string.Substring(0, 200) } else { $old_string }) })
         }
         if ($probe.Count -gt 1) {
             throw (New-VaultToolError -Code 'patch_ambiguous' -Message 'old_string matches the note body more than once - widen the anchor with surrounding context until it is unique.' -Data @{ path = $notePath; matchCount = $probe.Count })
         }
-        $writeArgs['Body'] = $split.Body.Substring(0, $probe.Index) + $NewString + $split.Body.Substring($probe.Index + $OldString.Length)
+        $writeArgs['Body'] = $split.Body.Substring(0, $probe.Index) + $new_string + $split.Body.Substring($probe.Index + $old_string.Length)
     }
 
     # --- The single write path into frontmatter: composes the ops, runs the fence-introduction
