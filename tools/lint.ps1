@@ -327,15 +327,26 @@ function New-LintRemedy {
     named in `requires`, and an EMPTY-STRING field is the visible slot form of "named in
     requires". A params field that is neither is a pre-rendered hint pretending to be a payload,
     which is exactly what the entryBlock shape was.
+    .PARAMETER Tool
+    The tool `params` is a payload FOR, or $null when the remedy is advisory and dispatches
+    nothing. `action` stays the semantic verb and does not name a tool: edit-frontmatter and
+    edit-patch are different facets of `edit` with different params shapes, and add-suppression
+    dispatches to lint_suppressions. Mandatory-with-AllowNull rather than defaulted, so a new
+    remedy site has to state its classification instead of silently inheriting "advisory".
     #>
     param(
         [Parameter(Mandatory)] [string] $Id,
         [Parameter(Mandatory)] [string] $Label,
         [Parameter(Mandatory)] [string] $Action,
+        [Parameter(Mandatory)] [AllowNull()] $Tool,
         [Parameter(Mandatory)] $Params,
         [string[]] $Requires = @()
     )
-    [ordered]@{ id = $Id; label = $Label; action = $Action; params = $Params; requires = @($Requires) }
+    # `tool` is emitted even when null - it is an unconditional member of the shape, unlike the
+    # error envelope's `data`, which is omitted when absent precisely so presence can be tested.
+    # Here a null IS the answer ("advisory, dispatches nothing"), and an absent field would be
+    # indistinguishable from an emitter that never learned the classification.
+    [ordered]@{ id = $Id; label = $Label; action = $Action; tool = $Tool; params = $Params; requires = @($Requires) }
 }
 
 function New-LintEditPatchRemedy {
@@ -350,7 +361,7 @@ function New-LintEditPatchRemedy {
         [Parameter(Mandatory)] [string] $OldString,
         [Parameter(Mandatory)] [string] $NewString
     )
-    New-LintRemedy -Id $Id -Label $Label -Action 'edit-patch' -Params ([ordered]@{
+    New-LintRemedy -Id $Id -Label $Label -Action 'edit-patch' -Tool 'edit' -Params ([ordered]@{
             path       = $Rel
             old_string = $OldString
             new_string = $NewString
@@ -398,7 +409,7 @@ function New-LintFrontmatterRemedy {
         [Parameter(Mandatory)] [object[]] $Ops,
         [string[]] $Requires = @()
     )
-    New-LintRemedy -Id $Id -Label $Label -Action 'edit-frontmatter' -Requires $Requires -Params ([ordered]@{
+    New-LintRemedy -Id $Id -Label $Label -Action 'edit-frontmatter' -Tool 'edit' -Requires $Requires -Params ([ordered]@{
             path            = $Rel
             frontmatter_ops = @($Ops)
         })
@@ -414,7 +425,7 @@ function New-LintSuppressionRemedy {
     )
     $params = [ordered]@{ action = 'add'; list = $List; entry = $Entry }
     if ($ScopePath) { $params['scope_path'] = $ScopePath }
-    New-LintRemedy -Id $Id -Label $Label -Action 'add-suppression' -Params $params
+    New-LintRemedy -Id $Id -Label $Label -Action 'add-suppression' -Tool 'lint_suppressions' -Params $params
 }
 
 function New-LintFinding {
@@ -1090,14 +1101,14 @@ function Invoke-LintAnchorLinksPass {
                     $manual++
                     $findings.Add((New-LintFinding -File $file.Rel -Line $line -Disposition 'flagged' `
                                 -Issue 'anchor-link-unresolved' -Detail "$($match.Value) -> target file not found: $target" `
-                                -RemedyOptions @((New-LintRemedy -Id 'manual-anchor' -Label 'Resolve by hand - the target file does not exist' -Action 'manual' -Params ([ordered]@{ path = $file.Rel; link = $match.Value; reason = 'target-not-found' })))))
+                                -RemedyOptions @((New-LintRemedy -Id 'manual-anchor' -Label 'Resolve by hand - the target file does not exist' -Action 'manual' -Tool $null -Params ([ordered]@{ path = $file.Rel; link = $match.Value; reason = 'target-not-found' })))))
                     continue
                 }
                 if ($resolved.Status -eq 'ambiguous') {
                     $manual++
                     $findings.Add((New-LintFinding -File $file.Rel -Line $line -Disposition 'flagged' `
                                 -Issue 'anchor-link-unresolved' -Detail "$($match.Value) -> ambiguous target: $($resolved.Count) files named '$target' in vault" `
-                                -RemedyOptions @((New-LintRemedy -Id 'manual-anchor' -Label 'Resolve by hand - the target name is ambiguous' -Action 'manual' -Params ([ordered]@{ path = $file.Rel; link = $match.Value; reason = 'ambiguous-target' })))))
+                                -RemedyOptions @((New-LintRemedy -Id 'manual-anchor' -Label 'Resolve by hand - the target name is ambiguous' -Action 'manual' -Tool $null -Params ([ordered]@{ path = $file.Rel; link = $match.Value; reason = 'ambiguous-target' })))))
                     continue
                 }
                 $targetPath = $resolved.Path
@@ -1110,7 +1121,7 @@ function Invoke-LintAnchorLinksPass {
                 $manual++
                 $findings.Add((New-LintFinding -File $file.Rel -Line $line -Disposition 'flagged' `
                             -Issue 'anchor-link-unresolved' -Detail "$($match.Value) -> target could not be read for heading extraction" `
-                            -RemedyOptions @((New-LintRemedy -Id 'manual-anchor' -Label 'Resolve by hand - the target could not be read' -Action 'manual' -Params ([ordered]@{ path = $file.Rel; link = $match.Value; reason = 'target-unreadable' })))))
+                            -RemedyOptions @((New-LintRemedy -Id 'manual-anchor' -Label 'Resolve by hand - the target could not be read' -Action 'manual' -Tool $null -Params ([ordered]@{ path = $file.Rel; link = $match.Value; reason = 'target-unreadable' })))))
                 continue
             }
 
@@ -1120,7 +1131,7 @@ function Invoke-LintAnchorLinksPass {
                 $targetRel = [System.IO.Path]::GetRelativePath($script:VaultRoot, $targetPath).Replace('\', '/')
                 $findings.Add((New-LintFinding -File $file.Rel -Line $line -Disposition 'flagged' `
                             -Issue 'anchor-link-unresolved' -Detail "$($match.Value) -> no heading matches '#$fragment' in $targetRel" `
-                            -RemedyOptions @((New-LintRemedy -Id 'manual-anchor' -Label 'Resolve by hand - no heading matches the fragment' -Action 'manual' -Params ([ordered]@{ path = $file.Rel; link = $match.Value; reason = 'no-matching-heading' })))))
+                            -RemedyOptions @((New-LintRemedy -Id 'manual-anchor' -Label 'Resolve by hand - no heading matches the fragment' -Action 'manual' -Tool $null -Params ([ordered]@{ path = $file.Rel; link = $match.Value; reason = 'no-matching-heading' })))))
                 continue
             }
             $candidates = $headingMap[$fragSlug]
@@ -1128,7 +1139,7 @@ function Invoke-LintAnchorLinksPass {
                 $manual++
                 $findings.Add((New-LintFinding -File $file.Rel -Line $line -Disposition 'flagged' `
                             -Issue 'anchor-link-ambiguous-heading' -Detail "$($match.Value) -> $($candidates.Count) headings match '#$fragment'" `
-                            -RemedyOptions @((New-LintRemedy -Id 'pick-heading' -Label 'Pick which heading the link means' -Action 'pick-heading' -Params ([ordered]@{
+                            -RemedyOptions @((New-LintRemedy -Id 'pick-heading' -Label 'Pick which heading the link means' -Action 'pick-heading' -Tool $null -Params ([ordered]@{
                                         path      = $file.Rel
                                         link      = $match.Value
                                         headings  = @($candidates)
@@ -1203,7 +1214,7 @@ function Invoke-LintFilenameConventionsPass {
         $dest = if ($parent) { "$parent/$suggested.md" } else { "$suggested.md" }
 
         $remedies = New-Object System.Collections.Generic.List[object]
-        $remedies.Add((New-LintRemedy -Id 'rename-file' -Label "Rename to $suggested.md" -Action 'move' -Params ([ordered]@{ source = $file.Rel; dest = $dest })))
+        $remedies.Add((New-LintRemedy -Id 'rename-file' -Label "Rename to $suggested.md" -Action 'move' -Tool 'move' -Params ([ordered]@{ source = $file.Rel; dest = $dest })))
         foreach ($segment in $badSegments) {
             $remedies.Add((New-LintSuppressionRemedy -Id "except-$segment" -Label "Record '$segment' as a filename exception" -List 'filename-exceptions' -Entry $segment))
         }
@@ -1747,7 +1758,7 @@ function Invoke-LintHardWrapPass {
                 $detail = "lines $($block.StartLine)-$endLine flagged: $($block.Reason)"
                 $finding = New-LintFinding -File $file.Rel -Line $block.StartLine -Disposition 'flagged' `
                     -Issue 'hard-wrapped-block-unsafe' -Detail $detail `
-                    -RemedyOptions @((New-LintRemedy -Id 'manual-join' -Label 'Join by hand - the automatic join is not safe here' -Action 'manual' -Params ([ordered]@{ path = $file.Rel; startLine = $block.StartLine; endLine = $endLine; reason = $block.Reason })))
+                    -RemedyOptions @((New-LintRemedy -Id 'manual-join' -Label 'Join by hand - the automatic join is not safe here' -Action 'manual' -Tool $null -Params ([ordered]@{ path = $file.Rel; start_line = $block.StartLine; end_line = $endLine; reason = $block.Reason })))
             }
             if ($hard_wrap_inspect) {
                 $finding['inspect'] = [ordered]@{ before = @($block.Lines); after = $(if ($block.Safe) { $block.Text } else { $null }) }

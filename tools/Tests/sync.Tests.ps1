@@ -23,6 +23,29 @@ BeforeAll {
     $script:ScriptPath = (Resolve-Path (Join-Path $PSScriptRoot '..' 'sync.ps1')).Path
     $script:RepoRoot = (Resolve-Path (Join-Path $PSScriptRoot '..' '..')).Path
 
+    # --- The remedy payload contract. EVERY parsed sync result in this file comes back through
+    # ConvertFrom-SyncResult, so the contract Describe at the bottom walks every remedy this suite
+    # can produce rather than a set some fixture was written to re-create. The error path
+    # (Invoke-SyncError) keeps plain ConvertFrom-Json: a {code, message, data?} envelope carries no
+    # remedies. ---
+    . (Join-Path $PSScriptRoot 'RemedyContract.ps1')
+    $global:SyncRemedySamples = [System.Collections.Generic.List[object]]::new()
+
+    function ConvertFrom-SyncResult {
+        # Parses sync's Tier-2 JSON and records every RemedyOption in it. Deliberately a pipeline
+        # parser rather than an invocation wrapper: the suite drives sync with named arguments in
+        # forty different combinations, so wrapping the CALL would have meant reshaping all of them,
+        # while wrapping the PARSE reshapes nothing about how sync is exercised.
+        param([Parameter(Mandatory, ValueFromPipeline)] [AllowEmptyString()] [string[]] $Json)
+        begin { $lines = [System.Collections.Generic.List[string]]::new() }
+        process { foreach ($line in $Json) { $lines.Add($line) } }
+        end {
+            $result = ($lines -join "`n") | ConvertFrom-Json
+            foreach ($remedy in (Get-VaultRemedyOption -Node $result)) { $global:SyncRemedySamples.Add($remedy) }
+            $result
+        }
+    }
+
     function Invoke-SyncError {
         # Runs sync.ps1 expecting the shared {code, message, data?} JSON error shape, and returns the
         # parsed error object. Defined in this top-level BeforeAll (rather than in a Describe body) so
@@ -264,7 +287,7 @@ Describe 'sync' {
         }
 
         It 'carries the write-class envelope, with lockWarning omitted when it did not fire' {
-            $result = & $script:ScriptPath | ConvertFrom-Json
+            $result = & $script:ScriptPath | ConvertFrom-SyncResult
             $names = $result.PSObject.Properties.Name
             $names | Should -Contain 'capabilitiesUsed'
             $names | Should -Contain 'filesSkippedUnreadable'
@@ -281,7 +304,7 @@ Describe 'sync' {
             Set-SyncRepoFile -Repo $script:VaultDir -Rel 'Staged.md' -Content "staged`n"
             git -C $script:VaultDir add -- 'Staged.md' 2>&1 | Out-Null
 
-            $result = & $script:ScriptPath | ConvertFrom-Json
+            $result = & $script:ScriptPath | ConvertFrom-SyncResult
             $result.repos.'.'.unstaged | Should -Be @('File.md')
             $result.repos.'.'.untracked | Should -Be @('New.md')
             $result.repos.'.'.staged | Should -Be @('Staged.md')
@@ -289,7 +312,7 @@ Describe 'sync' {
 
         It 'plans without mutating: a dirty tree yields plannedActions under a directive and no commit' {
             Set-SyncRepoFile -Repo $script:VaultDir -Rel 'File.md' -Content "modified`n"
-            $result = & $script:ScriptPath -Commit '{"message":"Plan only","files":["File.md"]}' | ConvertFrom-Json
+            $result = & $script:ScriptPath -Commit '{"message":"Plan only","files":["File.md"]}' | ConvertFrom-SyncResult
 
             $result.plannedActions.Count | Should -Be 1
             $result.plannedActions[0].action | Should -Be 'commit'
@@ -303,9 +326,9 @@ Describe 'sync' {
         It 'reattaches a clean detached HEAD to the derived branch' {
             $first = (git -C $script:VaultDir rev-parse HEAD).Trim()
             git -C $script:VaultDir checkout -q $first 2>&1 | Out-Null
-            (& $script:ScriptPath | ConvertFrom-Json).repos.'.'.detached | Should -BeTrue
+            (& $script:ScriptPath | ConvertFrom-SyncResult).repos.'.'.detached | Should -BeTrue
 
-            $result = & $script:ScriptPath -Apply $true | ConvertFrom-Json
+            $result = & $script:ScriptPath -Apply $true | ConvertFrom-SyncResult
             @($result.actions | ForEach-Object { $_.action }) | Should -Contain 'reattach'
             $result.repos.'.'.detached | Should -BeFalse
             $result.repos.'.'.branch | Should -Be 'master'
@@ -316,7 +339,7 @@ Describe 'sync' {
             git -C $script:VaultDir checkout -q $first 2>&1 | Out-Null
             Set-SyncRepoFile -Repo $script:VaultDir -Rel 'File.md' -Content "dirty while detached`n"
 
-            $result = & $script:ScriptPath -Apply $true | ConvertFrom-Json
+            $result = & $script:ScriptPath -Apply $true | ConvertFrom-SyncResult
             $result.blocked.Count | Should -Be 1
             $result.blocked[0].reason | Should -Be 'detached_head_dirty'
             $result.blocked[0].resolution.action | Should -Be 'manual'
@@ -337,7 +360,7 @@ Describe 'sync' {
             git -C $script:VaultDir fetch -q 2>&1 | Out-Null
             git -C $script:VaultDir merge origin/master 2>&1 | Out-Null   # leaves a real merge state
 
-            $result = & $script:ScriptPath -Apply $true | ConvertFrom-Json
+            $result = & $script:ScriptPath -Apply $true | ConvertFrom-SyncResult
             $result.repos.'.'.midMerge | Should -BeTrue
             $result.repos.'.'.unmergedFiles | Should -Contain 'File.md'
             @($result.blocked | ForEach-Object { $_.reason }) | Should -Contain 'mid_merge'
@@ -349,7 +372,7 @@ Describe 'sync' {
     Context 'ladder rung 4 - dirty tree and the commit directive' {
         It 'blocks a dirty tree as uncommitted_changes with a RemedyOption requiring commit.message' {
             Set-SyncRepoFile -Repo $script:VaultDir -Rel 'File.md' -Content "modified`n"
-            $result = & $script:ScriptPath -Apply $true | ConvertFrom-Json
+            $result = & $script:ScriptPath -Apply $true | ConvertFrom-SyncResult
 
             $blocked = @($result.blocked | Where-Object { $_.reason -eq 'uncommitted_changes' })
             $blocked.Count | Should -Be 1
@@ -361,9 +384,9 @@ Describe 'sync' {
 
         It 'commits a named file set under a directive, appends the trailer, and pushes' {
             Set-SyncRepoFile -Repo $script:VaultDir -Rel 'File.md' -Content "modified`n"
-            $token = (& $script:ScriptPath | ConvertFrom-Json).stateToken
+            $token = (& $script:ScriptPath | ConvertFrom-SyncResult).stateToken
 
-            $result = & $script:ScriptPath -Apply $true -Commit '{"message":"Record the change","files":["File.md"]}' -state_token $token | ConvertFrom-Json
+            $result = & $script:ScriptPath -Apply $true -Commit '{"message":"Record the change","files":["File.md"]}' -state_token $token | ConvertFrom-SyncResult
             $result.synced | Should -BeTrue
             @($result.actions | ForEach-Object { $_.action }) | Should -Be @('commit', 'push')
             $result.capabilitiesUsed | Should -Be @('git:commit')
@@ -376,7 +399,7 @@ Describe 'sync' {
 
         It 'commits untracked files named in the directive (they are git added first)' {
             Set-SyncRepoFile -Repo $script:VaultDir -Rel 'Inbox/New.md' -Content "brand new`n"
-            $result = & $script:ScriptPath -Apply $true -Commit '{"message":"Add a note","files":["Inbox/New.md"]}' | ConvertFrom-Json
+            $result = & $script:ScriptPath -Apply $true -Commit '{"message":"Add a note","files":["Inbox/New.md"]}' | ConvertFrom-SyncResult
             $result.synced | Should -BeTrue
             (git -C $script:VaultDir ls-files -- 'Inbox/New.md') | Should -Be 'Inbox/New.md'
         }
@@ -392,7 +415,7 @@ Describe 'sync' {
             Set-SyncRepoFile -Repo $script:VaultDir -Rel 'Foreign.md' -Content "staged by someone else`n"
             git -C $script:VaultDir add -- 'Foreign.md' 2>&1 | Out-Null
 
-            $result = & $script:ScriptPath -Apply $true | ConvertFrom-Json
+            $result = & $script:ScriptPath -Apply $true | ConvertFrom-SyncResult
             $blocked = @($result.blocked | Where-Object { $_.reason -eq 'staged_changes' })
             $blocked.Count | Should -Be 1
             $blocked[0].resolution.params.commit.staged | Should -Be 'include'
@@ -405,7 +428,7 @@ Describe 'sync' {
             git -C $script:VaultDir add -- 'Foreign.md' 2>&1 | Out-Null
             Set-SyncRepoFile -Repo $script:VaultDir -Rel 'File.md' -Content "mine`n"
 
-            $result = & $script:ScriptPath -Apply $true -Commit '{"message":"Only mine","files":["File.md"]}' | ConvertFrom-Json
+            $result = & $script:ScriptPath -Apply $true -Commit '{"message":"Only mine","files":["File.md"]}' | ConvertFrom-SyncResult
             @($result.actions | ForEach-Object { $_.action }) | Should -Contain 'commit'
 
             # The commit holds File.md alone, and Foreign.md is still staged and uncommitted.
@@ -417,9 +440,9 @@ Describe 'sync' {
             Set-SyncRepoFile -Repo $script:VaultDir -Rel 'Foreign.md' -Content "staged by someone else`n"
             git -C $script:VaultDir add -- 'Foreign.md' 2>&1 | Out-Null
             Set-SyncRepoFile -Repo $script:VaultDir -Rel 'File.md' -Content "mine`n"
-            $token = (& $script:ScriptPath | ConvertFrom-Json).stateToken
+            $token = (& $script:ScriptPath | ConvertFrom-SyncResult).stateToken
 
-            $result = & $script:ScriptPath -Apply $true -Commit '{"message":"Sweep","files":"all"}' -state_token $token | ConvertFrom-Json
+            $result = & $script:ScriptPath -Apply $true -Commit '{"message":"Sweep","files":"all"}' -state_token $token | ConvertFrom-SyncResult
             @($result.blocked | ForEach-Object { $_.reason }) | Should -Contain 'staged_changes'
             Get-SyncHeadMessage -Repo $script:VaultDir | Should -Match 'initial commit'
         }
@@ -428,9 +451,9 @@ Describe 'sync' {
             Set-SyncRepoFile -Repo $script:VaultDir -Rel 'Foreign.md' -Content "staged by someone else`n"
             git -C $script:VaultDir add -- 'Foreign.md' 2>&1 | Out-Null
             Set-SyncRepoFile -Repo $script:VaultDir -Rel 'File.md' -Content "mine`n"
-            $token = (& $script:ScriptPath | ConvertFrom-Json).stateToken
+            $token = (& $script:ScriptPath | ConvertFrom-SyncResult).stateToken
 
-            $result = & $script:ScriptPath -Apply $true -Commit '{"message":"Sweep","files":"all","staged":"include"}' -state_token $token | ConvertFrom-Json
+            $result = & $script:ScriptPath -Apply $true -Commit '{"message":"Sweep","files":"all","staged":"include"}' -state_token $token | ConvertFrom-SyncResult
             $result.synced | Should -BeTrue
             $files = @((git -C $script:VaultDir show --name-only --pretty=format: HEAD) | Where-Object { $_ })
             $files | Should -Contain 'File.md'
@@ -453,7 +476,7 @@ Describe 'sync' {
 
             # git:sync alone: the merge lands, and only the push is withheld.
             $Global:VaultMcpOpClasses = @('git:sync')
-            $result = & $script:ScriptPath -Apply $true | ConvertFrom-Json
+            $result = & $script:ScriptPath -Apply $true | ConvertFrom-SyncResult
 
             @($result.actions | ForEach-Object { $_.action }) | Should -Contain 'merge'
             $result.capabilitiesUsed.Count | Should -Be 0
@@ -469,7 +492,7 @@ Describe 'sync' {
             Add-SyncCommit -Repo $script:VaultDir -Message 'local edit'
             $headBefore = (git -C $script:VaultDir rev-parse HEAD).Trim()
 
-            $result = & $script:ScriptPath -Apply $true | ConvertFrom-Json
+            $result = & $script:ScriptPath -Apply $true | ConvertFrom-SyncResult
             $blocked = @($result.blocked | Where-Object { $_.reason -eq 'merge_conflicts' })
             $blocked.Count | Should -Be 1
             $blocked[0].detail | Should -Match 'File.md'
@@ -487,7 +510,7 @@ Describe 'sync' {
             Set-SyncRepoFile -Repo $script:VaultDir -Rel 'File.md' -Content "local version`n"
             Add-SyncCommit -Repo $script:VaultDir -Message 'local edit'
 
-            $result = & $script:ScriptPath -Apply $true -on_conflict 'keep_local_save_remote' | ConvertFrom-Json
+            $result = & $script:ScriptPath -Apply $true -on_conflict 'keep_local_save_remote' | ConvertFrom-SyncResult
             @($result.actions | ForEach-Object { $_.action }) | Should -Contain 'resolve-conflicts'
             $result.capabilitiesUsed | Should -Contain 'git:commit'
 
@@ -512,11 +535,11 @@ Describe 'sync' {
             Add-SyncCommit -Repo $peer -Message 'peer commit'
             git -C $peer push -q 2>&1 | Out-Null
 
-            $plan = & $script:ScriptPath | ConvertFrom-Json
+            $plan = & $script:ScriptPath | ConvertFrom-SyncResult
             $plan.repos.'.'.behind | Should -Be 1
             @($plan.plannedActions | ForEach-Object { $_.action }) | Should -Contain 'fast-forward'
 
-            $result = & $script:ScriptPath -Apply $true | ConvertFrom-Json
+            $result = & $script:ScriptPath -Apply $true | ConvertFrom-SyncResult
             @($result.actions | ForEach-Object { $_.action }) | Should -Contain 'fast-forward'
             $result.synced | Should -BeTrue
             Test-Path -LiteralPath (Join-Path $script:VaultDir 'Other.md') | Should -BeTrue
@@ -533,7 +556,7 @@ Describe 'sync' {
             Set-SyncRepoFile -Repo $script:VaultDir -Rel 'File.md' -Content "local`n"
             Add-SyncCommit -Repo $script:VaultDir -Message 'local commit'
 
-            $result = & $script:ScriptPath -Apply $true | ConvertFrom-Json
+            $result = & $script:ScriptPath -Apply $true | ConvertFrom-SyncResult
             $blocked = @($result.blocked | Where-Object { $_.reason -eq 'push_rejected' })
             if ($blocked.Count -eq 0) {
                 Set-ItResult -Skipped -Because 'this machine did not run the remote pre-receive hook, so a rejected push could not be constructed'
@@ -573,7 +596,7 @@ Describe 'sync' {
         }
 
         It 'discovers the submodule and keys the report by repo path' {
-            $result = & $script:ScriptPath | ConvertFrom-Json
+            $result = & $script:ScriptPath | ConvertFrom-SyncResult
             $result.repos.PSObject.Properties.Name | Should -Contain '.'
             $result.repos.PSObject.Properties.Name | Should -Contain 'sub'
         }
@@ -581,7 +604,7 @@ Describe 'sync' {
         It 'advances a GITLINK-ONLY dirty tree under the floor, with no git:commit key' {
             # The whole point of the carve-out: a git:sync-only agent completes a submodule sync.
             $Global:VaultMcpOpClasses = @('git:sync')
-            $result = & $script:ScriptPath -Apply $true | ConvertFrom-Json
+            $result = & $script:ScriptPath -Apply $true | ConvertFrom-SyncResult
 
             $pointer = @($result.actions | Where-Object { $_.action -eq 'commit-submodule-pointer' })
             $pointer.Count | Should -Be 1
@@ -596,8 +619,8 @@ Describe 'sync' {
 
         It 'pathspec-commits the gitlink of a MIXED tree and blocks the remainder with a REFRESHED token' {
             Set-SyncRepoFile -Repo $script:VaultDir -Rel 'File.md' -Content "caller content`n"
-            $tokenBefore = (& $script:ScriptPath | ConvertFrom-Json).stateToken
-            $result = & $script:ScriptPath -Apply $true | ConvertFrom-Json
+            $tokenBefore = (& $script:ScriptPath | ConvertFrom-SyncResult).stateToken
+            $result = & $script:ScriptPath -Apply $true | ConvertFrom-SyncResult
 
             @($result.actions | ForEach-Object { $_.action }) | Should -Contain 'commit-submodule-pointer'
             (git -C $script:VaultDir show --name-only --pretty=format: HEAD).Trim() | Should -Be 'sub'
@@ -616,9 +639,9 @@ Describe 'sync' {
         It 'reattaches a detached submodule HEAD, the sole tool-mediated fix for one' {
             $tip = (git -C $script:SubDir rev-parse HEAD).Trim()
             git -C $script:SubDir checkout -q $tip 2>&1 | Out-Null
-            (& $script:ScriptPath | ConvertFrom-Json).repos.sub.detached | Should -BeTrue
+            (& $script:ScriptPath | ConvertFrom-SyncResult).repos.sub.detached | Should -BeTrue
 
-            $result = & $script:ScriptPath -Apply $true | ConvertFrom-Json
+            $result = & $script:ScriptPath -Apply $true | ConvertFrom-SyncResult
             @($result.actions | Where-Object { $_.repo -eq 'sub' -and $_.action -eq 'reattach' }) | Should -Not -BeNullOrEmpty
             $result.repos.sub.detached | Should -BeFalse
         }
@@ -636,10 +659,10 @@ Describe 'sync' {
         }
 
         It 'changes when another actor stages something between calls (the porcelain input)' {
-            $before = (& $script:ScriptPath | ConvertFrom-Json).stateToken
+            $before = (& $script:ScriptPath | ConvertFrom-SyncResult).stateToken
             Set-SyncRepoFile -Repo $script:VaultDir -Rel 'Foreign.md' -Content "x`n"
             git -C $script:VaultDir add -- 'Foreign.md' 2>&1 | Out-Null
-            (& $script:ScriptPath | ConvertFrom-Json).stateToken | Should -Not -Be $before
+            (& $script:ScriptPath | ConvertFrom-SyncResult).stateToken | Should -Not -Be $before
         }
 
         It 'is required when commit.files is "all"' {
@@ -652,7 +675,7 @@ Describe 'sync' {
 
         It 'is optional with an explicit file array, which pins the set structurally' {
             Set-SyncRepoFile -Repo $script:VaultDir -Rel 'File.md' -Content "modified`n"
-            $result = & $script:ScriptPath -Apply $true -Commit '{"message":"No token needed","files":["File.md"]}' | ConvertFrom-Json
+            $result = & $script:ScriptPath -Apply $true -Commit '{"message":"No token needed","files":["File.md"]}' | ConvertFrom-SyncResult
             $result.synced | Should -BeTrue
         }
     }
@@ -674,7 +697,7 @@ Describe 'sync' {
             Set-SyncRepoFile -Repo $script:VaultDir -Rel 'File.md' -Content "local version`n"
             Add-SyncCommit -Repo $script:VaultDir -Message 'local edit'
 
-            $blockedResult = & $script:ScriptPath -Apply $true | ConvertFrom-Json
+            $blockedResult = & $script:ScriptPath -Apply $true | ConvertFrom-SyncResult
             $remedy = Get-SyncBlockedResolution -Result $blockedResult -Reason 'merge_conflicts'
             $remedy.action | Should -Be 'sync-directive'
             $remedy.requires.Count | Should -Be 0
@@ -682,7 +705,7 @@ Describe 'sync' {
             # Nothing is filled in and nothing is encoded - all three keys are scalars sync emitted.
             $splat = ConvertTo-SyncRemedySplat -Params $remedy.params
             @($splat.Keys | Sort-Object) | Should -Be @('apply', 'on_conflict', 'state_token')
-            $result = & $script:ScriptPath @splat | ConvertFrom-Json
+            $result = & $script:ScriptPath @splat | ConvertFrom-SyncResult
 
             # The strategy the remedy advertised actually applied: local won, the remote body survives
             # as a sibling, and the repo is not left mid-merge.
@@ -701,7 +724,7 @@ Describe 'sync' {
             Set-SyncRepoFile -Repo $script:VaultDir -Rel 'File.md' -Content "local version`n"
             Add-SyncCommit -Repo $script:VaultDir -Message 'local edit'
 
-            $remedy = Get-SyncBlockedResolution -Result (& $script:ScriptPath -Apply $true | ConvertFrom-Json) -Reason 'merge_conflicts'
+            $remedy = Get-SyncBlockedResolution -Result (& $script:ScriptPath -Apply $true | ConvertFrom-SyncResult) -Reason 'merge_conflicts'
             $splat = ConvertTo-SyncRemedySplat -Params $remedy.params
 
             # The remote moves after the strategy was authorized, so the carried token is now stale.
@@ -722,14 +745,14 @@ Describe 'sync' {
 
         It 'accepts the state_token commit-changes emitted, with only commit.message filled in' {
             Set-SyncRepoFile -Repo $script:VaultDir -Rel 'File.md' -Content "modified`n"
-            $blockedResult = & $script:ScriptPath -Apply $true | ConvertFrom-Json
+            $blockedResult = & $script:ScriptPath -Apply $true | ConvertFrom-SyncResult
             $remedy = Get-SyncBlockedResolution -Result $blockedResult -Reason 'uncommitted_changes'
             $remedy.requires | Should -Be @('commit.message')
 
             $splat = Resolve-SyncCommitRemedySplat -Params $remedy.params -Message 'Record the change'
             $splat['state_token'] | Should -Be $blockedResult.stateToken
 
-            $result = & $script:ScriptPath @splat | ConvertFrom-Json
+            $result = & $script:ScriptPath @splat | ConvertFrom-SyncResult
             $result.synced | Should -BeTrue
             @($result.actions | ForEach-Object { $_.action }) | Should -Be @('commit', 'push')
             Get-SyncHeadMessage -Repo $script:VaultDir | Should -Match 'Record the change'
@@ -741,7 +764,7 @@ Describe 'sync' {
             # argument was dropped and this call committed under a token that no longer described the
             # repo. The refusal is the whole reason the remedy carries a token at all.
             Set-SyncRepoFile -Repo $script:VaultDir -Rel 'File.md' -Content "modified`n"
-            $remedy = Get-SyncBlockedResolution -Result (& $script:ScriptPath -Apply $true | ConvertFrom-Json) -Reason 'uncommitted_changes'
+            $remedy = Get-SyncBlockedResolution -Result (& $script:ScriptPath -Apply $true | ConvertFrom-SyncResult) -Reason 'uncommitted_changes'
             $splat = Resolve-SyncCommitRemedySplat -Params $remedy.params -Message 'Record the change'
 
             Set-SyncRepoFile -Repo $script:VaultDir -Rel 'Foreign.md' -Content "x`n"
@@ -764,14 +787,14 @@ Describe 'sync' {
             Set-SyncRepoFile -Repo $script:VaultDir -Rel 'Foreign.md' -Content "staged by someone else`n"
             git -C $script:VaultDir add -- 'Foreign.md' 2>&1 | Out-Null
 
-            $blockedResult = & $script:ScriptPath -Apply $true | ConvertFrom-Json
+            $blockedResult = & $script:ScriptPath -Apply $true | ConvertFrom-SyncResult
             $remedy = Get-SyncBlockedResolution -Result $blockedResult -Reason 'staged_changes'
             $remedy.params.commit.staged | Should -Be 'include'
 
             $splat = Resolve-SyncCommitRemedySplat -Params $remedy.params -Message 'Fold the index in'
             $splat['state_token'] | Should -Be $blockedResult.stateToken
 
-            $result = & $script:ScriptPath @splat | ConvertFrom-Json
+            $result = & $script:ScriptPath @splat | ConvertFrom-SyncResult
             @($result.actions | ForEach-Object { $_.action }) | Should -Contain 'commit'
             ((git -C $script:VaultDir log --pretty=%B) -join "`n") | Should -Match 'Fold the index in'
             (git -C $script:VaultDir ls-files -- 'Foreign.md') | Should -Be 'Foreign.md'
@@ -787,7 +810,7 @@ Describe 'sync' {
             # hand-lists this parameter, here or in the server. What the remedy emits is what gets
             # serialized - no reshaping between - which is why the encoded text is asserted verbatim.
             Set-SyncRepoFile -Repo $script:VaultDir -Rel 'File.md' -Content "modified`n"
-            $remedy = Get-SyncBlockedResolution -Result (& $script:ScriptPath -Apply $true | ConvertFrom-Json) -Reason 'uncommitted_changes'
+            $remedy = Get-SyncBlockedResolution -Result (& $script:ScriptPath -Apply $true | ConvertFrom-SyncResult) -Reason 'uncommitted_changes'
             $remedy.params.commit.PSObject.TypeNames[0] | Should -Be 'System.Management.Automation.PSCustomObject'
 
             # Only the one path `requires` names is filled, and it is filled in the STRUCTURED payload.
@@ -796,7 +819,7 @@ Describe 'sync' {
             $splat['commit'] | Should -BeOfType ([string])
             $splat['commit'] | Should -Be '{"message":"Record the change","files":["File.md"]}'
 
-            $result = & $script:ScriptPath @splat | ConvertFrom-Json
+            $result = & $script:ScriptPath @splat | ConvertFrom-SyncResult
             @($result.actions | ForEach-Object { $_.action }) | Should -Contain 'commit'
             Get-SyncHeadMessage -Repo $script:VaultDir | Should -Match 'Record the change'
             (git -C $script:VaultDir show --name-only --pretty=format: HEAD).Trim() | Should -Be 'File.md'
@@ -809,7 +832,7 @@ Describe 'sync' {
             Set-SyncRepoFile -Repo $script:VaultDir -Rel 'File.md' -Content "modified`n"
             Set-SyncRepoFile -Repo $script:VaultDir -Rel 'Inbox/Second.md' -Content "new note`n"
 
-            $blockedResult = & $script:ScriptPath -Apply $true | ConvertFrom-Json
+            $blockedResult = & $script:ScriptPath -Apply $true | ConvertFrom-SyncResult
             $remedy = Get-SyncBlockedResolution -Result $blockedResult -Reason 'uncommitted_changes'
             $remedy.action | Should -Be 'sync-directive'
             $remedy.requires | Should -Be @('commit.message')
@@ -818,7 +841,7 @@ Describe 'sync' {
             $splat = Resolve-SyncCommitRemedySplat -Params $remedy.params -Message 'Record both notes'
             $splat['state_token'] | Should -Be $blockedResult.stateToken
 
-            $result = & $script:ScriptPath @splat | ConvertFrom-Json
+            $result = & $script:ScriptPath @splat | ConvertFrom-SyncResult
             $result.synced | Should -BeTrue
             @($result.actions | ForEach-Object { $_.action }) | Should -Be @('commit', 'push')
             Get-SyncHeadMessage -Repo $script:VaultDir | Should -Match 'Record both notes'
@@ -870,7 +893,7 @@ Describe 'sync' {
         }
 
         It 'accepts the strategy name case-insensitively after a trim' {
-            $result = & $script:ScriptPath -on_conflict '  Keep_Local_Save_Remote ' | ConvertFrom-Json
+            $result = & $script:ScriptPath -on_conflict '  Keep_Local_Save_Remote ' | ConvertFrom-SyncResult
             $result.synced | Should -BeTrue
         }
     }
@@ -897,12 +920,12 @@ Describe 'sync' {
         It 'INCIDENTAL: the same shortfall with no directive is a blocked entry, not an error' {
             Set-SyncRepoFile -Repo $script:VaultDir -Rel 'File.md' -Content "modified`n"
             $Global:VaultMcpOpClasses = @('git:sync')
-            $result = & $script:ScriptPath -Apply $true | ConvertFrom-Json
+            $result = & $script:ScriptPath -Apply $true | ConvertFrom-SyncResult
 
             $blocked = @($result.blocked | Where-Object { $_.reason -eq 'requires_capability' })
             $blocked.Count | Should -Be 1
             $blocked[0].resolution.action | Should -Be 'requires-capability'
-            $blocked[0].resolution.params.requiredClass | Should -Be 'git:commit'
+            $blocked[0].resolution.params.required_class | Should -Be 'git:commit'
             # Data, not failure - and still zero mutation.
             Get-SyncHeadMessage -Repo $script:VaultDir | Should -Match 'initial commit'
         }
@@ -917,7 +940,7 @@ Describe 'sync' {
         It 'allows the same directive when the injected set holds git:commit' {
             Set-SyncRepoFile -Repo $script:VaultDir -Rel 'File.md' -Content "modified`n"
             $Global:VaultMcpOpClasses = @('git:sync', 'git:commit')
-            $result = & $script:ScriptPath -Apply $true -Commit '{"message":"Allowed","files":["File.md"]}' | ConvertFrom-Json
+            $result = & $script:ScriptPath -Apply $true -Commit '{"message":"Allowed","files":["File.md"]}' | ConvertFrom-SyncResult
             $result.capabilitiesUsed | Should -Contain 'git:commit'
             Get-SyncHeadMessage -Repo $script:VaultDir | Should -Match 'Allowed'
         }
@@ -927,7 +950,7 @@ Describe 'sync' {
         It 'reports local state with a blocked entry when the remote is unreachable' {
             git -C $script:VaultDir remote set-url origin (Join-Path $script:TempRoot 'does-not-exist.git') 2>&1 | Out-Null
 
-            $result = & $script:ScriptPath | ConvertFrom-Json
+            $result = & $script:ScriptPath | ConvertFrom-SyncResult
             $blocked = @($result.blocked | Where-Object { $_.reason -in @('network_unavailable', 'fetch_failed') })
             if ($blocked.Count -eq 0) {
                 Set-ItResult -Skipped -Because 'this git build did not fail the fetch against a missing local remote'
@@ -1208,5 +1231,73 @@ Describe 'sync standalone invocability' {
         finally {
             if ($null -ne $prev) { $env:VAULT_MCP_VAULTS_JSON = $prev } else { Remove-Item Env:\VAULT_MCP_VAULTS_JSON -ErrorAction SilentlyContinue }
         }
+    }
+}
+
+Describe 'sync remedy payload contract' {
+    # LAST IN THE FILE ON PURPOSE. Pester runs Describes in file order, so by the time this one
+    # starts, $global:SyncRemedySamples holds every remedy every ConvertFrom-SyncResult above
+    # produced. The enumeration is therefore what sync EMITTED, not a list somebody wrote down.
+    #
+    # Add-SyncAction's {repo, action, detail} entries under actions[] / plannedActions[] are NOT in
+    # this walk. They are excluded structurally - they carry no id, no label and no params - never
+    # by field name and never by container name; see Get-VaultRemedyOption in RemedyContract.ps1.
+    BeforeAll {
+        $script:ToolsDir = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path
+
+        # The SPEC half. sync's re-call remedies name sync itself: their params ARE sync's own wire
+        # names, and retry's {apply} is a real sync payload rather than advice. $null is "advisory,
+        # dispatches nothing" - a real classification, not a missing one.
+        $script:SyncToolContract = @{
+            'sync-directive'      = 'sync'
+            'retry'               = 'sync'
+            'requires-capability' = $null
+            'manual'              = $null
+        }
+        $script:SyncSites = @(Get-VaultRemedyConstructionSite -Path $script:ScriptPath -Builder 'New-SyncRemedy')
+    }
+
+    It 'passes -Tool at every New-SyncRemedy construction site' {
+        $script:SyncSites.Count | Should -BeGreaterThan 0
+        @($script:SyncSites | Where-Object { -not $_.HasTool } | ForEach-Object { "sync.ps1:$($_.Line)" }) |
+            Should -BeNullOrEmpty -Because 'every remedy construction site must state its dispatch target'
+    }
+
+    It 'classifies every action sync can construct' {
+        $constructible = @($script:SyncSites | ForEach-Object { $_.Action } | Where-Object { $_ } | Sort-Object -Unique)
+        ($constructible -join ',') | Should -Be ((@($script:SyncToolContract.Keys) | Sort-Object) -join ',') `
+            -Because 'a new remedy action must be classified as dispatching or advisory, not silently unclassified'
+    }
+
+    It 'emits every action it can construct, so the walk is not partial' {
+        # The anti-vacuity guard. A walker that quietly found three remedies would satisfy every
+        # per-remedy check below; it cannot satisfy this one.
+        $emitted = @($global:SyncRemedySamples | ForEach-Object { $_.action } | Sort-Object -Unique)
+        $constructible = @($script:SyncSites | ForEach-Object { $_.Action } | Where-Object { $_ } | Sort-Object -Unique)
+        ($emitted -join ',') | Should -Be ($constructible -join ',')
+    }
+
+    It 'holds the RemedyOption contract on every remedy the suite emitted' {
+        $samples = @($global:SyncRemedySamples)
+        $samples.Count | Should -BeGreaterThan 0
+        Write-Host "  sync remedy resolutions validated: $($samples.Count) across $((@($samples | ForEach-Object { $_.action } | Sort-Object -Unique)).Count) actions"
+        $violations = @($samples | ForEach-Object {
+                Test-VaultRemedyContract -Remedy $_ -ToolContract $script:SyncToolContract -ToolsDir $script:ToolsDir
+            })
+        $violations | Should -BeNullOrEmpty
+    }
+
+    It 'leaves Add-SyncAction entries out of the walk entirely' {
+        # The second, unrelated `action` vocabulary. These report what the tool did or will do, so
+        # they are not RemedyOptions, gain no `tool` field, and must never be validated as payloads.
+        $entries = @($global:SyncRemedySamples | Where-Object {
+                @($_.PSObject.Properties.Name) -contains 'repo' -and @($_.PSObject.Properties.Name) -contains 'detail' -and
+                @($_.PSObject.Properties.Name) -notcontains 'params'
+            })
+        $entries | Should -BeNullOrEmpty
+        @($global:SyncRemedySamples | ForEach-Object { $_.action }) |
+            Should -Not -Contain 'commit' -Because 'commit is an Add-SyncAction verb, not a remedy action'
+        @($global:SyncRemedySamples | ForEach-Object { $_.action }) |
+            Should -Not -Contain 'fast-forward' -Because 'fast-forward is an Add-SyncAction verb, not a remedy action'
     }
 }

@@ -430,15 +430,26 @@ function New-SyncRemedy {
     The shared RemedyOption (Tool-Contracts: The RemedyOption Shape). `requires` names the dotted
     param paths sync structurally cannot fill because they need caller judgment - commit.message
     above all - so a resolution says plainly whether it is dispatchable verbatim.
+    .PARAMETER Tool
+    The tool `params` is a payload FOR, or $null when the remedy is advisory and dispatches
+    nothing. sync's re-call remedies (sync-directive, retry) name `sync` itself, because their
+    params ARE sync's own wire names - `retry`'s {apply} is a real sync payload, not advice.
+    Not to be confused with Add-SyncAction's unrelated `action` vocabulary, which reports what
+    the tool did or will do and is not a RemedyOption at all.
     #>
     param(
         [Parameter(Mandatory)] [string] $Id,
         [Parameter(Mandatory)] [string] $Label,
         [Parameter(Mandatory)] [string] $Action,
+        [Parameter(Mandatory)] [AllowNull()] $Tool,
         [Parameter(Mandatory)] $Params,
         [string[]] $Requires = @()
     )
-    [ordered]@{ id = $Id; label = $Label; action = $Action; params = $Params; requires = @($Requires) }
+    # `tool` is emitted even when null - it is an unconditional member of the shape, unlike the
+    # error envelope's `data`, which is omitted when absent precisely so presence can be tested.
+    # Here a null IS the answer ("advisory, dispatches nothing"), and an absent field would be
+    # indistinguishable from an emitter that never learned the classification.
+    [ordered]@{ id = $Id; label = $Label; action = $Action; tool = $Tool; params = $Params; requires = @($Requires) }
 }
 
 function Add-SyncBlocked {
@@ -694,7 +705,7 @@ function Add-SyncCapabilityBlock {
         [Parameter(Mandatory)] [string] $Detail
     )
     Add-SyncBlocked -Repo $RepoKey -Reason 'requires_capability' -Detail "$Detail - the grant does not hold it, so convergence stops here with nothing mutated." `
-        -Resolution (New-SyncRemedy -Id 'obtain-git-commit' -Label 'Obtain a grant carrying git:commit' -Action 'requires-capability' -Params ([ordered]@{ requiredClass = 'git:commit' }))
+        -Resolution (New-SyncRemedy -Id 'obtain-git-commit' -Label 'Obtain a grant carrying git:commit' -Action 'requires-capability' -Tool $null -Params ([ordered]@{ required_class = 'git:commit' }))
 }
 
 function Add-SyncUncommittedBlock {
@@ -713,7 +724,7 @@ function Add-SyncUncommittedBlock {
         return
     }
     Add-SyncBlocked -Repo $RepoKey -Reason 'uncommitted_changes' -Detail "$($Paths.Count) uncommitted path(s): $(@($Paths) -join ', ')" `
-        -Resolution (New-SyncRemedy -Id 'commit-changes' -Label 'Re-issue with a commit directive naming these files and your own message' -Action 'sync-directive' `
+        -Resolution (New-SyncRemedy -Id 'commit-changes' -Label 'Re-issue with a commit directive naming these files and your own message' -Action 'sync-directive' -Tool 'sync' `
             -Params ([ordered]@{ apply = $true; commit = [ordered]@{ message = ''; files = @($Paths) }; state_token = $script:PreApplyToken }) -Requires @('commit.message'))
 }
 
@@ -730,7 +741,7 @@ function Add-SyncStagedBlock {
         [Parameter(Mandatory)] [string] $Operation
     )
     Add-SyncBlocked -Repo $RepoKey -Reason 'staged_changes' -Detail "A $Operation cannot run while $(@($State.Staged).Count) path(s) are staged by another actor: $(@($State.Staged) -join ', ')" `
-        -Resolution (New-SyncRemedy -Id 'include-staged' -Label 'Re-issue with a commit directive carrying staged:"include", or resolve the index by hand' -Action 'sync-directive' `
+        -Resolution (New-SyncRemedy -Id 'include-staged' -Label 'Re-issue with a commit directive carrying staged:"include", or resolve the index by hand' -Action 'sync-directive' -Tool 'sync' `
             -Params ([ordered]@{ apply = $true; commit = [ordered]@{ message = ''; files = @($State.Staged); staged = 'include' }; state_token = $script:PreApplyToken }) -Requires @('commit.message'))
 }
 
@@ -856,13 +867,13 @@ function Invoke-SyncRepoLadder {
     if ($state.Detached) {
         if ($state.Staged.Count -gt 0 -or $state.Unstaged.Count -gt 0 -or $state.MidMerge) {
             Add-SyncBlocked -Repo $Repo.Key -Reason 'detached_head_dirty' -Detail "HEAD is detached at $($state.Head) with uncommitted tracked changes, so reattaching would carry or lose them." `
-                -Resolution (New-SyncRemedy -Id 'resolve-detached-by-hand' -Label 'Resolve the detached HEAD by hand - reported, never forced' -Action 'manual' -Params ([ordered]@{ repo = $Repo.Key; head = $state.Head }))
+                -Resolution (New-SyncRemedy -Id 'resolve-detached-by-hand' -Label 'Resolve the detached HEAD by hand - reported, never forced' -Action 'manual' -Tool $null -Params ([ordered]@{ repo = $Repo.Key; head = $state.Head }))
             return
         }
         $branch = Get-SyncDerivedBranch -State $state
         if (-not $branch) {
             Add-SyncBlocked -Repo $Repo.Key -Reason 'detached_head_underivable' -Detail "HEAD is detached at $($state.Head) and no target branch is derivable - neither a .gitmodules branch key nor a remote default HEAD resolves." `
-                -Resolution (New-SyncRemedy -Id 'resolve-detached-by-hand' -Label 'Check out the intended branch by hand' -Action 'manual' -Params ([ordered]@{ repo = $Repo.Key; head = $state.Head }))
+                -Resolution (New-SyncRemedy -Id 'resolve-detached-by-hand' -Label 'Check out the intended branch by hand' -Action 'manual' -Tool $null -Params ([ordered]@{ repo = $Repo.Key; head = $state.Head }))
             return
         }
         if ($planned) {
@@ -880,7 +891,7 @@ function Invoke-SyncRepoLadder {
     # a merge state found here is somebody else's wreckage and is never adopted. ---
     if ($state.MidMerge) {
         Add-SyncBlocked -Repo $Repo.Key -Reason 'mid_merge' -Detail "The repository is mid-merge with $(@($state.Unmerged).Count) unmerged file(s): $(@($state.Unmerged) -join ', ')" `
-            -Resolution (New-SyncRemedy -Id 'finish-merge-by-hand' -Label 'Finish or abort the in-progress merge by hand' -Action 'manual' -Params ([ordered]@{ repo = $Repo.Key; unmergedFiles = @($state.Unmerged) }))
+            -Resolution (New-SyncRemedy -Id 'finish-merge-by-hand' -Label 'Finish or abort the in-progress merge by hand' -Action 'manual' -Tool $null -Params ([ordered]@{ repo = $Repo.Key; unmerged_files = @($state.Unmerged) }))
         return
     }
 
@@ -967,7 +978,7 @@ function Invoke-SyncRepoLadder {
 
     if (-not $state.Upstream) {
         Add-SyncBlocked -Repo $Repo.Key -Reason 'no_upstream' -Detail "No upstream is configured for $(if ($state.Branch) { "branch '$($state.Branch)'" } else { 'HEAD' }), so there is nothing to converge toward." `
-            -Resolution (New-SyncRemedy -Id 'set-upstream' -Label 'Configure a remote-tracking branch by hand' -Action 'manual' -Params ([ordered]@{ repo = $Repo.Key; branch = $state.Branch }))
+            -Resolution (New-SyncRemedy -Id 'set-upstream' -Label 'Configure a remote-tracking branch by hand' -Action 'manual' -Tool $null -Params ([ordered]@{ repo = $Repo.Key; branch = $state.Branch }))
         return
     }
 
@@ -1013,7 +1024,7 @@ function Invoke-SyncRepoLadder {
                     return
                 }
                 Add-SyncBlocked -Repo $Repo.Key -Reason 'merge_conflicts' -Detail "A merge with $($state.Upstream) is predicted to conflict in $($conflicted.Count) file(s): $(@($conflicted) -join ', '). Predicted read-only - nothing was merged and the tree is untouched." `
-                    -Resolution (New-SyncRemedy -Id 'apply-conflict-strategy' -Label 'Re-issue with on_conflict: keep_local_save_remote' -Action 'sync-directive' `
+                    -Resolution (New-SyncRemedy -Id 'apply-conflict-strategy' -Label 'Re-issue with on_conflict: keep_local_save_remote' -Action 'sync-directive' -Tool 'sync' `
                         -Params ([ordered]@{ apply = $true; on_conflict = 'keep_local_save_remote'; state_token = $script:PreApplyToken }))
                 return
             }
@@ -1076,14 +1087,14 @@ function Invoke-SyncRepoLadder {
         }
         if (Test-SyncNetworkFailure -Output $push.Output) {
             Add-SyncBlocked -Repo $Repo.Key -Reason 'network_unavailable' -Detail "The remote was unreachable during push: $($push.Output)" `
-                -Resolution (New-SyncRemedy -Id 'retry-when-online' -Label 'Re-call once the remote is reachable' -Action 'retry' -Params ([ordered]@{ apply = $true }))
+                -Resolution (New-SyncRemedy -Id 'retry-when-online' -Label 'Re-call once the remote is reachable' -Action 'retry' -Tool 'sync' -Params ([ordered]@{ apply = $true }))
             return
         }
         if ($push.Output -match 'rejected|non-fast-forward|fetch first') {
             # Re-calling is the recovery path: convergence is idempotent, so the next call
             # re-converges against the moved remote.
             Add-SyncBlocked -Repo $Repo.Key -Reason 'push_rejected' -Detail "The remote moved between the fetch and the push: $($push.Output)" `
-                -Resolution (New-SyncRemedy -Id 'reconverge' -Label 'Re-call to re-converge against the moved remote' -Action 'retry' -Params ([ordered]@{ apply = $true }))
+                -Resolution (New-SyncRemedy -Id 'reconverge' -Label 'Re-call to re-converge against the moved remote' -Action 'retry' -Tool 'sync' -Params ([ordered]@{ apply = $true }))
             return
         }
         Assert-SyncGitOk -Result $push -Repo $Repo.Key -Operation 'push'
@@ -1197,11 +1208,11 @@ foreach ($repo in $script:RepoTree) {
     $script:FetchFailed[$repo.Key] = $true
     if (Test-SyncNetworkFailure -Output $fetch.Output) {
         Add-SyncBlocked -Repo $repo.Key -Reason 'network_unavailable' -Detail "The remote could not be reached, so this report describes local state only: $($fetch.Output)" `
-            -Resolution (New-SyncRemedy -Id 'retry-when-online' -Label 'Re-call once the remote is reachable' -Action 'retry' -Params ([ordered]@{ apply = $Apply }))
+            -Resolution (New-SyncRemedy -Id 'retry-when-online' -Label 'Re-call once the remote is reachable' -Action 'retry' -Tool 'sync' -Params ([ordered]@{ apply = $Apply }))
     }
     else {
         Add-SyncBlocked -Repo $repo.Key -Reason 'fetch_failed' -Detail "git fetch failed, so this report describes local state only: $($fetch.Output)" `
-            -Resolution (New-SyncRemedy -Id 'retry-fetch' -Label 'Re-call once the fetch failure is resolved' -Action 'retry' -Params ([ordered]@{ apply = $Apply }))
+            -Resolution (New-SyncRemedy -Id 'retry-fetch' -Label 'Re-call once the fetch failure is resolved' -Action 'retry' -Tool 'sync' -Params ([ordered]@{ apply = $Apply }))
     }
 }
 

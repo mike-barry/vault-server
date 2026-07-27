@@ -40,11 +40,19 @@ BeforeAll {
     $script:ModulePath = (Resolve-Path (Join-Path $PSScriptRoot '..' '..' 'powershell' 'VaultAccess' 'VaultAccess.psd1')).Path
     Import-Module $script:ModulePath -Force
 
+    # --- The remedy payload contract. Every parsed lint result passes through Invoke-Lint, so
+    # accumulating there means the contract Describe at the bottom of this file walks EVERY remedy
+    # this suite can produce, rather than a set some fixture was written to re-create. ---
+    . (Join-Path $PSScriptRoot 'RemedyContract.ps1')
+    $global:LintRemedySamples = [System.Collections.Generic.List[object]]::new()
+
     function Invoke-Lint {
         # Runs lint.ps1 and returns its parsed Tier-2 object. Defined in this top-level BeforeAll
         # (rather than in a Describe body) so it survives into Pester v5's Run phase.
         param([hashtable] $Params)
-        & $script:ScriptPath @Params | ConvertFrom-Json
+        $result = & $script:ScriptPath @Params | ConvertFrom-Json
+        foreach ($remedy in (Get-VaultRemedyOption -Node $result)) { $global:LintRemedySamples.Add($remedy) }
+        $result
     }
 
     function Invoke-LintError {
@@ -1403,6 +1411,74 @@ Describe 'lint standalone invocability' {
         }
         finally {
             if ($null -ne $prev) { $env:VAULT_MCP_VAULTS_JSON = $prev } else { Remove-Item Env:\VAULT_MCP_VAULTS_JSON -ErrorAction SilentlyContinue }
+        }
+    }
+}
+
+Describe 'lint remedy payload contract' {
+    # LAST IN THE FILE ON PURPOSE. Pester runs Describes in file order, so by the time this one
+    # starts, $global:LintRemedySamples holds every remedy every Invoke-Lint above produced. The
+    # enumeration is therefore what lint EMITTED, not a list somebody wrote down - which is exactly
+    # the drift this closes. See RemedyContract.ps1 for the walker and the Add-SyncAction exclusion.
+    BeforeAll {
+        $script:ToolsDir = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path
+
+        # The SPEC half. `action` is the semantic verb and does not name a tool: edit-frontmatter
+        # and edit-patch are different facets of `edit` with different params shapes, and
+        # add-suppression dispatches to lint_suppressions. $null is "advisory, dispatches nothing" -
+        # a real classification, not a missing one.
+        $script:LintToolContract = @{
+            'edit-patch'       = 'edit'
+            'edit-frontmatter' = 'edit'
+            'add-suppression'  = 'lint_suppressions'
+            'move'             = 'move'
+            'manual'           = $null
+            'pick-heading'     = $null
+        }
+        $script:LintSites = @(Get-VaultRemedyConstructionSite -Path $script:ScriptPath -Builder 'New-LintRemedy')
+    }
+
+    It 'passes -Tool at every New-LintRemedy construction site' {
+        # Static, so it sees the sites no fixture reaches. -Tool is mandatory, so a missed site is
+        # already a hard bind error at runtime - this names it at the source line instead.
+        $script:LintSites.Count | Should -BeGreaterThan 0
+        @($script:LintSites | Where-Object { -not $_.HasTool } | ForEach-Object { "lint.ps1:$($_.Line)" }) |
+            Should -BeNullOrEmpty -Because 'every remedy construction site must state its dispatch target'
+    }
+
+    It 'classifies every action lint can construct' {
+        $constructible = @($script:LintSites | ForEach-Object { $_.Action } | Where-Object { $_ } | Sort-Object -Unique)
+        ($constructible -join ',') | Should -Be ((@($script:LintToolContract.Keys) | Sort-Object) -join ',') `
+            -Because 'a new remedy action must be classified as dispatching or advisory, not silently unclassified'
+    }
+
+    It 'emits every action it can construct, so the walk is not partial' {
+        # The anti-vacuity guard. A walker that quietly found three remedies would satisfy every
+        # per-remedy check below; it cannot satisfy this one.
+        $emitted = @($global:LintRemedySamples | ForEach-Object { $_.action } | Sort-Object -Unique)
+        $constructible = @($script:LintSites | ForEach-Object { $_.Action } | Where-Object { $_ } | Sort-Object -Unique)
+        ($emitted -join ',') | Should -Be ($constructible -join ',')
+    }
+
+    It 'holds the RemedyOption contract on every remedy the suite emitted' {
+        $samples = @($global:LintRemedySamples)
+        $samples.Count | Should -BeGreaterThan 0
+        Write-Host "  lint remedy resolutions validated: $($samples.Count) across $((@($samples | ForEach-Object { $_.action } | Sort-Object -Unique)).Count) actions"
+        $violations = @($samples | ForEach-Object {
+                Test-VaultRemedyContract -Remedy $_ -ToolContract $script:LintToolContract -ToolsDir $script:ToolsDir
+            })
+        $violations | Should -BeNullOrEmpty
+    }
+
+    It 'reads the payload `action` key and the remedy `action` field as two different things' {
+        # add-suppression's params carries lint_suppressions' own `action` wire parameter, valued
+        # 'add', inside a remedy whose top-level action is 'add-suppression'. A walker that
+        # flattened the remedy would conflate them; this asserts both readings survive intact.
+        $suppression = @($global:LintRemedySamples | Where-Object { $_.action -eq 'add-suppression' })
+        $suppression.Count | Should -BeGreaterThan 0
+        foreach ($remedy in $suppression) {
+            $remedy.action | Should -Be 'add-suppression'
+            $remedy.params.action | Should -Be 'add'
         }
     }
 }
