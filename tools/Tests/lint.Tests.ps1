@@ -22,6 +22,13 @@
 # and closes its own finding, and one carrying a `requires` slot is refused until the slot is
 # filled, which is what makes the declaration honest rather than decorative.
 #
+# `params.frontmatter_ops` rides as a REAL JSON ARRAY, so the one step between a remedy and the
+# script - the host's call-boundary encoding - is modelled by ConvertTo-DispatchArgument, which
+# transcribes ScriptToolArgumentEncoder.BindArgument and reshapes nothing; see its own comment for
+# why that is the honest stand-in. A `requires` path is asserted to RESOLVE against the live
+# params by plain object/array walking, not merely to read a certain string: a path naming a key
+# the payload does not carry is the drift that check exists to close.
+#
 # Suppression state files are created by test setup rather than committed into test-vault/:
 # they are vault state, and a committed copy would make the fixture's own suppressions part of
 # every assertion. The tool reads the configured locations only - there is no ignore-file
@@ -72,9 +79,40 @@ BeforeAll {
     # up here would be exactly the malformation a caller would hit. ---
     $script:EditScriptPath = (Resolve-Path (Join-Path $PSScriptRoot '..' 'edit.ps1')).Path
 
+    function ConvertTo-DispatchArgument {
+        <#
+        WHAT STANDS IN FOR THE HOST, AND WHY IT IS HONEST.
+
+        `params.frontmatter_ops` now rides as a real JSON array, and the thing that turns it into
+        the `[string] $frontmatter_ops` edit.ps1 declares is the HOST, at the call boundary:
+        ScriptToolArgumentEncoder.BindArgument, on the signal that the parameter's `.SCHEMA`
+        side-car declares `type: "array"` while its .NET type is `string`. These tests drive
+        edit.ps1 directly rather than through the dispatcher, so that one step has to be modelled
+        here. This is a line-for-line transcription of BindArgument's two rules, and nothing more:
+
+          1. A STRUCTURED arrival value (array or object) is serialized, EXACTLY AS IT ARRIVED.
+             No @() wrap, no -AsArray, no "if it does not start with [ then bracket it". Those
+             would be reshaping, and reshaping is precisely the dishonesty to avoid: a bare-object
+             payload has to reach edit as a bare object and earn its malformed_op, because that is
+             what the real dispatcher would send.
+          2. A value that arrives as a STRING passes through verbatim, whatever the schema says -
+             the encoder's guard against encoding an already-encoded payload twice.
+
+        The two serializers differ only in escaping (System.Text.Json with relaxed escaping there,
+        ConvertTo-Json here); both emit valid JSON that edit's own ConvertFrom-Json parses to the
+        same payload, and neither changes the SHAPE, which is the whole subject of these tests.
+        Depth 64 matches System.Text.Json's default maximum, so a payload this helper can encode
+        is one the host can encode - it does not quietly truncate where the host would not.
+        #>
+        param($Value)
+        if ($Value -is [string]) { return $Value }
+        ConvertTo-Json -InputObject $Value -Depth 64 -Compress
+    }
+
     function Invoke-RemedyThroughEdit {
         param($Remedy)
-        & $script:EditScriptPath -Path $Remedy.params.path -frontmatter_ops $Remedy.params.frontmatter_ops | ConvertFrom-Json
+        & $script:EditScriptPath -Path $Remedy.params.path `
+            -frontmatter_ops (ConvertTo-DispatchArgument $Remedy.params.frontmatter_ops) | ConvertFrom-Json
     }
 
     function Invoke-RemedyThroughEditError {
@@ -83,7 +121,8 @@ BeforeAll {
         param($Remedy)
         $errorRecord = $null
         try {
-            & $script:EditScriptPath -Path $Remedy.params.path -frontmatter_ops $Remedy.params.frontmatter_ops | Out-Null
+            & $script:EditScriptPath -Path $Remedy.params.path `
+                -frontmatter_ops (ConvertTo-DispatchArgument $Remedy.params.frontmatter_ops) | Out-Null
             throw 'edit.ps1 was expected to throw but did not.'
         }
         catch {
@@ -93,21 +132,69 @@ BeforeAll {
     }
 
     function Get-RemedyOps {
-        # -NoEnumerate, exactly as edit.ps1 parses the parameter: a plain ConvertFrom-Json
-        # unrolls the outer array and would silently flatten a DOUBLE-wrapped payload back into
-        # the shape the test expected, hiding the malformation edit would refuse.
+        # The ops AS THEY RIDE - a live array of objects now, with no decode step. The leading
+        # comma stops PowerShell unrolling the array on return, which would turn a one-op payload
+        # into a bare object inside the test and hide exactly the shape these tests are here for.
         param($Remedy)
-        @($Remedy.params.frontmatter_ops | ConvertFrom-Json -NoEnumerate)
+        , $Remedy.params.frontmatter_ops
+    }
+
+    function Resolve-ParamPath {
+        <#
+        Resolves a dotted `requires` path against a live `params` object by PLAIN OBJECT AND ARRAY
+        WALKING - a numeric segment indexes a list, anything else names a property - with no
+        knowledge of lint, of edit, or of which parameter is being walked. That genericity is the
+        point: it is the algorithm an orchestrator would have, and it is the same one that
+        resolves sync's `commit.message`.
+
+        Returns @{ Found; Value }. Found:$false is the drift this closes - a `requires` path
+        naming a key the payload does not carry.
+        #>
+        param($Node, [string] $Path)
+        foreach ($segment in $Path.Split('.')) {
+            if ($null -eq $Node) { return @{ Found = $false } }
+            if ($Node -is [System.Collections.IList]) {
+                $index = 0
+                if (-not [int]::TryParse($segment, [ref] $index)) { return @{ Found = $false } }
+                if ($index -lt 0 -or $index -ge $Node.Count) { return @{ Found = $false } }
+                $Node = $Node[$index]
+                continue
+            }
+            $property = $Node.PSObject.Properties[$segment]
+            if ($null -eq $property) { return @{ Found = $false } }
+            $Node = $property.Value
+        }
+        @{ Found = $true; Value = $Node }
+    }
+
+    function Set-ParamPath {
+        # The write half of the same walk: fills the slot a `requires` path names, in place, on
+        # the live structure. This is the whole of what a caller does before dispatch now - no
+        # decode, no re-serialize, no array-shape judgment.
+        param($Node, [string] $Path, [string] $Value)
+        $segments = $Path.Split('.')
+        $parent = if ($segments.Count -eq 1) { @{ Found = $true; Value = $Node } }
+        else { Resolve-ParamPath -Node $Node -Path (($segments | Select-Object -SkipLast 1) -join '.') }
+        $parent.Found | Should -BeTrue -Because "the parent of '$Path' must resolve"
+        $parent.Value.$($segments[-1]) = $Value
+    }
+
+    function Set-RemedyRequiresSlots {
+        # Fills EVERY slot the remedy's own `requires` names, driven by that declaration rather
+        # than by hand-written knowledge of which fields are blank. A remedy that came back
+        # dispatchable after this is one whose `requires` is complete AND correctly rooted.
+        param($Remedy, [hashtable] $Values)
+        foreach ($path in @($Remedy.requires)) {
+            $Values.ContainsKey($path) | Should -BeTrue -Because "the test must supply a value for declared slot '$path'"
+            Set-ParamPath -Node $Remedy.params -Path $path -Value $Values[$path]
+        }
+        $Remedy
     }
 
     function Set-RemedyOpField {
-        # Fills a `requires` slot the way a caller must: decode the JSON-string param, set the
-        # named field, re-serialize. -InputObject over an array already emits a JSON array, so
-        # -AsArray here would double-wrap it - the same trap lint's own serializer fell into.
+        # Named-field convenience over Set-ParamPath, for the tests that fill a slot directly.
         param($Remedy, [int] $OpIndex, [string] $Field, [string] $Value)
-        $ops = @($Remedy.params.frontmatter_ops | ConvertFrom-Json)
-        $ops[$OpIndex].$Field = $Value
-        $Remedy.params.frontmatter_ops = (ConvertTo-Json -InputObject $ops -Depth 6 -Compress)
+        Set-ParamPath -Node $Remedy.params -Path "frontmatter_ops.$OpIndex.$Field" -Value $Value
         $Remedy
     }
 }
@@ -386,10 +473,16 @@ An archived note whose doc.created is recoverable from its filename date.
             $finding.disposition | Should -Be 'reported'
             $remedy = $finding.remedyOptions[0]
             $remedy.action | Should -Be 'edit-frontmatter'
-            # NOT dispatchable verbatim: the value is a judgment, which the label always said and
-            # the field now says too.
+            # NOT dispatchable without caller judgment: the value is a judgment, which the label
+            # always said and the field now says too.
             @($remedy.requires) | Should -Be @('frontmatter_ops.0.value')
-            # edit requires an array of ops, and a bare object - or a nested array - is refused.
+            # The path RESOLVES against the live params by plain object/array walking. Asserting
+            # the string alone would go green on a path naming a key the payload does not have.
+            $slot = Resolve-ParamPath -Node $remedy.params -Path 'frontmatter_ops.0.value'
+            $slot.Found | Should -BeTrue
+            $slot.Value | Should -BeExactly ''
+            # edit requires an ARRAY of ops, and a bare object - or a nested array - is refused.
+            $remedy.params.frontmatter_ops -is [array] | Should -BeTrue
             $ops = Get-RemedyOps $remedy
             $ops[0].op | Should -Be 'set_field'
             $ops[0].field | Should -Be 'doc.type'
@@ -636,6 +729,12 @@ nav.contents:
             $repoint = $finding.remedyOptions[0]
             $repoint.action | Should -Be 'edit-frontmatter'
             @($repoint.requires) | Should -Be @('frontmatter_ops.1.folder')
+            # The path resolves by walking - and the numeric segment really indexes the SECOND op,
+            # which is the half of the syntax a string assertion cannot check at all.
+            $slot = Resolve-ParamPath -Node $repoint.params -Path 'frontmatter_ops.1.folder'
+            $slot.Found | Should -BeTrue
+            $slot.Value | Should -BeExactly ''
+            $repoint.params.frontmatter_ops -is [array] | Should -BeTrue
             $ops = Get-RemedyOps $repoint
             $ops.Count | Should -Be 2
             $ops[0].op | Should -Be 'remove_nav_entry'
@@ -685,6 +784,53 @@ nav.contents:
                 Where-Object { $_.issue -eq 'folder-entry-unresolved' } | Should -BeNullOrEmpty
         }
 
+        It 'dispatches the two-op repoint through edit once its declared slot is filled' {
+            # THE STRONGEST FORM OF THE CONTRACT, on the multi-op payload: fill ONLY what
+            # `requires` names - walking the declared path itself, not a hand-written field list -
+            # and the remaining payload dispatches. Nothing about it needs caller judgment beyond
+            # the slot, and the encoding is the dispatcher's mechanical step.
+            $ghost = Join-Path $script:VaultDir 'Resources/Ghost/Ghost.md'
+            Write-FixtureFile -Path $ghost -Content @"
+---
+doc.created: 2026-07-16
+doc.type: Note
+nav.contents:
+  - link: "[[Gizmo-Reference]]"
+    description: "part specs"
+    load_when: "specs needed"
+  - folder: "Resources/Ghost/Gone"
+    description: "a folder that is not there"
+    load_when: "never"
+---
+# Ghost
+"@
+            New-Item -ItemType Directory -Path (Join-Path $script:VaultDir 'Resources/Ghost/Moved') -Force | Out-Null
+            $finding = (Get-LintPass (Invoke-Lint @{ Passes = @('frontmatter-schema') }) 'frontmatter-schema').findings |
+                Where-Object { $_.issue -eq 'folder-entry-unresolved' }
+            $repoint = $finding.remedyOptions[0]
+            $repoint.id | Should -Be 'repoint-nav-entry'
+
+            $repoint = Set-RemedyRequiresSlots -Remedy $repoint -Values @{
+                'frontmatter_ops.1.folder' = 'Resources/Ghost/Moved'
+            }
+            $Global:VaultMcpOpClasses = @('content:read', 'content:write', 'agentic:write')
+            $edit = Invoke-RemedyThroughEdit $repoint
+            $edit.frontmatterChanged | Should -BeTrue
+            @($edit.opsApplied).Count | Should -Be 2
+            @($edit.opsApplied)[0].op | Should -Be 'remove_nav_entry'
+            @($edit.opsApplied)[1].op | Should -Be 'add_nav_entry'
+
+            $after = [System.IO.File]::ReadAllText($ghost)
+            $after | Should -Not -Match 'Resources/Ghost/Gone'
+            $after | Should -Match 'folder: "Resources/Ghost/Moved"'
+            # The entry's own prose rode across untouched - that is the deterministic half the
+            # payload exists to carry, and it never passed through the caller's hands.
+            $after | Should -Match 'a folder that is not there'
+            $after | Should -Match 'never'
+            (Get-LintPass (Invoke-Lint @{ Passes = @('frontmatter-schema') }) 'frontmatter-schema').findings |
+                Where-Object { $_.issue -eq 'folder-entry-unresolved' } | Should -BeNullOrEmpty
+        }
+
         It 'carries a fully computed add_nav_entry op for a missing standard subfolder' {
             $result = Invoke-Lint @{ Passes = @('frontmatter-schema') }
             $finding = (Get-LintPass $result 'frontmatter-schema').findings |
@@ -693,9 +839,14 @@ nav.contents:
             $remedy = $finding.remedyOptions[0]
             $remedy.action | Should -Be 'edit-frontmatter'
             $remedy.params.path | Should -Be 'Projects/Widget/Widget.md'
-            # A single op serializes as a JSON ARRAY - and as a FLAT one. A double-wrapped
-            # payload is what edit refuses with malformed_op "missing 'op' member".
-            $remedy.params.frontmatter_ops | Should -Match '^\[\{'
+            # THE ONE-OP CASE. A single op still rides as an ARRAY - and as a FLAT one. Both
+            # failure directions have bitten this file: ConvertTo-Json unrolls a one-element array
+            # on PIPELINE input (bare object, refused "missing 'op' member"), and -AsArray on top
+            # of -InputObject double-wraps it (nested array, refused the same way).
+            $remedy.params.frontmatter_ops -is [array] | Should -BeTrue
+            $remedy.params.frontmatter_ops.Count | Should -Be 1
+            # ...and it survives the host's encoding step as an array of one op, not as either.
+            ConvertTo-DispatchArgument $remedy.params.frontmatter_ops | Should -Match '^\[\{"op"'
             # The boilerplate table supplies both prose fields, so nothing is left to judgment.
             @($remedy.requires).Count | Should -Be 0
             $ops = Get-RemedyOps $remedy
@@ -734,6 +885,13 @@ nav.contents:
             $remedy = $finding.remedyOptions[0]
             $remedy.action | Should -Be 'edit-frontmatter'
             @($remedy.requires) | Should -Be @('frontmatter_ops.0.description', 'frontmatter_ops.0.load_when')
+            # Both declared paths resolve against this remedy's own params, by walking.
+            foreach ($path in @($remedy.requires)) {
+                $slot = Resolve-ParamPath -Node $remedy.params -Path $path
+                $slot.Found | Should -BeTrue -Because "'$path' must name a key the payload carries"
+                $slot.Value | Should -BeExactly ''
+            }
+            $remedy.params.frontmatter_ops -is [array] | Should -BeTrue
             $ops = Get-RemedyOps $remedy
             $ops[0].op | Should -Be 'add_nav_entry'
             $ops[0].link | Should -Be '[[Widget-Design]]'
@@ -783,6 +941,12 @@ nav.contents:
             @($finding.remedyOptions.id) | Should -Be @('add-nav-entry', 'ignore-subfolder')
             $remedy = $finding.remedyOptions[0]
             @($remedy.requires) | Should -Be @('frontmatter_ops.0.description', 'frontmatter_ops.0.load_when')
+            foreach ($path in @($remedy.requires)) {
+                $slot = Resolve-ParamPath -Node $remedy.params -Path $path
+                $slot.Found | Should -BeTrue -Because "'$path' must name a key the payload carries"
+                $slot.Value | Should -BeExactly ''
+            }
+            $remedy.params.frontmatter_ops -is [array] | Should -BeTrue
             $ops = Get-RemedyOps $remedy
             $ops[0].op | Should -Be 'add_nav_entry'
             $ops[0].folder | Should -Be 'Projects/Widget/Scratch'
@@ -852,6 +1016,54 @@ nav.contents:
             $finding = (Get-LintPass (Invoke-Lint @{ Passes = @('provenance') }) 'provenance').findings |
                 Where-Object { $_.issue -eq 'missing-doc-type' -and $_.file -eq 'Resources/No-Type.md' }
             @($finding.remedyOptions[0].requires) | Should -Be @('frontmatter_ops.0.value')
+        }
+
+        It 'every declared requires path RESOLVES against its own params, across the whole run' {
+            # The converse of the walk above, and the drift the structured payload closes: that
+            # test proves no blank slot is unnamed; this one proves no NAME is blank-slotless.
+            # A `requires` entry pointing at a key the payload does not carry - a stale root, a
+            # renamed field, an index that moved when an op was added - is undetectable from the
+            # string alone, and it is exactly what a consumer would break on. The resolver walks
+            # plain objects and arrays with no per-tool knowledge, which is the point: it is the
+            # algorithm an orchestrator has, and the same one sync's commit.message needs.
+            New-Item -ItemType Directory -Path (Join-Path $script:VaultDir 'Projects/Widget/Scratch') -Force | Out-Null
+            Write-FixtureFile -Path (Join-Path $script:VaultDir 'Projects/Widget/Scratch/Keep.md') -Content "# Keep`n"
+            Write-FixtureFile -Path (Join-Path $script:VaultDir 'Projects/Widget/Corpus/Widget-Design.md') `
+                -Content "---`ndoc.created: 2026-07-16`ndoc.type: Note`n---`n# Widget Design`n"
+            Write-FixtureFile -Path (Join-Path $script:VaultDir 'Resources/No-Type.md') `
+                -Content "---`ndoc.created: 2026-07-16`n---`n# No Type`n"
+            Write-FixtureFile -Path (Join-Path $script:VaultDir 'Resources/Ghost/Ghost.md') -Content @"
+---
+doc.created: 2026-07-16
+doc.type: Note
+nav.contents:
+  - folder: "Resources/Ghost/Gone"
+    description: "a folder that is not there"
+    load_when: "never"
+---
+# Ghost
+"@
+
+            $withRequires = @()
+            $unresolved = @()
+            foreach ($pass in (Invoke-Lint @{ }).passes) {
+                foreach ($finding in @($pass.findings)) {
+                    if ($null -eq $finding.PSObject.Properties['remedyOptions']) { continue }
+                    foreach ($remedy in @($finding.remedyOptions)) {
+                        foreach ($path in @($remedy.requires)) {
+                            $withRequires += "$($remedy.id):$path"
+                            $slot = Resolve-ParamPath -Node $remedy.params -Path $path
+                            if (-not $slot.Found) { $unresolved += "$($remedy.id): $path" }
+                        }
+                    }
+                }
+            }
+            $unresolved | Should -BeNullOrEmpty
+            # All four remedies the design names as needing caller-authored text are in the run,
+            # so this is not passing by finding nothing to check.
+            @($withRequires | ForEach-Object { $_.Split(':')[0] } | Sort-Object -Unique) |
+                Should -Be @('add-nav-entry', 'repoint-nav-entry', 'set-doc-type')
+            @($withRequires | Where-Object { $_ -like 'add-nav-entry:*' }).Count | Should -BeGreaterOrEqual 4
         }
     }
 

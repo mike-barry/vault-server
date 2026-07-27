@@ -360,25 +360,36 @@ function New-LintEditPatchRemedy {
 function New-LintFrontmatterRemedy {
     <#
     .SYNOPSIS
-    An edit-frontmatter remedy. edit takes its ops as a JSON STRING parameter, so the payload is
-    serialized here rather than left as an object the caller would have to serialize itself.
+    An edit-frontmatter remedy. `params.frontmatter_ops` rides as a REAL JSON ARRAY of op objects,
+    not as a pre-encoded JSON string.
 
-    HOW `requires` ADDRESSES A SLOT INSIDE THAT JSON STRING. Tool-Contracts spells `requires` as
-    dotted param paths, and sync's commit.message walks a real nested object. frontmatter_ops is a
-    string, so a path into it has to cross a decode boundary - and it does: a `requires` segment
-    traverses INTO a JSON-string param after decoding, and a NUMERIC segment is an array index.
-    So the description slot of the first op is `frontmatter_ops.0.description`.
+    WHY THE STRUCTURE STAYS STRUCTURED. edit's frontmatter_ops parameter is a `[string]` in the
+    param() block, but that is a transport detail of the PowerShell binder, not the contract: the
+    parameter's `.SCHEMA` side-car declares `type: "array"`, and the host encodes a structured
+    argument at the call boundary on exactly that signal (ScriptToolArgumentEncoder). Serializing
+    here would put lint on the wrong side of that boundary - the payload would be a string the
+    caller has to decode to inspect, re-encode to amend, and get the array-vs-bare-object shape
+    right on by hand. Encoding is mechanical and belongs to the dispatcher.
 
-    That is a traversal rule, not a new syntax: the separator stays '.', and the numeric segment
-    reuses the op addressing edit already publishes - malformed_op carries {opIndex}, so "the op
-    at position N" is how this system names an op everywhere else. The JSON string is a transport
-    encoding of a structure the MCP parameter type cannot express, not an opaque scalar, so the
-    only structure a path can mean is the decoded one. The alternative - naming the whole
-    `frontmatter_ops` param - would say the entire computed payload is caller-supplied, which is
-    false and throws away the deterministic work `params` exists to carry.
+    HOW `requires` ADDRESSES A SLOT. Tool-Contracts spells `requires` as dotted param paths. The
+    path syntax is unchanged - `frontmatter_ops.0.description` is still the description slot of the
+    first op - but it now resolves by PLAIN OBJECT AND ARRAY WALKING, no decode step anywhere: the
+    same algorithm that resolves sync's `commit.message` against its live nested `commit` object,
+    with a numeric segment indexing an array. So one resolver serves every tool, and a path naming
+    a key the payload does not carry is checkable before dispatch rather than after.
+
+    The numeric segment still reuses the op addressing edit already publishes - malformed_op
+    carries {opIndex}, so "the op at position N" is how this system names an op everywhere else.
+    The alternative - naming the whole `frontmatter_ops` param - would say the entire computed
+    payload is caller-supplied, which is false and throws away the deterministic work `params`
+    exists to carry.
+    .PARAMETER Ops
+    The ordered op objects. Rides verbatim; @() around it keeps a ONE-OP payload an array, which
+    is the shape edit requires - the single-element unroll is the trap this file already fell into
+    once, from the other direction, when -AsArray double-wrapped every payload it emitted.
     .PARAMETER Requires
     Dotted param paths (see above) the caller must fill before dispatch. Empty means dispatchable
-    verbatim.
+    without caller judgment - the dispatcher still encodes, which needs no judgment at all.
     #>
     param(
         [Parameter(Mandatory)] [string] $Id,
@@ -387,17 +398,9 @@ function New-LintFrontmatterRemedy {
         [Parameter(Mandatory)] [object[]] $Ops,
         [string[]] $Requires = @()
     )
-    # edit requires an ARRAY of ops and refuses anything else, so the array shape is asserted
-    # rather than assumed. NOT -AsArray: that flag exists for a PIPELINE input, which unrolls a
-    # single-element array to a bare object - but -InputObject never unrolls, so the two together
-    # produced a DOUBLE array, [[{"op":...}]], which edit rejects with malformed_op "missing 'op'
-    # member". Every edit-frontmatter remedy this file emits carried that shape until a test
-    # dispatched one through the real edit for the first time.
-    $opsJson = ConvertTo-Json -InputObject @($Ops) -Depth 6 -Compress
-    if (-not $opsJson.StartsWith('[')) { $opsJson = "[$opsJson]" }
     New-LintRemedy -Id $Id -Label $Label -Action 'edit-frontmatter' -Requires $Requires -Params ([ordered]@{
             path            = $Rel
-            frontmatter_ops = $opsJson
+            frontmatter_ops = @($Ops)
         })
 }
 
@@ -846,7 +849,7 @@ function Invoke-LintProvenancePass {
                             -Issue 'stale-archived-use-skill' -Detail 'archived doc still carries a use_skill: agent.instructions entry' `
                             -RemedyOptions @(
                             (New-LintFrontmatterRemedy -Id 'strip-use-skill' -Label 'Strip the stale use_skill: directive (needs agentic:write)' `
-                                    -Rel $file.Rel -Ops @(@{ op = 'strip_directive'; kind = 'use_skill' }))
+                                    -Rel $file.Rel -Ops @([ordered]@{ op = 'strip_directive'; kind = 'use_skill' }))
                         )))
             }
         }
@@ -868,7 +871,7 @@ function Invoke-LintProvenancePass {
                             # The value is a judgment, which is what `requires` is for - the label
                             # said so in prose while the field claimed dispatchable-verbatim.
                             (New-LintFrontmatterRemedy -Id 'set-doc-type' -Label 'Set doc.type (choose the value)' `
-                                    -Rel $file.Rel -Ops @(@{ op = 'set_field'; field = 'doc.type'; value = '' }) `
+                                    -Rel $file.Rel -Ops @([ordered]@{ op = 'set_field'; field = 'doc.type'; value = '' }) `
                                     -Requires @('frontmatter_ops.0.value'))
                         )))
             }
