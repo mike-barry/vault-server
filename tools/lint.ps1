@@ -1,15 +1,33 @@
 <#
 .SYNOPSIS
-Runs the vault's deterministic convention checks over a target and reports findings, each
-carrying the exact computed payload for whichever tool owns its remedy. Reports by default;
-`apply` opts in to the narrow fix set the tool cannot be wrong about - typography, trailing
-whitespace, and git-derived provenance dates. Everything else is a finding, never a silent
-rewrite. See the Lint corpus doc (vault-primary) for the full contract.
+Runs the vault's deterministic convention checks over a target and reports findings, each carrying
+the exact computed payload for whichever tool owns its remedy. Reports by default; `apply` opts in
+to the narrow fix set the tool cannot be wrong about - typography, trailing whitespace, and
+git-derived provenance dates. Everything else is a finding, never a silent rewrite.
+
+Call this when:
+- outside text has just landed in the vault - web content, model output, anything pasted from a
+  word processor. That is where curly quotes, non-ASCII dashes, ellipsis characters, and NBSPs
+  arrive, and the typography pass is what catches them
+- you have finished a batch of writes and want to know what they broke: broken wikilinks,
+  unresolvable anchor links, filename-convention violations, invalid agent.*/nav.* frontmatter,
+  folder notes that no longer list their own contents
+- the user asks to lint, to clean up formatting, or to fix dashes or quotes. Report first, then
+  re-call with apply:true, which takes the write lock and asserts the content:write key
+- you want a remedy you can dispatch rather than a complaint. Findings carry remedyOptions whose
+  computed params target edit, move, or lint_suppressions
+- hard-wrapped prose needs attention. That pass is in NO group and runs only when named explicitly
+
+Not for silencing a finding - that is lint_suppressions, behind the lint:manage key; lint reads
+suppression state and never writes it. Not for arbitrary text: the passes scan vault files only.
+Findings are never errors - a vault with 500 violations returns success with 500 findings, so a
+populated report is not a failed call.
 
 Eight passes, ported from the vault-side vault-lint skill scripts plus the filesystem half of
-vault-agent-frontmatter's validator. Enumeration is per-pass and deliberately inconsistent -
-each pass keeps the scan set its skill-side original had, because unifying them would change
-coverage - so filesScanned is reported per pass rather than once for the call.
+vault-agent-frontmatter's validator. Enumeration is per-pass and deliberately inconsistent - each
+pass keeps the scan set its skill-side original had, because unifying them would change coverage -
+so filesScanned is reported per pass rather than once for the call. See the Lint corpus doc
+(vault-primary) for the full contract.
 .PARAMETER Passes
 Pass names and/or group tokens; every member is validated before any pass runs, so an
 unrecognized one refuses the whole call rather than half-running it. Passes:

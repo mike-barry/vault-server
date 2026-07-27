@@ -1,15 +1,33 @@
 <#
 .SYNOPSIS
 Converges the vault's git repositories - the parent and every discovered submodule - toward
-synced-and-clean, or reports exactly what blocks that. Status is the default and the routine
-call: it fetches, assesses, and returns plannedActions plus a state token with no effect on any
-working tree. Nothing mutates without apply:true. Judgment stays caller-side and enters as
-directives (commit wording, conflict strategy); sequencing is the tool's, because sequencing is
-deterministic given repo state. See the Sync corpus doc (vault-primary) for the full contract.
+synced-and-clean, or reports exactly what blocks that. Status is the default and the routine call:
+it fetches, assesses, and returns plannedActions plus a state token with no effect on any working
+tree. Nothing mutates without apply:true.
 
-The tool never returns a repository mid-merge: a conflict is predicted read-only with
-merge-tree --write-tree before any merge starts, and an authorized strategy runs the real merge
-and its resolution inside ONE lock span that exits clean.
+Call this when:
+- the user says sync, pull, push, or commit and push, or otherwise asks to reconcile local and
+  remote vault state
+- you are starting work and want the remote's changes first, or you have finished a batch of writes
+  and want them committed and pushed
+- you want to know where the repo stands. The default assessment call is cheap, affects nothing
+  beyond remote-tracking refs, and returns the state token a later directive is authorized over
+- a previous call came back blocked. Each blocked entry carries a resolution naming what unblocks
+  it - a commit directive, a conflict strategy, or a capability the caller lacks
+
+Judgment stays caller-side and enters as directives: a commit message is always the caller's own
+wording, and a conflict strategy must be named explicitly. Sequencing is the tool's, because
+sequencing is deterministic given repo state.
+
+Not a general git surface - there is no branch, rebase, stash, tag, revert, or history query here.
+Not scopeable either: both git classes are whole-repo by construction, so this cannot sync one file
+or one folder. Not for authoring vault content - use create, edit, move, or delete, then call this
+to commit the result.
+
+The tool never returns a repository mid-merge: a conflict is predicted read-only with merge-tree
+--write-tree before any merge starts, and an authorized strategy runs the real merge and its
+resolution inside ONE lock span that exits clean. See the Sync corpus doc (vault-primary) for the
+full contract.
 .PARAMETER Apply
 Mutation opt-in, default FALSE - assessment is the routine call here and converging is the
 deliberate one. False assesses and reports (plannedActions) with no effect beyond a fetch, which

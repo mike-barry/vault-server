@@ -1,16 +1,31 @@
 <#
 .SYNOPSIS
-Removes one file or folder from the vault as a single write-locked plan-validate-apply
-operation. The folder case enumerates its contents first, validates the whole set, and only
-then removes - so filesDeleted[] is a declared plan rather than a post-hoc discovery. The
-lock serializes the operation against other writers; it does not make it atomic - a folder
-delete that fails partway raises partial_state naming the files already removed.
-See the Delete corpus doc (vault-primary) for the full contract.
+Removes one file or folder from the vault as a single write-locked plan-validate-apply operation.
+
+Call this when:
+- a file or folder should stop existing. The target must exist - nothing at the path is not_found,
+  never a silent no-op
+- you are removing a folder that has contents. Pass recursive true; it is required for a non-empty
+  folder and refused against a file target rather than ignored
+- you want the blast radius before committing to it. apply:false removes nothing and returns the
+  identical report - the full file list, hidden files, the dangling-backlink census, and the
+  subset git cannot restore - with `applied` distinguishing a plan from a result. Mutation is the
+  default here, so a single-file delete needs no ceremony
+
+Not for relocating or renaming - that is move, which rewrites every reference; deleting and
+re-creating breaks every link that pointed at the old path. Not for emptying a note while keeping
+the file - that is edit with an empty body. A nested repository under the target is refused rather
+than descended into, so removing a submodule or a vendored clone is not this tool's job.
+
+The folder case enumerates its contents first, validates the whole set, and only then removes - so
+filesDeleted[] is a declared plan rather than a post-hoc discovery. The lock serializes the
+operation against other writers; it does not make it atomic - a folder delete that fails partway
+raises partial_state naming the files already removed.
 
 There is deliberately no force/purge parameter: git is the undo, and the tool never offers a
-git-bypassing hard delete. Because git is the backstop, the return names the subset git
-cannot restore (unrecoverableFiles) rather than letting recoveryHint imply cover it does not
-have.
+git-bypassing hard delete. Because git is the backstop, the return names the subset git cannot
+restore (unrecoverableFiles) rather than letting recoveryHint imply cover it does not have. See the
+Delete corpus doc (vault-primary) for the full contract.
 .PARAMETER Path
 Vault-relative path of the file or folder to delete. Taken verbatim after separator
 normalization - ".md" is NEVER inferred, so "Foo" and "Foo.md" are different values. Nothing

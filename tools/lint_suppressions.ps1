@@ -1,10 +1,24 @@
 <#
 .SYNOPSIS
-Manages the lint suppression lists - the vault-lint state files under .vault/state/vault-lint/
-that silence a lint finding. A tool-configuration companion to lint: its subject is one tool's
-configuration, not vault content, so agents never edit these files through a content primitive
-(edit is note-semantic and cannot write an opaque .txt under .vault/state/). Three lists, one
-CRUD surface. See the Lint corpus doc (vault-primary) for the full contract.
+Manages the lint suppression lists - the vault-lint state files under .vault/state/vault-lint/ that
+silence a lint finding. Three lists, one CRUD surface: list, add, remove.
+
+Call this when:
+- a lint finding is a deliberate exception rather than a defect - a wikilink to a note that will
+  never exist, a brand name that is not Title-Case, a subfolder a folder note should not list - and
+  it should stay silent on every future run
+- you are auditing what is already silenced, or retiring a suppression that has outlived its
+  reason. Action "list" takes no lock and asserts no op class
+- lint handed you an add-suppression remedy, with the entry and the list already computed
+
+Not for FIXING a finding - that is lint with apply:true. Suppressing something you could fix buries
+it permanently, which is why the mutations sit behind lint:manage rather than content:write: an
+agent trusted to fix a curly quote is not thereby trusted to bury a finding forever. Not for
+reaching the state files through a content primitive - edit is note-semantic and cannot write an
+opaque ".txt" under .vault/state/, and create refuses a path that already exists - so this tool is
+the only door. Its subject is one tool's configuration, not vault content.
+
+See the Lint corpus doc (vault-primary) for the full contract.
 .PARAMETER Action
 What to do to the list. Members:
   list   - returns the list's current entries. Takes no lock and asserts no op class.

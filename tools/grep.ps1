@@ -1,16 +1,28 @@
 <#
 .SYNOPSIS
-Content search across the vault: takes a regex pattern and returns matching lines, files, or
+Searches file CONTENT across the vault: takes a regex pattern and returns matching lines, files, or
 per-file counts as Tier-1 plain text, one result per line, in ripgrep's order. The vault's
-content-search surface (successor to search, whose filename half moved to glob). See the Grep
-spec (Plan-Tool-Grep, vault-primary) for the full contract.
+content-search surface (successor to search, whose filename half moved to glob).
+
+Call this when:
+- you are looking for notes that MENTION something and do not already know which notes those are
+- you need the exact text and line of a phrase - to build an old_string anchor for edit, or to
+  find every note referencing a term before renaming it
+- you want a file list rather than lines, or a per-file tally. Ask for the files_with_matches or
+  count output mode instead of scanning content and counting yourself
+- you want an existence check over content. Zero matches is empty output, never an error
+
+Not for finding a file by its name or path - that is glob, and grepping for a filename is the
+common mis-selection between the two. Not for reading a note you can already name - that is read.
+Narrow a search with the path and glob parameters rather than by calling grep repeatedly.
 
 A query tool: any result count is a result. Zero matches is empty output, many is many lines,
-neither is an error - it never raises a not_found or ambiguity error. grep does not implement
+neither is an error - it never raises a not-found or ambiguity error. grep does not implement
 matching; it delegates to ripgrep through the shared Search-VaultContent surface (rooted at the
-vault, so pattern semantics are native-Grep regex and results stay vault-relative and confined
-to the vault), so grep, glob, and move share one notion of what exists. It matches any text file
-rg reaches, not only .md notes.
+vault, so pattern semantics are native-Grep regex and results stay vault-relative and confined to
+the vault), so grep, glob, and move share one notion of what exists. It matches any text file rg
+reaches, not only ".md" notes. See the Grep spec (Plan-Tool-Grep, vault-primary) for the full
+contract.
 .PARAMETER Pattern
 Content regex, ripgrep syntax (native Grep semantics). Deliberately not [Parameter(Mandatory)]:
 a Mandatory [string] rejects an empty value at binding time with a PowerShell error, but the

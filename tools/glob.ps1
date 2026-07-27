@@ -1,15 +1,27 @@
 <#
 .SYNOPSIS
-Filename/pattern discovery: takes a glob pattern and returns the matching vault-relative paths,
+Finds files by NAME or PATH: takes a glob pattern and returns the matching vault-relative paths,
 one per line, in ripgrep's order. The vault's only filename-search surface and the discovery step
-that turns a name into a path (successor to resolve_wikilink). See the Glob spec (Plan-Tool-Glob,
-vault-primary) for the full contract.
+that turns a name into a path (successor to resolve_wikilink).
+
+Call this when:
+- you know a note's name but not where it lives. Glob `**/Note-Name.md` first, then pass the
+  returned path to read, edit, move, or delete - those tools take a path and never a bare name
+- you are resolving a wikilink. `[[Note-Name]]` is not a path: strip the brackets and glob for
+  `**/Note-Name.md`
+- you need to enumerate what exists under a folder or matching a shape (`Projects/**/*.md`)
+- you want an existence check. Zero matches is empty output, never an error, so no try/catch
+
+Not for searching inside files - that is grep, which matches file CONTENT, while glob only ever
+looks at the path. Grepping for a filename is the common mis-selection between the two. Not for
+reading a note once you hold its path - that is read.
 
 A query tool: any result count is a result. Zero matches is empty output, many is many lines,
 neither is an error - it never raises an ambiguity or not-found error. glob does not implement
 glob matching; it delegates to ripgrep through the shared Get-VaultFilePath enumeration (rooted at
 the vault, so pattern semantics match the native Glob tool and results stay confined to the vault),
-so glob and move can never drift to independent notions of what exists.
+so glob and move can never drift to independent notions of what exists. See the Glob spec
+(Plan-Tool-Glob, vault-primary) for the full contract.
 .PARAMETER Pattern
 Glob pattern with native Glob semantics (e.g. `**/Note-Name.md`, `Projects/**/*.md`). Expresses
 location as well as name. Matching is case-insensitive on Windows, like the native Glob tool.

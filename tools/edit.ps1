@@ -1,12 +1,31 @@
 <#
 .SYNOPSIS
-Mutates an existing note in one write-locked plan-validate-apply call: ordered frontmatter ops
-plus at most one body facet - a whole-body replacement, or a single Edit-style
-old_string/new_string patch. The note must already exist (a miss is not_found); creation is
-create's job. Every op applies to an in-memory string and the result is written once, so a
-validation failure means zero mutation and there is no partial-op disk state. See the Edit
-corpus doc (vault-primary) for the full contract, including the documented
-"read part: sha then read part: full" staleness flow.
+Mutates an EXISTING note in one write-locked plan-validate-apply call: ordered frontmatter ops plus
+at most one body facet - a whole-body replacement, or a single Edit-style old_string/new_string
+patch.
+
+Call this when:
+- you are changing the content or the frontmatter of a note that already exists. The note must
+  exist - a miss is not_found, and creation is create's job
+- you are setting, removing, or reordering frontmatter: doc.* fields, agent.instructions entries,
+  nav.contents and nav.see_also entries. The frontmatter ops are the only supported way in, and
+  authoring a "---" block through the body facet is refused frontmatter_integrity
+- you are changing one span of prose. Prefer the old_string/new_string patch over a whole-body
+  replacement: it must match exactly once, so it refuses (patch_target_not_found or
+  patch_ambiguous) rather than clobbering
+- you are replacing the whole body. That facet REQUIRES expected_sha, so read part "sha" first
+- a lint finding handed you an edit-frontmatter or edit-patch remedy with computed params
+
+Not for a path that does not exist yet - that is create. Not for renaming or relocating a note -
+that is move, which also rewrites every reference to it; edit cannot change a path. Not for
+removing a note - that is delete. Not for lint suppression state, which lives in opaque files
+under .vault/state/ - that is lint_suppressions. edit is note-semantic: a folder or an existing
+non-".md" file is kind_mismatch.
+
+Every op applies to an in-memory string and the result is written once, so a validation failure
+means zero mutation and there is no partial-op disk state. See the Edit corpus doc (vault-primary)
+for the full contract, including the documented "read part: sha then read part: full" staleness
+flow.
 .PARAMETER Path
 Vault-relative path of the note to edit, per the Path Convention: taken verbatim after
 separator normalization (backslashes fold to "/", a leading "/" is trimmed), with no ".md"

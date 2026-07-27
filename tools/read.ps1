@@ -1,10 +1,23 @@
 <#
 .SYNOPSIS
-Returns the content of the note at a vault-relative path (successor of read_note). Tier-1
-return: the raw text of the requested part (a hex digest for part "sha"), no line numbers,
-no path echo. Callers holding only a name resolve it to a path with glob first
-(Plan-Vault-Tool-Primitives: Path Convention); the path is taken verbatim after separator
-normalization - no ".md" inference.
+Returns the content of the note at a vault-relative path (successor of read_note). Tier-1 return:
+the raw text of the requested part (a hex digest for part "sha"), no line numbers, no path echo.
+
+Call this when:
+- you hold a vault-relative path and need the note's text. Holding only a name, resolve it to a
+  path with glob first - the path is taken verbatim after separator normalization, with no ".md"
+  inference (Plan-Vault-Tool-Primitives: Path Convention)
+- you are about to edit. Read the note before patching so an old_string anchor is exact, and read
+  part "sha" for the expected_sha token that makes the write staleness-checked
+- you need only the frontmatter or only the body. Part "frontmatter" and part "body" avoid pulling
+  a whole large note back through the caller
+- you want to re-check a digest you saw earlier, without re-reading the content
+
+Not for locating a note - that is glob for a name or a path shape, grep for content. Not for a
+folder or an existing non-".md" file: read is note-semantic and refuses both as kind_mismatch.
+There is no recursive or multi-path form - glob the folder, then read the paths you actually want.
+
+An operate-on tool: exactly one existing target, and a miss is not_found.
 .PARAMETER Path
 Vault-relative path of the note to read. An operate-on tool requires exactly one existing
 target: a miss errors not_found. An extensionless path is refused as invalid_argument naming

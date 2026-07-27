@@ -1,16 +1,30 @@
 <#
 .SYNOPSIS
-Relocates or renames a file or folder within the vault as one write-locked
-plan-validate-apply operation, rewriting every reference to the moved item so the link
-graph stays intact. The lock serializes the operation against other writers; it does not
-make it atomic - a multi-file rewrite that fails partway raises partial_state naming the
-files already written.
-See the Move corpus doc (vault-primary) for the full contract. Ambiguity is never an
-error: mirroring Obsidian's own link maintenance (Obsidian-Link-Behavior), a move that
-would change any bare link's resolution proceeds and protects the affected links -
-following the moved file, or pinning a threatened same-basename bystander link to its
-current target's full vault-relative path (Reference Rewrite / Protection). There is no
-ambiguity gate and no Force override.
+Relocates or RENAMES a file or folder within the vault as one write-locked plan-validate-apply
+operation, rewriting every reference to the moved item so the link graph stays intact.
+
+Call this when:
+- you are renaming a note or a folder, or moving one somewhere else. A dest with no "/" renames in
+  place, keeping the current parent; a dest containing "/" is the full vault-relative destination
+- you are reorganizing - archiving a doc, moving a note between projects or areas
+- anything in the vault might link to the item. This is the ONLY tool that rewrites `[[wikilinks]]`
+  and `![[embeds]]`, agentic nav.* frontmatter included, so relocating by create-plus-delete or
+  delete-plus-create silently breaks references this call would have carried across
+- you want the blast radius first. apply:false runs plan and validate and returns the full report -
+  what would be moved, renamed, and rewritten - without touching the vault, and `applied`
+  distinguishes a plan from a result. Mutation is the default here, since it is the point of a move
+
+Not for editing a note's content - that is edit. Not for removing something - that is delete. Not
+for changing what a file IS: the destination must preserve the source's extension, both-absent
+included, so "notes.txt" to "notes.md" is refused with no override.
+
+The lock serializes the operation against other writers; it does not make it atomic - a multi-file
+rewrite that fails partway raises partial_state naming the files already written. Ambiguity is
+never an error: mirroring Obsidian's own link maintenance (Obsidian-Link-Behavior), a move that
+would change any bare link's resolution proceeds and protects the affected links - following the
+moved file, or pinning a threatened same-basename bystander link to its current target's full
+vault-relative path (Reference Rewrite / Protection). There is no ambiguity gate and no Force
+override. See the Move corpus doc (vault-primary) for the full contract.
 .PARAMETER Source
 Vault-relative path of the file or folder to move.
 .PARAMETER Dest

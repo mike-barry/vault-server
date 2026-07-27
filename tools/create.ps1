@@ -1,10 +1,24 @@
 <#
 .SYNOPSIS
-Brings one new item into the vault in a single write-locked operation: a markdown note
-(caller-supplied frontmatter plus body) or a bare directory. The target must NOT already exist -
-the mirror image of edit's exists-contract, and the reason there is no expected_sha parameter
-here (there is no prior state to assert; already_exists is the guard). See the Create corpus doc
-(vault-primary) for the full contract.
+Brings one NEW item into the vault in a single write-locked operation: a markdown note
+(caller-supplied frontmatter plus body) or a bare directory.
+
+Call this when:
+- the thing you want does not exist yet. The target must NOT already exist - an existing path is
+  already_exists, the mirror image of edit's must-already-exist contract
+- you are writing a note from a template. Read the template, fill it in yourself, and pass the
+  finished text: there is no server-side templating, which is why this tool takes whole blocks of
+  frontmatter and body rather than field-by-field ops
+- you need a directory before its first note. A note whose parent folder is missing is refused
+  parent_not_found, so create the folder with kind "folder" first, then the note
+
+Not for changing something that already exists - that is edit, including for a note that is
+currently empty. Not for relocating or renaming an existing item - that is move, which rewrites
+the links; a create-plus-delete pair silently breaks every reference to the old path. There is no
+expected_sha parameter here because there is no prior state to assert - already_exists is the
+whole guard.
+
+See the Create corpus doc (vault-primary) for the full contract.
 .PARAMETER Kind
 Required discriminator over two disjoint parameter surfaces - unlike the intent-assertion `kind`
 on other tools, this one does real work, so it is mandatory. Members:
