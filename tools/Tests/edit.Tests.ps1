@@ -53,6 +53,195 @@ BeforeAll {
     }
 }
 
+# =============================================================================================
+# Discovery-phase setup for the "advertised frontmatter_ops contract" Context below.
+#
+# This all runs at DISCOVERY, not in a BeforeAll, because the schema's branch list is what the
+# Context's -ForEach iterates over: the enumeration has to exist before Pester builds the test
+# tree. Everything the Run phase needs is handed across through -ForEach rather than through
+# script-scope variables, so nothing here depends on discovery state surviving into Run.
+#
+# The whole point of the block is that a hand-authored schema can drift from the script it
+# documents. So NOTHING below names an op: the branch list comes out of edit.ps1's own .SCHEMA
+# block, each op instance is built from its branch's own `required` list and property nodes, and
+# the expected branch set comes out of the substrate's dispatch AST. A test that hand-listed the
+# ops it exercises would go green on exactly the drift it exists to catch.
+# =============================================================================================
+
+function Get-AdvertisedSchema {
+    <#
+    .SYNOPSIS
+    The JSON Schema a script's `.SCHEMA <param>` side-car advertises for one parameter, read out
+    of the script's comment-help.
+
+    Uses ScriptToolLoader's own two regexes - HelpBlockRegex and SectionHeaderRegex, copied
+    verbatim from src/VaultMcpServer/Tools/ScriptToolLoader.cs into the two [regex] calls below -
+    plus the loader's own section-body slice (header end to next header start, trimmed), so what
+    this returns is what the loader emits as the property node.
+
+    Read by parsing rather than by calling the real loader deliberately: reaching
+    ScriptToolLoader from Pester would mean loading VaultMcpServer.dll into this session - a
+    build artifact the running MCP server holds open - purely to re-read a file this suite can
+    already read, and it would put a build dependency on a PowerShell suite that has none today.
+    The C# ScriptToolLoaderTests own the question of whether these regexes lift the block
+    correctly and whether the block survives verbatim into `inputSchema`; what this suite owns is
+    whether the block matches the script it documents.
+    #>
+    param([Parameter(Mandatory)] [string] $ScriptPath, [Parameter(Mandatory)] [string] $ParameterName)
+
+    $text = [System.IO.File]::ReadAllText($ScriptPath)
+    $block = [regex]::Match($text, '(?s)<#(.*?)#>')
+    if (-not $block.Success) { throw "No comment-help block in $ScriptPath." }
+    $body = $block.Groups[1].Value
+
+    $headers = [regex]::Matches($body, '(?m)^[ \t]*\.(?<tag>[A-Za-z]+)\b[ \t]*(?<arg>\S+)?[ \t]*$')
+    for ($i = 0; $i -lt $headers.Count; $i++) {
+        $header = $headers[$i]
+        if ($header.Groups['tag'].Value.ToUpperInvariant() -ne 'SCHEMA') { continue }
+        if ($header.Groups['arg'].Value -ine $ParameterName) { continue }
+        $start = $header.Index + $header.Length
+        $end = if ($i + 1 -lt $headers.Count) { $headers[$i + 1].Index } else { $body.Length }
+        return ($body.Substring($start, $end - $start).Trim() | ConvertFrom-Json)
+    }
+    throw "No '.SCHEMA $ParameterName' block in $ScriptPath."
+}
+
+function Get-SubstrateOpShape {
+    <#
+    .SYNOPSIS
+    The op shapes the frontmatter substrate's dispatch actually implements, as an op name on its
+    own or an op name and its kind joined by a slash, read from the AST of
+    Private/FrontmatterOps.ps1.
+
+    Derived rather than restated so the converse of the drift check holds: an op added to the
+    substrate without a schema branch fails the comparison instead of going unnoticed. The
+    `default` clause is not a shape and the AST keeps it off `Clauses`, so it drops out for free.
+    #>
+    param([Parameter(Mandatory)] [string] $OpsScriptPath)
+
+    $ast = [System.Management.Automation.Language.Parser]::ParseFile($OpsScriptPath, [ref]$null, [ref]$null)
+    $switches = $ast.FindAll({ param($n) $n -is [System.Management.Automation.Language.SwitchStatementAst] }, $true)
+    $opSwitch = $switches | Where-Object { $_.Condition.Extent.Text -eq '$name' } | Select-Object -First 1
+    if ($null -eq $opSwitch) { throw "No 'switch (`$name)' op dispatch in $OpsScriptPath." }
+
+    $shapes = @()
+    foreach ($clause in $opSwitch.Clauses) {
+        $op = $clause.Item1.Value
+        # A branch of the op dispatch that itself switches on $kind is two shapes, not one: the
+        # required members differ per kind (add_directive/pinned takes text, use_skill takes
+        # skill+when), which is exactly what a per-branch `required` has to express.
+        $kindSwitch = $clause.Item2.FindAll({ param($n) $n -is [System.Management.Automation.Language.SwitchStatementAst] }, $true) |
+            Where-Object { $_.Condition.Extent.Text -eq '$kind' }
+        if ($kindSwitch) {
+            foreach ($kindClause in @($kindSwitch)[0].Clauses) { $shapes += "$op/$($kindClause.Item1.Value)" }
+        }
+        else { $shapes += $op }
+    }
+    return $shapes
+}
+
+# Placeholder values for the properties a branch declares required, keyed by property NAME, with
+# an optional "<op>[/<kind>].<name>" override taking precedence. The overrides exist for one
+# reason: the fixture below has to ALREADY CONTAIN the target a strip/remove branch addresses,
+# and must NOT contain the one an add branch inserts - otherwise the add reports changed:false
+# and the "it was applied" half of the assertion proves nothing. A branch requiring a property
+# with no entry here throws rather than being skipped: an unrecognized property is drift too.
+$DriftValues = @{
+    'field'                       = 'doc.type'
+    'value'                       = 'Corpus'
+    'text'                        = 'drift probe instruction text'
+    'skill'                       = 'vault-docs'
+    'when'                        = 'editing this file'
+    'note'                        = 'drift probe note'
+    'description'                 = 'drift probe entry'
+    'load_when'                   = 'probing for drift'
+    'link'                        = '[[Drift-Probe-Added]]'
+    'folder'                      = 'Inbox'
+    'before'                      = '[[Drift-Probe-Seeded]]'
+    'after'                       = '[[Drift-Probe-Seeded]]'
+    'strip_directive/pinned.text' = 'drift probe seeded pinned rule'
+    'remove_nav_entry.link'       = '[[Drift-Probe-Seeded]]'
+}
+
+function Get-DriftValue {
+    param([Parameter(Mandatory)] [string] $Shape, [Parameter(Mandatory)] [string] $Name)
+    foreach ($candidate in @("$Shape.$Name", $Name)) {
+        if ($DriftValues.ContainsKey($candidate)) { return $DriftValues[$candidate] }
+    }
+    throw "The .SCHEMA block declares a property '$Name' on branch '$Shape' that this suite has no value for - either the block gained a property or it drifted; extend `$DriftValues."
+}
+
+function New-DriftOpInstance {
+    <#
+    .SYNOPSIS
+    The minimal op object one schema branch documents: every property the branch marks `required`,
+    valued from that property's own `const` / `enum` where it pins one and from $DriftValues
+    otherwise.
+
+    Plus one thing `required` cannot carry: a branch declaring BOTH `link` and `folder` while
+    requiring neither is the link-XOR-folder pair the schema deliberately does not express (the
+    plan's Out of Scope), and the substrate refuses a nav entry op carrying neither - so the
+    builder supplies one discriminator. That rule triggers off the branch's own property set, not
+    off an op name, so it needs no maintenance when the vocabulary changes.
+    #>
+    param([Parameter(Mandatory)] $Branch, [Parameter(Mandatory)] [string] $Shape)
+
+    $propertyNames = @($Branch.properties.PSObject.Properties.Name)
+    $instance = [ordered]@{}
+    foreach ($name in @($Branch.required)) {
+        $node = $Branch.properties.$name
+        $nodeKeys = @($node.PSObject.Properties.Name)
+        $instance[$name] =
+            if ($nodeKeys -contains 'const') { $node.const }
+            elseif ($nodeKeys -contains 'enum') { @($node.enum)[0] }
+            else { Get-DriftValue -Shape $Shape -Name $name }
+    }
+    if (($propertyNames -contains 'link') -and ($propertyNames -contains 'folder') -and
+        -not ($instance.Contains('link') -or $instance.Contains('folder'))) {
+        $instance['link'] = Get-DriftValue -Shape $Shape -Name 'link'
+    }
+    return $instance
+}
+
+$DriftSchema = Get-AdvertisedSchema -ScriptPath (Join-Path $PSScriptRoot '..' 'edit.ps1') -ParameterName 'frontmatter_ops'
+$DriftSubstrateShapes = @(Get-SubstrateOpShape -OpsScriptPath (Join-Path $PSScriptRoot '..' '..' 'powershell' 'VaultAccess' 'Private' 'FrontmatterOps.ps1'))
+$DriftBranches = @(foreach ($branch in $DriftSchema.items.oneOf) {
+        $op = $branch.properties.op.const
+        $kind = if (@($branch.properties.PSObject.Properties.Name) -contains 'kind') { $branch.properties.kind.const } else { $null }
+        $shape = if ($kind) { "$op/$kind" } else { $op }
+        $instance = New-DriftOpInstance -Branch $branch -Shape $shape
+        @{
+            Shape = $shape
+            Op    = $op
+            Kind  = $kind
+            # A one-element JSON array, composed rather than ConvertTo-Json'd from a wrapper:
+            # frontmatter_ops refuses a bare object, and PowerShell unrolls a single-element
+            # array on the way into ConvertTo-Json - the -AsArray bug this plan already retired
+            # once in lint's remedy builder.
+            Ops   = '[' + (ConvertTo-Json -Compress -Depth 6 -InputObject $instance) + ']'
+        }
+    })
+
+# One note carrying a target for every strip/remove branch and none of the values an add branch
+# inserts, built from $DriftValues so the seeds and the generated ops cannot drift apart.
+$DriftFixture = @(
+    '---'
+    'doc.type: Note'
+    'agent.instructions:'
+    "  - pinned: `"$(Get-DriftValue -Shape 'strip_directive/pinned' -Name 'text')`""
+    '  - use_skill: "vault-tasks"'
+    '    when: "managing tasks"'
+    'nav.contents:'
+    "  - link: `"$(Get-DriftValue -Shape 'remove_nav_entry' -Name 'link')`""
+    '    description: "seeded so the remove branch addresses a real entry"'
+    '---'
+    ''
+    '# Drift-Probe'
+    ''
+    'body line'
+    ''
+) -join "`n"
+
 Describe 'edit' {
     BeforeEach {
         $script:TempRoot = Join-Path ([System.IO.Path]::GetTempPath()) ('vault-mcp-edit-pester-' + [guid]::NewGuid().ToString('N'))
@@ -375,6 +564,94 @@ Describe 'edit' {
             $result.opsApplied[0].field | Should -Be 'nav.see_also'
             $result.opsApplied[0].changed | Should -BeTrue
             $result.resultingFrontmatter | Should -Match ([regex]::Escape('folder: "Archive"'))
+        }
+    }
+
+    Context 'the advertised frontmatter_ops contract' -ForEach @{
+        Schema      = $DriftSchema
+        Branches    = $DriftBranches
+        Shapes      = @($DriftBranches | ForEach-Object { $_.Shape })
+        Substrate   = $DriftSubstrateShapes
+        Fixture     = $DriftFixture
+        FixturePath = 'Inbox/Drift-Probe.md'
+        ModulePath  = (Join-Path $PSScriptRoot '..' '..' 'powershell' 'VaultAccess' 'VaultAccess.psd1')
+    } {
+        # The drift guard for the `.SCHEMA frontmatter_ops` side-car in edit.ps1. The block is
+        # hand-authored JSON Schema and nothing in the loader checks it against the script - the
+        # loader only checks that it parses and names a real parameter - so the one thing that can
+        # keep it honest is dispatching every shape it documents through the real script.
+        #
+        # "Advertises, does not enforce" cuts both ways, and only one of them is testable: a
+        # payload the schema permits and the script refuses is a lie this catches; a payload the
+        # script accepts and the schema does not describe (an extra member, a value convention) is
+        # not, by design. What the branch-set comparison below adds is the other direction at op
+        # granularity - a new op in the substrate with no branch here fails.
+
+        It 'advertises an array of op objects with a description of its own' {
+            $Schema.type | Should -Be 'array'
+            # Its own, not the .PARAMETER text: the block replaces the whole property node, so
+            # nothing of the help entry reaches the client for this parameter.
+            $Schema.description | Should -Not -BeNullOrEmpty
+            $Schema.items.oneOf.Count | Should -BeGreaterThan 0
+        }
+
+        It 'pins every branch on a const op and describes every property it declares' {
+            foreach ($branch in $Schema.items.oneOf) {
+                $branch.type | Should -Be 'object'
+                # const, not enum or a bare type: it is what makes the oneOf branches mutually
+                # exclusive, and what lets this suite name a branch without a lookup table.
+                @($branch.properties.op.PSObject.Properties.Name) | Should -Contain 'const'
+                $branch.required | Should -Contain 'op'
+                foreach ($property in $branch.properties.PSObject.Properties) {
+                    $property.Value.description |
+                        Should -Not -BeNullOrEmpty -Because "$($branch.properties.op.const).$($property.Name) is advertised with no description, so the value conventions it carries reach no caller"
+                }
+            }
+        }
+
+        It 'declares exactly the op shapes the substrate implements' {
+            # The converse of the dispatch cases below: those prove every branch works, this
+            # proves no working op lacks a branch. Both sides are derived - the branches from the
+            # block, the shapes from the dispatch AST - so neither can be satisfied by editing a
+            # list in this file. Both are computed at discovery, next to the branch enumeration
+            # the tree is built from; a Pester function defined at file scope is not in scope here
+            # at Run time, and a second copy of either reader would be the drift itself.
+            ($Shapes | Sort-Object) -join ', ' | Should -BeExactly (($Substrate | Sort-Object) -join ', ')
+        }
+
+        It 'enumerates the nav block-list keys the substrate allows, and no others' {
+            # The key enum is the one place the block restates a list the substrate owns. Read
+            # through the module's own session state because Get-VaultNavListKey is private - the
+            # allow-list is deliberately a collection in one place, and a second copy here would
+            # be the drift this suite exists to refuse.
+            Import-Module $ModulePath -Force
+            $navKeys = & (Get-Module VaultAccess) { Get-VaultNavListKey }
+            $keyed = @($Schema.items.oneOf | Where-Object { @($_.properties.PSObject.Properties.Name) -contains 'key' })
+            $keyed.Count | Should -BeGreaterThan 0
+            foreach ($branch in $keyed) {
+                (@($branch.properties.key.enum) -join ', ') | Should -BeExactly (($navKeys) -join ', ')
+            }
+        }
+
+        It 'dispatches the <Shape> branch through edit.ps1 and the substrate applies it' -ForEach $DriftBranches {
+            # The whole guard, per branch: the op object was built from this branch's own
+            # `required` list and property nodes, and it goes into the real script through the
+            # real parameter. A branch documenting a shape the substrate refuses fails here as
+            # malformed_op (or protected_directive_violation / field_shape_mismatch) - the script
+            # throws, and Pester fails the case on the throw.
+            $full = Join-Path $script:VaultDir $FixturePath
+            [System.IO.File]::WriteAllText($full, $Fixture)
+
+            $result = & $script:ScriptPath -Path $FixturePath -frontmatter_ops $Ops | ConvertFrom-Json
+
+            $result.opsApplied.Count | Should -Be 1
+            $result.opsApplied[0].op | Should -Be $Op
+            if ($Kind) { $result.opsApplied[0].kind | Should -Be $Kind }
+            # Accepted AND applied. changed:false would mean the shape parsed and then addressed
+            # nothing, which is the half-proof a schema drift test must not settle for - the
+            # fixture is seeded so every documented shape has real work to do.
+            $result.opsApplied[0].changed | Should -BeTrue
+            $result.frontmatterChanged | Should -BeTrue
         }
     }
 

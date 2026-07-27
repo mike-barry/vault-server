@@ -34,24 +34,108 @@ than guessed at. edit is note-semantic: a path resolving to a folder or to an ex
 non-".md" file is kind_mismatch.
 .PARAMETER frontmatter_ops
 A JSON string holding an ORDERED array of frontmatter op objects, deserialized and validated
-in-script (the derived MCP schema cannot express an array of typed objects). Order and
-repetition are semantic - each op sees the result of the previous one. Vocabulary:
-  {"op":"set_field","field":"doc.type","value":"Corpus"}      - flat top-level scalar set
-  {"op":"remove_field","field":"doc.type"}                    - removal, routed to the scalar or
-                                                                block primitive by detected shape
-  {"op":"add_hint","text":"..."}                              - bare (revisable) agent.instructions entry
-  {"op":"add_directive","kind":"pinned","text":"..."}         - the user's own binding rule
-  {"op":"add_directive","kind":"use_skill","skill":"vault-docs","when":"editing this file","note":"..."}
-  {"op":"strip_directive","kind":"pinned","text":"..."}       - removes exactly the named entry
-  {"op":"strip_directive","kind":"use_skill"}                 - removes every use_skill entry
-  {"op":"add_nav_entry","key":"nav.contents","link":"[[Note]]","description":"...","load_when":"..."}
-                                                              - optional before/after positions the
-                                                                entry against one named by target
-  {"op":"remove_nav_entry","key":"nav.see_also","folder":"Inbox"}  - removes the addressed entry,
-                                                                dropping the key if that empties it
+in-script. The op vocabulary is stated once, in the .SCHEMA block below: that block replaces
+this parameter's derived property node, so it is what clients actually see, and it is the copy
+the drift test dispatches against the script. Restating the shapes here would fork the contract
+into a second copy that nothing guards.
 An unknown op, a missing op parameter, or text carrying a line break, a control character, or a
 '"' is malformed_op with {opIndex, reason}. agent.instructions is reachable only through the
 directive ops - a generic set_field/remove_field against it is protected_directive_violation.
+.SCHEMA frontmatter_ops
+{
+  "type": "array",
+  "description": "An ORDERED array of frontmatter op objects. Order and repetition are semantic: each op sees the result of the previous one, and the whole array is applied to one in-memory string written once, so a failure anywhere means zero mutation. An op that changes nothing still succeeds and reports changed:false. This schema ADVERTISES the op shapes; it does not enforce them - the script and the frontmatter substrate are the only enforcement, so a payload that satisfies this schema can still be refused as malformed_op. The rules no JSON Schema keyword here can carry, notably the link/folder exclusivity on the nav entry ops and the [[Note-Name]] bracket form of a wikilink, are stated in the property descriptions instead.",
+  "items": {
+    "oneOf": [
+      {
+        "type": "object",
+        "properties": {
+          "op": { "const": "set_field", "description": "Set a flat top-level scalar field, creating it when absent." },
+          "field": { "type": "string", "description": "Top-level frontmatter key, e.g. \"doc.type\". Letters, digits, \".\" and \"_\" only. A key that currently holds a block list is refused field_shape_mismatch; \"agent.instructions\" is refused protected_directive_violation - use the directive ops." },
+          "value": { "type": "string", "description": "The scalar value, written verbatim. Refused if it carries a line break, a control character, or a '\"' character - the read side strips one quote layer without unescaping, so escaping is not the fix." }
+        },
+        "required": ["op", "field", "value"]
+      },
+      {
+        "type": "object",
+        "properties": {
+          "op": { "const": "remove_field", "description": "Remove a top-level field, routed to the scalar or the block primitive by the field's detected shape. An absent field is a no-op reporting changed:false." },
+          "field": { "type": "string", "description": "Top-level frontmatter key to remove. \"agent.instructions\" is refused protected_directive_violation - use strip_directive, which names the entry it drops." }
+        },
+        "required": ["op", "field"]
+      },
+      {
+        "type": "object",
+        "properties": {
+          "op": { "const": "add_hint", "description": "Append a bare (revisable) agent.instructions entry - a navigation hint, not a binding rule." },
+          "text": { "type": "string", "description": "The hint text. Refused if it carries a line break, a control character, or a '\"' character. A duplicate is a no-op reporting changed:false." }
+        },
+        "required": ["op", "text"]
+      },
+      {
+        "type": "object",
+        "properties": {
+          "op": { "const": "add_directive", "description": "Append a binding agent.instructions directive entry. A duplicate is a no-op reporting changed:false." },
+          "kind": { "const": "pinned", "description": "The user's own binding rule - a \"pinned:\" entry, hands-off for an agent." },
+          "text": { "type": "string", "description": "The rule's exact text. Refused if it carries a line break, a control character, or a '\"' character." }
+        },
+        "required": ["op", "kind", "text"]
+      },
+      {
+        "type": "object",
+        "properties": {
+          "op": { "const": "add_directive", "description": "Append a binding agent.instructions directive entry. A duplicate is a no-op reporting changed:false." },
+          "kind": { "const": "use_skill", "description": "A binding directive to route through a named skill under a stated condition - a \"use_skill:\" entry." },
+          "skill": { "type": "string", "description": "Skill name, e.g. \"vault-docs\"." },
+          "when": { "type": "string", "description": "The condition under which the skill applies, e.g. \"editing this file\". Two use_skill entries differing only in \"when\" are distinct entries." },
+          "note": { "type": "string", "description": "Optional free-text note carried on the entry; omitted from the written entry when empty." }
+        },
+        "required": ["op", "kind", "skill", "when"]
+      },
+      {
+        "type": "object",
+        "properties": {
+          "op": { "const": "strip_directive", "description": "Remove agent.instructions directive entries; the key itself is dropped when the removal leaves nothing under it." },
+          "kind": { "const": "pinned", "description": "Removes exactly the one \"pinned:\" entry whose text matches, case-SENSITIVELY - a pinned rule is the user's own prose. An unmatched strip is a no-op reporting changed:false." },
+          "text": { "type": "string", "description": "The exact text of the pinned entry to remove. Dropping one of the user's binding rules has to name it." }
+        },
+        "required": ["op", "kind", "text"]
+      },
+      {
+        "type": "object",
+        "properties": {
+          "op": { "const": "strip_directive", "description": "Remove agent.instructions directive entries; the key itself is dropped when the removal leaves nothing under it." },
+          "kind": { "const": "use_skill", "description": "Removes EVERY \"use_skill:\" entry at once and takes no target - deliberately asymmetric with kind \"pinned\", which names the single entry it drops." }
+        },
+        "required": ["op", "kind"]
+      },
+      {
+        "type": "object",
+        "properties": {
+          "op": { "const": "add_nav_entry", "description": "Insert one entry into a nav block-list, creating the key - and the frontmatter fence - when absent. Idempotent on the target value: a duplicate is a no-op reporting changed:false and does NOT update the existing entry, so rewriting one is a remove plus an add in the same ordered array." },
+          "key": { "enum": ["nav.contents", "nav.see_also"], "description": "Which nav block-list to address. Matched case-insensitively and always written in the canonical spelling listed here." },
+          "link": { "type": "string", "description": "Wikilink target, in the [[Note-Name]] bracket form - a convention, since a wikilink is a plain string to this schema. Supply exactly ONE of \"link\" or \"folder\": both, or neither, is malformed_op, which this schema deliberately does not try to express." },
+          "folder": { "type": "string", "description": "Vault-relative folder path, e.g. \"Inbox\". Supply exactly ONE of \"link\" or \"folder\"." },
+          "description": { "type": "string", "description": "Required and non-empty: what the entry points at and why. An entry without one is a schema violation, so the op refuses it rather than writing a note it knows the validator will report." },
+          "load_when": { "type": "string", "description": "Optional condition under which an agent should load the target; omitted from the written entry when empty." },
+          "before": { "type": "string", "description": "Optional position: insert immediately before the existing entry with this target value (its link or its folder, whichever it carries). Mutually exclusive with \"after\", and an anchor matching no entry or several is malformed_op rather than a silent fallback. With neither anchor the position is a pure function of the list - a link entry lands at the end of the link run, a folder entry at the end." },
+          "after": { "type": "string", "description": "Optional position: insert immediately after the existing entry with this target value. Mutually exclusive with \"before\"." }
+        },
+        "required": ["op", "key", "description"]
+      },
+      {
+        "type": "object",
+        "properties": {
+          "op": { "const": "remove_nav_entry", "description": "Remove one entry from a nav block-list, addressed by its target value and never by index - ops are ordered, so an index would name a different entry the moment an earlier op shifted the list. The key is dropped when the removal empties it, and an absent target is a no-op reporting changed:false." },
+          "key": { "enum": ["nav.contents", "nav.see_also"], "description": "Which nav block-list to address. Matched case-insensitively and always written in the canonical spelling listed here." },
+          "link": { "type": "string", "description": "Wikilink target of the entry to remove, in the [[Note-Name]] bracket form. Supply exactly ONE of \"link\" or \"folder\". Matching is case-insensitive, and a target matching more than one entry is malformed_op rather than a coin flip." },
+          "folder": { "type": "string", "description": "Folder path of the entry to remove. Supply exactly ONE of \"link\" or \"folder\"." }
+        },
+        "required": ["op", "key"]
+      }
+    ]
+  }
+}
 .PARAMETER body
 Whole-body replacement: everything after the frontmatter block's closing fence. Unset leaves the
 body untouched; an empty string truncates it. Mutually exclusive with the old_string/new_string
