@@ -20,9 +20,8 @@ namespace VaultMcpServer.Tools;
 /// <see cref="JsonElement"/> is the same immutable, already-validated representation
 /// <see cref="ScriptTool.BuildInputSchema"/> returns and MCP's <c>inputSchema</c> is, so it
 /// round-trips verbatim through <c>SerializeToElement</c>. Being structured rather than opaque
-/// also makes the later encoding signal readable off it directly: "does this parameter's
-/// side-car declare a non-string type while its .NET type is string?" is
-/// <c>Schema?.TryGetProperty("type", ...)</c> against <see cref="JsonType"/>, with no re-parse.
+/// is also what lets the argument-encoding signal be read off it directly, with no re-parse -
+/// see <see cref="EncodesStructuredArgument"/>.
 /// </summary>
 public sealed record ScriptToolParameter(
     string Name,
@@ -30,7 +29,79 @@ public sealed record ScriptToolParameter(
     bool Required,
     string Description,
     IReadOnlyList<string>? AllowedValues,
-    JsonElement? Schema = null);
+    JsonElement? Schema = null)
+{
+    /// <summary>
+    /// Whether a structured client argument for this parameter is JSON-encoded before it is
+    /// splatted into the runspace (see <see cref="ScriptToolArgumentEncoder"/>). The signal is
+    /// <em>derived</em>, never a hand-maintained per-tool table: a parameter whose side-car
+    /// schema declares a non-string type while its .NET static type is <c>string</c> is one the
+    /// script means to receive as JSON text and parse itself, so the host hands it text.
+    ///
+    /// It lives here because both of its inputs are this record's own fields - it is a pure
+    /// derived fact about one parameter, the same kind of thing as <see cref="Required"/> - so
+    /// every consumer that holds a parameter can read it without a lookup helper. The dispatcher
+    /// reads it per client argument today; the remedy-payload path reads the same property one
+    /// level up, over the parameters of the tool a remedy names.
+    ///
+    /// Both halves matter. A parameter with no side-car has nothing declaring a shape, so it is
+    /// untouched. A side-car declaring <c>type: "string"</c> is the script asking for a plain
+    /// string, so it is untouched. And a parameter whose .NET type is <em>not</em> string (a
+    /// <c>[string[]]</c>, say) already binds a real array through the splat, so encoding it would
+    /// break the binding rather than enable it.
+    /// </summary>
+    public bool EncodesStructuredArgument =>
+        string.Equals(JsonType, "string", StringComparison.Ordinal)
+        && Schema is { } schema
+        && DeclaresNonStringType(schema);
+
+    /// <summary>
+    /// Whether a side-car schema affirmatively declares a non-string type at its top level.
+    /// Deliberately narrow, over the three shapes a real JSON Schema `type` can take:
+    ///
+    /// <list type="bullet">
+    /// <item><description><b>A string</b> (<c>"type": "array"</c>) - a non-string name declares
+    /// one. Scalar names (<c>"integer"</c>, <c>"boolean"</c>) satisfy this too, harmlessly: the
+    /// arrival-shape rule in <see cref="ScriptToolArgumentEncoder"/> only ever encodes an array
+    /// or an object, so a number or a bool passes through whatever this returns.</description></item>
+    /// <item><description><b>An array of strings</b> (<c>"type": ["array", "null"]</c>) - a union
+    /// declares one if any member is a non-string type. <c>"null"</c> does not count: it is the
+    /// absence of a value rather than a shape, and <c>["string","null"]</c> is the idiomatic
+    /// spelling of an optional string, which has to read exactly like a plain <c>"string"</c> here.
+    /// <c>["string","array"]</c> does count, and is exactly right under the arrival-shape rule: a
+    /// string arrival passes verbatim, an array arrival encodes.</description></item>
+    /// <item><description><b>Absent</b> - a block constraining only through <c>oneOf</c>,
+    /// <c>enum</c>, <c>const</c>, or <c>$ref</c> declares no type, so it declares no non-string
+    /// type and the parameter is <em>not</em> encoded. This is the conservative reading, and the
+    /// deliberate one: encoding is not recoverable in-script (the script would parse text it never
+    /// asked for), whereas not encoding is, because a caller can always send the already-encoded
+    /// string, which passes through verbatim. An author who wants a `oneOf` block encoded writes a
+    /// sibling top-level <c>"type"</c> alongside it - which is also what makes the block honest to
+    /// a client reading the advertised schema. Any other JSON shape under <c>type</c> (a number, an
+    /// object) is malformed as a schema and is read the same way as absent.</description></item>
+    /// </list>
+    ///
+    /// Type names are compared ordinally: JSON Schema's type vocabulary is lowercase and
+    /// case-sensitive, so <c>"Array"</c> is not the keyword and must not be read as one.
+    /// </summary>
+    private static bool DeclaresNonStringType(JsonElement schema)
+    {
+        if (schema.ValueKind != JsonValueKind.Object || !schema.TryGetProperty("type", out var type))
+            return false;
+        return type.ValueKind switch
+        {
+            JsonValueKind.String => IsNonStringTypeName(type),
+            JsonValueKind.Array => type.EnumerateArray().Any(IsNonStringTypeName),
+            _ => false,
+        };
+    }
+
+    private static bool IsNonStringTypeName(JsonElement name) =>
+        name.ValueKind == JsonValueKind.String
+        && name.GetString() is { } declared
+        && !string.Equals(declared, "string", StringComparison.Ordinal)
+        && !string.Equals(declared, "null", StringComparison.Ordinal);
+}
 
 /// <summary>
 /// An MCP tool backed by a PowerShell script: name and description from comment-based

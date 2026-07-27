@@ -33,6 +33,18 @@ public sealed class ScriptToolDispatcherTests : IClassFixture<ScriptToolDispatch
             @params = new { name = toolName, arguments },
         });
 
+    /// <summary>The same body, with arguments that are not all strings - a real JSON array or
+    /// object for a structured argument, so the encoding tests drive the wire shape a client
+    /// actually sends rather than a pre-stringified stand-in.</summary>
+    private static string StructuredToolCallBody(string toolName, Dictionary<string, object?> arguments) =>
+        JsonSerializer.Serialize(new
+        {
+            jsonrpc = "2.0",
+            id = 1,
+            method = "tools/call",
+            @params = new { name = toolName, arguments },
+        });
+
     private static HttpClient AuthedClient(Fixture fixture, string token)
     {
         var client = fixture.CreateClient();
@@ -286,6 +298,137 @@ public sealed class ScriptToolDispatcherTests : IClassFixture<ScriptToolDispatch
         Assert.True(File.Exists(allowedMarker));
     }
 
+    /// <summary>Runs a `shape` call and returns its parsed report - the tool's real output, so
+    /// every encoding assertion below is about what the script actually parsed rather than about
+    /// what the dispatcher put in the splat.</summary>
+    private async Task<JsonElement> CallShapeAsync(Dictionary<string, object?> arguments)
+    {
+        using var client = AuthedClient(_fixture, Fixture.AdminToken);
+        using var response = await client.PostAsync("/mcp", JsonBody(StructuredToolCallBody("shape", arguments)));
+        var text = await response.Content.ReadAsStringAsync();
+        using var doc = JsonDocument.Parse(ExtractJsonRpcPayload(text));
+        var result = doc.RootElement.GetProperty("result");
+        var content = result.GetProperty("content").EnumerateArray().First().GetProperty("text").GetString()!;
+        Assert.False(result.TryGetProperty("isError", out var isError) && isError.GetBoolean(), content);
+        return JsonDocument.Parse(content).RootElement.Clone();
+    }
+
+    /// <summary>
+    /// A real JSON array sent for a parameter whose side-car declares <c>type: "array"</c> reaches
+    /// the <c>[string]</c> script parameter as JSON text, which the script's own
+    /// <c>ConvertFrom-Json -NoEnumerate</c> parses back into the array it was. Without the encoding
+    /// the splat hands PowerShell an <c>object[]</c>, which stringifies into a <c>[string]</c>
+    /// parameter as "System.Object[]" and fails to parse at all.
+    /// </summary>
+    [Fact]
+    public async Task ToolsCall_StructuredArrayForSideCarArrayParameter_ReachesTheScriptAsParseableJson()
+    {
+        var report = await CallShapeAsync(new()
+        {
+            ["items"] = new[] { new { name = "first" }, new { name = "second" } },
+        });
+
+        Assert.True(report.GetProperty("itemsIsArray").GetBoolean());
+        Assert.Equal(2, report.GetProperty("itemsCount").GetInt32());
+        Assert.Equal("first", report.GetProperty("itemsFirstName").GetString());
+        Assert.Equal("""[{"name":"first"},{"name":"second"}]""", report.GetProperty("itemsRaw").GetString());
+    }
+
+    /// <summary>
+    /// The rule that makes the encoding safe to switch on: only a <em>structured</em> arrival value
+    /// is serialized. A caller that already encoded its payload - every caller written against the
+    /// contract as it stands today, and every hand-encoded remedy splat - sends a JSON string, and
+    /// it must pass through verbatim. Encoding it a second time would hand the script a JSON string
+    /// literal where it expects an array, which parses as a bare string and is refused.
+    /// </summary>
+    [Fact]
+    public async Task ToolsCall_AlreadyEncodedStringForSideCarArrayParameter_IsNotEncodedAgain()
+    {
+        const string encoded = """[{"name":"first"},{"name":"second"}]""";
+        var report = await CallShapeAsync(new() { ["items"] = encoded });
+
+        // Verbatim: the same characters the caller sent, not a JSON string literal wrapping them.
+        Assert.Equal(encoded, report.GetProperty("itemsRaw").GetString());
+        Assert.True(report.GetProperty("itemsIsArray").GetBoolean());
+        Assert.Equal(2, report.GetProperty("itemsCount").GetInt32());
+        Assert.Equal("first", report.GetProperty("itemsFirstName").GetString());
+    }
+
+    /// <summary>The structured-array and already-encoded-string arrivals converge on byte-identical
+    /// script input - the property that lets a caller send either form.</summary>
+    [Fact]
+    public async Task ToolsCall_StructuredAndPreEncodedArrivals_ReachTheScriptIdentically()
+    {
+        var structured = await CallShapeAsync(new() { ["items"] = new[] { new { name = "first" } } });
+        var preEncoded = await CallShapeAsync(new() { ["items"] = """[{"name":"first"}]""" });
+
+        Assert.Equal(structured.GetProperty("itemsRaw").GetString(), preEncoded.GetProperty("itemsRaw").GetString());
+    }
+
+    /// <summary>The signal is a non-string declared type, not "array" specifically: an object-typed
+    /// side-car encodes a structured object the same way.</summary>
+    [Fact]
+    public async Task ToolsCall_StructuredObjectForSideCarObjectParameter_ReachesTheScriptAsParseableJson()
+    {
+        var report = await CallShapeAsync(new()
+        {
+            ["payload"] = new { message = "recorded" },
+        });
+
+        Assert.Equal("recorded", report.GetProperty("payloadMessage").GetString());
+    }
+
+    /// <summary>
+    /// The two non-encoding cases, together so the contrast is in one place: a parameter with no
+    /// side-car at all, and one whose side-car declares <c>type: "string"</c>. Both take exactly
+    /// today's path - a string argument arrives as itself.
+    /// </summary>
+    [Fact]
+    public async Task ToolsCall_ParametersWithNoSideCarOrAStringSideCar_PassStringsThroughUnchanged()
+    {
+        var report = await CallShapeAsync(new()
+        {
+            ["plain"] = """[{"name":"first"}]""",
+            ["declared_string"] = "just text",
+        });
+
+        // A JSON-looking string against a parameter with no side-car is still just a string: the
+        // dispatcher has no schema to read, so it does nothing to it in either direction.
+        Assert.Equal("""[{"name":"first"}]""", report.GetProperty("plain").GetString());
+        Assert.Equal("just text", report.GetProperty("declaredString").GetString());
+    }
+
+    /// <summary>
+    /// Round-trip fidelity through the encoder's chosen options. The payload carries non-ASCII and
+    /// the characters <c>System.Text.Json</c>'s <em>default</em> encoder escapes for HTML safety
+    /// (<c>&lt;</c>, <c>&gt;</c>, <c>&amp;</c>, <c>+</c>, <c>'</c>) - a vault path or a frontmatter
+    /// value can hold every one of them. The relaxed encoder writes them as themselves, so the
+    /// script sees the bytes the caller sent; the default encoder would still produce valid JSON
+    /// that parses back to the same value, but the payload text - which a tool echoes into its own
+    /// error data and its logs - would be an unreadable escape run.
+    /// </summary>
+    [Fact]
+    public async Task ToolsCall_PayloadWithNonAsciiAndDefaultEscapeSetCharacters_RoundTripsVerbatim()
+    {
+        const string awkward = "café — 日本語 <tag> & 'quoted' a+b";
+        var report = await CallShapeAsync(new()
+        {
+            ["items"] = new[] { new { name = awkward } },
+        });
+
+        // Survives encode -> ConvertFrom-Json -> the script's own output.
+        Assert.Equal(awkward, report.GetProperty("itemsFirstName").GetString());
+
+        // And survives as the characters themselves. System.Text.Json's default encoder would have
+        // rewritten every one of them as a six-character backslash-u escape - still valid JSON,
+        // still parsing back to the same value, which is why the assertion above cannot tell the
+        // two encoders apart. The absence of any such escape run in the text the script actually
+        // received is what pins the choice.
+        var raw = report.GetProperty("itemsRaw").GetString()!;
+        Assert.Equal("""[{"name":"café — 日本語 <tag> & 'quoted' a+b"}]""", raw);
+        Assert.DoesNotContain("\\u", raw, StringComparison.OrdinalIgnoreCase);
+    }
+
     public sealed class Fixture : ProgramHostFixtureBase
     {
         public const string AdminToken = "test-admin-token";
@@ -329,6 +472,59 @@ public sealed class ScriptToolDispatcherTests : IClassFixture<ScriptToolDispatch
                 #>
                 param([Parameter(Mandatory=$true)] [string]$Name)
                 Write-Output "hello $Name"
+                """);
+
+            // The argument-encoding fixture. Every parameter is [string] - exactly like the real
+            // tools, whose standalone `pwsh -File` invariant is what keeps them that way - and the
+            // `.SCHEMA` side-cars are the only thing that differs between them, so a test that
+            // varies only which parameter it sends a structured value to isolates the signal.
+            File.WriteAllText(Path.Combine(toolsDir, "shape.ps1"), """
+                <#
+                .SYNOPSIS
+                Reports how each of its arguments looked by the time it reached the script.
+                .PARAMETER items
+                A side-car-array parameter that stays [string] in the param() block and parses its
+                own JSON, the way edit's frontmatter_ops does.
+                .SCHEMA items
+                {
+                  "type": "array",
+                  "items": { "type": "object" },
+                  "description": "An ordered array of objects, each with a \"name\"."
+                }
+                .PARAMETER payload
+                A side-car-object parameter, also [string].
+                .SCHEMA payload
+                { "type": "object", "description": "An object carrying a \"message\"." }
+                .PARAMETER declared_string
+                A parameter whose side-car declares type "string" - present, but declaring the type
+                the .NET parameter already has, so it is not an encoding parameter.
+                .SCHEMA declared_string
+                { "type": "string", "description": "Plain text." }
+                .PARAMETER plain
+                A parameter with no side-car at all.
+                .NOTES
+                OpClass: content:write
+                #>
+                [CmdletBinding()]
+                param(
+                    [string] $items,
+                    [string] $payload,
+                    [string] $declared_string,
+                    [string] $plain
+                )
+                $report = [ordered]@{ itemsRaw = $items; declaredString = $declared_string; plain = $plain }
+                if (-not [string]::IsNullOrWhiteSpace($items)) {
+                    # The same parse the real tools do, -NoEnumerate and all: this is what has to
+                    # succeed for the encoding to be worth anything.
+                    $parsed = ConvertFrom-Json -InputObject $items -NoEnumerate
+                    $report.itemsIsArray = $parsed -is [System.Object[]]
+                    $report.itemsCount = @($parsed).Count
+                    $report.itemsFirstName = @($parsed)[0].name
+                }
+                if (-not [string]::IsNullOrWhiteSpace($payload)) {
+                    $report.payloadMessage = (ConvertFrom-Json -InputObject $payload).message
+                }
+                $report | ConvertTo-Json -Depth 6 -Compress
                 """);
 
             MarkerDir = Path.Combine(TempDir, "markers");

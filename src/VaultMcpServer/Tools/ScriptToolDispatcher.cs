@@ -173,7 +173,7 @@ public sealed class ScriptToolDispatcher(ScriptToolRegistry registry, NativeTool
                 // caller learns it, not a denial.
                 new { tool = name, param = unknownArgument });
 
-        var arguments = ConvertArguments(context.Params?.Arguments);
+        var arguments = ConvertArguments(tool, context.Params?.Arguments);
         var execution = await runner.InvokeAsync(tool.ScriptPath, arguments, cancellationToken, grant.ScopeRoots, grant.OpClasses);
         // A script's own error text is surfaced verbatim, never re-wrapped: a tool script that threw
         // a New-VaultToolError already carries the {code, message, data?} shape, and re-shaping here
@@ -257,26 +257,26 @@ public sealed class ScriptToolDispatcher(ScriptToolRegistry registry, NativeTool
         return vaultConfig.DefaultVault;
     }
 
-    private static IReadOnlyDictionary<string, object?> ConvertArguments(IDictionary<string, JsonElement>? arguments)
+    /// <summary>
+    /// Builds the splat hashtable's contents from the call's JSON arguments. Each argument is
+    /// matched to the parameter it names - case-insensitively, the same way the binder matches and
+    /// the same way <see cref="UnadvertisedArgumentName"/> above just proved every name resolves -
+    /// so <see cref="ScriptToolArgumentEncoder"/> can apply that parameter's own encoding rule. The
+    /// match cannot miss in practice, since an unrecognized name was already refused; a null
+    /// parameter would simply convert plainly, so the lookup fails safe rather than throwing.
+    /// </summary>
+    private static IReadOnlyDictionary<string, object?> ConvertArguments(ScriptTool tool, IDictionary<string, JsonElement>? arguments)
     {
         var result = new Dictionary<string, object?>();
         if (arguments is null)
             return result;
         foreach (var (key, element) in arguments)
-            result[key] = ConvertJsonElement(element);
+        {
+            var parameter = tool.Parameters.FirstOrDefault(p => string.Equals(p.Name, key, StringComparison.OrdinalIgnoreCase));
+            result[key] = ScriptToolArgumentEncoder.BindArgument(parameter, element);
+        }
         return result;
     }
-
-    private static object? ConvertJsonElement(JsonElement element) => element.ValueKind switch
-    {
-        JsonValueKind.String => element.GetString(),
-        JsonValueKind.Number => element.TryGetInt64(out var l) ? l : element.GetDouble(),
-        JsonValueKind.True => true,
-        JsonValueKind.False => false,
-        JsonValueKind.Array => element.EnumerateArray().Select(ConvertJsonElement).ToArray(),
-        JsonValueKind.Object => element.EnumerateObject().ToDictionary(p => p.Name, p => ConvertJsonElement(p.Value)),
-        _ => null,
-    };
 
     /// <summary>Passes an already-formed error text through as an <c>isError</c> result. Used only for
     /// a script's own thrown text, which must not be re-shaped - every denial the dispatcher itself
