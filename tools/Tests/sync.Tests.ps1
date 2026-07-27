@@ -125,24 +125,102 @@ BeforeAll {
         $Value
     }
 
+    function Get-SyncEncodingParameter {
+        <#
+        The parameters ScriptToolParameter.EncodesStructuredArgument is true for, READ OFF sync.ps1
+        rather than listed here: a parameter whose .NET static type is [string] and whose `.SCHEMA`
+        side-car declares a non-string, non-null top-level `type`. That is the whole encode signal,
+        transcribed - the help block is located the same way ScriptToolLoader.HelpBlockRegex locates
+        it, its sections split the same way SectionHeaderRegex splits them, and the type test is
+        ScriptToolParameter.DeclaresNonStringType over the three shapes a `type` can take (a string,
+        an array of them, or absent - and absent declares nothing, so it does not encode).
+
+        Derived rather than hardcoded on purpose: a hardcoded @('commit') would keep encoding after
+        someone deleted the block that authorizes it, so every dispatch test below would stay green
+        while the real host had quietly stopped. Reading the signal makes the suite fail with the
+        server.
+        #>
+        $help = [regex]::Match([System.IO.File]::ReadAllText($script:ScriptPath), '(?s)<#(.*?)#>').Groups[1].Value
+        $headers = [regex]::Matches($help, '(?m)^[ \t]*\.(?<tag>[A-Za-z]+)\b[ \t]*(?<arg>\S+)?[ \t]*$')
+        $declared = (Get-Command -Name $script:ScriptPath).Parameters
+        $encoding = [System.Collections.Generic.List[string]]::new()
+        for ($i = 0; $i -lt $headers.Count; $i++) {
+            if ($headers[$i].Groups['tag'].Value -ne 'SCHEMA') { continue }
+            $name = $headers[$i].Groups['arg'].Value
+            if (-not $declared.ContainsKey($name) -or $declared[$name].ParameterType -ne [string]) { continue }
+            $start = $headers[$i].Index + $headers[$i].Length
+            $end = if ($i + 1 -lt $headers.Count) { $headers[$i + 1].Index } else { $help.Length }
+            $schema = ConvertFrom-Json -InputObject $help.Substring($start, $end - $start).Trim()
+            if ($schema.PSObject.Properties.Name -notcontains 'type') { continue }
+            # Ordinal comparison (-cne), like the server's: JSON Schema's type vocabulary is
+            # lowercase and case-sensitive, so "Array" is not the keyword.
+            if (@(@($schema.type) | Where-Object { $_ -is [string] -and $_ -cne 'string' -and $_ -cne 'null' }).Count -gt 0) {
+                $encoding.Add($name)
+            }
+        }
+        $encoding.ToArray()
+    }
+
+    function ConvertTo-SyncDispatchArgument {
+        <#
+        WHAT STANDS IN FOR THE HOST, AND WHY IT IS HONEST.
+
+        A remedy's `commit` rides as a real nested object, and the thing that turns it into the
+        [string] $commit sync declares is the HOST, at the call boundary:
+        ScriptToolArgumentEncoder.BindArgument, on the signal Get-SyncEncodingParameter reads. These
+        tests drive sync.ps1 directly rather than through the dispatcher, so that one step has to be
+        modelled here. This is a line-for-line transcription of BindArgument's two rules, and
+        nothing more:
+
+          1. A STRUCTURED arrival value (array or object) is serialized, EXACTLY AS IT ARRIVED, and
+             only for a parameter that encodes. No reshaping, no filling in, no @() wrap - a payload
+             the real dispatcher would send malformed has to reach sync malformed and earn its
+             refusal.
+          2. Everything else takes the plain conversion, including a value that arrives as a STRING
+             on an encoding parameter - the encoder's guard against encoding an already-encoded
+             payload twice.
+
+        The two serializers differ only in escaping (System.Text.Json with relaxed escaping there,
+        ConvertTo-Json here); both emit valid JSON that sync's own ConvertFrom-Json parses to the
+        same payload, and neither changes the SHAPE, which is the whole subject of these tests.
+        Depth 64 matches System.Text.Json's default maximum, so a payload this helper can encode is
+        one the host can encode - it does not quietly truncate where the host would not.
+        #>
+        param([Parameter(Mandatory)] [string] $Name, $Value)
+        $arrivedStructured = ($Value -is [object[]]) -or
+            ($null -ne $Value -and $Value.PSObject.TypeNames[0] -eq 'System.Management.Automation.PSCustomObject')
+        if (($script:SyncEncodingParameters -contains $Name) -and $arrivedStructured) {
+            return (ConvertTo-Json -InputObject $Value -Depth 64 -Compress)
+        }
+        ConvertTo-SyncDispatchValue -Value $Value
+    }
+
     function ConvertTo-SyncRemedySplat {
-        # A remedy's params, verbatim, as a splattable hashtable. Nothing is filled in and nothing is
-        # encoded - what sync emitted is what the second call receives.
+        # A remedy's params as the dispatcher would splat them: every top-level key bound through the
+        # transcription above, so an encoding parameter's structured value arrives as JSON text and
+        # every other key converts plainly. Nothing is filled in - what sync emitted is what the
+        # second call receives.
         param([Parameter(Mandatory)] $Params)
-        ConvertTo-SyncDispatchValue -Value $Params
+        $splat = @{}
+        foreach ($prop in $Params.PSObject.Properties) {
+            $splat[$prop.Name] = ConvertTo-SyncDispatchArgument -Name $prop.Name -Value $prop.Value
+        }
+        $splat
     }
 
     function Resolve-SyncCommitRemedySplat {
         # A commit remedy's params made dispatchable: the caller fills the one dotted path `requires`
-        # names (commit.message), and the nested commit object is JSON-encoded on its way into sync's
-        # [string] $commit - which is exactly what the call-boundary encoding item will do for the
-        # caller. Everything else (apply, commit.files, commit.staged, state_token) is verbatim.
+        # names (commit.message) IN THE STRUCTURED PAYLOAD and hands the whole thing to the dispatch
+        # boundary. Encoding is emphatically not the caller's job - ConvertTo-SyncRemedySplat does
+        # it because the host does it. Everything else (apply, commit.files, commit.staged,
+        # state_token) is verbatim.
         param([Parameter(Mandatory)] $Params, [Parameter(Mandatory)] [string] $Message)
-        $splat = ConvertTo-SyncRemedySplat -Params $Params
-        $splat['commit']['message'] = $Message
-        $splat['commit'] = ($splat['commit'] | ConvertTo-Json -Compress)
-        $splat
+        $Params.commit.message = $Message
+        ConvertTo-SyncRemedySplat -Params $Params
     }
+
+    # Resolved once, here, so every dispatch below binds arguments the way the host would.
+    $script:SyncEncodingParameters = Get-SyncEncodingParameter
 
     function Get-SyncBlockedResolution {
         param([Parameter(Mandatory)] $Result, [Parameter(Mandatory)] [string] $Reason)
@@ -584,7 +662,9 @@ Describe 'sync' {
         # against that tool in test - shape assertions do not substitute. sync's three sync-directive
         # remedies name sync, so each one is taken off a REAL result (never hand-authored: that is the
         # failure mode being retired) and splatted back in. Three breaks lived here undetected behind
-        # payload-shape assertions alone; two closed with the snake_case rename, one is pinned below.
+        # payload-shape assertions alone: two closed with the snake_case rename, and the third - a
+        # nested commit object that could not enter a [string] parameter - with the call-boundary
+        # encoding these dispatches now model, key by key, through ConvertTo-SyncRemedySplat.
 
         It 'dispatches apply-conflict-strategy VERBATIM - it declares no requires, so it must be' {
             $peer = New-SyncPeerClone -Base $script:TempRoot -Remote $script:Fixture.Remote
@@ -700,25 +780,51 @@ Describe 'sync' {
             (git -C $script:VaultDir status --porcelain) | Should -BeNullOrEmpty
         }
 
-        It 'KNOWN OPEN: a commit remedy''s nested commit object still cannot enter [string] $commit' {
-            # PINNED FAILURE, not a passing contract. This asserts the WRONG behavior the plan's
-            # "Undispatchable Remedy Payloads" section names as the third break: the dispatcher hands a
-            # JSON object across as a dictionary, which stringifies into [string] $commit as a type
-            # name, and sync refuses it. Its fix is call-boundary argument encoding, which lands with
-            # sync's `commit` .SCHEMA side-car - at which point THIS test flips to assert the commit
-            # lands, exactly as Resolve-SyncCommitRemedySplat's hand-encoding does above.
+        It 'carries a commit remedy''s NESTED commit object across the boundary as JSON text, and commits' {
+            # sync's `commit` is a nested object inside a payload whose parameter is [string], so it
+            # only reaches the script if the call boundary encodes it. The signal is the `.SCHEMA
+            # commit` side-car declaring type "object" while the .NET type stays string; nothing
+            # hand-lists this parameter, here or in the server. What the remedy emits is what gets
+            # serialized - no reshaping between - which is why the encoded text is asserted verbatim.
             Set-SyncRepoFile -Repo $script:VaultDir -Rel 'File.md' -Content "modified`n"
             $remedy = Get-SyncBlockedResolution -Result (& $script:ScriptPath -Apply $true | ConvertFrom-Json) -Reason 'uncommitted_changes'
+            $remedy.params.commit.PSObject.TypeNames[0] | Should -Be 'System.Management.Automation.PSCustomObject'
 
-            # Only the one path `requires` names is filled; commit stays the nested object sync emitted.
+            # Only the one path `requires` names is filled, and it is filled in the STRUCTURED payload.
+            $remedy.params.commit.message = 'Record the change'
             $splat = ConvertTo-SyncRemedySplat -Params $remedy.params
-            $splat['commit'] -is [hashtable] | Should -BeTrue
-            $splat['commit']['message'] = 'Record the change'
+            $splat['commit'] | Should -BeOfType ([string])
+            $splat['commit'] | Should -Be '{"message":"Record the change","files":["File.md"]}'
 
-            $err = Invoke-SyncError $splat
-            $err.code | Should -Be 'malformed_op'
-            $err.data.reason | Should -Match 'not valid JSON'
-            Get-SyncHeadMessage -Repo $script:VaultDir | Should -Match 'initial commit'
+            $result = & $script:ScriptPath @splat | ConvertFrom-Json
+            @($result.actions | ForEach-Object { $_.action }) | Should -Contain 'commit'
+            Get-SyncHeadMessage -Repo $script:VaultDir | Should -Match 'Record the change'
+            (git -C $script:VaultDir show --name-only --pretty=format: HEAD).Trim() | Should -Be 'File.md'
+        }
+
+        It 'dispatches commit-changes over a multi-path set, committing exactly the files it named' {
+            # The commit directive as a WHOLE, end to end: a mixed dirty tree (one tracked edit, one
+            # untracked note) produces a remedy naming both, the caller fills commit.message and
+            # nothing else, and the second call commits that exact set under that exact message.
+            Set-SyncRepoFile -Repo $script:VaultDir -Rel 'File.md' -Content "modified`n"
+            Set-SyncRepoFile -Repo $script:VaultDir -Rel 'Inbox/Second.md' -Content "new note`n"
+
+            $blockedResult = & $script:ScriptPath -Apply $true | ConvertFrom-Json
+            $remedy = Get-SyncBlockedResolution -Result $blockedResult -Reason 'uncommitted_changes'
+            $remedy.action | Should -Be 'sync-directive'
+            $remedy.requires | Should -Be @('commit.message')
+            @($remedy.params.commit.files | Sort-Object) | Should -Be @('File.md', 'Inbox/Second.md')
+
+            $splat = Resolve-SyncCommitRemedySplat -Params $remedy.params -Message 'Record both notes'
+            $splat['state_token'] | Should -Be $blockedResult.stateToken
+
+            $result = & $script:ScriptPath @splat | ConvertFrom-Json
+            $result.synced | Should -BeTrue
+            @($result.actions | ForEach-Object { $_.action }) | Should -Be @('commit', 'push')
+            Get-SyncHeadMessage -Repo $script:VaultDir | Should -Match 'Record both notes'
+            @(((git -C $script:VaultDir show --name-only --pretty=format: HEAD) -join "`n").Trim() -split "`r?`n" | Sort-Object) |
+                Should -Be @('File.md', 'Inbox/Second.md')
+            (git -C $script:VaultDir status --porcelain) | Should -BeNullOrEmpty
         }
     }
 

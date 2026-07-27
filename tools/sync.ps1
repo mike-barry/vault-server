@@ -33,21 +33,28 @@ Mutation opt-in, default FALSE - assessment is the routine call here and converg
 deliberate one. False assesses and reports (plannedActions) with no effect beyond a fetch, which
 touches remote-tracking refs only.
 .PARAMETER commit
-Authorization to commit agent-authored working-tree changes, as a JSON string object (the derived
-MCP schema cannot express a typed object), deserialized and validated in-script:
-  {"message":"Note the thing","files":["Inbox/Note.md"]}
-  {"message":"Sweep","files":"all","staged":"include"}
-  message - REQUIRED, the caller's own wording. The tool never authors it; the submodule-pointer
-            commit is the one carve-out, and it needs no directive.
-  files   - REQUIRED, either an explicit array of repo-relative paths or the string "all". An
-            explicit array pins the commit set structurally; "all" additionally REQUIRES
-            state_token, since nothing else defines the set.
-  staged  - OPTIONAL, only "include", folding pre-existing staged content into the commit. Absent,
-            a pathspec commit preserves another actor's staged entries untouched. The tool NEVER
-            unstages.
-Malformed JSON, a non-object payload, or a missing/invalid member is malformed_op with {reason}.
-Supplying this parameter ASSERTS git:commit, so a caller lacking the key is refused
-insufficient_capability rather than reported as blocked.
+A JSON string holding the commit directive object, deserialized and validated in-script. The shape
+and the conventions around it are stated once, in the .SCHEMA block below: that block replaces this
+parameter's derived property node, so it is what clients actually see, and it is the copy the
+dispatch-through-sync tests exercise against the script. Restating them here would fork the
+contract into a second copy that nothing guards.
+.SCHEMA commit
+{
+  "type": "object",
+  "description": "Authorization to commit agent-authored working-tree changes. Its PRESENCE is the directive: supplying it ASSERTS git:commit, so a caller lacking that key is refused insufficient_capability rather than reported as blocked, and a call without it never commits caller content. Judgment stays caller-side - the tool never authors a message for caller content, and appends its own \"Generated-by: vault-sync\" trailer to whatever is supplied. One directive covers every discovered repository: its file set is INTERSECTED with each repo's own dirty paths, so it lands where it applies and is inert elsewhere. This schema ADVERTISES the shape; the script is the only enforcement, so a payload that satisfies it can still be refused malformed_op with {reason} - as can this parameter carrying text that is not JSON at all, or JSON that is an array rather than an object. Two rules no keyword here can carry: files \"all\" additionally REQUIRES the state_token parameter, refused invalid_argument naming state_token when it is absent, because nothing else pins which files the message authorizes; and members beyond the three below are ignored rather than refused.",
+  "properties": {
+    "message": { "type": "string", "description": "REQUIRED, the caller's own wording for the commit summary. Non-empty: a blank or whitespace-only message is malformed_op, since the tool will not author one for caller content. The tool-authored submodule-pointer commit is the one carve-out, and it needs no directive at all." },
+    "files": {
+      "oneOf": [
+        { "type": "array", "items": { "type": "string" }, "minItems": 1 },
+        { "type": "string", "const": "all" }
+      ],
+      "description": "REQUIRED, the commit set: either an explicit array of repo-relative paths, which pins the set structurally, or the string \"all\", matched case-insensitively after a trim. Array entries are normalized on the way in - backslashes fold to \"/\" and each entry is trimmed - and blank entries are dropped, so an array that reduces to nothing is malformed_op exactly like an empty one. \"all\" REQUIRES state_token; an explicit array does not, because it already names what it authorizes."
+    },
+    "staged": { "const": "include", "description": "OPTIONAL, and \"include\" is its only accepted value - anything else is malformed_op. Matched case-insensitively after a trim. It folds pre-existing staged content into the commit, committing the whole index rather than a pathspec, and is the opt-in for the staged_changes blocked state. Absent, the commit is a pathspec over \"files\" and another actor's staged entries are preserved untouched. The tool NEVER unstages." }
+  },
+  "required": ["message", "files"]
+}
 .PARAMETER on_conflict
 Conflict-resolution strategy authorization. One member in V1:
   keep_local_save_remote - merge with the local side winning each conflicted file, preserving the
