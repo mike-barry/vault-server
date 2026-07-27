@@ -11,6 +11,10 @@
 
 BeforeAll {
     Import-Module (Join-Path $PSScriptRoot '../VaultAccess.psd1') -Force
+
+    # A folder note's nav.contents in the shape all 19 of the vault's folder notes carry: link
+    # entries first, folder entries last. The nav entry insertion defaults are defined against it.
+    $script:NavNote = "---`ndoc.type: Corpus`nnav.contents:`n  - link: `"[[Tasks]]`"`n    description: `"Task list`"`n  - folder: `"Inbox`"`n    description: `"Working docs`"`n---`n# Body`n"
 }
 
 Describe 'Get-VaultNoteFenceState' {
@@ -354,6 +358,249 @@ Describe 'Add-VaultAgentInstructionEntry - refusals' {
 
     It 'refuses an unclosed fence' {
         { Add-VaultAgentInstructionEntry -Content "---`na: 1`n# Body" -Type Bare -Instruction 'Do X' } | Should -Throw '*frontmatter_integrity*'
+    }
+}
+
+Describe 'Add-VaultNavEntry - default position' {
+    It 'puts a link entry at the end of the link run, before the first folder entry' {
+        # The convention every folder note in the vault follows, reproduced as a pure function of
+        # the existing block rather than asked of the caller.
+        Add-VaultNavEntry -Content $script:NavNote -Key 'nav.contents' -Link '[[Design]]' -Description 'The design' |
+            Should -BeExactly "---`ndoc.type: Corpus`nnav.contents:`n  - link: `"[[Tasks]]`"`n    description: `"Task list`"`n  - link: `"[[Design]]`"`n    description: `"The design`"`n  - folder: `"Inbox`"`n    description: `"Working docs`"`n---`n# Body`n"
+    }
+
+    It 'puts a folder entry at the end of the list' {
+        Add-VaultNavEntry -Content $script:NavNote -Key 'nav.contents' -Folder 'Archive' -Description 'Completed work' |
+            Should -BeExactly "---`ndoc.type: Corpus`nnav.contents:`n  - link: `"[[Tasks]]`"`n    description: `"Task list`"`n  - folder: `"Inbox`"`n    description: `"Working docs`"`n  - folder: `"Archive`"`n    description: `"Completed work`"`n---`n# Body`n"
+    }
+
+    It 'appends a link entry at the end when the list has no folder entries' {
+        $note = "---`nnav.see_also:`n  - link: `"[[A]]`"`n    description: `"a`"`n---`n# B"
+        Add-VaultNavEntry -Content $note -Key 'nav.see_also' -Link '[[B]]' -Description 'b' |
+            Should -BeExactly "---`nnav.see_also:`n  - link: `"[[A]]`"`n    description: `"a`"`n  - link: `"[[B]]`"`n    description: `"b`"`n---`n# B"
+    }
+
+    It 'emits load_when when supplied and omits the line when not' {
+        $with = Add-VaultNavEntry -Content $script:NavNote -Key 'nav.contents' -Link '[[D]]' -Description 'd' -LoadWhen 'designing'
+        $with | Should -Match ([regex]::Escape("    load_when: `"designing`""))
+        (Add-VaultNavEntry -Content $script:NavNote -Key 'nav.contents' -Link '[[D]]' -Description 'd') | Should -Not -Match 'load_when'
+    }
+}
+
+Describe 'Add-VaultNavEntry - explicit position' {
+    It 'inserts before the entry named by -Before' {
+        Add-VaultNavEntry -Content $script:NavNote -Key 'nav.contents' -Link '[[First]]' -Description 'first' -Before '[[Tasks]]' |
+            Should -BeExactly "---`ndoc.type: Corpus`nnav.contents:`n  - link: `"[[First]]`"`n    description: `"first`"`n  - link: `"[[Tasks]]`"`n    description: `"Task list`"`n  - folder: `"Inbox`"`n    description: `"Working docs`"`n---`n# Body`n"
+    }
+
+    It 'inserts after the entry named by -After, which may be a folder target' {
+        Add-VaultNavEntry -Content $script:NavNote -Key 'nav.contents' -Link '[[Last]]' -Description 'last' -After 'Inbox' |
+            Should -BeExactly "---`ndoc.type: Corpus`nnav.contents:`n  - link: `"[[Tasks]]`"`n    description: `"Task list`"`n  - folder: `"Inbox`"`n    description: `"Working docs`"`n  - link: `"[[Last]]`"`n    description: `"last`"`n---`n# Body`n"
+    }
+
+    It 'anchors past a multi-line entry, not past its first line' {
+        $note = "---`nnav.contents:`n  - link: `"[[A]]`"`n    description: `"a`"`n    load_when: `"always`"`n---`n# B"
+        Add-VaultNavEntry -Content $note -Key 'nav.contents' -Link '[[B]]' -Description 'b' -After '[[A]]' |
+            Should -BeExactly "---`nnav.contents:`n  - link: `"[[A]]`"`n    description: `"a`"`n    load_when: `"always`"`n  - link: `"[[B]]`"`n    description: `"b`"`n---`n# B"
+    }
+
+    It 'refuses -Before and -After together' {
+        { Add-VaultNavEntry -Content $script:NavNote -Key 'nav.contents' -Link '[[X]]' -Description 'x' -Before '[[Tasks]]' -After 'Inbox' } |
+            Should -Throw '*malformed_op*'
+    }
+
+    It 'refuses an anchor that names no existing entry' {
+        { Add-VaultNavEntry -Content $script:NavNote -Key 'nav.contents' -Link '[[X]]' -Description 'x' -Before '[[Nope]]' } |
+            Should -Throw '*malformed_op*'
+    }
+
+    It 'refuses an anchor that matches more than one entry' {
+        $dupe = "---`nnav.contents:`n  - link: `"[[A]]`"`n    description: `"a`"`n  - link: `"[[A]]`"`n    description: `"b`"`n---`n# B"
+        { Add-VaultNavEntry -Content $dupe -Key 'nav.contents' -Link '[[X]]' -Description 'x' -After '[[A]]' } | Should -Throw '*malformed_op*'
+    }
+}
+
+Describe 'Add-VaultNavEntry - key creation' {
+    It 'creates the key when the note has frontmatter but not the key' {
+        # The folder-note completeness case lint reports: no nav.contents at all.
+        Add-VaultNavEntry -Content "---`ndoc.type: Corpus`n---`n# Body`n" -Key 'nav.contents' -Link '[[Tasks]]' -Description 'Task list' |
+            Should -BeExactly "---`ndoc.type: Corpus`nnav.contents:`n  - link: `"[[Tasks]]`"`n    description: `"Task list`"`n---`n# Body`n"
+    }
+
+    It 'creates the frontmatter block when the note has none' {
+        Add-VaultNavEntry -Content '# Body' -Key 'nav.see_also' -Folder 'Corpus' -Description 'Reference' |
+            Should -BeExactly "---`nnav.see_also:`n  - folder: `"Corpus`"`n    description: `"Reference`"`n---`n# Body"
+    }
+
+    It 'refuses an anchor when the key does not exist yet' {
+        { Add-VaultNavEntry -Content "---`ndoc.type: Corpus`n---`n# B" -Key 'nav.contents' -Link '[[X]]' -Description 'x' -After '[[Y]]' } |
+            Should -Throw '*malformed_op*'
+    }
+
+    It 'leaves an unrelated existing nav key alone' {
+        $note = "---`nnav.see_also:`n  - link: `"[[A]]`"`n    description: `"a`"`n---`n# B"
+        Add-VaultNavEntry -Content $note -Key 'nav.contents' -Link '[[B]]' -Description 'b' |
+            Should -BeExactly "---`nnav.see_also:`n  - link: `"[[A]]`"`n    description: `"a`"`nnav.contents:`n  - link: `"[[B]]`"`n    description: `"b`"`n---`n# B"
+    }
+}
+
+Describe 'Add-VaultNavEntry - idempotency and refusals' {
+    It 'is a no-op for a duplicate link target, whatever the description says' {
+        Add-VaultNavEntry -Content $script:NavNote -Key 'nav.contents' -Link '[[Tasks]]' -Description 'a different description' |
+            Should -BeExactly $script:NavNote
+    }
+
+    It 'is a no-op for a duplicate folder target' {
+        Add-VaultNavEntry -Content $script:NavNote -Key 'nav.contents' -Folder 'Inbox' -Description 'other' | Should -BeExactly $script:NavNote
+    }
+
+    It 'treats the same target under a different key as a distinct entry' {
+        (Add-VaultNavEntry -Content $script:NavNote -Key 'nav.see_also' -Link '[[Tasks]]' -Description 'd') | Should -Not -BeExactly $script:NavNote
+    }
+
+    It 'refuses a key outside the nav block-list allow-list' {
+        { Add-VaultNavEntry -Content $script:NavNote -Key 'agent.instructions' -Link '[[X]]' -Description 'x' } | Should -Throw '*malformed_op*'
+    }
+
+    It 'writes the canonical key spelling whatever case the caller used' {
+        # The allow-list check is case-insensitive, so without normalization 'Nav.Contents' would
+        # pass it and then be written as a second, differently-cased key line.
+        Add-VaultNavEntry -Content "---`ndoc.type: Corpus`n---`n# B" -Key 'NAV.Contents' -Link '[[X]]' -Description 'x' |
+            Should -BeExactly "---`ndoc.type: Corpus`nnav.contents:`n  - link: `"[[X]]`"`n    description: `"x`"`n---`n# B"
+    }
+
+    It 'refuses both link and folder' {
+        { Add-VaultNavEntry -Content $script:NavNote -Key 'nav.contents' -Link '[[X]]' -Folder 'Inbox' -Description 'x' } | Should -Throw '*malformed_op*'
+    }
+
+    It 'refuses neither link nor folder' {
+        { Add-VaultNavEntry -Content $script:NavNote -Key 'nav.contents' -Description 'x' } | Should -Throw '*malformed_op*'
+    }
+
+    It 'refuses a missing description' {
+        { Add-VaultNavEntry -Content $script:NavNote -Key 'nav.contents' -Link '[[X]]' } | Should -Throw '*malformed_op*'
+    }
+
+    It 'refuses a blank description' {
+        { Add-VaultNavEntry -Content $script:NavNote -Key 'nav.contents' -Link '[[X]]' -Description '   ' } | Should -Throw '*malformed_op*'
+    }
+
+    It 'refuses entry text carrying a line break on every caller-text field' {
+        # Same smuggling vector as the directive ops: the entry is emitted with hardcoded quotes
+        # and no escaping, so an unchecked field mints a real top-level key.
+        { Add-VaultNavEntry -Content $script:NavNote -Key 'nav.contents' -Link "[[X]]`ndoc.type: smuggled" -Description 'd' } | Should -Throw '*malformed_op*'
+        { Add-VaultNavEntry -Content $script:NavNote -Key 'nav.contents' -Folder "Inbox`ndoc.type: smuggled" -Description 'd' } | Should -Throw '*malformed_op*'
+        { Add-VaultNavEntry -Content $script:NavNote -Key 'nav.contents' -Link '[[X]]' -Description "d`ndoc.type: smuggled" } | Should -Throw '*malformed_op*'
+        { Add-VaultNavEntry -Content $script:NavNote -Key 'nav.contents' -Link '[[X]]' -Description 'd' -LoadWhen "w`ndoc.type: smuggled" } | Should -Throw '*malformed_op*'
+        { Add-VaultNavEntry -Content $script:NavNote -Key 'nav.contents' -Link '[[X]]' -Description 'd' -Before "[[Tasks]]`nx: 1" } | Should -Throw '*malformed_op*'
+        { Add-VaultNavEntry -Content $script:NavNote -Key 'nav.contents' -Link '[[X]]' -Description 'd' -After "Inbox`nx: 1" } | Should -Throw '*malformed_op*'
+    }
+
+    It 'refuses entry text carrying a quote on every caller-text field' {
+        { Add-VaultNavEntry -Content $script:NavNote -Key 'nav.contents' -Link 'bad" link' -Description 'd' } | Should -Throw '*malformed_op*'
+        { Add-VaultNavEntry -Content $script:NavNote -Key 'nav.contents' -Folder 'bad" folder' -Description 'd' } | Should -Throw '*malformed_op*'
+        { Add-VaultNavEntry -Content $script:NavNote -Key 'nav.contents' -Link '[[X]]' -Description 'bad" text' } | Should -Throw '*malformed_op*'
+        { Add-VaultNavEntry -Content $script:NavNote -Key 'nav.contents' -Link '[[X]]' -Description 'd' -LoadWhen 'bad" when' } | Should -Throw '*malformed_op*'
+        { Add-VaultNavEntry -Content $script:NavNote -Key 'nav.contents' -Link '[[X]]' -Description 'd' -Before 'bad" anchor' } | Should -Throw '*malformed_op*'
+        { Add-VaultNavEntry -Content $script:NavNote -Key 'nav.contents' -Link '[[X]]' -Description 'd' -After 'bad" anchor' } | Should -Throw '*malformed_op*'
+    }
+
+    It 'refuses an unclosed fence' {
+        { Add-VaultNavEntry -Content "---`nnav.contents:`n  - link: `"[[A]]`"" -Key 'nav.contents' -Link '[[B]]' -Description 'b' } |
+            Should -Throw '*frontmatter_integrity*'
+    }
+
+    It 'inserts with CRLF terminators into a CRLF note' {
+        Add-VaultNavEntry -Content "---`r`nnav.contents:`r`n  - link: `"[[A]]`"`r`n    description: `"a`"`r`n---`r`n# B`r`n" -Key 'nav.contents' -Folder 'Inbox' -Description 'i' |
+            Should -BeExactly "---`r`nnav.contents:`r`n  - link: `"[[A]]`"`r`n    description: `"a`"`r`n  - folder: `"Inbox`"`r`n    description: `"i`"`r`n---`r`n# B`r`n"
+    }
+
+    It 'leaves every untouched byte of a mixed-ending note alone, endings included' {
+        # The invariant the line model exists for: a mixed file stays mixed, and only the inserted
+        # lines are new.
+        $mixed = "---`r`ndoc.type: Corpus`r`nnav.contents:`r`n  - link: `"[[A]]`"`r`n    description: `"a`"`n  - folder: `"Inbox`"`r`n    description: `"i`"`r`n---`n# Body`r`ntail`n"
+        Add-VaultNavEntry -Content $mixed -Key 'nav.contents' -Link '[[B]]' -Description 'b' |
+            Should -BeExactly "---`r`ndoc.type: Corpus`r`nnav.contents:`r`n  - link: `"[[A]]`"`r`n    description: `"a`"`n  - link: `"[[B]]`"`r`n    description: `"b`"`r`n  - folder: `"Inbox`"`r`n    description: `"i`"`r`n---`n# Body`r`ntail`n"
+    }
+}
+
+Describe 'Remove-VaultNavEntry' {
+    It 'removes the entry whose link matches, keeping the rest byte for byte' {
+        Remove-VaultNavEntry -Content $script:NavNote -Key 'nav.contents' -Link '[[Tasks]]' |
+            Should -BeExactly "---`ndoc.type: Corpus`nnav.contents:`n  - folder: `"Inbox`"`n    description: `"Working docs`"`n---`n# Body`n"
+    }
+
+    It 'removes the entry whose folder matches, including its load_when line' {
+        $note = "---`nnav.contents:`n  - link: `"[[A]]`"`n    description: `"a`"`n  - folder: `"Inbox`"`n    description: `"i`"`n    load_when: `"working`"`n---`n# B"
+        Remove-VaultNavEntry -Content $note -Key 'nav.contents' -Folder 'Inbox' |
+            Should -BeExactly "---`nnav.contents:`n  - link: `"[[A]]`"`n    description: `"a`"`n---`n# B"
+    }
+
+    It 'drops the whole key when the removal empties the list' {
+        $note = "---`ndoc.type: Corpus`nnav.contents:`n  - link: `"[[A]]`"`n    description: `"a`"`n---`n# B"
+        Remove-VaultNavEntry -Content $note -Key 'nav.contents' -Link '[[A]]' | Should -BeExactly "---`ndoc.type: Corpus`n---`n# B"
+    }
+
+    It 'is a no-op when no entry carries the target' {
+        Remove-VaultNavEntry -Content $script:NavNote -Key 'nav.contents' -Link '[[Nope]]' | Should -BeExactly $script:NavNote
+    }
+
+    It 'is a no-op when the key is absent' {
+        $note = "---`ndoc.type: Corpus`n---`n# B"
+        Remove-VaultNavEntry -Content $note -Key 'nav.contents' -Link '[[A]]' | Should -BeExactly $note
+    }
+
+    It 'is a no-op when there is no frontmatter at all' {
+        Remove-VaultNavEntry -Content '# Body only' -Key 'nav.contents' -Folder 'Inbox' | Should -BeExactly '# Body only'
+    }
+
+    It 'does not cross keys - a target under nav.see_also is not removed from nav.contents' {
+        $note = "---`nnav.contents:`n  - link: `"[[A]]`"`n    description: `"a`"`nnav.see_also:`n  - link: `"[[B]]`"`n    description: `"b`"`n---`n# B"
+        Remove-VaultNavEntry -Content $note -Key 'nav.contents' -Link '[[B]]' | Should -BeExactly $note
+    }
+
+    It 'refuses a target matching more than one entry rather than guessing' {
+        # edit's patch_ambiguous stance: the note is already malformed, and picking one would be a
+        # coin flip the caller cannot see.
+        $dupe = "---`nnav.contents:`n  - link: `"[[A]]`"`n    description: `"a`"`n  - link: `"[[A]]`"`n    description: `"b`"`n---`n# B"
+        $err = { Remove-VaultNavEntry -Content $dupe -Key 'nav.contents' -Link '[[A]]' } | Should -Throw -PassThru
+        ($err.Exception.Message | ConvertFrom-Json).code | Should -Be 'malformed_op'
+    }
+
+    It 'refuses a key outside the nav block-list allow-list' {
+        { Remove-VaultNavEntry -Content $script:NavNote -Key 'agent.instructions' -Link '[[X]]' } | Should -Throw '*malformed_op*'
+    }
+
+    It 'refuses both link and folder' {
+        { Remove-VaultNavEntry -Content $script:NavNote -Key 'nav.contents' -Link '[[Tasks]]' -Folder 'Inbox' } | Should -Throw '*malformed_op*'
+    }
+
+    It 'refuses neither link nor folder' {
+        { Remove-VaultNavEntry -Content $script:NavNote -Key 'nav.contents' } | Should -Throw '*malformed_op*'
+    }
+
+    It 'refuses target text carrying a quote' {
+        { Remove-VaultNavEntry -Content $script:NavNote -Key 'nav.contents' -Link 'bad" link' } | Should -Throw '*malformed_op*'
+    }
+
+    It 'refuses an unclosed fence' {
+        { Remove-VaultNavEntry -Content "---`nnav.contents:`n  - link: `"[[A]]`"" -Key 'nav.contents' -Link '[[A]]' } | Should -Throw '*frontmatter_integrity*'
+    }
+
+    It 'preserves CRLF on surviving entries' {
+        Remove-VaultNavEntry -Content "---`r`nnav.contents:`r`n  - link: `"[[A]]`"`r`n    description: `"a`"`r`n  - folder: `"Inbox`"`r`n    description: `"i`"`r`n---`r`n# B" -Key 'nav.contents' -Link '[[A]]' |
+            Should -BeExactly "---`r`nnav.contents:`r`n  - folder: `"Inbox`"`r`n    description: `"i`"`r`n---`r`n# B"
+    }
+
+    It 'leaves every untouched byte of a mixed-ending note alone' {
+        $mixed = "---`r`nnav.contents:`r`n  - link: `"[[A]]`"`n    description: `"a`"`r`n  - folder: `"Inbox`"`n    description: `"i`"`r`n---`n# B`r`n"
+        Remove-VaultNavEntry -Content $mixed -Key 'nav.contents' -Link '[[A]]' |
+            Should -BeExactly "---`r`nnav.contents:`r`n  - folder: `"Inbox`"`n    description: `"i`"`r`n---`n# B`r`n"
+    }
+
+    It 'round-trips with the adder: add then remove restores the original bytes' {
+        $added = Add-VaultNavEntry -Content $script:NavNote -Key 'nav.contents' -Link '[[D]]' -Description 'd' -LoadWhen 'designing'
+        Remove-VaultNavEntry -Content $added -Key 'nav.contents' -Link '[[D]]' | Should -BeExactly $script:NavNote
     }
 }
 

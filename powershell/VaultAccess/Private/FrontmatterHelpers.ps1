@@ -167,20 +167,28 @@ function Get-VaultFrontmatterTextViolation {
     return $null
 }
 
-function Get-VaultAgentInstructionsBlock {
+function Get-VaultFrontmatterBlockRange {
     <#
     .SYNOPSIS
-    Locates the agent.instructions block inside a fenced line list: @{ KeyLine; BlockEnd }, or
-    $null when the key is absent. BlockEnd is the last child line's index (== KeyLine when the
-    key has no children).
+    Locates one top-level key's block inside a fenced line list: @{ KeyLine; BlockEnd }, or $null
+    when the key is absent. BlockEnd is the last child line's index (== KeyLine when the key has
+    no children).
+
+    One scan, shared by every block-aware mutator - the whole-block remover, the
+    agent.instructions insert/strip pair, and the nav entry pair. Three hand-copies of "find the
+    key line, then advance to the next top-level key" is how they drift.
     #>
     [CmdletBinding()]
-    param([Parameter(Mandatory)] $Lines, [Parameter(Mandatory)] $Bounds)
+    param(
+        [Parameter(Mandatory)] $Lines,
+        [Parameter(Mandatory)] $Bounds,
+        [Parameter(Mandatory)] [string] $Field
+    )
 
     if ($Bounds.State -ne 'Closed') { return $null }
     $keyLine = -1
     for ($i = 1; $i -lt $Bounds.End; $i++) {
-        if ($Lines[$i].Text -match '^agent\.instructions:') { $keyLine = $i; break }
+        if ($Lines[$i].Text -match "^$([regex]::Escape($Field)):") { $keyLine = $i; break }
     }
     if ($keyLine -lt 0) { return $null }
 
@@ -192,12 +200,25 @@ function Get-VaultAgentInstructionsBlock {
     return @{ KeyLine = $keyLine; BlockEnd = $blockEnd }
 }
 
-function Get-VaultInstructionItemRange {
+function Get-VaultNavListKey {
+    <#
+    .SYNOPSIS
+    The nav block-list keys an entry op may address. A collection, not a signature: admitting a
+    third nav list is one entry here, and the schema validator reads the same list, so the op
+    vocabulary and the schema cannot drift into disagreeing about what a nav list is.
+    #>
+    [CmdletBinding()]
+    param()
+
+    return , @('nav.contents', 'nav.see_also')
+}
+
+function Get-VaultBlockItemRange {
     <#
     .SYNOPSIS
     Splits a child-line index range into per-item ranges - a new list item starts at each
     top-level '  - ' line. Returns a list of @{ Start; End } in absolute line indices, so a
-    stripper can splice whole items out without reserializing the ones it keeps.
+    mutator can splice whole items out without reserializing the ones it keeps.
     #>
     [CmdletBinding()]
     param([Parameter(Mandatory)] $Lines, [int] $Start, [int] $End)
@@ -235,11 +256,11 @@ function Remove-VaultAgentInstructionItem {
     Assert-VaultFenceMutable -Bounds $bounds -Operation 'agent.instructions strip'
     if ($bounds.State -ne 'Closed') { return $Content }
 
-    $block = Get-VaultAgentInstructionsBlock -Lines $lines -Bounds $bounds
+    $block = Get-VaultFrontmatterBlockRange -Lines $lines -Bounds $bounds -Field 'agent.instructions'
     if ($null -eq $block) { return $Content }
     if ($block.BlockEnd -le $block.KeyLine) { return $Content }
 
-    $ranges = Get-VaultInstructionItemRange -Lines $lines -Start ($block.KeyLine + 1) -End $block.BlockEnd
+    $ranges = Get-VaultBlockItemRange -Lines $lines -Start ($block.KeyLine + 1) -End $block.BlockEnd
     $doomed = New-Object System.Collections.Generic.List[psobject]
     foreach ($r in $ranges) {
         $first = $lines[$r.Start].Text
@@ -339,6 +360,132 @@ function Get-VaultAgenticKeyMap {
         $map[$b.Key] = (@("$($b.Key): $($b.Inline)") + @($b.Children)) -join "`n"
     }
     return $map
+}
+
+function Resolve-VaultNavListKey {
+    <#
+    .SYNOPSIS
+    The canonically-spelled nav block-list key matching $Key case-insensitively, or $null when it
+    is not one. Callers normalize through this before writing: the allow-list check is
+    case-insensitive (PowerShell's -contains is), so without it a caller's 'Nav.Contents' would
+    pass the check and then be WRITTEN as a second, differently-cased key line.
+    #>
+    [CmdletBinding()]
+    param([AllowEmptyString()] [AllowNull()] [string] $Key)
+
+    # Assigned before piping: the return is comma-wrapped, and piping the call directly would
+    # hand the whole array to the filter as one item.
+    $navKeys = Get-VaultNavListKey
+    return ($navKeys | Where-Object { $_ -ieq $Key } | Select-Object -First 1)
+}
+
+function Get-VaultNavTargetViolation {
+    <#
+    .SYNOPSIS
+    Returns a reason string when a nav entry op's addressing parameters are not usable, else
+    $null: an unrecognized key, or a link/folder pair that is not exactly one.
+
+    Single-sourced because both entry primitives and both ops check it - the ops so the refusal
+    carries an opIndex the caller can act on, the primitives so a direct caller gets the same
+    answer. The link/folder rules restate schema violations (link_folder_both /
+    link_folder_neither) at op level deliberately: the validator would report them a step later,
+    against a note the op has already written into.
+    #>
+    [CmdletBinding()]
+    param(
+        [AllowEmptyString()] [AllowNull()] [string] $Key,
+        [AllowEmptyString()] [AllowNull()] [string] $Link,
+        [AllowEmptyString()] [AllowNull()] [string] $Folder
+    )
+
+    $navKeys = Get-VaultNavListKey
+    if ($navKeys -notcontains $Key) {
+        return "'$Key' is not a nav block-list key (expected one of: $($navKeys -join ', '))"
+    }
+    $hasLink = -not [string]::IsNullOrWhiteSpace($Link)
+    $hasFolder = -not [string]::IsNullOrWhiteSpace($Folder)
+    if ($hasLink -and $hasFolder) { return "'link' and 'folder' are mutually exclusive - a nav entry carries exactly one" }
+    if (-not $hasLink -and -not $hasFolder) { return "a nav entry requires 'link' or 'folder'" }
+    return $null
+}
+
+function Get-VaultNavEntry {
+    <#
+    .SYNOPSIS
+    Every entry in a note's $Key nav block, as @{ Start; End; Link; Folder } in ABSOLUTE line
+    indices into ConvertTo-VaultLineList $Content - an empty list when the note has no closed
+    fence, the key is absent, or the key carries no entries.
+
+    Indices are absolute and content-derived, so a caller that rebuilds the line list from the
+    same content gets the same indices; that is what lets the entry mutators splice by range
+    instead of reserializing the entries they keep.
+
+    Link and Folder are the entry's parsed (one quote layer stripped) discriminator values, $null
+    when the entry does not carry that discriminator. Parsing goes through
+    Get-VaultFrontmatterListItems rather than a second regex, so "what an entry is" has one
+    definition shared with the schema validator.
+    #>
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)] [AllowEmptyString()] [string] $Content,
+        [Parameter(Mandatory)] [string] $Key
+    )
+
+    $out = New-Object System.Collections.Generic.List[psobject]
+    $lines = ConvertTo-VaultLineList $Content
+    $bounds = Get-VaultFenceBounds $lines
+    if ($bounds.State -ne 'Closed') { return , $out }
+    $block = Get-VaultFrontmatterBlockRange -Lines $lines -Bounds $bounds -Field $Key
+    if ($null -eq $block -or $block.BlockEnd -le $block.KeyLine) { return , $out }
+
+    foreach ($r in (Get-VaultBlockItemRange -Lines $lines -Start ($block.KeyLine + 1) -End $block.BlockEnd)) {
+        $texts = @()
+        for ($i = $r.Start; $i -le $r.End; $i++) { $texts += $lines[$i].Text }
+        # Assigned before indexing: the parser's return is comma-wrapped.
+        $items = Get-VaultFrontmatterListItems $texts
+        $fields = if ($items.Count -gt 0 -and $items[0].IsMap) { $items[0].Fields } else { $null }
+        $out.Add([PSCustomObject]@{
+                Start  = $r.Start
+                End    = $r.End
+                Link   = $(if ($null -ne $fields -and $fields.Contains('link')) { $fields['link'] } else { $null })
+                Folder = $(if ($null -ne $fields -and $fields.Contains('folder')) { $fields['folder'] } else { $null })
+            })
+    }
+    return , $out
+}
+
+function Select-VaultNavEntry {
+    <#
+    .SYNOPSIS
+    The entries in a Get-VaultNavEntry list that a caller's target addresses. -Link and -Folder
+    match that discriminator only; -Target matches either, which is the form the before/after
+    anchors take (a caller naming an existing entry knows its value, not its discriminator).
+
+    Matching is case-INSENSITIVE, unlike the pinned-entry stripper's -ceq. A pinned entry's text
+    is the user's own prose, so a case fold there is not ours to apply; a nav target is a
+    denotation - a wikilink or a folder path, both of which the vault and the filesystem resolve
+    case-insensitively - so treating '[[Foo]]' and '[[foo]]' as different entries would let a
+    duplicate through the add and let a removal silently miss.
+    #>
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)] [AllowEmptyCollection()] $Entries,
+        [string] $Link,
+        [string] $Folder,
+        [string] $Target
+    )
+
+    $hits = New-Object System.Collections.Generic.List[psobject]
+    foreach ($e in $Entries) {
+        $hit = $false
+        if ($PSBoundParameters.ContainsKey('Target')) {
+            $hit = ($null -ne $e.Link -and $e.Link -eq $Target) -or ($null -ne $e.Folder -and $e.Folder -eq $Target)
+        }
+        elseif (-not [string]::IsNullOrEmpty($Link)) { $hit = ($null -ne $e.Link -and $e.Link -eq $Link) }
+        elseif (-not [string]::IsNullOrEmpty($Folder)) { $hit = ($null -ne $e.Folder -and $e.Folder -eq $Folder) }
+        if ($hit) { $hits.Add($e) }
+    }
+    return , $hits
 }
 
 function Get-VaultOpValue {

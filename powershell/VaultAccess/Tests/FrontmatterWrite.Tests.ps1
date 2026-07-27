@@ -225,6 +225,207 @@ Describe 'Invoke-VaultFrontmatterWrite - protected targets and shape routing' {
     }
 }
 
+Describe 'Invoke-VaultFrontmatterWrite - the nav entry ops' {
+    BeforeAll {
+        $script:FolderNote = "---`ndoc.type: Corpus`nnav.contents:`n  - link: `"[[Tasks]]`"`n    description: `"Task list`"`n  - folder: `"Inbox`"`n    description: `"Working docs`"`n---`n# Body`n"
+    }
+
+    AfterEach {
+        Remove-Variable -Name VaultMcpOpClasses -Scope Global -ErrorAction SilentlyContinue
+    }
+
+    It 'adds a link entry at the end of the link run and reports the nav key as the op field' {
+        $result = Invoke-VaultFrontmatterWrite -Content $script:FolderNote -Ops @(
+            @{ op = 'add_nav_entry'; key = 'nav.contents'; link = '[[Design]]'; description = 'The design' })
+        $result.Content | Should -BeExactly "---`ndoc.type: Corpus`nnav.contents:`n  - link: `"[[Tasks]]`"`n    description: `"Task list`"`n  - link: `"[[Design]]`"`n    description: `"The design`"`n  - folder: `"Inbox`"`n    description: `"Working docs`"`n---`n# Body`n"
+        $result.OpsApplied[0].Op | Should -Be 'add_nav_entry'
+        $result.OpsApplied[0].Field | Should -Be 'nav.contents'
+        $result.OpsApplied[0].Changed | Should -BeTrue
+        $result.Violations.Count | Should -Be 0
+    }
+
+    It 'adds a folder entry at the end of the list, with load_when' {
+        $result = Invoke-VaultFrontmatterWrite -Content $script:FolderNote -Ops @(
+            @{ op = 'add_nav_entry'; key = 'nav.contents'; folder = 'Archive'; description = 'Completed work'; load_when = 'referencing past work' })
+        $result.Content | Should -BeExactly "---`ndoc.type: Corpus`nnav.contents:`n  - link: `"[[Tasks]]`"`n    description: `"Task list`"`n  - folder: `"Inbox`"`n    description: `"Working docs`"`n  - folder: `"Archive`"`n    description: `"Completed work`"`n    load_when: `"referencing past work`"`n---`n# Body`n"
+        $result.Violations.Count | Should -Be 0
+    }
+
+    It 'honours before and after against an existing entry target' {
+        $before = Invoke-VaultFrontmatterWrite -Content $script:FolderNote -Ops @(
+            @{ op = 'add_nav_entry'; key = 'nav.contents'; link = '[[First]]'; description = 'first'; before = '[[Tasks]]' })
+        $before.Content | Should -Match ([regex]::Escape("nav.contents:`n  - link: `"[[First]]`""))
+        $after = Invoke-VaultFrontmatterWrite -Content $script:FolderNote -Ops @(
+            @{ op = 'add_nav_entry'; key = 'nav.contents'; link = '[[Last]]'; description = 'last'; after = 'Inbox' })
+        $after.Content | Should -Match ([regex]::Escape("    description: `"Working docs`"`n  - link: `"[[Last]]`""))
+    }
+
+    It 'creates the key when the note carries none - lint''s folder-note completeness case' {
+        # The gap these ops close: set_field against a block key is field_shape_mismatch by
+        # design, and a body patch is body-confined, so before this there was no way to apply it.
+        $result = Invoke-VaultFrontmatterWrite -Content $script:PlainNote -Ops @(
+            @{ op = 'add_nav_entry'; key = 'nav.contents'; link = '[[Tasks]]'; description = 'Task list' })
+        $result.Content | Should -BeExactly "---`ndoc.type: Corpus`nnav.contents:`n  - link: `"[[Tasks]]`"`n    description: `"Task list`"`n---`n# Body`nsecond line`n"
+        $result.Violations.Count | Should -Be 0
+    }
+
+    It 'removes an entry addressed by its target and drops the key when that empties the list' {
+        $result = Invoke-VaultFrontmatterWrite -Content $script:AgenticNote -Ops @(
+            @{ op = 'remove_nav_entry'; key = 'nav.contents'; link = '[[X]]' })
+        $result.Content | Should -BeExactly "---`ndoc.type: Corpus`n---`n# Body`n"
+        $result.OpsApplied[0].Field | Should -Be 'nav.contents'
+        $result.OpsApplied[0].Changed | Should -BeTrue
+    }
+
+    It 'honours order and repetition: each op sees the previous op''s result' {
+        $result = Invoke-VaultFrontmatterWrite -Content $script:FolderNote -Ops @(
+            @{ op = 'add_nav_entry'; key = 'nav.contents'; link = '[[A]]'; description = 'a' }
+            @{ op = 'add_nav_entry'; key = 'nav.contents'; link = '[[B]]'; description = 'b'; after = '[[A]]' }
+            @{ op = 'remove_nav_entry'; key = 'nav.contents'; link = '[[Tasks]]' }
+        )
+        $result.Content | Should -BeExactly "---`ndoc.type: Corpus`nnav.contents:`n  - link: `"[[A]]`"`n    description: `"a`"`n  - link: `"[[B]]`"`n    description: `"b`"`n  - folder: `"Inbox`"`n    description: `"Working docs`"`n---`n# Body`n"
+        $result.OpsApplied.Count | Should -Be 3
+    }
+
+    It 'is idempotent on a duplicate add: changed false, nothing mutated, nothing asserted' {
+        $Global:VaultMcpOpClasses = @('content:write')
+        $result = Invoke-VaultFrontmatterWrite -Content $script:FolderNote -Ops @(
+            @{ op = 'add_nav_entry'; key = 'nav.contents'; link = '[[Tasks]]'; description = 'a different description' })
+        $result.Content | Should -BeExactly $script:FolderNote
+        $result.OpsApplied[0].Changed | Should -BeFalse
+        $result.CapabilitiesUsed.Count | Should -Be 0
+    }
+
+    It 'is idempotent on an absent-target removal: changed false, nothing asserted' {
+        $Global:VaultMcpOpClasses = @('content:write')
+        $result = Invoke-VaultFrontmatterWrite -Content $script:FolderNote -Ops @(
+            @{ op = 'remove_nav_entry'; key = 'nav.contents'; folder = 'Nowhere' })
+        $result.Content | Should -BeExactly $script:FolderNote
+        $result.OpsApplied[0].Changed | Should -BeFalse
+        $result.CapabilitiesUsed.Count | Should -Be 0
+    }
+
+    It 'refuses an ambiguous removal with malformed_op and the op index, rather than guessing' {
+        $dupe = "---`nnav.contents:`n  - link: `"[[A]]`"`n    description: `"a`"`n  - link: `"[[A]]`"`n    description: `"b`"`n---`n# B"
+        $err = { Invoke-VaultFrontmatterWrite -Content $dupe -Ops @(
+                @{ op = 'add_nav_entry'; key = 'nav.contents'; folder = 'Inbox'; description = 'i' }
+                @{ op = 'remove_nav_entry'; key = 'nav.contents'; link = '[[A]]' }
+            ) } | Should -Throw -PassThru
+        $obj = $err.Exception.Message | ConvertFrom-Json
+        $obj.code | Should -Be 'malformed_op'
+        $obj.data.opIndex | Should -Be 1
+    }
+
+    It 'refuses a key outside the nav block-list allow-list, with the op index' {
+        $err = { Invoke-VaultFrontmatterWrite -Content $script:FolderNote -Ops @(
+                @{ op = 'add_nav_entry'; key = 'agent.instructions'; link = '[[X]]'; description = 'x' }) } | Should -Throw -PassThru
+        $obj = $err.Exception.Message | ConvertFrom-Json
+        $obj.code | Should -Be 'malformed_op'
+        $obj.data.opIndex | Should -Be 0
+    }
+
+    It 'reports and writes the canonical key spelling whatever case the op used' {
+        $result = Invoke-VaultFrontmatterWrite -Content $script:PlainNote -Ops @(
+            @{ op = 'add_nav_entry'; key = 'Nav.See_Also'; link = '[[Y]]'; description = 'y' })
+        $result.Content | Should -Match ([regex]::Escape('nav.see_also:'))
+        $result.OpsApplied[0].Field | Should -Be 'nav.see_also'
+    }
+
+    It 'refuses link and folder together, and neither, in both ops' {
+        foreach ($op in @(
+                @{ op = 'add_nav_entry'; key = 'nav.contents'; link = '[[X]]'; folder = 'Inbox'; description = 'x' }
+                @{ op = 'add_nav_entry'; key = 'nav.contents'; description = 'x' }
+                @{ op = 'remove_nav_entry'; key = 'nav.contents'; link = '[[X]]'; folder = 'Inbox' }
+                @{ op = 'remove_nav_entry'; key = 'nav.contents' }
+            )) {
+            { Invoke-VaultFrontmatterWrite -Content $script:FolderNote -Ops @($op) } | Should -Throw '*malformed_op*'
+        }
+    }
+
+    It 'refuses a missing or blank description' {
+        { Invoke-VaultFrontmatterWrite -Content $script:FolderNote -Ops @(@{ op = 'add_nav_entry'; key = 'nav.contents'; link = '[[X]]' }) } | Should -Throw '*malformed_op*'
+        { Invoke-VaultFrontmatterWrite -Content $script:FolderNote -Ops @(@{ op = 'add_nav_entry'; key = 'nav.contents'; link = '[[X]]'; description = '  ' }) } | Should -Throw '*malformed_op*'
+    }
+
+    It 'refuses before and after together' {
+        { Invoke-VaultFrontmatterWrite -Content $script:FolderNote -Ops @(
+                @{ op = 'add_nav_entry'; key = 'nav.contents'; link = '[[X]]'; description = 'x'; before = '[[Tasks]]'; after = 'Inbox' }) } |
+            Should -Throw '*malformed_op*'
+    }
+
+    It 'refuses an anchor naming no existing entry' {
+        { Invoke-VaultFrontmatterWrite -Content $script:FolderNote -Ops @(
+                @{ op = 'add_nav_entry'; key = 'nav.contents'; link = '[[X]]'; description = 'x'; before = '[[Nope]]' }) } |
+            Should -Throw '*malformed_op*'
+    }
+
+    It 'refuses a line break in any caller-text field - the op takes fields, not block text' {
+        # The reason the op is structured rather than taking pre-rendered block text: hygiene
+        # applies per field, and raw block text would carry the newline straight through.
+        foreach ($op in @(
+                @{ op = 'add_nav_entry'; key = 'nav.contents'; link = "[[X]]`ndoc.type: smuggled"; description = 'x' }
+                @{ op = 'add_nav_entry'; key = 'nav.contents'; folder = "Inbox`ndoc.type: smuggled"; description = 'x' }
+                @{ op = 'add_nav_entry'; key = 'nav.contents'; link = '[[X]]'; description = "x`ndoc.type: smuggled" }
+                @{ op = 'add_nav_entry'; key = 'nav.contents'; link = '[[X]]'; description = 'x'; load_when = "w`ndoc.type: smuggled" }
+                @{ op = 'add_nav_entry'; key = 'nav.contents'; link = '[[X]]'; description = 'x'; before = "[[Tasks]]`nx: 1" }
+                @{ op = 'add_nav_entry'; key = 'nav.contents'; link = '[[X]]'; description = 'x'; after = "Inbox`nx: 1" }
+                @{ op = 'remove_nav_entry'; key = 'nav.contents'; link = "[[X]]`nx: 1" }
+                @{ op = 'remove_nav_entry'; key = 'nav.contents'; folder = "Inbox`nx: 1" }
+            )) {
+            { Invoke-VaultFrontmatterWrite -Content $script:FolderNote -Ops @($op) } | Should -Throw '*malformed_op*'
+        }
+    }
+
+    It 'refuses a quote in any caller-text field' {
+        foreach ($op in @(
+                @{ op = 'add_nav_entry'; key = 'nav.contents'; link = 'bad" link'; description = 'x' }
+                @{ op = 'add_nav_entry'; key = 'nav.contents'; folder = 'bad" folder'; description = 'x' }
+                @{ op = 'add_nav_entry'; key = 'nav.contents'; link = '[[X]]'; description = 'bad" text' }
+                @{ op = 'add_nav_entry'; key = 'nav.contents'; link = '[[X]]'; description = 'x'; load_when = 'bad" when' }
+                @{ op = 'add_nav_entry'; key = 'nav.contents'; link = '[[X]]'; description = 'x'; before = 'bad" anchor' }
+                @{ op = 'add_nav_entry'; key = 'nav.contents'; link = '[[X]]'; description = 'x'; after = 'bad" anchor' }
+                @{ op = 'remove_nav_entry'; key = 'nav.contents'; link = 'bad" link' }
+                @{ op = 'remove_nav_entry'; key = 'nav.contents'; folder = 'bad" folder' }
+            )) {
+            { Invoke-VaultFrontmatterWrite -Content $script:FolderNote -Ops @($op) } | Should -Throw '*malformed_op*'
+        }
+    }
+
+    It 'accepts an ops array deserialized from JSON, not just hashtables' {
+        # edit hands the wrapper PSCustomObjects from ConvertFrom-Json, so the op reader has to
+        # take both shapes - including the snake_case load_when member.
+        $ops = ConvertFrom-Json -NoEnumerate -InputObject '[{"op":"add_nav_entry","key":"nav.see_also","link":"[[Y]]","description":"why","load_when":"asked about Y"}]'
+        (Invoke-VaultFrontmatterWrite -Content $script:PlainNote -Ops $ops).Content |
+            Should -BeExactly "---`ndoc.type: Corpus`nnav.see_also:`n  - link: `"[[Y]]`"`n    description: `"why`"`n    load_when: `"asked about Y`"`n---`n# Body`nsecond line`n"
+    }
+
+    It 'leaves a mixed-ending note mixed through the wrapper, body included' {
+        $mixed = "---`r`ndoc.type: Corpus`r`nnav.contents:`r`n  - link: `"[[A]]`"`n    description: `"a`"`r`n  - folder: `"Inbox`"`r`n    description: `"i`"`r`n---`n# Body`r`ntail`n"
+        (Invoke-VaultFrontmatterWrite -Content $mixed -Ops @(@{ op = 'add_nav_entry'; key = 'nav.contents'; link = '[[B]]'; description = 'b' })).Content |
+            Should -BeExactly "---`r`ndoc.type: Corpus`r`nnav.contents:`r`n  - link: `"[[A]]`"`n    description: `"a`"`r`n  - link: `"[[B]]`"`r`n    description: `"b`"`r`n  - folder: `"Inbox`"`r`n    description: `"i`"`r`n---`n# Body`r`ntail`n"
+    }
+
+    It 'asserts agentic:write on a nav mutation - the ops inherit the gate with no wiring' {
+        $Global:VaultMcpOpClasses = @('content:write', 'agentic:write')
+        $result = Invoke-VaultFrontmatterWrite -Content $script:FolderNote -Ops @(
+            @{ op = 'add_nav_entry'; key = 'nav.contents'; folder = 'Archive'; description = 'Completed work' })
+        $result.AgenticKeysChanged | Should -Be @('nav.contents')
+        $result.CapabilitiesUsed | Should -Be @('agentic:write')
+        (Get-VaultAgenticFrontmatterDiff -BeforeContent $script:FolderNote -AfterContent $result.Content) | Should -Be @('nav.contents')
+    }
+
+    It 'denies a nav mutation with insufficient_capability and zero mutation without the class' {
+        $Global:VaultMcpOpClasses = @('content:write')
+        $result = $null
+        $err = { $result = Invoke-VaultFrontmatterWrite -Content $script:FolderNote -Ops @(
+                @{ op = 'remove_nav_entry'; key = 'nav.contents'; folder = 'Inbox' }) } | Should -Throw -PassThru
+        $obj = $err.Exception.Message | ConvertFrom-Json
+        $obj.code | Should -Be 'insufficient_capability'
+        $obj.data.requiredClass | Should -Be 'agentic:write'
+        $result | Should -BeNullOrEmpty
+    }
+}
+
 Describe 'Invoke-VaultFrontmatterWrite - agentic classification' {
     AfterEach {
         Remove-Variable -Name VaultMcpOpClasses -Scope Global -ErrorAction SilentlyContinue

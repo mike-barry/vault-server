@@ -41,6 +41,8 @@
         'Remove-VaultFrontmatterField'
         'Remove-VaultFrontmatterBlock'
         'Add-VaultAgentInstructionEntry'
+        'Add-VaultNavEntry'
+        'Remove-VaultNavEntry'
         'Remove-VaultUseSkillAgentInstructions'
         'Remove-VaultPinnedAgentInstruction'
         'Get-VaultFrontmatterSchemaViolation'

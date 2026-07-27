@@ -16,6 +16,12 @@
 # add-suppression payload; path narrowing; group tokens; hard-wrap's explicit-opt-in; report
 # mode taking no lock; and standalone invocability with the JSON error shape on stderr.
 #
+# THE REMEDY CONTRACT IS PROVEN BY DISPATCH, NOT BY SHAPE ASSERTIONS ALONE: the frontmatter
+# remedies are handed to the REAL edit.ps1 unreshaped, so a payload edit would refuse fails here
+# rather than at an orchestrator. Both directions are covered - a fully computed remedy applies
+# and closes its own finding, and one carrying a `requires` slot is refused until the slot is
+# filled, which is what makes the declaration honest rather than decorative.
+#
 # Suppression state files are created by test setup rather than committed into test-vault/:
 # they are vault state, and a committed copy would make the fixture's own suppressions part of
 # every assertion. The tool reads the configured locations only - there is no ignore-file
@@ -59,6 +65,50 @@ BeforeAll {
         $dir = Split-Path -Parent $Path
         if (-not (Test-Path -LiteralPath $dir)) { New-Item -ItemType Directory -Path $dir -Force | Out-Null }
         [System.IO.File]::WriteAllText($Path, $Content, (New-Object System.Text.UTF8Encoding $false))
+    }
+
+    # --- Remedy dispatch. The point of a computed payload is that it RUNS, so these hand a
+    # remedy's params to the real edit.ps1 with no reshaping between - anything a wrapper fixed
+    # up here would be exactly the malformation a caller would hit. ---
+    $script:EditScriptPath = (Resolve-Path (Join-Path $PSScriptRoot '..' 'edit.ps1')).Path
+
+    function Invoke-RemedyThroughEdit {
+        param($Remedy)
+        & $script:EditScriptPath -Path $Remedy.params.path -FrontmatterOps $Remedy.params.frontmatterOps | ConvertFrom-Json
+    }
+
+    function Invoke-RemedyThroughEditError {
+        # The refusal half: returns the parsed {code, message, data?} an undispatchable payload
+        # earns, which is what proves a `requires` declaration is honest rather than decorative.
+        param($Remedy)
+        $errorRecord = $null
+        try {
+            & $script:EditScriptPath -Path $Remedy.params.path -FrontmatterOps $Remedy.params.frontmatterOps | Out-Null
+            throw 'edit.ps1 was expected to throw but did not.'
+        }
+        catch {
+            $errorRecord = $_
+        }
+        $errorRecord.Exception.Message | ConvertFrom-Json
+    }
+
+    function Get-RemedyOps {
+        # -NoEnumerate, exactly as edit.ps1 parses the parameter: a plain ConvertFrom-Json
+        # unrolls the outer array and would silently flatten a DOUBLE-wrapped payload back into
+        # the shape the test expected, hiding the malformation edit would refuse.
+        param($Remedy)
+        @($Remedy.params.frontmatterOps | ConvertFrom-Json -NoEnumerate)
+    }
+
+    function Set-RemedyOpField {
+        # Fills a `requires` slot the way a caller must: decode the JSON-string param, set the
+        # named field, re-serialize. -InputObject over an array already emits a JSON array, so
+        # -AsArray here would double-wrap it - the same trap lint's own serializer fell into.
+        param($Remedy, [int] $OpIndex, [string] $Field, [string] $Value)
+        $ops = @($Remedy.params.frontmatterOps | ConvertFrom-Json)
+        $ops[$OpIndex].$Field = $Value
+        $Remedy.params.frontmatterOps = (ConvertTo-Json -InputObject $ops -Depth 6 -Compress)
+        $Remedy
     }
 }
 
@@ -329,18 +379,20 @@ An archived note whose doc.created is recoverable from its filename date.
             $content | Should -Match 'pinned: "Frozen - do not rewrite"'
         }
 
-        It 'reports missing doc.type as remedy-only with a dispatchable edit-frontmatter payload' {
+        It 'reports missing doc.type as remedy-only, with the value declared in requires' {
             $result = Invoke-Lint @{ Passes = @('provenance') }
             $finding = (Get-LintPass $result 'provenance').findings |
                 Where-Object { $_.issue -eq 'missing-doc-type' } | Select-Object -First 1
             $finding.disposition | Should -Be 'reported'
             $remedy = $finding.remedyOptions[0]
             $remedy.action | Should -Be 'edit-frontmatter'
-            $remedy.requires | Should -BeNullOrEmpty
-            # -AsArray: edit requires an array of ops, and a bare object is refused.
-            $ops = $remedy.params.frontmatterOps | ConvertFrom-Json
-            @($ops)[0].op | Should -Be 'set_field'
-            @($ops)[0].field | Should -Be 'doc.type'
+            # NOT dispatchable verbatim: the value is a judgment, which the label always said and
+            # the field now says too.
+            @($remedy.requires) | Should -Be @('frontmatterOps.0.value')
+            # edit requires an array of ops, and a bare object - or a nested array - is refused.
+            $ops = Get-RemedyOps $remedy
+            $ops[0].op | Should -Be 'set_field'
+            $ops[0].field | Should -Be 'doc.type'
         }
 
         It 'never repairs doc.type or the stale use_skill entry, even under apply' {
@@ -562,16 +614,180 @@ nav.contents:
             $finding.detail | Should -Match "Resources/Ghost/Gone"
         }
 
-        It 'carries the ready-to-insert nav block for a missing standard subfolder' {
+        It 'offers repoint-then-remove for an unresolved folder: entry, repair option first' {
+            Write-FixtureFile -Path (Join-Path $script:VaultDir 'Resources/Ghost/Ghost.md') -Content @"
+---
+doc.created: 2026-07-16
+doc.type: Note
+nav.contents:
+  - folder: "Resources/Ghost/Gone"
+    description: "a folder that is not there"
+    load_when: "never"
+---
+# Ghost
+"@
+            $result = Invoke-Lint @{ Passes = @('frontmatter-schema') }
+            $finding = (Get-LintPass $result 'frontmatter-schema').findings |
+                Where-Object { $_.issue -eq 'folder-entry-unresolved' }
+            @($finding.remedyOptions.id) | Should -Be @('repoint-nav-entry', 'remove-nav-entry')
+
+            # The repair: remove + add in one ordered call, with the entry's own prose carried
+            # forward so the new path is the only thing left for the caller.
+            $repoint = $finding.remedyOptions[0]
+            $repoint.action | Should -Be 'edit-frontmatter'
+            @($repoint.requires) | Should -Be @('frontmatterOps.1.folder')
+            $ops = Get-RemedyOps $repoint
+            $ops.Count | Should -Be 2
+            $ops[0].op | Should -Be 'remove_nav_entry'
+            $ops[0].folder | Should -Be 'Resources/Ghost/Gone'
+            $ops[1].op | Should -Be 'add_nav_entry'
+            $ops[1].folder | Should -BeExactly ''
+            $ops[1].description | Should -Be 'a folder that is not there'
+            $ops[1].load_when | Should -Be 'never'
+
+            $remove = $finding.remedyOptions[1]
+            @($remove.requires).Count | Should -Be 0
+            $removeOps = Get-RemedyOps $remove
+            $removeOps.Count | Should -Be 1
+            $removeOps[0].op | Should -Be 'remove_nav_entry'
+            $removeOps[0].key | Should -Be 'nav.contents'
+        }
+
+        It 'dispatches the folder-entry-unresolved removal verbatim through edit' {
+            $ghost = Join-Path $script:VaultDir 'Resources/Ghost/Ghost.md'
+            Write-FixtureFile -Path $ghost -Content @"
+---
+doc.created: 2026-07-16
+doc.type: Note
+nav.contents:
+  - link: "[[Gizmo-Reference]]"
+    description: "part specs"
+    load_when: "specs needed"
+  - folder: "Resources/Ghost/Gone"
+    description: "a folder that is not there"
+    load_when: "never"
+---
+# Ghost
+"@
+            $finding = (Get-LintPass (Invoke-Lint @{ Passes = @('frontmatter-schema') }) 'frontmatter-schema').findings |
+                Where-Object { $_.issue -eq 'folder-entry-unresolved' }
+
+            # nav.* is the agentic layer, so edit asserts agentic:write on top of content:write.
+            $Global:VaultMcpOpClasses = @('content:read', 'content:write', 'agentic:write')
+            $edit = Invoke-RemedyThroughEdit $finding.remedyOptions[1]
+            $edit.frontmatterChanged | Should -BeTrue
+            @($edit.opsApplied)[0].op | Should -Be 'remove_nav_entry'
+
+            $after = [System.IO.File]::ReadAllText($ghost)
+            $after | Should -Not -Match 'Resources/Ghost/Gone'
+            $after | Should -Match 'link: "\[\[Gizmo-Reference\]\]"'
+            (Get-LintPass (Invoke-Lint @{ Passes = @('frontmatter-schema') }) 'frontmatter-schema').findings |
+                Where-Object { $_.issue -eq 'folder-entry-unresolved' } | Should -BeNullOrEmpty
+        }
+
+        It 'carries a fully computed add_nav_entry op for a missing standard subfolder' {
             $result = Invoke-Lint @{ Passes = @('frontmatter-schema') }
             $finding = (Get-LintPass $result 'frontmatter-schema').findings |
                 Where-Object { $_.issue -eq 'missing-standard-folder-entry' -and $_.file -eq 'Projects/Widget/Widget.md' }
             $finding.detail | Should -Match "'Inbox'"
             $remedy = $finding.remedyOptions[0]
             $remedy.action | Should -Be 'edit-frontmatter'
-            $remedy.params.key | Should -Be 'nav.contents'
-            $remedy.params.entryBlock | Should -Match 'folder: "Projects/Widget/Inbox"'
-            $remedy.params.entryBlock | Should -Match 'Active working docs'
+            $remedy.params.path | Should -Be 'Projects/Widget/Widget.md'
+            # A single op serializes as a JSON ARRAY - and as a FLAT one. A double-wrapped
+            # payload is what edit refuses with malformed_op "missing 'op' member".
+            $remedy.params.frontmatterOps | Should -Match '^\[\{'
+            # The boilerplate table supplies both prose fields, so nothing is left to judgment.
+            @($remedy.requires).Count | Should -Be 0
+            $ops = Get-RemedyOps $remedy
+            $ops.Count | Should -Be 1
+            $ops[0].op | Should -Be 'add_nav_entry'
+            $ops[0].key | Should -Be 'nav.contents'
+            $ops[0].folder | Should -Be 'Projects/Widget/Inbox'
+            $ops[0].description | Should -Match 'Active working docs'
+            $ops[0].load_when | Should -Not -BeNullOrEmpty
+        }
+
+        It 'dispatches that remedy verbatim through edit and closes its own finding' {
+            $widget = Join-Path $script:VaultDir 'Projects/Widget/Widget.md'
+            $finding = (Get-LintPass (Invoke-Lint @{ Passes = @('frontmatter-schema') }) 'frontmatter-schema').findings |
+                Where-Object { $_.issue -eq 'missing-standard-folder-entry' -and $_.file -eq 'Projects/Widget/Widget.md' }
+
+            $Global:VaultMcpOpClasses = @('content:read', 'content:write', 'agentic:write')
+            $edit = Invoke-RemedyThroughEdit $finding.remedyOptions[0]
+            $edit.frontmatterChanged | Should -BeTrue
+            @($edit.opsApplied)[0].op | Should -Be 'add_nav_entry'
+
+            [System.IO.File]::ReadAllText($widget) | Should -Match 'folder: "Projects/Widget/Inbox"'
+            # The end-to-end assertion: the finding the payload came from is gone, and the write
+            # introduced no schema violation of its own.
+            $after = @((Get-LintPass (Invoke-Lint @{ Passes = @('frontmatter-schema') }) 'frontmatter-schema').findings |
+                    Where-Object { $_.file -eq 'Projects/Widget/Widget.md' })
+            $after | Where-Object { $_.issue -eq 'missing-standard-folder-entry' } | Should -BeNullOrEmpty
+            $after | Where-Object { $_.issue -like 'schema:*' } | Should -BeNullOrEmpty
+        }
+
+        It 'declares the description and load_when slots for an unlinked corpus member' {
+            Write-FixtureFile -Path (Join-Path $script:VaultDir 'Projects/Widget/Corpus/Widget-Design.md') `
+                -Content "---`ndoc.created: 2026-07-16`ndoc.type: Note`n---`n# Widget Design`n"
+            $finding = (Get-LintPass (Invoke-Lint @{ Passes = @('frontmatter-schema') }) 'frontmatter-schema').findings |
+                Where-Object { $_.issue -eq 'unlinked-corpus-member' }
+            $remedy = $finding.remedyOptions[0]
+            $remedy.action | Should -Be 'edit-frontmatter'
+            @($remedy.requires) | Should -Be @('frontmatterOps.0.description', 'frontmatterOps.0.load_when')
+            $ops = Get-RemedyOps $remedy
+            $ops[0].op | Should -Be 'add_nav_entry'
+            $ops[0].link | Should -Be '[[Widget-Design]]'
+            $ops[0].description | Should -BeExactly ''
+        }
+
+        It 'is refused by edit when dispatched verbatim - the requires declaration is honest' {
+            Write-FixtureFile -Path (Join-Path $script:VaultDir 'Projects/Widget/Corpus/Widget-Design.md') `
+                -Content "---`ndoc.created: 2026-07-16`ndoc.type: Note`n---`n# Widget Design`n"
+            $widget = Join-Path $script:VaultDir 'Projects/Widget/Widget.md'
+            $before = [System.IO.File]::ReadAllText($widget)
+            $finding = (Get-LintPass (Invoke-Lint @{ Passes = @('frontmatter-schema') }) 'frontmatter-schema').findings |
+                Where-Object { $_.issue -eq 'unlinked-corpus-member' }
+
+            $Global:VaultMcpOpClasses = @('content:read', 'content:write', 'agentic:write')
+            $err = Invoke-RemedyThroughEditError $finding.remedyOptions[0]
+            $err.code | Should -Be 'malformed_op'
+            $err.data.opIndex | Should -Be 0
+            $err.message | Should -Match 'description'
+            [System.IO.File]::ReadAllText($widget) | Should -BeExactly $before
+        }
+
+        It 'applies once the caller fills the declared slots, landing at the end of the link run' {
+            Write-FixtureFile -Path (Join-Path $script:VaultDir 'Projects/Widget/Corpus/Widget-Design.md') `
+                -Content "---`ndoc.created: 2026-07-16`ndoc.type: Note`n---`n# Widget Design`n"
+            $widget = Join-Path $script:VaultDir 'Projects/Widget/Widget.md'
+            $finding = (Get-LintPass (Invoke-Lint @{ Passes = @('frontmatter-schema') }) 'frontmatter-schema').findings |
+                Where-Object { $_.issue -eq 'unlinked-corpus-member' }
+
+            $remedy = Set-RemedyOpField $finding.remedyOptions[0] 0 'description' 'How the widget is put together'
+            $remedy = Set-RemedyOpField $remedy 0 'load_when' 'widget design details needed'
+            $Global:VaultMcpOpClasses = @('content:read', 'content:write', 'agentic:write')
+            (Invoke-RemedyThroughEdit $remedy).frontmatterChanged | Should -BeTrue
+
+            $after = [System.IO.File]::ReadAllText($widget)
+            $after | Should -Match 'link: "\[\[Widget-Design\]\]"'
+            $after | Should -Match 'How the widget is put together'
+            (Get-LintPass (Invoke-Lint @{ Passes = @('frontmatter-schema') }) 'frontmatter-schema').findings |
+                Where-Object { $_.issue -eq 'unlinked-corpus-member' } | Should -BeNullOrEmpty
+        }
+
+        It 'declares the same slots for an unreferenced subfolder, suppression still second' {
+            New-Item -ItemType Directory -Path (Join-Path $script:VaultDir 'Projects/Widget/Scratch') -Force | Out-Null
+            Write-FixtureFile -Path (Join-Path $script:VaultDir 'Projects/Widget/Scratch/Keep.md') -Content "# Keep`n"
+            $finding = (Get-LintPass (Invoke-Lint @{ Passes = @('frontmatter-schema') }) 'frontmatter-schema').findings |
+                Where-Object { $_.issue -eq 'unreferenced-subfolder' }
+            @($finding.remedyOptions.id) | Should -Be @('add-nav-entry', 'ignore-subfolder')
+            $remedy = $finding.remedyOptions[0]
+            @($remedy.requires) | Should -Be @('frontmatterOps.0.description', 'frontmatterOps.0.load_when')
+            $ops = Get-RemedyOps $remedy
+            $ops[0].op | Should -Be 'add_nav_entry'
+            $ops[0].folder | Should -Be 'Projects/Widget/Scratch'
+            $ops[0].description | Should -BeExactly ''
+            @($finding.remedyOptions[1].requires).Count | Should -Be 0
         }
 
         It 'suppresses an unreferenced subfolder recorded in known-ignored-subfolders.txt' {
@@ -593,6 +809,49 @@ nav.contents:
             $before = [System.IO.File]::ReadAllText($widget)
             Invoke-Lint @{ Passes = @('frontmatter-schema'); Apply = $true } | Out-Null
             [System.IO.File]::ReadAllText($widget) | Should -BeExactly $before
+        }
+    }
+
+    Context 'The RemedyOption contract' {
+        It 'names every empty op slot in requires, across every pass that emits one' {
+            # The invariant New-LintRemedy states: a params field is either COMPUTED or named in
+            # `requires`, and an empty string is the slot form of the latter. A field that is
+            # neither is a pre-rendered hint wearing a payload's clothes - the exact shape the
+            # entryBlock params had - so this walks the whole default run rather than one pass.
+            New-Item -ItemType Directory -Path (Join-Path $script:VaultDir 'Projects/Widget/Scratch') -Force | Out-Null
+            Write-FixtureFile -Path (Join-Path $script:VaultDir 'Projects/Widget/Scratch/Keep.md') -Content "# Keep`n"
+            Write-FixtureFile -Path (Join-Path $script:VaultDir 'Projects/Widget/Corpus/Widget-Design.md') `
+                -Content "---`ndoc.created: 2026-07-16`ndoc.type: Note`n---`n# Widget Design`n"
+
+            $checked = 0
+            $unnamed = @()
+            foreach ($pass in (Invoke-Lint @{ }).passes) {
+                foreach ($finding in @($pass.findings)) {
+                    if ($null -eq $finding.PSObject.Properties['remedyOptions']) { continue }
+                    foreach ($remedy in @($finding.remedyOptions)) {
+                        if ($remedy.action -ne 'edit-frontmatter') { continue }
+                        $checked++
+                        $ops = Get-RemedyOps $remedy
+                        for ($i = 0; $i -lt $ops.Count; $i++) {
+                            foreach ($prop in $ops[$i].PSObject.Properties) {
+                                if ("$($prop.Value)" -ne '') { continue }
+                                $path = "frontmatterOps.$i.$($prop.Name)"
+                                if (@($remedy.requires) -notcontains $path) { $unnamed += "$($remedy.id): $path" }
+                            }
+                        }
+                    }
+                }
+            }
+            $checked | Should -BeGreaterThan 3
+            $unnamed | Should -BeNullOrEmpty
+        }
+
+        It 'names the doc.type value it cannot choose - the label always said so' {
+            Write-FixtureFile -Path (Join-Path $script:VaultDir 'Resources/No-Type.md') `
+                -Content "---`ndoc.created: 2026-07-16`n---`n# No Type`n"
+            $finding = (Get-LintPass (Invoke-Lint @{ Passes = @('provenance') }) 'provenance').findings |
+                Where-Object { $_.issue -eq 'missing-doc-type' -and $_.file -eq 'Resources/No-Type.md' }
+            @($finding.remedyOptions[0].requires) | Should -Be @('frontmatterOps.0.value')
         }
     }
 

@@ -25,6 +25,11 @@ repetition are semantic - each op sees the result of the previous one. Vocabular
   {"op":"add_directive","kind":"use_skill","skill":"vault-docs","when":"editing this file","note":"..."}
   {"op":"strip_directive","kind":"pinned","text":"..."}       - removes exactly the named entry
   {"op":"strip_directive","kind":"use_skill"}                 - removes every use_skill entry
+  {"op":"add_nav_entry","key":"nav.contents","link":"[[Note]]","description":"...","load_when":"..."}
+                                                              - optional before/after positions the
+                                                                entry against one named by target
+  {"op":"remove_nav_entry","key":"nav.see_also","folder":"Inbox"}  - removes the addressed entry,
+                                                                dropping the key if that empties it
 An unknown op, a missing op parameter, or text carrying a line break, a control character, or a
 '"' is malformed_op with {opIndex, reason}. agent.instructions is reachable only through the
 directive ops - a generic set_field/remove_field against it is protected_directive_violation.

@@ -96,8 +96,18 @@ function Invoke-VaultFrontmatterWrite {
     Ordered op objects (hashtables or deserialized JSON objects), @() when there are none.
     Vocabulary: set_field {field, value}, remove_field {field}, add_hint {text},
     add_directive {kind: pinned|use_skill, text | skill + when + note?},
-    strip_directive {kind: pinned|use_skill, text (required for pinned)}.
+    strip_directive {kind: pinned|use_skill, text (required for pinned)},
+    add_nav_entry {key, link|folder, description, load_when?, before?|after?},
+    remove_nav_entry {key, link|folder}.
     Order and repetition are semantic and are honoured; each op sees the result of the previous.
+
+    The two nav entry ops take FIELDS, never pre-rendered block text, so scalar hygiene applies
+    per field - block text would smuggle line breaks past it. `key` is one of the nav block-list
+    keys (Get-VaultNavListKey); `link` and `folder` are exclusive in both directions; entries are
+    addressed by their target value rather than by index, because ops are ordered and an index
+    would name a different entry once an earlier op shifted the list. Both are idempotent: a
+    duplicate add and an absent-target removal report changed: false and mutate nothing. A target
+    matching more than one entry is malformed_op, not a guess.
     .PARAMETER Frontmatter
     A whole caller-supplied frontmatter block replacing whatever $Content carried - create's
     alternative to -Ops. Accepted fenced or as bare inner lines; empty means no block at all.

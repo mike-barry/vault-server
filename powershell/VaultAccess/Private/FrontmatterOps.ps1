@@ -8,6 +8,11 @@
 #   - the protected-target refusal, so pinned:/use_skill: entries cannot be dropped by a generic
 #     field op instead of the explicit strip op that names them;
 #   - shape routing, so a flat-scalar op never orphans a block field's children.
+#
+# The two nav entry ops add a fourth: an allow-list of nav block-list keys (Get-VaultNavListKey),
+# so entry insertion reaches the lists it was written for and no other block key. They take
+# structured FIELDS rather than pre-rendered block text for the same reason hygiene binds
+# directive text - block text would carry line breaks past the per-field check.
 
 function New-VaultOpError {
     # malformed_op with the {opIndex, reason} retry material the error convention requires.
@@ -104,6 +109,64 @@ function Invoke-VaultFrontmatterOp {
                 }
                 default { throw (New-VaultOpError -OpIndex $OpIndex -Reason "add_directive requires 'kind' of 'pinned' or 'use_skill'") }
             }
+        }
+        'add_nav_entry' {
+            # Structured fields, not pre-rendered block text: the substrate renders the YAML so
+            # hygiene applies per field. Raw block text would carry newlines straight past it.
+            $key = "$(Get-VaultOpValue -Op $Op -Name 'key')".Trim()
+            $link = "$(Get-VaultOpValue -Op $Op -Name 'link')"
+            $folder = "$(Get-VaultOpValue -Op $Op -Name 'folder')"
+            $description = "$(Get-VaultOpValue -Op $Op -Name 'description')"
+            $loadWhen = "$(Get-VaultOpValue -Op $Op -Name 'load_when')"
+            $navBefore = "$(Get-VaultOpValue -Op $Op -Name 'before')"
+            $navAfter = "$(Get-VaultOpValue -Op $Op -Name 'after')"
+
+            $reason = Get-VaultNavTargetViolation -Key $key -Link $link -Folder $folder
+            if ($reason) { throw (New-VaultOpError -OpIndex $OpIndex -Reason "add_nav_entry: $reason") }
+            # Canonical spelling before anything reads or reports the key.
+            $key = Resolve-VaultNavListKey -Key $key
+            if ([string]::IsNullOrWhiteSpace($description)){ throw (New-VaultOpError -OpIndex $OpIndex -Reason "add_nav_entry requires a non-empty 'description'") }
+            if (-not [string]::IsNullOrWhiteSpace($navBefore) -and -not [string]::IsNullOrWhiteSpace($navAfter)) {
+                throw (New-VaultOpError -OpIndex $OpIndex -Reason "add_nav_entry: 'before' and 'after' are mutually exclusive")
+            }
+            foreach ($pair in @(@('link', $link), @('folder', $folder), @('description', $description), @('load_when', $loadWhen), @('before', $navBefore), @('after', $navAfter))) {
+                Assert-VaultOpText -OpIndex $OpIndex -Value $pair[1] -Label $pair[0]
+            }
+
+            $addArgs = @{ Content = $Content; Key = $key; Description = $description }
+            if (-not [string]::IsNullOrWhiteSpace($link)) { $addArgs['Link'] = $link }
+            if (-not [string]::IsNullOrWhiteSpace($folder)) { $addArgs['Folder'] = $folder }
+            if (-not [string]::IsNullOrWhiteSpace($loadWhen)) { $addArgs['LoadWhen'] = $loadWhen }
+            if (-not [string]::IsNullOrWhiteSpace($navBefore)) { $addArgs['Before'] = $navBefore }
+            if (-not [string]::IsNullOrWhiteSpace($navAfter)) { $addArgs['After'] = $navAfter }
+            # The nav key IS this op's field, so it reports as one in opsApplied.
+            $field = $key
+            $result = Add-VaultNavEntry @addArgs
+        }
+        'remove_nav_entry' {
+            $key = "$(Get-VaultOpValue -Op $Op -Name 'key')".Trim()
+            $link = "$(Get-VaultOpValue -Op $Op -Name 'link')"
+            $folder = "$(Get-VaultOpValue -Op $Op -Name 'folder')"
+
+            $reason = Get-VaultNavTargetViolation -Key $key -Link $link -Folder $folder
+            if ($reason) { throw (New-VaultOpError -OpIndex $OpIndex -Reason "remove_nav_entry: $reason") }
+            $key = Resolve-VaultNavListKey -Key $key
+            Assert-VaultOpText -OpIndex $OpIndex -Value $link -Label 'link'
+            Assert-VaultOpText -OpIndex $OpIndex -Value $folder -Label 'folder'
+
+            # Ambiguity is checked here rather than left to the primitive so the refusal carries
+            # the opIndex - which op in an ordered list is the actionable half of the answer.
+            $target = if ([string]::IsNullOrWhiteSpace($link)) { $folder } else { $link }
+            $hits = Select-VaultNavEntry -Entries (Get-VaultNavEntry -Content $Content -Key $key) -Link $link -Folder $folder
+            if ($hits.Count -gt 1) {
+                throw (New-VaultOpError -OpIndex $OpIndex -Reason "remove_nav_entry: '$target' matches $($hits.Count) entries under '$key' - name a target that addresses exactly one entry, or repair the duplicate first")
+            }
+
+            $removeArgs = @{ Content = $Content; Key = $key }
+            if (-not [string]::IsNullOrWhiteSpace($link)) { $removeArgs['Link'] = $link }
+            if (-not [string]::IsNullOrWhiteSpace($folder)) { $removeArgs['Folder'] = $folder }
+            $field = $key
+            $result = Remove-VaultNavEntry @removeArgs
         }
         'strip_directive' {
             switch ($kind) {

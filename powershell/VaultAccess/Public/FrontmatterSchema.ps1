@@ -58,8 +58,10 @@ function Get-VaultFrontmatterSchemaViolation {
 
     # The complete agent.* / nav.* schema, encoded once (the vault's source of truth is
     # Frontmatter-Schema.md, which this conforms to).
-    $knownKeys   = @('agent.instructions', 'nav.contents', 'nav.see_also')
-    $navKeys     = @('nav.contents', 'nav.see_also')
+    # The nav list is read from Get-VaultNavListKey rather than restated, so the schema and the
+    # nav entry ops' allow-list cannot drift into disagreeing about what a nav block list is.
+    $navKeys     = Get-VaultNavListKey
+    $knownKeys   = @('agent.instructions') + $navKeys
     $entryFields = @('link', 'folder', 'description', 'load_when')
     $pinnedFields = @('pinned')
     $skillFields = @('use_skill', 'when', 'note')

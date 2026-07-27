@@ -300,17 +300,23 @@ function Test-LintLinkSuppressed {
 function New-LintRemedy {
     <#
     .SYNOPSIS
-    The shared RemedyOption (Tool-Contracts: The RemedyOption Shape). `requires` is always empty
-    on a lint remedy - lint's remedies are fully computed, and the field exists for sync, which
-    cannot author a commit message.
+    The shared RemedyOption (Tool-Contracts: The RemedyOption Shape). `requires` names the dotted
+    param paths lint structurally cannot fill because they need caller judgment - the same field
+    sync uses for commit.message - and is empty on the remedies lint computes end to end.
+
+    THE INVARIANT THIS FILE HOLDS TO: every field in a remedy's `params` is either computed or
+    named in `requires`, and an EMPTY-STRING field is the visible slot form of "named in
+    requires". A params field that is neither is a pre-rendered hint pretending to be a payload,
+    which is exactly what the entryBlock shape was.
     #>
     param(
         [Parameter(Mandatory)] [string] $Id,
         [Parameter(Mandatory)] [string] $Label,
         [Parameter(Mandatory)] [string] $Action,
-        [Parameter(Mandatory)] $Params
+        [Parameter(Mandatory)] $Params,
+        [string[]] $Requires = @()
     )
-    [ordered]@{ id = $Id; label = $Label; action = $Action; params = $Params; requires = @() }
+    [ordered]@{ id = $Id; label = $Label; action = $Action; params = $Params; requires = @($Requires) }
 }
 
 function New-LintEditPatchRemedy {
@@ -337,18 +343,42 @@ function New-LintFrontmatterRemedy {
     .SYNOPSIS
     An edit-frontmatter remedy. edit takes its ops as a JSON STRING parameter, so the payload is
     serialized here rather than left as an object the caller would have to serialize itself.
+
+    HOW `requires` ADDRESSES A SLOT INSIDE THAT JSON STRING. Tool-Contracts spells `requires` as
+    dotted param paths, and sync's commit.message walks a real nested object. frontmatterOps is a
+    string, so a path into it has to cross a decode boundary - and it does: a `requires` segment
+    traverses INTO a JSON-string param after decoding, and a NUMERIC segment is an array index.
+    So the description slot of the first op is `frontmatterOps.0.description`.
+
+    That is a traversal rule, not a new syntax: the separator stays '.', and the numeric segment
+    reuses the op addressing edit already publishes - malformed_op carries {opIndex}, so "the op
+    at position N" is how this system names an op everywhere else. The JSON string is a transport
+    encoding of a structure the MCP parameter type cannot express, not an opaque scalar, so the
+    only structure a path can mean is the decoded one. The alternative - naming the whole
+    `frontmatterOps` param - would say the entire computed payload is caller-supplied, which is
+    false and throws away the deterministic work `params` exists to carry.
+    .PARAMETER Requires
+    Dotted param paths (see above) the caller must fill before dispatch. Empty means dispatchable
+    verbatim.
     #>
     param(
         [Parameter(Mandatory)] [string] $Id,
         [Parameter(Mandatory)] [string] $Label,
         [Parameter(Mandatory)] [string] $Rel,
-        [Parameter(Mandatory)] [object[]] $Ops
+        [Parameter(Mandatory)] [object[]] $Ops,
+        [string[]] $Requires = @()
     )
-    New-LintRemedy -Id $Id -Label $Label -Action 'edit-frontmatter' -Params ([ordered]@{
+    # edit requires an ARRAY of ops and refuses anything else, so the array shape is asserted
+    # rather than assumed. NOT -AsArray: that flag exists for a PIPELINE input, which unrolls a
+    # single-element array to a bare object - but -InputObject never unrolls, so the two together
+    # produced a DOUBLE array, [[{"op":...}]], which edit rejects with malformed_op "missing 'op'
+    # member". Every edit-frontmatter remedy this file emits carried that shape until a test
+    # dispatched one through the real edit for the first time.
+    $opsJson = ConvertTo-Json -InputObject @($Ops) -Depth 6 -Compress
+    if (-not $opsJson.StartsWith('[')) { $opsJson = "[$opsJson]" }
+    New-LintRemedy -Id $Id -Label $Label -Action 'edit-frontmatter' -Requires $Requires -Params ([ordered]@{
             path           = $Rel
-            # -AsArray: edit requires an ARRAY of ops, and ConvertTo-Json unrolls a
-            # single-element array to a bare object without it - which edit refuses.
-            frontmatterOps = (ConvertTo-Json -InputObject @($Ops) -Depth 6 -Compress -AsArray)
+            frontmatterOps = $opsJson
         })
 }
 
@@ -816,8 +846,11 @@ function Invoke-LintProvenancePass {
                 $findings.Add((New-LintFinding -File $file.Rel -Line $null -Disposition 'reported' `
                             -Issue 'missing-doc-type' -Detail 'no doc.type, and there is no recovery chain for it - the value is a judgment' `
                             -RemedyOptions @(
+                            # The value is a judgment, which is what `requires` is for - the label
+                            # said so in prose while the field claimed dispatchable-verbatim.
                             (New-LintFrontmatterRemedy -Id 'set-doc-type' -Label 'Set doc.type (choose the value)' `
-                                    -Rel $file.Rel -Ops @(@{ op = 'set_field'; field = 'doc.type'; value = '' }))
+                                    -Rel $file.Rel -Ops @(@{ op = 'set_field'; field = 'doc.type'; value = '' }) `
+                                    -Requires @('frontmatterOps.0.value'))
                         )))
             }
         }
@@ -1277,8 +1310,35 @@ function Invoke-LintFrontmatterSchemaPass {
                 $abs = Join-Path $script:VaultRoot ($declared -replace '/', [System.IO.Path]::DirectorySeparatorChar)
                 if (-not (Test-Path -LiteralPath $abs -PathType Container)) {
                     $filesystemCount++
+                    # Two options, repair first and escape hatch second, the ordering every other
+                    # finding in this file uses. The repair is the LIKELY intent - a stale folder:
+                    # path is usually a moved folder, not a dead one - so the destructive option
+                    # is not what a caller reading remedyOptions[0] finds.
+                    #
+                    # A repoint is a removal plus an add: there is no update-entry op, deliberately
+                    # (see Add-VaultNavEntry). Ordered ops make that one atomic edit call. The
+                    # entry's own description and load_when ride along, so the ONLY slot the caller
+                    # fills is the new path - lint knows everything about this entry except where
+                    # it was supposed to point.
+                    $existingDescription = if ($item.Fields.Contains('description')) { "$($item.Fields['description'])" } else { '' }
+                    $removeOp = [ordered]@{ op = 'remove_nav_entry'; key = $navKey; folder = $declared }
+                    $addOp = [ordered]@{ op = 'add_nav_entry'; key = $navKey; folder = ''; description = $existingDescription }
+                    $repointRequires = @('frontmatterOps.1.folder')
+                    # An entry with no usable description cannot be carried forward: add_nav_entry
+                    # refuses an empty one, so the slot becomes the caller's too rather than a
+                    # payload that would come back malformed_op.
+                    if ([string]::IsNullOrWhiteSpace($existingDescription)) { $repointRequires += 'frontmatterOps.1.description' }
+                    if ($item.Fields.Contains('load_when') -and -not [string]::IsNullOrWhiteSpace("$($item.Fields['load_when'])")) {
+                        $addOp['load_when'] = "$($item.Fields['load_when'])"
+                    }
                     $findings.Add((New-LintFinding -File $file.Rel -Line $null -Disposition 'reported' `
-                                -Issue 'folder-entry-unresolved' -Detail "$navKey entry #${index}: folder path does not resolve: '$declared'"))
+                                -Issue 'folder-entry-unresolved' -Detail "$navKey entry #${index}: folder path does not resolve: '$declared'" `
+                                -RemedyOptions @(
+                                (New-LintFrontmatterRemedy -Id 'repoint-nav-entry' -Label "Repoint the '$declared' entry at its new path (choose the path)" `
+                                        -Rel $file.Rel -Ops @($removeOp, $addOp) -Requires $repointRequires),
+                                (New-LintFrontmatterRemedy -Id 'remove-nav-entry' -Label "Drop the '$declared' entry - the folder is gone, not moved" `
+                                        -Rel $file.Rel -Ops @([ordered]@{ op = 'remove_nav_entry'; key = $navKey; folder = $declared }))
+                            )))
                 }
             }
         }
@@ -1299,16 +1359,20 @@ function Invoke-LintFrontmatterSchemaPass {
             if ($script:EphemeralBoilerplate.Contains($name)) {
                 if ($declaredFolders.Contains($childCmp)) { continue }
                 $boilerplate = $script:EphemeralBoilerplate[$name]
-                # The ready-to-insert nav entry, spelled exactly as it must appear in the block.
-                $entryBlock = "  - folder: `"$childRel`"`n    description: `"$($boilerplate.description)`"`n    load_when: `"$($boilerplate.load_when)`""
                 $filesystemCount++
+                # The one folder-note remedy that is computed end to end: the standard folders
+                # carry standard prose, so the description and load_when come from the table
+                # rather than from a judgment. `requires` stays empty and this dispatches verbatim.
                 $findings.Add((New-LintFinding -File $file.Rel -Line $null -Disposition 'reported' `
                             -Issue 'missing-standard-folder-entry' -Detail "standard folder '$name' has no nav.contents entry" `
                             -RemedyOptions @(
-                            (New-LintRemedy -Id 'add-nav-entry' -Label "Add the nav.contents folder entry for '$name'" -Action 'edit-frontmatter' -Params ([ordered]@{
-                                        path       = $file.Rel
-                                        key        = 'nav.contents'
-                                        entryBlock = $entryBlock
+                            (New-LintFrontmatterRemedy -Id 'add-nav-entry' -Label "Add the nav.contents folder entry for '$name'" `
+                                    -Rel $file.Rel -Ops @([ordered]@{
+                                        op          = 'add_nav_entry'
+                                        key         = 'nav.contents'
+                                        folder      = $childRel
+                                        description = $boilerplate.description
+                                        load_when   = $boilerplate.load_when
                                     }))
                         )))
             }
@@ -1322,11 +1386,19 @@ function Invoke-LintFrontmatterSchemaPass {
                     $findings.Add((New-LintFinding -File $file.Rel -Line $null -Disposition 'reported' `
                                 -Issue 'unlinked-corpus-member' -Detail "'$($member.Rel)' is not reachable from this folder note's nav links" `
                                 -RemedyOptions @(
-                                (New-LintRemedy -Id 'add-nav-entry' -Label "Add a nav.contents link entry for $($member.BaseName)" -Action 'edit-frontmatter' -Params ([ordered]@{
-                                            path       = $file.Rel
-                                            key        = 'nav.contents'
-                                            entryBlock = "  - link: `"[[$($member.BaseName)]]`"`n    description: `"`"`n    load_when: `"`""
-                                        }))
+                                # NOT fully computed, and never was - the entryBlock shape just
+                                # hid it behind pre-rendered YAML. What a corpus doc is FOR and
+                                # when to load it are the author's judgment; lint knows only that
+                                # the doc is unreachable. Both slots ride as empty strings and are
+                                # named in `requires`, the way sync carries commit.message.
+                                (New-LintFrontmatterRemedy -Id 'add-nav-entry' -Label "Add a nav.contents link entry for $($member.BaseName) (write the description and load_when)" `
+                                        -Rel $file.Rel -Ops @([ordered]@{
+                                            op          = 'add_nav_entry'
+                                            key         = 'nav.contents'
+                                            link        = "[[$($member.BaseName)]]"
+                                            description = ''
+                                            load_when   = ''
+                                        }) -Requires @('frontmatterOps.0.description', 'frontmatterOps.0.load_when'))
                             )))
                 }
             }
@@ -1337,11 +1409,16 @@ function Invoke-LintFrontmatterSchemaPass {
                 $findings.Add((New-LintFinding -File $file.Rel -Line $null -Disposition 'reported' `
                             -Issue 'unreferenced-subfolder' -Detail "'$childRel' has no link or folder entry in its parent folder note" `
                             -RemedyOptions @(
-                            (New-LintRemedy -Id 'add-nav-entry' -Label "Add a nav entry for '$childRel'" -Action 'edit-frontmatter' -Params ([ordered]@{
-                                        path       = $file.Rel
-                                        key        = 'nav.contents'
-                                        entryBlock = "  - folder: `"$childRel`"`n    description: `"`"`n    load_when: `"`""
-                                    })),
+                            # Same honest gap as the corpus case: lint found a subfolder nobody
+                            # declared, which says nothing about what it holds or when to load it.
+                            (New-LintFrontmatterRemedy -Id 'add-nav-entry' -Label "Add a nav entry for '$childRel' (write the description and load_when)" `
+                                    -Rel $file.Rel -Ops @([ordered]@{
+                                        op          = 'add_nav_entry'
+                                        key         = 'nav.contents'
+                                        folder      = $childRel
+                                        description = ''
+                                        load_when   = ''
+                                    }) -Requires @('frontmatterOps.0.description', 'frontmatterOps.0.load_when')),
                             (New-LintSuppressionRemedy -Id 'ignore-subfolder' -Label "Record '$childRel' as intentionally unreferenced" -List 'ignored-subfolders' -Entry $childRel)
                         )))
             }

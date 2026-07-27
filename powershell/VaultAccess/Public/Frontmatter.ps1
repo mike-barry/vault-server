@@ -1,6 +1,6 @@
 # Public/Frontmatter.ps1 - the in-memory frontmatter primitives: facet split, fence state,
-# block/list parsing, flat-scalar get/set/remove, block removal, and the agent.instructions
-# directive insert/strip pair.
+# block/list parsing, flat-scalar get/set/remove, block removal, the agent.instructions
+# directive insert/strip pair, and the nav.* entry insert/remove pair.
 # PowerShell-only: this substrate serves the tool-script contract (edit / create / lint) and has
 # no C# counterpart in VaultAccess.cs. See ../VaultAccess.psm1 for the full mirror policy.
 #
@@ -364,19 +364,10 @@ function Remove-VaultFrontmatterBlock {
     Assert-VaultFenceMutable -Bounds $bounds -Operation "Remove-VaultFrontmatterBlock '$Field'"
     if ($bounds.State -ne 'Closed') { return $Content }
 
-    $keyLine = -1
-    for ($i = 1; $i -lt $bounds.End; $i++) {
-        if ($lines[$i].Text -match "^$([regex]::Escape($Field)):") { $keyLine = $i; break }
-    }
-    if ($keyLine -lt 0) { return $Content }
+    $block = Get-VaultFrontmatterBlockRange -Lines $lines -Bounds $bounds -Field $Field
+    if ($null -eq $block) { return $Content }
 
-    $blockEnd = $keyLine
-    for ($i = $keyLine + 1; $i -lt $bounds.End; $i++) {
-        if ($lines[$i].Text -match '^[A-Za-z0-9_.]+:') { break }
-        $blockEnd = $i
-    }
-
-    for ($i = $blockEnd; $i -ge $keyLine; $i--) { $lines.RemoveAt($i) }
+    for ($i = $block.BlockEnd; $i -ge $block.KeyLine; $i--) { $lines.RemoveAt($i) }
     return (ConvertFrom-VaultLineList $lines)
 }
 
@@ -450,7 +441,7 @@ function Add-VaultAgentInstructionEntry {
         return (ConvertFrom-VaultLineList $lines)
     }
 
-    $block = Get-VaultAgentInstructionsBlock -Lines $lines -Bounds $bounds
+    $block = Get-VaultFrontmatterBlockRange -Lines $lines -Bounds $bounds -Field 'agent.instructions'
     if ($null -ne $block) {
         $childTexts = @()
         for ($i = $block.KeyLine + 1; $i -le $block.BlockEnd; $i++) { $childTexts += $lines[$i].Text }
@@ -481,6 +472,222 @@ function Add-VaultAgentInstructionEntry {
     for ($i = 0; $i -lt $insert.Count; $i++) {
         $lines.Insert($bounds.End + $i, [PSCustomObject]@{ Text = $insert[$i]; Terminator = $term })
     }
+    return (ConvertFrom-VaultLineList $lines)
+}
+
+function Add-VaultNavEntry {
+    <#
+    .SYNOPSIS
+    Inserts one entry into a note's nav.contents / nav.see_also block list, creating the key (and
+    the frontmatter fence) when absent. Returns the updated content.
+
+    STRUCTURED, never pre-rendered block text. The caller supplies fields and this function
+    renders the YAML, so scalar hygiene applies per field. Accepting raw block text would let a
+    caller smuggle line breaks - and therefore top-level keys - past the same guard that stopped
+    the skill-side directive-quoting bug.
+
+    Idempotent, keyed on the target value: an entry whose link (or folder) already appears under
+    that key is a no-op, so a backfill caller can invoke it unconditionally. The description and
+    load_when of an existing entry are NOT updated by a duplicate add - "already there" is the
+    answer, and rewriting an entry is a removal plus an add.
+
+    Default position is a pure function of the existing list, reproducing the convention every
+    folder note in the vault follows: a link entry goes at the end of the link run (immediately
+    before the first folder: entry, or at the end when there is none), and a folder entry goes at
+    the end. -Before / -After override it by naming an existing entry's target value.
+    .PARAMETER Content
+    Full note content.
+    .PARAMETER Key
+    The nav block-list key - one of Get-VaultNavListKey.
+    .PARAMETER Link
+    Wikilink target, e.g. '[[Tasks]]'. Exactly one of -Link / -Folder.
+    .PARAMETER Folder
+    Folder path, e.g. 'Inbox'. Exactly one of -Link / -Folder.
+    .PARAMETER Description
+    Required, non-empty: the entry's description. Absence is a schema violation, so refusing it
+    here keeps the op from writing a note it knows the validator will report.
+    .PARAMETER LoadWhen
+    Optional load condition; omitted when empty (the schema treats load_when as optional).
+    .PARAMETER Before
+    Insert immediately before the existing entry with this target value (link or folder).
+    .PARAMETER After
+    Insert immediately after the existing entry with this target value (link or folder).
+    #>
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)] [AllowEmptyString()] [string] $Content,
+        [Parameter(Mandatory)] [string] $Key,
+        [string] $Link,
+        [string] $Folder,
+        [string] $Description,
+        [string] $LoadWhen,
+        [string] $Before,
+        [string] $After
+    )
+
+    $reason = Get-VaultNavTargetViolation -Key $Key -Link $Link -Folder $Folder
+    if ($reason) { throw (New-VaultToolError -Code 'malformed_op' -Message "Cannot add a nav entry: $reason" -Data @{ reason = $reason }) }
+    # Canonical spelling, so a caller's casing cannot mint a second differently-cased key line.
+    $Key = Resolve-VaultNavListKey -Key $Key
+    if ([string]::IsNullOrWhiteSpace($Description)) {
+        throw (New-VaultToolError -Code 'malformed_op' -Message "Cannot add a nav entry: 'description' is required" -Data @{ reason = "'description' is required" })
+    }
+    $hasBefore = -not [string]::IsNullOrWhiteSpace($Before)
+    $hasAfter = -not [string]::IsNullOrWhiteSpace($After)
+    if ($hasBefore -and $hasAfter) {
+        throw (New-VaultToolError -Code 'malformed_op' -Message "Cannot add a nav entry: 'before' and 'after' are mutually exclusive" -Data @{ reason = "'before' and 'after' are mutually exclusive" })
+    }
+    foreach ($pair in @(@('link', $Link), @('folder', $Folder), @('description', $Description), @('load_when', $LoadWhen), @('before', $Before), @('after', $After))) {
+        $reason = Get-VaultFrontmatterTextViolation -Value $pair[1] -Label $pair[0]
+        if ($reason) { throw (New-VaultToolError -Code 'malformed_op' -Message "Cannot add a nav entry: $reason" -Data @{ reason = $reason }) }
+    }
+
+    $discriminator = if ([string]::IsNullOrWhiteSpace($Link)) { 'folder' } else { 'link' }
+    $target = if ($discriminator -eq 'link') { $Link } else { $Folder }
+    $newTexts = @("  - $($discriminator): `"$target`"", "    description: `"$Description`"")
+    if (-not [string]::IsNullOrWhiteSpace($LoadWhen)) { $newTexts += "    load_when: `"$LoadWhen`"" }
+
+    $lines = ConvertTo-VaultLineList $Content
+    $bounds = Get-VaultFenceBounds $lines
+    Assert-VaultFenceMutable -Bounds $bounds -Operation "Add-VaultNavEntry '$Key'"
+
+    # No block at all: the entry brings the fence and the key with it, exactly as the directive
+    # inserter does. An anchor cannot be honoured against a list that does not exist.
+    if ($bounds.State -eq 'None') {
+        if ($hasBefore -or $hasAfter) {
+            $anchor = if ($hasBefore) { $Before } else { $After }
+            throw (New-VaultToolError -Code 'malformed_op' -Message "Cannot add a nav entry: no entry with target '$anchor' under '$Key' to position against" `
+                    -Data @{ reason = "no entry with target '$anchor' under '$Key'" })
+        }
+        $term = Get-VaultLineTerminatorFor -Lines $lines -Anchor 0
+        $prelude = @('---', "$($Key):") + $newTexts + @('---')
+        for ($i = 0; $i -lt $prelude.Count; $i++) {
+            $lines.Insert($i, [PSCustomObject]@{ Text = $prelude[$i]; Terminator = $term })
+        }
+        return (ConvertFrom-VaultLineList $lines)
+    }
+
+    $block = Get-VaultFrontmatterBlockRange -Lines $lines -Bounds $bounds -Field $Key
+    if ($null -eq $block) {
+        if ($hasBefore -or $hasAfter) {
+            $anchor = if ($hasBefore) { $Before } else { $After }
+            throw (New-VaultToolError -Code 'malformed_op' -Message "Cannot add a nav entry: no entry with target '$anchor' under '$Key' to position against" `
+                    -Data @{ reason = "no entry with target '$anchor' under '$Key'" })
+        }
+        # The completeness case: a folder note carrying no nav.contents at all. The key line goes
+        # in just before the closing fence, where Set-VaultFrontmatterField puts a new field.
+        $term = Get-VaultLineTerminatorFor -Lines $lines -Anchor ($bounds.End - 1)
+        $insert = @("$($Key):") + $newTexts
+        for ($i = 0; $i -lt $insert.Count; $i++) {
+            $lines.Insert($bounds.End + $i, [PSCustomObject]@{ Text = $insert[$i]; Terminator = $term })
+        }
+        return (ConvertFrom-VaultLineList $lines)
+    }
+
+    # Indices are absolute over the same content, so they line up with $lines above.
+    $entries = Get-VaultNavEntry -Content $Content -Key $Key
+    $dup = Select-VaultNavEntry -Entries $entries -Link $Link -Folder $Folder
+    if ($dup.Count -gt 0) { return $Content }
+
+    $insertAt = $block.BlockEnd + 1
+    $anchorLine = $block.BlockEnd
+    if ($hasBefore -or $hasAfter) {
+        $anchorTarget = if ($hasBefore) { $Before } else { $After }
+        $hits = Select-VaultNavEntry -Entries $entries -Target $anchorTarget
+        if ($hits.Count -eq 0) {
+            throw (New-VaultToolError -Code 'malformed_op' -Message "Cannot add a nav entry: no entry with target '$anchorTarget' under '$Key' to position against" `
+                    -Data @{ reason = "no entry with target '$anchorTarget' under '$Key'" })
+        }
+        if ($hits.Count -gt 1) {
+            throw (New-VaultToolError -Code 'malformed_op' -Message "Cannot add a nav entry: '$anchorTarget' matches $($hits.Count) entries under '$Key', so the position is ambiguous" `
+                    -Data @{ reason = "'$anchorTarget' matches $($hits.Count) entries under '$Key'" })
+        }
+        if ($hasBefore) { $insertAt = $hits[0].Start; $anchorLine = $hits[0].Start }
+        else { $insertAt = $hits[0].End + 1; $anchorLine = $hits[0].End }
+    }
+    elseif ($discriminator -eq 'link') {
+        # End of the link run: before the first folder: entry, which is where every folder note in
+        # the vault keeps its Inbox/Archive entries.
+        $firstFolder = $entries | Where-Object { $null -ne $_.Folder } | Select-Object -First 1
+        if ($null -ne $firstFolder) { $insertAt = $firstFolder.Start; $anchorLine = $firstFolder.Start }
+    }
+
+    $term = Get-VaultLineTerminatorFor -Lines $lines -Anchor $anchorLine
+    for ($i = 0; $i -lt $newTexts.Count; $i++) {
+        $lines.Insert($insertAt + $i, [PSCustomObject]@{ Text = $newTexts[$i]; Terminator = $term })
+    }
+    return (ConvertFrom-VaultLineList $lines)
+}
+
+function Remove-VaultNavEntry {
+    <#
+    .SYNOPSIS
+    Removes ONE entry from a note's nav.contents / nav.see_also block list, addressed by its
+    target value - never by index. When the removal empties the list, the whole key is dropped
+    rather than left as an empty block (which the schema validator reports). An absent target is
+    a no-op, matching the removal primitives' absent-field semantics.
+
+    Addressed by target because ops are ordered and repetition is semantic: an index would
+    silently name a different entry once an earlier op in the same call shifted the list, while a
+    target self-verifies.
+
+    A target matching MORE than one entry is refused with malformed_op rather than guessed at -
+    the same stance as edit's patch_ambiguous. The note is already malformed in that case (two
+    entries pointing at one target), and picking one would be a coin flip the caller cannot see.
+
+    Line-range based, so every surviving entry keeps its exact bytes and terminators.
+    .PARAMETER Content
+    Full note content.
+    .PARAMETER Key
+    The nav block-list key - one of Get-VaultNavListKey.
+    .PARAMETER Link
+    Wikilink target of the entry to remove. Exactly one of -Link / -Folder.
+    .PARAMETER Folder
+    Folder path of the entry to remove. Exactly one of -Link / -Folder.
+    #>
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)] [AllowEmptyString()] [string] $Content,
+        [Parameter(Mandatory)] [string] $Key,
+        [string] $Link,
+        [string] $Folder
+    )
+
+    $reason = Get-VaultNavTargetViolation -Key $Key -Link $Link -Folder $Folder
+    if ($reason) { throw (New-VaultToolError -Code 'malformed_op' -Message "Cannot remove a nav entry: $reason" -Data @{ reason = $reason }) }
+    $Key = Resolve-VaultNavListKey -Key $Key
+    foreach ($pair in @(@('link', $Link), @('folder', $Folder))) {
+        $reason = Get-VaultFrontmatterTextViolation -Value $pair[1] -Label $pair[0]
+        if ($reason) { throw (New-VaultToolError -Code 'malformed_op' -Message "Cannot remove a nav entry: $reason" -Data @{ reason = $reason }) }
+    }
+
+    $lines = ConvertTo-VaultLineList $Content
+    $bounds = Get-VaultFenceBounds $lines
+    Assert-VaultFenceMutable -Bounds $bounds -Operation "Remove-VaultNavEntry '$Key'"
+    if ($bounds.State -ne 'Closed') { return $Content }
+
+    $block = Get-VaultFrontmatterBlockRange -Lines $lines -Bounds $bounds -Field $Key
+    if ($null -eq $block) { return $Content }
+
+    $entries = Get-VaultNavEntry -Content $Content -Key $Key
+    $hits = Select-VaultNavEntry -Entries $entries -Link $Link -Folder $Folder
+    if ($hits.Count -eq 0) { return $Content }
+    if ($hits.Count -gt 1) {
+        $target = if ([string]::IsNullOrWhiteSpace($Link)) { $Folder } else { $Link }
+        $reason = "'$target' matches $($hits.Count) entries under '$Key'"
+        throw (New-VaultToolError -Code 'malformed_op' `
+                -Message "Cannot remove a nav entry: $reason - name a target that addresses exactly one entry, or repair the duplicate first." `
+                -Data @{ reason = $reason })
+    }
+
+    if ($entries.Count -eq 1) {
+        # Nothing would be left under the key, so the key goes too - the same call the
+        # agent.instructions strippers make, and for the same reason.
+        for ($i = $block.BlockEnd; $i -ge $block.KeyLine; $i--) { $lines.RemoveAt($i) }
+        return (ConvertFrom-VaultLineList $lines)
+    }
+
+    for ($i = $hits[0].End; $i -ge $hits[0].Start; $i--) { $lines.RemoveAt($i) }
     return (ConvertFrom-VaultLineList $lines)
 }
 

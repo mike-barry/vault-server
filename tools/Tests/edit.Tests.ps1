@@ -301,6 +301,83 @@ Describe 'edit' {
         }
     }
 
+    Context 'nav entry ops through the tool' {
+        # The substrate's own Frontmatter*/FrontmatterWrite Tests suites cover Add-VaultNavEntry
+        # and Remove-VaultNavEntry (and the wrapper's opsApplied/capability handling for them) in
+        # full; what is proven here is that edit.ps1 itself drives the two ops correctly end to
+        # end - the JSON-string parameter, the opsApplied shape it reports, and the
+        # resultingFrontmatter echo - using the Widget.md fixture's real nav.contents block.
+
+        It 'applies add_nav_entry through edit.ps1: opsApplied shape and resultingFrontmatter echo the inserted entry' {
+            $widget = Join-Path $script:VaultDir 'Projects/Widget/Widget.md'
+            $result = & $script:ScriptPath -Path 'Projects/Widget/Widget.md' `
+                -FrontmatterOps '[{"op":"add_nav_entry","key":"nav.contents","link":"[[Gizmo-Reference]]","description":"Reference for gizmo parts","load_when":"researching gizmo parts"}]' | ConvertFrom-Json
+
+            $result.opsApplied.Count | Should -Be 1
+            $result.opsApplied[0].op | Should -Be 'add_nav_entry'
+            $result.opsApplied[0].field | Should -Be 'nav.contents'
+            $result.opsApplied[0].changed | Should -BeTrue
+            # kind is per-op optional: this op carries none, so it is omitted rather than emitted
+            # as an empty string or null the caller has to interpret.
+            $result.opsApplied[0].PSObject.Properties.Name | Should -Not -Contain 'kind'
+
+            $result.frontmatterChanged | Should -BeTrue
+            $result.resultingFrontmatter | Should -Match ([regex]::Escape('link: "[[Gizmo-Reference]]"'))
+            $result.resultingFrontmatter | Should -Match ([regex]::Escape('description: "Reference for gizmo parts"'))
+            $result.resultingFrontmatter | Should -Match ([regex]::Escape('load_when: "researching gizmo parts"'))
+            [System.IO.File]::ReadAllText($widget) | Should -Match ([regex]::Escape('link: "[[Gizmo-Reference]]"'))
+        }
+
+        It 'round-trips remove_nav_entry: removing the added entry restores the original frontmatter byte for byte' {
+            $original = & $script:ReadScriptPath -Path 'Projects/Widget/Widget.md' -Part 'frontmatter'
+            & $script:ScriptPath -Path 'Projects/Widget/Widget.md' `
+                -FrontmatterOps '[{"op":"add_nav_entry","key":"nav.contents","link":"[[Gizmo-Reference]]","description":"Reference for gizmo parts","load_when":"researching gizmo parts"}]' | Out-Null
+
+            $result = & $script:ScriptPath -Path 'Projects/Widget/Widget.md' `
+                -FrontmatterOps '[{"op":"remove_nav_entry","key":"nav.contents","link":"[[Gizmo-Reference]]"}]' | ConvertFrom-Json
+
+            $result.opsApplied[0].op | Should -Be 'remove_nav_entry'
+            $result.opsApplied[0].field | Should -Be 'nav.contents'
+            $result.opsApplied[0].changed | Should -BeTrue
+            $result.frontmatterChanged | Should -BeTrue
+            $result.resultingFrontmatter | Should -BeExactly $original
+            (& $script:ReadScriptPath -Path 'Projects/Widget/Widget.md' -Part 'frontmatter') | Should -BeExactly $original
+        }
+
+        It 'records changed:false through the tool for a duplicate add_nav_entry, and asserts nothing' {
+            $result = & $script:ScriptPath -Path 'Projects/Widget/Widget.md' `
+                -FrontmatterOps '[{"op":"add_nav_entry","key":"nav.contents","link":"[[Widget/Tasks]]","description":"a different description"}]' | ConvertFrom-Json
+            $result.opsApplied[0].op | Should -Be 'add_nav_entry'
+            $result.opsApplied[0].changed | Should -BeFalse
+            $result.frontmatterChanged | Should -BeFalse
+            $result.capabilitiesUsed.Count | Should -Be 0
+        }
+
+        It 'records changed:false through the tool for an absent-target remove_nav_entry, and asserts nothing' {
+            $result = & $script:ScriptPath -Path 'Projects/Widget/Widget.md' `
+                -FrontmatterOps '[{"op":"remove_nav_entry","key":"nav.contents","folder":"Nowhere"}]' | ConvertFrom-Json
+            $result.opsApplied[0].op | Should -Be 'remove_nav_entry'
+            $result.opsApplied[0].changed | Should -BeFalse
+            $result.frontmatterChanged | Should -BeFalse
+            $result.capabilitiesUsed.Count | Should -Be 0
+        }
+
+        It 'accepts the ops as a JSON string built via ConvertTo-Json - frontmatter_ops''s actual parameter shape' {
+            # frontmatter_ops is typed as a plain string parameter (see the header comment-help
+            # and the -NoEnumerate deserialization below it): every call in this suite hands it a
+            # JSON string, and this case builds that string from an object rather than hand-typing
+            # it, the way a real caller would serialize a nav op.
+            $ops = ConvertTo-Json -Compress -Depth 5 @(@{ op = 'add_nav_entry'; key = 'nav.see_also'; folder = 'Archive'; description = 'Completed work' })
+            $ops | Should -BeOfType [string]
+
+            $result = & $script:ScriptPath -Path 'Projects/Widget/Widget.md' -FrontmatterOps $ops | ConvertFrom-Json
+            $result.opsApplied[0].op | Should -Be 'add_nav_entry'
+            $result.opsApplied[0].field | Should -Be 'nav.see_also'
+            $result.opsApplied[0].changed | Should -BeTrue
+            $result.resultingFrontmatter | Should -Match ([regex]::Escape('folder: "Archive"'))
+        }
+    }
+
     Context 'staleness guard' {
         It 'errors state_mismatch with zero mutation when the file changed underneath the caller' {
             $stale = Get-FileSha $script:NoteFull
@@ -386,6 +463,38 @@ Describe 'edit' {
             $err = Invoke-EditError @{ Path = 'Projects/Widget/Widget.md'; FrontmatterOps = '[{"op":"remove_field","field":"nav.contents"}]' }
             $err.code | Should -Be 'insufficient_capability'
             [System.IO.File]::ReadAllBytes($widget) | Should -Be $before
+        }
+
+        It 'denies add_nav_entry with insufficient_capability and zero disk change when the class set lacks agentic:write' {
+            # The outcome diff is what asserts the key, not the op name: add_nav_entry moves
+            # nav.contents exactly as a generic set_field against it would.
+            $Global:VaultMcpOpClasses = @('content:write')
+            $widget = Join-Path $script:VaultDir 'Projects/Widget/Widget.md'
+            $before = [System.IO.File]::ReadAllBytes($widget)
+            $err = Invoke-EditError @{ Path = 'Projects/Widget/Widget.md'; FrontmatterOps = '[{"op":"add_nav_entry","key":"nav.contents","link":"[[Gizmo-Reference]]","description":"Reference for gizmo parts"}]' }
+            $err.code | Should -Be 'insufficient_capability'
+            $err.data.requiredClass | Should -Be 'agentic:write'
+            $err.data.agenticKeysChanged | Should -Contain 'nav.contents'
+            [System.IO.File]::ReadAllBytes($widget) | Should -Be $before
+        }
+
+        It 'denies remove_nav_entry the same way, with zero disk change' {
+            $Global:VaultMcpOpClasses = @('content:write')
+            $widget = Join-Path $script:VaultDir 'Projects/Widget/Widget.md'
+            $before = [System.IO.File]::ReadAllBytes($widget)
+            $err = Invoke-EditError @{ Path = 'Projects/Widget/Widget.md'; FrontmatterOps = '[{"op":"remove_nav_entry","key":"nav.contents","link":"[[Widget/Tasks]]"}]' }
+            $err.code | Should -Be 'insufficient_capability'
+            $err.data.requiredClass | Should -Be 'agentic:write'
+            [System.IO.File]::ReadAllBytes($widget) | Should -Be $before
+        }
+
+        It 'proves the nav-entry denial is not vacuous: the same add_nav_entry succeeds once the class is granted' {
+            # Without this, a denial that actually came from a different refusal (a bad op shape,
+            # say) would read identically to a real capability gate.
+            $Global:VaultMcpOpClasses = @('content:write', 'agentic:write')
+            $result = & $script:ScriptPath -Path 'Projects/Widget/Widget.md' -FrontmatterOps '[{"op":"add_nav_entry","key":"nav.contents","link":"[[Gizmo-Reference]]","description":"Reference for gizmo parts"}]' | ConvertFrom-Json
+            $result.capabilitiesUsed | Should -Be @('agentic:write')
+            $result.opsApplied[0].changed | Should -BeTrue
         }
 
         It 'DENIES on an injected-but-empty class set (authenticated "holds nothing")' {
