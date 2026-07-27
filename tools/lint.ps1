@@ -1769,9 +1769,21 @@ foreach ($token in @($Passes)) {
 $passesRun = @($script:AllPasses | Where-Object { $requested.Contains($_) })
 
 # --- Scope roots: absent or empty degrade open (a standalone run injects none). Read through
-# Get-Variable because under Set-StrictMode an unset global is an error. ---
+# Get-Variable because under Set-StrictMode an unset global is an error.
+#
+# Resolve-VaultScopeRoots returns the two unscoped cases as two different things: a null ambient
+# map (standalone) exits via a bare `return @()`, which unrolls to nothing in the output stream
+# and lands as $null, while an injected-but-empty entry exits comma-wrapped and lands as a real
+# empty array. Both mean unscoped, so normalize to a string[] here and let the Count -gt 0 guards
+# below (and Get-LintScanFile's) stay null-safe without repeating the check at every site.
+#
+# NOT @(...) around the call: that defeats the comma idiom on the injected-but-empty path, giving
+# a one-element array holding the empty array. The guards then read an unscoped grant as scoped,
+# and Test-VaultPathInScope's [string[]] coercion flattens the inner array to an empty-string
+# root - which made every call from a real grant die in ConvertTo-VaultScopeSegments with a raw
+# "Scope path is empty." before any pass ran. Both grants.json rows resolve to that shape. ---
 $ambientScopeRoots = Get-Variable -Name VaultMcpScopeRoots -Scope Global -ValueOnly -ErrorAction SilentlyContinue
-$script:ScopeRoots = @(Resolve-VaultScopeRoots -Vault $resolvedVault.Name -ScopeRoots $ambientScopeRoots)
+$script:ScopeRoots = [string[]] ((Resolve-VaultScopeRoots -Vault $resolvedVault.Name -ScopeRoots $ambientScopeRoots) ?? @())
 
 # --- path narrowing. A missing target is not_found in either mode. ---
 $script:OverrideRootFull = $null

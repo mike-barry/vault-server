@@ -962,6 +962,32 @@ for another line so the pair of lines is a genuine join candidate for the checke
             $result = Invoke-Lint @{ Passes = @('typography') }
             (Get-LintPass $result 'typography').findings | Should -BeNullOrEmpty
         }
+
+        # An INJECTED BUT EMPTY entry is the production shape of an unscoped grant - both
+        # grants.json rows resolve to it, since the whole-grant wildcard {"*": ["*"]} expands at
+        # load time into an empty set per vault. It is distinct from an ABSENT global (the
+        # standalone case the degrade-open tests cover), and it is the case that regressed: the
+        # resolved roots were re-wrapped in @(), which defeated the comma idiom that carries an
+        # empty array out of Resolve-VaultScopeRoots and left a one-element array holding it. The
+        # Count -gt 0 guards then read unscoped as scoped, and Test-VaultPathInScope's [string[]]
+        # coercion turned the inner empty array into an empty-string root - so every call died in
+        # ConvertTo-VaultScopeSegments with a raw "Scope path is empty." before any pass ran.
+        It 'treats an injected but EMPTY scope-roots entry as unscoped, not as a scoped grant' {
+            $Global:VaultMcpScopeRoots = @{ scratch = @() }
+            $result = Invoke-Lint @{ Passes = @('typography') }
+            # Scanned for real, and the fixture's known violations are still seen - an empty
+            # entry must not narrow enumeration the way a real root does.
+            (Get-LintPass $result 'typography').filesScanned | Should -BeGreaterThan 0
+            (Get-LintPass $result 'typography').findings | Should -Not -BeNullOrEmpty
+        }
+
+        It 'accepts a path operand under an injected but EMPTY scope-roots entry' {
+            # The other side of the same guard: the path-narrowing scope check at validate time.
+            # Under the regression this refused every path, including one plainly inside the vault.
+            $Global:VaultMcpScopeRoots = @{ scratch = @() }
+            $result = Invoke-Lint @{ Passes = @('typography'); Path = 'Resources' }
+            $result.path | Should -Be 'Resources'
+        }
     }
 
     Context 'Fix-set idempotency - the locked-in test for the streaming-writes exception' {
