@@ -1,3 +1,4 @@
+using System.ComponentModel;
 using System.Linq;
 using System.Text.Json;
 using ModelContextProtocol.Protocol;
@@ -5,6 +6,24 @@ using VaultMcpServer.Auth;
 using VaultMcpServer.Vault;
 
 namespace VaultMcpServer.Tools;
+
+/// <summary>
+/// <see cref="MintTokenTool"/>'s arguments: both the deserialization target and the source of the
+/// tool's advertised <c>inputSchema</c> (see <see cref="NativeToolArguments"/>). The wire names are
+/// the <c>snake_case</c> renderings of these members under
+/// <see cref="NativeToolArguments.Options"/>' pinned naming policy.
+///
+/// <c>ScopeRoots</c> and <c>OpClass</c> carry no default, which is what makes them <c>required</c>
+/// in the derived schema; they are still nullable because binding leaves an omitted member null
+/// rather than refusing, so the tool can raise its own named refusal for the omission.
+/// </summary>
+public sealed record MintTokenArguments(
+    [property: Description("Folder-prefix scope roots for the minted grant, e.g. \"primary\" (a whole vault) or \"primary/Projects/Foo\" (a subtree). At least one required; \"*\" is not accepted.")]
+    List<string>? ScopeRoots,
+    [property: Description("Explicit op classes the minted grant allows, e.g. [\"content:read\"]. Required, at least one; \"*\" is not accepted.")]
+    List<string>? OpClass,
+    [property: Description("Minutes until the minted grant expires. Optional, defaults to 60. \"*\" (infinite) is not accepted.")]
+    int? Ttl = null);
 
 /// <summary>
 /// Native tool (<see cref="INativeTool"/>) that mints a new, in-memory, scoped, time-limited
@@ -68,31 +87,7 @@ public sealed class MintTokenTool(GrantStore grantStore, OpClassRegistry opClass
 
     public string OpClass => "grants:manage";
 
-    public JsonElement InputSchema { get; } = JsonSerializer.SerializeToElement(new Dictionary<string, object>
-    {
-        ["type"] = "object",
-        ["properties"] = new Dictionary<string, object>
-        {
-            ["scope_roots"] = new Dictionary<string, object>
-            {
-                ["type"] = "array",
-                ["items"] = new Dictionary<string, object> { ["type"] = "string" },
-                ["description"] = "Folder-prefix scope roots for the minted grant, e.g. \"primary\" (a whole vault) or \"primary/Projects/Foo\" (a subtree). At least one required; \"*\" is not accepted.",
-            },
-            ["op_class"] = new Dictionary<string, object>
-            {
-                ["type"] = "array",
-                ["items"] = new Dictionary<string, object> { ["type"] = "string" },
-                ["description"] = "Explicit op classes the minted grant allows, e.g. [\"content:read\"]. Required, at least one; \"*\" is not accepted.",
-            },
-            ["ttl"] = new Dictionary<string, object>
-            {
-                ["type"] = "integer",
-                ["description"] = "Minutes until the minted grant expires. Optional, defaults to 60. \"*\" (infinite) is not accepted.",
-            },
-        },
-        ["required"] = new[] { "scope_roots", "op_class" },
-    });
+    public JsonElement InputSchema { get; } = NativeToolArguments.Schema<MintTokenArguments>();
 
     public Task<CallToolResult> InvokeAsync(IReadOnlyDictionary<string, JsonElement> arguments, Grant grant, CancellationToken cancellationToken)
     {
@@ -104,16 +99,21 @@ public sealed class MintTokenTool(GrantStore grantStore, OpClassRegistry opClass
         Dictionary<string, IReadOnlySet<string>> scopeRootsByVault;
         try
         {
-            scopeRoots = ReadScopeRoots(arguments);
+            var args = NativeToolArguments.Bind<MintTokenArguments>(arguments);
+            scopeRoots = ReadScopeRoots(args);
             vaults = DeriveVaults(scopeRoots);
             scopeRootsByVault = GroupScopeRootsByVault(scopeRoots);
-            opClasses = ReadOpClasses(arguments);
-            ttlMinutes = ReadTtl(arguments);
+            opClasses = ReadOpClasses(args);
+            ttlMinutes = ReadTtl(args);
             ValidateAttenuation(grant, opClasses, vaults, scopeRootsByVault);
         }
         catch (MintArgumentException ex)
         {
             return Task.FromResult(ToolError.Result(ex.Code, ex.Message, ex.ErrorData));
+        }
+        catch (JsonException ex)
+        {
+            return Task.FromResult(ShapeRefusal(ex, arguments));
         }
 
         var id = $"minted-{Guid.NewGuid():N}";
@@ -201,9 +201,31 @@ public sealed class MintTokenTool(GrantStore grantStore, OpClassRegistry opClass
     private static string FormatSet(IEnumerable<string> values) =>
         string.Join(", ", values.Select(v => $"\"{v}\""));
 
-    private static List<string> ReadScopeRoots(IReadOnlyDictionary<string, JsonElement> arguments)
+    /// <summary>
+    /// Turns a binding <see cref="JsonException"/> - which is not a <c>{code, message, data?}</c>
+    /// error - into this tool's own coded refusal, named after the argument whose shape failed.
+    /// The message table is deliberate rather than derived: <c>ttl</c>'s refusal of a string has to
+    /// say <em>why</em> the grants.json <c>"*"</c> wildcard is not accepted here, which no type
+    /// check could produce.
+    /// </summary>
+    private static CallToolResult ShapeRefusal(JsonException exception, IReadOnlyDictionary<string, JsonElement> arguments)
     {
-        var values = ReadStringArray(arguments, "scope_roots");
+        var argument = NativeToolArguments.OffendingArgument(exception);
+        var message = argument switch
+        {
+            "ttl" when arguments.TryGetValue("ttl", out var ttl) && ttl.ValueKind == JsonValueKind.String =>
+                "\"ttl\" does not accept \"*\" - pass an integer number of minutes, or omit it for the default (60).",
+            "ttl" => "\"ttl\" must be an integer number of minutes.",
+            "scope_roots" or "op_class" => $"\"{argument}\" must be an array of strings.",
+            not null => $"\"{argument}\" does not match the shape this tool advertises for it.",
+            _ => "The arguments do not match the shape this tool advertises.",
+        };
+        return ToolError.Result("invalid_argument", message, argument is null ? null : new { argument });
+    }
+
+    private static List<string> ReadScopeRoots(MintTokenArguments args)
+    {
+        var values = RequireNonEmptyEntries(args.ScopeRoots, "scope_roots");
         if (values.Count == 0)
             throw new MintArgumentException("invalid_argument", "\"scope_roots\" is required and must contain at least one entry.", new { argument = "scope_roots" });
         if (values.Any(v => v == "*"))
@@ -302,9 +324,9 @@ public sealed class MintTokenTool(GrantStore grantStore, OpClassRegistry opClass
         return byVault.ToDictionary(kv => kv.Key, kv => (IReadOnlySet<string>)kv.Value, StringComparer.OrdinalIgnoreCase);
     }
 
-    private HashSet<string> ReadOpClasses(IReadOnlyDictionary<string, JsonElement> arguments)
+    private HashSet<string> ReadOpClasses(MintTokenArguments args)
     {
-        var values = ReadStringArray(arguments, "op_class");
+        var values = RequireNonEmptyEntries(args.OpClass, "op_class");
         if (values.Count == 0)
             throw new MintArgumentException("invalid_argument", "\"op_class\" is required and must contain at least one entry.", new { argument = "op_class" });
         if (values.Any(v => v == "*"))
@@ -323,38 +345,33 @@ public sealed class MintTokenTool(GrantStore grantStore, OpClassRegistry opClass
         return opClasses;
     }
 
-    private static int ReadTtl(IReadOnlyDictionary<string, JsonElement> arguments)
+    /// <summary>
+    /// Range check, not a type check: the schema says <c>ttl</c> is an integer, and binding already
+    /// refused anything that is not one, but "a positive number of minutes" is a meaning JSON Schema
+    /// has no way to carry into the tool's own vocabulary. An omitted <c>ttl</c> binds to null and
+    /// takes the documented default.
+    /// </summary>
+    private static int ReadTtl(MintTokenArguments args)
     {
-        if (!arguments.TryGetValue("ttl", out var prop))
+        if (args.Ttl is not { } minutes)
             return DefaultTtlMinutes;
-
-        if (prop.ValueKind == JsonValueKind.String)
-            throw new MintArgumentException("invalid_argument", "\"ttl\" does not accept \"*\" - pass an integer number of minutes, or omit it for the default (60).", new { argument = "ttl" });
-
-        if (prop.ValueKind != JsonValueKind.Number || !prop.TryGetInt32(out var minutes))
-            throw new MintArgumentException("invalid_argument", "\"ttl\" must be an integer number of minutes.", new { argument = "ttl" });
-
         if (minutes <= 0)
             throw new MintArgumentException("invalid_argument", $"\"ttl\" must be a positive number of minutes, got {minutes}.", new { argument = "ttl" });
-
         return minutes;
     }
 
-    private static List<string> ReadStringArray(IReadOnlyDictionary<string, JsonElement> arguments, string name)
+    /// <summary>
+    /// The one shape rule binding leaves open: <c>items: {"type": "string"}</c> admits <c>""</c> and
+    /// a JSON <c>null</c> element, both of which are malformed scope roots and op classes here.
+    /// A missing argument binds to null and is reported as missing by the caller, not here.
+    /// </summary>
+    private static List<string> RequireNonEmptyEntries(List<string>? values, string name)
     {
-        if (!arguments.TryGetValue(name, out var prop))
+        if (values is null)
             return [];
-        if (prop.ValueKind != JsonValueKind.Array)
-            throw new MintArgumentException("invalid_argument", $"\"{name}\" must be an array of strings.", new { argument = name });
-
-        var result = new List<string>();
-        foreach (var item in prop.EnumerateArray())
-        {
-            if (item.ValueKind != JsonValueKind.String || item.GetString() is not { Length: > 0 } value)
-                throw new MintArgumentException("invalid_argument", $"\"{name}\" must contain only non-empty strings.", new { argument = name });
-            result.Add(value);
-        }
-        return result;
+        if (values.Any(string.IsNullOrEmpty))
+            throw new MintArgumentException("invalid_argument", $"\"{name}\" must contain only non-empty strings.", new { argument = name });
+        return values;
     }
 
     /// <summary>

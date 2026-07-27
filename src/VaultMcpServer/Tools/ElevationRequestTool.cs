@@ -1,4 +1,5 @@
 using System.Collections.Concurrent;
+using System.ComponentModel;
 using System.Text.Json;
 using Microsoft.AspNetCore.Http;
 using ModelContextProtocol.Protocol;
@@ -10,6 +11,26 @@ namespace VaultMcpServer.Tools;
 /// <summary>Config for <see cref="ElevationRequestTool"/>: the default rebind TTL and the
 /// per-principal request rate limit (a fixed window).</summary>
 public sealed record ElevationOptions(int DefaultTtlMinutes = 15, int MaxRequestsPerMinute = 5);
+
+/// <summary>
+/// <see cref="ElevationRequestTool"/>'s arguments: both the deserialization target and the source of
+/// the tool's advertised <c>inputSchema</c> (see <see cref="NativeToolArguments"/>). Every member is
+/// optional, so nothing is <c>required</c> in the derived schema - the two-form rule (<c>grant</c>
+/// XOR <c>scope_roots</c>+<c>op_class</c>) is a cross-argument constraint JSON Schema's
+/// <c>required</c> cannot state, and stays as <see cref="ElevationRequestTool.ResolveTarget"/>'s own
+/// coded refusal.
+/// </summary>
+public sealed record ElevationRequestArguments(
+    [property: Description("Id of a named grant to elevate to (e.g. \"admin\"). Provide this OR scope_roots+op_class, not both.")]
+    string? Grant = null,
+    [property: Description("Folder-prefix scope roots for a freshly-minted scoped target, e.g. \"primary/Projects/Foo\". Provide with op_class instead of grant.")]
+    List<string>? ScopeRoots = null,
+    [property: Description("Explicit op classes for a freshly-minted scoped target, e.g. [\"Read\"]. Provide with scope_roots.")]
+    List<string>? OpClass = null,
+    [property: Description("Minutes the elevation lasts before reverting to the base binding. Optional; defaults to the server's configured elevation TTL.")]
+    int? Ttl = null,
+    [property: Description("Optional free-text context about why elevation is needed, shown to a human approver.")]
+    string? SessionContext = null);
 
 /// <summary>
 /// Native tool (<see cref="INativeTool"/>) that requests a TTL'd elevation rebind of the caller's
@@ -70,40 +91,7 @@ public sealed class ElevationRequestTool(
     // for an enforced value - an empty string never matches Grant.Allows's op-class set.
     public string OpClass => "";
 
-    public JsonElement InputSchema { get; } = JsonSerializer.SerializeToElement(new Dictionary<string, object>
-    {
-        ["type"] = "object",
-        ["properties"] = new Dictionary<string, object>
-        {
-            ["grant"] = new Dictionary<string, object>
-            {
-                ["type"] = "string",
-                ["description"] = "Id of a named grant to elevate to (e.g. \"admin\"). Provide this OR scope_roots+op_class, not both.",
-            },
-            ["scope_roots"] = new Dictionary<string, object>
-            {
-                ["type"] = "array",
-                ["items"] = new Dictionary<string, object> { ["type"] = "string" },
-                ["description"] = "Folder-prefix scope roots for a freshly-minted scoped target, e.g. \"primary/Projects/Foo\". Provide with op_class instead of grant.",
-            },
-            ["op_class"] = new Dictionary<string, object>
-            {
-                ["type"] = "array",
-                ["items"] = new Dictionary<string, object> { ["type"] = "string" },
-                ["description"] = "Explicit op classes for a freshly-minted scoped target, e.g. [\"Read\"]. Provide with scope_roots.",
-            },
-            ["ttl"] = new Dictionary<string, object>
-            {
-                ["type"] = "integer",
-                ["description"] = "Minutes the elevation lasts before reverting to the base binding. Optional; defaults to the server's configured elevation TTL.",
-            },
-            ["session_context"] = new Dictionary<string, object>
-            {
-                ["type"] = "string",
-                ["description"] = "Optional free-text context about why elevation is needed, shown to a human approver.",
-            },
-        },
-    });
+    public JsonElement InputSchema { get; } = NativeToolArguments.Schema<ElevationRequestArguments>();
 
     public async Task<CallToolResult> InvokeAsync(IReadOnlyDictionary<string, JsonElement> arguments, Grant grant, CancellationToken cancellationToken)
     {
@@ -140,13 +128,18 @@ public sealed class ElevationRequestTool(
         string? sessionContext;
         try
         {
-            (requestedGrantId, requestedGrant, mintTarget, mintOpClasses, mintVaults, mintScopeRoots) = ResolveTarget(arguments);
-            ttlMinutes = ReadTtl(arguments);
-            sessionContext = ReadSessionContext(arguments);
+            var args = NativeToolArguments.Bind<ElevationRequestArguments>(arguments);
+            (requestedGrantId, requestedGrant, mintTarget, mintOpClasses, mintVaults, mintScopeRoots) = ResolveTarget(args);
+            ttlMinutes = ReadTtl(args);
+            sessionContext = args.SessionContext;
         }
         catch (ElevationArgumentException ex)
         {
             return ToolError.Result(ex.Code, ex.Message, ex.ErrorData);
+        }
+        catch (JsonException ex)
+        {
+            return ShapeRefusal(ex, arguments);
         }
 
         var request = new ElevationRequest(grant.Id, grant, requestedGrantId, requestedGrant, ttlMinutes, sessionContext);
@@ -175,14 +168,35 @@ public sealed class ElevationRequestTool(
     }
 
     /// <summary>
+    /// Turns a binding <see cref="JsonException"/> - which is not a <c>{code, message, data?}</c>
+    /// error - into this tool's own coded refusal, named after the argument whose shape failed. The
+    /// message table is deliberate rather than derived: <c>ttl</c>'s refusal of a string has to say
+    /// why <c>"*"</c> is not accepted, which no type check could produce.
+    /// </summary>
+    private static CallToolResult ShapeRefusal(JsonException exception, IReadOnlyDictionary<string, JsonElement> arguments)
+    {
+        var argument = NativeToolArguments.OffendingArgument(exception);
+        var message = argument switch
+        {
+            "ttl" when arguments.TryGetValue("ttl", out var ttl) && ttl.ValueKind == JsonValueKind.String =>
+                "\"ttl\" does not accept \"*\" - pass an integer number of minutes, or omit it for the default.",
+            "ttl" => "\"ttl\" must be an integer number of minutes.",
+            "scope_roots" or "op_class" => $"\"{argument}\" must be an array of strings.",
+            not null => $"\"{argument}\" does not match the shape this tool advertises for it.",
+            _ => "The arguments do not match the shape this tool advertises.",
+        };
+        return ToolError.Result("invalid_argument", message, argument is null ? null : new { argument });
+    }
+
+    /// <summary>
     /// Resolves the elevation target from the arguments: either a named grant (the <c>grant</c>
     /// argument) or a freshly-minted scoped grant (<c>scope_roots</c> + <c>op_class</c>). Exactly
-    /// one form must be supplied.
+    /// one form must be supplied - a cross-argument rule the schema cannot express, so it stays here.
     /// </summary>
-    private (string Id, Grant Grant, bool Mint, IReadOnlySet<string> OpClasses, IReadOnlySet<string> Vaults, IReadOnlyDictionary<string, IReadOnlySet<string>> ScopeRoots) ResolveTarget(IReadOnlyDictionary<string, JsonElement> arguments)
+    private (string Id, Grant Grant, bool Mint, IReadOnlySet<string> OpClasses, IReadOnlySet<string> Vaults, IReadOnlyDictionary<string, IReadOnlySet<string>> ScopeRoots) ResolveTarget(ElevationRequestArguments args)
     {
-        var hasNamed = arguments.TryGetValue("grant", out var grantProp) && grantProp.ValueKind == JsonValueKind.String && grantProp.GetString() is { Length: > 0 };
-        var hasScoped = arguments.ContainsKey("scope_roots") || arguments.ContainsKey("op_class");
+        var hasNamed = !string.IsNullOrEmpty(args.Grant);
+        var hasScoped = args.ScopeRoots is not null || args.OpClass is not null;
 
         // No single argument is at fault in either form-selection failure, so neither carries an
         // "argument" datum - the message names the whole rule.
@@ -193,7 +207,7 @@ public sealed class ElevationRequestTool(
 
         if (hasNamed)
         {
-            var id = grantProp.GetString()!;
+            var id = args.Grant!;
             // not_found preserves the distinction this tool's prose already drew between an
             // unconfigured target and a refused one; data echoes only the id the caller passed.
             if (!grantStore.TryGetNamedGrant(id, out var named))
@@ -202,7 +216,7 @@ public sealed class ElevationRequestTool(
             return (id, named, false, empty, empty, new Dictionary<string, IReadOnlySet<string>>());
         }
 
-        var (opClasses, vaults, scopeRootsByVault) = ParseScopedTarget(arguments);
+        var (opClasses, vaults, scopeRootsByVault) = ParseScopedTarget(args);
         var mintedId = $"elevated-{Guid.NewGuid():N}";
         // A representative grant object for the approver to review; the real one is created at
         // rebind time (RebindToMintedGrant) so nothing is registered unless approved.
@@ -218,15 +232,15 @@ public sealed class ElevationRequestTool(
     /// only (no <c>"*"</c>). Attenuation against the caller's own grant is a separate, later
     /// checklist item and is not enforced here.
     /// </summary>
-    private (IReadOnlySet<string> OpClasses, IReadOnlySet<string> Vaults, IReadOnlyDictionary<string, IReadOnlySet<string>> ScopeRoots) ParseScopedTarget(IReadOnlyDictionary<string, JsonElement> arguments)
+    private (IReadOnlySet<string> OpClasses, IReadOnlySet<string> Vaults, IReadOnlyDictionary<string, IReadOnlySet<string>> ScopeRoots) ParseScopedTarget(ElevationRequestArguments args)
     {
-        var scopeRoots = ReadStringArray(arguments, "scope_roots");
+        var scopeRoots = RequireNonEmptyEntries(args.ScopeRoots, "scope_roots");
         if (scopeRoots.Count == 0)
             throw new ElevationArgumentException("invalid_argument", "\"scope_roots\" is required for a scoped elevation target and must contain at least one entry.", new { argument = "scope_roots" });
         if (scopeRoots.Any(v => v == "*"))
             throw new ElevationArgumentException("invalid_argument", "\"scope_roots\" does not accept \"*\" - list explicit folder-prefix roots.", new { argument = "scope_roots" });
 
-        var opClassValues = ReadStringArray(arguments, "op_class");
+        var opClassValues = RequireNonEmptyEntries(args.OpClass, "op_class");
         if (opClassValues.Count == 0)
             throw new ElevationArgumentException("invalid_argument", "\"op_class\" is required for a scoped elevation target and must contain at least one entry.", new { argument = "op_class" });
         if (opClassValues.Any(v => v == "*"))
@@ -283,38 +297,28 @@ public sealed class ElevationRequestTool(
         return (opClasses, vaults, scopeRootsByVault);
     }
 
-    private int ReadTtl(IReadOnlyDictionary<string, JsonElement> arguments)
+    /// <summary>Range check, not a type check: binding already refused anything that is not an
+    /// integer, but "positive" is a meaning the schema cannot carry. An omitted <c>ttl</c> binds to
+    /// null and takes the server's configured default.</summary>
+    private int ReadTtl(ElevationRequestArguments args)
     {
-        if (!arguments.TryGetValue("ttl", out var prop))
+        if (args.Ttl is not { } minutes)
             return options.DefaultTtlMinutes;
-        if (prop.ValueKind == JsonValueKind.String)
-            throw new ElevationArgumentException("invalid_argument", "\"ttl\" does not accept \"*\" - pass an integer number of minutes, or omit it for the default.", new { argument = "ttl" });
-        if (prop.ValueKind != JsonValueKind.Number || !prop.TryGetInt32(out var minutes))
-            throw new ElevationArgumentException("invalid_argument", "\"ttl\" must be an integer number of minutes.", new { argument = "ttl" });
         if (minutes <= 0)
             throw new ElevationArgumentException("invalid_argument", $"\"ttl\" must be a positive number of minutes, got {minutes}.", new { argument = "ttl" });
         return minutes;
     }
 
-    private static string? ReadSessionContext(IReadOnlyDictionary<string, JsonElement> arguments) =>
-        arguments.TryGetValue("session_context", out var prop) && prop.ValueKind == JsonValueKind.String
-            ? prop.GetString()
-            : null;
-
-    private static List<string> ReadStringArray(IReadOnlyDictionary<string, JsonElement> arguments, string name)
+    /// <summary>The one shape rule binding leaves open: <c>items: {"type": "string"}</c> admits
+    /// <c>""</c> and a JSON <c>null</c> element, neither of which is a usable scope root or op
+    /// class. A missing argument binds to null and is reported as missing by the caller.</summary>
+    private static List<string> RequireNonEmptyEntries(List<string>? values, string name)
     {
-        if (!arguments.TryGetValue(name, out var prop))
+        if (values is null)
             return [];
-        if (prop.ValueKind != JsonValueKind.Array)
-            throw new ElevationArgumentException("invalid_argument", $"\"{name}\" must be an array of strings.", new { argument = name });
-        var result = new List<string>();
-        foreach (var item in prop.EnumerateArray())
-        {
-            if (item.ValueKind != JsonValueKind.String || item.GetString() is not { Length: > 0 } value)
-                throw new ElevationArgumentException("invalid_argument", $"\"{name}\" must contain only non-empty strings.", new { argument = name });
-            result.Add(value);
-        }
-        return result;
+        if (values.Any(string.IsNullOrEmpty))
+            throw new ElevationArgumentException("invalid_argument", $"\"{name}\" must contain only non-empty strings.", new { argument = name });
+        return values;
     }
 
     /// <summary>Fixed-window per-principal rate limit: returns false once a principal has made

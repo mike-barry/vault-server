@@ -42,11 +42,9 @@ public sealed class HealthCheckTool(ServerHealthState healthState, VaultConfig v
     // accident - an empty string never matches Grant.Allows's canonicalized op-class set.
     public string OpClass => "";
 
-    public JsonElement InputSchema { get; } = JsonSerializer.SerializeToElement(new Dictionary<string, object>
-    {
-        ["type"] = "object",
-        ["properties"] = new Dictionary<string, object>(),
-    });
+    // No arguments, so there is no record to derive a schema from and none is invented: the shared
+    // no-arguments schema is the whole contract. See NativeToolArguments.None.
+    public JsonElement InputSchema => NativeToolArguments.None;
 
     public Task<CallToolResult> InvokeAsync(IReadOnlyDictionary<string, JsonElement> arguments, Grant grant, CancellationToken cancellationToken)
     {
