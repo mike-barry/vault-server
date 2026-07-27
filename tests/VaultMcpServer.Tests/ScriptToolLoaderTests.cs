@@ -1,3 +1,4 @@
+using System.Text.Json;
 using VaultMcpServer.Health;
 using VaultMcpServer.Tools;
 using VaultMcpServer.Vault;
@@ -71,6 +72,59 @@ public sealed class ScriptToolLoaderTests : IDisposable
             [ValidateSet('typography', 'whitespace')] [string[]]$Passes
         )
         Write-Output "$Passes"
+        """;
+
+    /// <summary>
+    /// The shape the `.SCHEMA` side-car exists for: `frontmatter_ops` is a typed array of
+    /// objects, which the param() block can only ever derive as a bare `{type: "array"}`, so
+    /// the block carries a real `oneOf` over the op vocabulary with `const` pinning each
+    /// branch's `op`. Also the case where the derived and authored contracts disagree on
+    /// everything - `.PARAMETER` text, JSON type, and structure - so a test can tell which won.
+    /// </summary>
+    private const string SideCarSchemaScript = """
+        <#
+        .SYNOPSIS
+        Applies frontmatter ops to a note.
+        .PARAMETER path
+        The note's vault-relative path.
+        .PARAMETER frontmatter_ops
+        DERIVED-DESCRIPTION-THAT-MUST-NOT-SURVIVE
+        .SCHEMA frontmatter_ops
+        {
+          "type": "array",
+          "description": "Ordered frontmatter operations, applied as one transaction.",
+          "items": {
+            "oneOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "op": { "const": "set" },
+                  "key": { "type": "string", "description": "Dotted frontmatter key." },
+                  "value": { "description": "The value to set." }
+                },
+                "required": ["op", "key", "value"]
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "op": { "const": "add_nav_entry" },
+                  "key": { "enum": ["nav.contents", "nav.see_also"] },
+                  "description": { "type": "string" }
+                },
+                "required": ["op", "key"]
+              }
+            ]
+          }
+        }
+        .NOTES
+        OpClass: content:write
+        #>
+        [CmdletBinding()]
+        param(
+            [Parameter(Mandatory=$true)] [string]$path,
+            [string]$frontmatter_ops
+        )
+        Write-Output "$path $frontmatter_ops"
         """;
 
     [Fact]
@@ -395,6 +449,236 @@ public sealed class ScriptToolLoaderTests : IDisposable
         Assert.False(passes.TryGetProperty("enum", out _));
         var members = passes.GetProperty("items").GetProperty("enum").EnumerateArray().Select(e => e.GetString()).ToList();
         Assert.Equal(new string?[] { "typography", "whitespace" }, members);
+    }
+
+    [Fact]
+    public void Load_SideCarSchema_ReplacesTheWholeDerivedPropertyNode()
+    {
+        WriteScript("edit_fm.ps1", SideCarSchemaScript);
+        var healthState = new ServerHealthState();
+        var tool = Assert.Single(ScriptToolLoader.Load(_tempDir, OpClasses, healthState));
+        Assert.Empty(healthState.Problems);
+
+        var ops = Assert.Single(tool.Parameters, p => p.Name == "frontmatter_ops");
+        // The param() block's own facts are still carried - they remain true about the script,
+        // and the encoding item needs the "side-car says non-string, .NET says string" pair.
+        Assert.Equal("string", ops.JsonType);
+        Assert.NotNull(ops.Schema);
+
+        var property = tool.BuildInputSchema().GetProperty("properties").GetProperty("frontmatter_ops");
+
+        // The block replaces the node, so the node's type is the block's, not MapJsonType's...
+        Assert.Equal("array", property.GetProperty("type").GetString());
+        // ...and its description is the block's own, not the .PARAMETER text.
+        Assert.Equal("Ordered frontmatter operations, applied as one transaction.", property.GetProperty("description").GetString());
+        Assert.DoesNotContain("DERIVED-DESCRIPTION-THAT-MUST-NOT-SURVIVE", property.GetRawText(), StringComparison.Ordinal);
+
+        // Verbatim: the emitted node is JSON-equal to the block as authored, not a re-derived
+        // node with a couple of keys overwritten - and not double-encoded as a JSON string.
+        Assert.Equal(JsonValueKind.Object, property.ValueKind);
+        Assert.True(JsonElement.DeepEquals(ops.Schema!.Value, property));
+
+        // The oneOf-over-an-op-vocabulary shape survives intact, since that is the whole point
+        // of the mechanism: MapJsonType cannot express items, let alone per-branch const/enum.
+        var branches = property.GetProperty("items").GetProperty("oneOf").EnumerateArray().ToList();
+        Assert.Equal(2, branches.Count);
+        Assert.Equal("set", branches[0].GetProperty("properties").GetProperty("op").GetProperty("const").GetString());
+        Assert.Equal("add_nav_entry", branches[1].GetProperty("properties").GetProperty("op").GetProperty("const").GetString());
+        var navKeys = branches[1].GetProperty("properties").GetProperty("key").GetProperty("enum").EnumerateArray().Select(e => e.GetString()).ToList();
+        Assert.Equal(new string?[] { "nav.contents", "nav.see_also" }, navKeys);
+    }
+
+    [Fact]
+    public void Load_SideCarSchema_LeavesEveryOtherParameterDerived()
+    {
+        // The counterpart to the case above, and the "without a block" case at parameter
+        // granularity: `path` sits in the same script and still derives exactly as before.
+        // The unchanged-shape coverage for a script with no block at all is already carried by
+        // BuildInputSchema_MatchesJsonSchemaShape and the two ValidateSet schema tests above,
+        // and by the byte-identical schemas the real tools/ folder still derives - so this
+        // adds only what is new: that Schema is null where no block was authored.
+        WriteScript("edit_fm.ps1", SideCarSchemaScript);
+        var tool = Assert.Single(ScriptToolLoader.Load(_tempDir, OpClasses, new ServerHealthState()));
+
+        var path = Assert.Single(tool.Parameters, p => p.Name == "path");
+        Assert.Null(path.Schema);
+
+        var property = tool.BuildInputSchema().GetProperty("properties").GetProperty("path");
+        Assert.Equal("string", property.GetProperty("type").GetString());
+        Assert.Equal("The note's vault-relative path.", property.GetProperty("description").GetString());
+    }
+
+    [Fact]
+    public void BuildInputSchema_SideCarSchema_RequiredStillComesFromParameterMandatory()
+    {
+        // `required` is a keyword of the parent object schema, not of a property node, so a
+        // block that replaces the node cannot express it. It stays driven by the param() block,
+        // which is also what the PowerShell binder enforces: frontmatter_ops is optional there
+        // and so optional here, despite its block being the more elaborate contract.
+        WriteScript("edit_fm.ps1", SideCarSchemaScript);
+        var tool = Assert.Single(ScriptToolLoader.Load(_tempDir, OpClasses, new ServerHealthState()));
+
+        var required = tool.BuildInputSchema().GetProperty("required").EnumerateArray().Select(e => e.GetString()).ToList();
+        Assert.Equal(new string?[] { "path" }, required);
+    }
+
+    [Fact]
+    public void Load_SideCarSchemaBeatsValidateSet_WithNoMergedEnum()
+    {
+        // A [ValidateSet] plus a .SCHEMA on one parameter is a conflict, not a merge: the block
+        // wins outright and the set contributes nothing, so the effective schema is readable
+        // from the block alone rather than from the block plus the param() block.
+        WriteScript("passes.ps1", """
+            <#
+            .SYNOPSIS
+            Runs a set of passes.
+            .PARAMETER passes
+            Which passes to run.
+            .SCHEMA passes
+            {
+              "type": "array",
+              "description": "Passes to run, as objects rather than bare names.",
+              "items": {
+                "type": "object",
+                "properties": { "name": { "type": "string" } },
+                "required": ["name"]
+              }
+            }
+            .NOTES
+            OpClass: content:read
+            #>
+            param(
+                [ValidateSet('typography', 'whitespace')] [string[]]$passes
+            )
+            Write-Output "$passes"
+            """);
+
+        var tool = Assert.Single(ScriptToolLoader.Load(_tempDir, OpClasses, new ServerHealthState()));
+        // The set is still carried on the parameter - it is a true fact about the script - but
+        // nothing of it reaches the advertised node.
+        var passes = Assert.Single(tool.Parameters);
+        Assert.Equal(new[] { "typography", "whitespace" }, passes.AllowedValues);
+
+        var property = tool.BuildInputSchema().GetProperty("properties").GetProperty("passes");
+        Assert.False(property.TryGetProperty("enum", out _));
+        var items = property.GetProperty("items");
+        Assert.False(items.TryGetProperty("enum", out _));
+        Assert.Equal("object", items.GetProperty("type").GetString());
+        Assert.DoesNotContain("typography", property.GetRawText(), StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Load_MalformedSideCarSchema_SkipsScriptAndNeverFallsBackToMapJsonType()
+    {
+        WriteScript("bad.ps1", """
+            <#
+            .SYNOPSIS
+            Applies frontmatter ops to a note.
+            .PARAMETER frontmatter_ops
+            Ops to apply.
+            .SCHEMA frontmatter_ops
+            {
+              "type": "array",
+              "items": { "oneOf": [
+            }
+            .NOTES
+            OpClass: content:write
+            #>
+            param([string]$frontmatter_ops)
+            """);
+
+        // Refusal, not fallback. A fallback would re-advertise frontmatter_ops as a bare
+        // {type: "string"} and - since side-car presence is also the argument-encoding signal -
+        // silently strip its encoding, so a typo would quietly degrade the tool instead of
+        // breaking it visibly.
+        AssertScriptSkipped(expectedDetailFragment: ".SCHEMA");
+        AssertListsAsBrokenEntry("bad");
+    }
+
+    [Fact]
+    public void Load_SideCarSchemaNamingNoDeclaredParameter_SkipsScript()
+    {
+        // Mirrors the refusal of a parameter carrying no .PARAMETER entry. A misspelled name is
+        // otherwise indistinguishable from an absent block: the parameter re-derives through
+        // MapJsonType and loses its encoding with nothing left to read as a signal.
+        WriteScript("bad.ps1", """
+            <#
+            .SYNOPSIS
+            Applies frontmatter ops to a note.
+            .PARAMETER frontmatter_ops
+            Ops to apply.
+            .SCHEMA frontmater_ops
+            { "type": "array" }
+            .NOTES
+            OpClass: content:write
+            #>
+            param([string]$frontmatter_ops)
+            """);
+
+        AssertScriptSkipped(expectedDetailFragment: "frontmater_ops");
+        AssertListsAsBrokenEntry("bad");
+    }
+
+    [Fact]
+    public void Load_SideCarSchemaDoesNotSubstituteForAMissingParameterEntry()
+    {
+        // .PARAMETER stays mandatory for every parameter regardless of a side-car. A block
+        // carries its own description, which makes it tempting to read as documenting the
+        // parameter - it does not; it documents the wire shape, and the help entry is still
+        // required. The refusal is the existing .PARAMETER one, not a .SCHEMA-flavored variant.
+        WriteScript("bad.ps1", """
+            <#
+            .SYNOPSIS
+            Applies frontmatter ops to a note.
+            .SCHEMA frontmatter_ops
+            { "type": "array", "description": "Ordered frontmatter operations." }
+            .NOTES
+            OpClass: content:write
+            #>
+            param([string]$frontmatter_ops)
+            """);
+
+        AssertScriptSkipped(expectedDetailFragment: ".PARAMETER");
+    }
+
+    [Fact]
+    public void Load_NamelessSideCarSchema_SkipsScript()
+    {
+        // A nameless block names no parameter, so it takes the same refusal - deliberately NOT
+        // the silent drop a nameless .PARAMETER gets. Dropping a .PARAMETER is still caught a
+        // line later, when the parameter it was meant to document turns out to have no help
+        // entry; nothing downstream catches a dropped .SCHEMA.
+        WriteScript("bad.ps1", """
+            <#
+            .SYNOPSIS
+            Applies frontmatter ops to a note.
+            .PARAMETER frontmatter_ops
+            Ops to apply.
+            .SCHEMA
+            { "type": "array" }
+            .NOTES
+            OpClass: content:write
+            #>
+            param([string]$frontmatter_ops)
+            """);
+
+        AssertScriptSkipped(expectedDetailFragment: ".SCHEMA");
+        AssertListsAsBrokenEntry("bad");
+    }
+
+    /// <summary>Asserts the refused script surfaces as a <c>BROKEN:</c> entry rather than
+    /// vanishing from `tools/list`. <see cref="ScriptToolDispatcher.ListToolsAsync"/> synthesizes
+    /// that entry from exactly two things - a Degraded problem under
+    /// <see cref="ScriptToolLoader.HealthSource"/>, and its <see cref="DegradedProblem.SubjectPath"/>,
+    /// whose base name becomes the listed tool name - so this asserts the entry by asserting
+    /// both. <c>HealthCheckDispatchTests</c> carries the same case end-to-end over the wire.</summary>
+    private void AssertListsAsBrokenEntry(string expectedToolName)
+    {
+        var healthState = new ServerHealthState();
+        ScriptToolLoader.Load(_tempDir, OpClasses, healthState);
+        var problem = Assert.Single(healthState.Problems, p => p.Source == ScriptToolLoader.HealthSource && p.SubjectPath is not null);
+        Assert.Equal(expectedToolName, Path.GetFileNameWithoutExtension(problem.SubjectPath!));
+        Assert.False(string.IsNullOrWhiteSpace(problem.Detail), "The Detail is the listed entry's description text.");
     }
 
     /// <summary>Shared assertion for every per-script skip case above (single bad.ps1 in the

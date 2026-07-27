@@ -12,8 +12,9 @@ namespace VaultMcpServer.Tests;
 /// regardless of op class), the <c>BROKEN:</c> prefix synthesized for a script that failed to
 /// load, and the <c>initialize</c> response's <c>instructions</c> field reflecting the
 /// server's current degraded state. Boots the real host against a temp <c>tools/</c>
-/// directory containing one good script and one broken one, so the fixture itself puts the
-/// server into a real (non-fatal) Degraded state - as distinct from
+/// directory containing one good script and two broken ones (a missing <c>.SYNOPSIS</c> and a
+/// malformed <c>.SCHEMA</c> side-car), so the fixture itself puts the server into a real
+/// (non-fatal) Degraded state - as distinct from
 /// <see cref="HealthCheckToolTests"/>' unit-level coverage of the tool's own output shape.
 /// </summary>
 [Collection("Program host tests")]
@@ -108,6 +109,27 @@ public sealed class HealthCheckDispatchTests : IClassFixture<HealthCheckDispatch
         Assert.DoesNotContain("BROKEN:", good.GetProperty("description").GetString());
     }
 
+    /// <summary>
+    /// A malformed <c>.SCHEMA</c> side-car takes the same route over the wire as any other
+    /// per-script refusal: zero tools from that file, and a synthesized <c>BROKEN:</c> entry
+    /// rather than a silent disappearance or - the failure this rule exists to prevent - a
+    /// quiet fallback to the <c>MapJsonType</c>-derived schema.
+    /// </summary>
+    [Fact]
+    public async Task ToolsList_ScriptWithMalformedSchemaSideCar_ShowsUpAsBrokenSynthesizedEntry()
+    {
+        var result = await SendAsync(_fixture, Fixture.ReadOnlyToken, """{"jsonrpc":"2.0","id":1,"method":"tools/list"}""");
+        var tools = result.GetProperty("tools").EnumerateArray().ToList();
+
+        var broken = Assert.Single(tools, t => t.GetProperty("name").GetString() == "schema_broken");
+        var description = broken.GetProperty("description").GetString()!;
+        Assert.StartsWith("BROKEN:", description);
+        Assert.Contains(".SCHEMA", description);
+        // The listed entry carries the placeholder empty-object schema, so the parameter is not
+        // advertised at all - as opposed to being advertised with a fallback-derived node.
+        Assert.Empty(broken.GetProperty("inputSchema").GetProperty("properties").EnumerateObject());
+    }
+
     [Fact]
     public async Task Initialize_WhileDegraded_InstructionsSummarizeTheProblem()
     {
@@ -167,6 +189,22 @@ public sealed class HealthCheckDispatchTests : IClassFixture<HealthCheckDispatch
                 OpClass: content:read
                 #>
                 param()
+                """);
+            // A second, differently-broken script: the .SCHEMA side-car body is not valid JSON.
+            // It refuses through the same loader path as broken.ps1, which is the point - the
+            // side-car's refusal is not a special case with its own reporting.
+            File.WriteAllText(Path.Combine(toolsDir, "schema_broken.ps1"), """
+                <#
+                .SYNOPSIS
+                Applies frontmatter ops to a note.
+                .PARAMETER frontmatter_ops
+                Ops to apply.
+                .SCHEMA frontmatter_ops
+                { "type": "array", "items": { "oneOf": [
+                .NOTES
+                OpClass: content:read
+                #>
+                param([string]$frontmatter_ops)
                 """);
 
             ConfigureEnvironment(vaultsPath, grantsPath, toolsDirectory: toolsDir);
