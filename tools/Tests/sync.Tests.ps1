@@ -528,6 +528,39 @@ Describe 'sync' {
             $message | Should -Match 'Kept local File.md'
             $message | Should -Match 'Generated-by: vault-sync'
         }
+
+        It 'predicts AND resolves a conflict on a non-ASCII filename, which git quotes by default' {
+            # Regression: without -z, git reports this path as the 17-character literal
+            # "Caf\303\251.md" - surrounding double quotes included - so the prediction named a
+            # path that does not exist and every resolution call addressing it by name missed,
+            # leaving the entry unmerged. Built from a code point rather than a literal so the
+            # test does not depend on this file's own encoding.
+            $name = "Caf$([char]0xE9).md"
+            Set-SyncRepoFile -Repo $script:Peer -Rel $name -Content "remote version`n"
+            Add-SyncCommit -Repo $script:Peer -Message 'remote edit'
+            git -C $script:Peer push -q 2>&1 | Out-Null
+            Set-SyncRepoFile -Repo $script:VaultDir -Rel $name -Content "local version`n"
+            Add-SyncCommit -Repo $script:VaultDir -Message 'local edit'
+
+            # The PREDICTION - the merge-tree probe - names the path verbatim, never C-quoted.
+            $predicted = & $script:ScriptPath -Apply $true | ConvertFrom-SyncResult
+            $blocked = @($predicted.blocked | Where-Object { $_.reason -eq 'merge_conflicts' })
+            $blocked.Count | Should -Be 1
+            $blocked[0].detail | Should -Match ([regex]::Escape($name))
+            $blocked[0].detail | Should -Not -Match '\\303'
+
+            # And the resolution lands rather than aborting on an unmerged leftover.
+            $result = & $script:ScriptPath -Apply $true -on_conflict 'keep_local_save_remote' | ConvertFrom-SyncResult
+            @($result.actions | ForEach-Object { $_.action }) | Should -Contain 'resolve-conflicts'
+            [System.IO.File]::ReadAllText((Join-Path $script:VaultDir $name)).Trim() | Should -Be 'local version'
+            $siblings = @(Get-ChildItem -LiteralPath $script:VaultDir -Filter '*CONFLICT*')
+            $siblings.Count | Should -Be 1
+            $siblings[0].Name | Should -BeLike "Caf$([char]0xE9)*"
+            [System.IO.File]::ReadAllText($siblings[0].FullName).Trim() | Should -Be 'remote version'
+            $result.repos.'.'.midMerge | Should -BeFalse
+            Test-Path -LiteralPath (Join-Path $script:VaultDir '.git/MERGE_HEAD') | Should -BeFalse
+            Get-SyncHeadMessage -Repo $script:VaultDir | Should -Match ([regex]::Escape("Kept local $name"))
+        }
     }
 
     Context 'ladder rungs 6 and 7 - fast-forward and push' {
@@ -738,6 +771,8 @@ Describe 'sync' {
             $err = Invoke-SyncError $splat
             $err.code | Should -Be 'state_mismatch'
             $err.data.suppliedToken | Should -Be $remedy.params.state_token
+            # Presence first: an ABSENT stateToken reads as $null, which passes a bare "not <x>".
+            $err.data.PSObject.Properties.Name | Should -Contain 'stateToken'
             $err.data.stateToken | Should -Not -Be $remedy.params.state_token
             # Zero mutation: HEAD unmoved, no merge state, no conflict sibling written.
             (git -C $script:VaultDir rev-parse HEAD).Trim() | Should -Be $headBefore
@@ -775,6 +810,8 @@ Describe 'sync' {
             $err = Invoke-SyncError $splat
             $err.code | Should -Be 'state_mismatch'
             $err.data.suppliedToken | Should -Be $remedy.params.state_token
+            # Presence first: an ABSENT stateToken reads as $null, which passes a bare "not <x>".
+            $err.data.PSObject.Properties.Name | Should -Contain 'stateToken'
             $err.data.stateToken | Should -Not -Be $remedy.params.state_token
             Get-SyncHeadMessage -Repo $script:VaultDir | Should -Match 'initial commit'
             ((git -C $script:VaultDir status --porcelain) -join "`n") | Should -Match 'File.md'

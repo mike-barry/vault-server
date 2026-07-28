@@ -560,8 +560,12 @@ function Resolve-SyncConflict {
     param([Parameter(Mandatory)] $State)
 
     $merge = Invoke-SyncGit -RepoPath $State.Full -Arguments @('merge', '--no-commit', '--no-ff', $State.Upstream)
-    $conflictedR = Invoke-SyncGit -RepoPath $State.Full -Arguments @('diff', '--name-only', '--diff-filter=U')
-    $conflicted = @($conflictedR.Output -split "`n" | Where-Object { $_.Trim() } | ForEach-Object { $_.Trim().Replace('\', '/') })
+    # -z for the same reason the porcelain read takes it (Get-SyncRepoState): a path carrying a
+    # non-ASCII byte, a quote, or a backslash is otherwise C-quoted AND wrapped in literal double
+    # quotes, and every later call addressing that path by name - checkout --ours, rm, add, show
+    # :3: - would miss it, leaving the entry unmerged.
+    $conflictedR = Invoke-SyncGit -RepoPath $State.Full -Arguments @('diff', '--name-only', '--diff-filter=U', '-z')
+    $conflicted = @($conflictedR.Output -split "`0" | Where-Object { $_ } | ForEach-Object { $_.Replace('\', '/') })
 
     if ($conflicted.Count -eq 0 -and $merge.ExitCode -ne 0) {
         # A merge that failed for a reason other than a content conflict must not be left half-applied.
@@ -601,8 +605,8 @@ function Resolve-SyncConflict {
         }
     }
 
-    $remaining = Invoke-SyncGit -RepoPath $State.Full -Arguments @('diff', '--name-only', '--diff-filter=U')
-    if (@($remaining.Output -split "`n" | Where-Object { $_.Trim() }).Count -gt 0) {
+    $remaining = Invoke-SyncGit -RepoPath $State.Full -Arguments @('diff', '--name-only', '--diff-filter=U', '-z')
+    if (@($remaining.Output -split "`0" | Where-Object { $_ }).Count -gt 0) {
         Invoke-SyncGit -RepoPath $State.Full -Arguments @('merge', '--abort') | Out-Null
         throw (New-VaultToolError -Code 'git_failure' -Message "Conflict resolution left unmerged entries in '$($State.Key)'; the merge was aborted rather than committed half-resolved." -Data @{ repo = $State.Key; operation = 'merge-resolve'; output = $remaining.Output })
     }
@@ -990,7 +994,7 @@ function Invoke-SyncRepoLadder {
             return
         }
         Assert-SyncMergeTreeVersion
-        $probe = Invoke-SyncGit -RepoPath $state.Full -Arguments @('merge-tree', '--write-tree', '--name-only', 'HEAD', $state.Upstream)
+        $probe = Invoke-SyncGit -RepoPath $state.Full -Arguments @('merge-tree', '--write-tree', '--name-only', '-z', 'HEAD', $state.Upstream)
         if ($probe.ExitCode -gt 1) {
             throw (New-VaultToolError -Code 'git_failure' -Message "The merge-tree probe failed in '$($Repo.Key)': $($probe.Output)" -Data @{ repo = $Repo.Key; operation = 'merge-tree'; exitCode = $probe.ExitCode; output = $probe.Output })
         }
@@ -1010,12 +1014,17 @@ function Invoke-SyncRepoLadder {
             }
         }
         else {
-            # The probe's conflicted-file section runs from the second line to the first blank line.
-            $lines = @($probe.Output -split "`n")
+            # Under -z the probe emits the toplevel tree OID, then one field per conflicted path,
+            # then an EMPTY field where the newline format puts its blank line and the informational
+            # messages begin. Unquoted, so a non-ASCII path survives into the prediction the same
+            # way it survives into the census. -z has been a merge-tree option since 2.38, the floor
+            # Assert-SyncMergeTreeVersion already enforces - the release that added --write-tree -
+            # so reading it costs no version bump.
+            $fields = @($probe.Output -split "`0")
             $conflicted = [System.Collections.Generic.List[string]]::new()
-            for ($i = 1; $i -lt $lines.Count; $i++) {
-                if ([string]::IsNullOrWhiteSpace($lines[$i])) { break }
-                $conflicted.Add($lines[$i].Trim())
+            for ($i = 1; $i -lt $fields.Count; $i++) {
+                if ($fields[$i].Length -eq 0) { break }
+                $conflicted.Add($fields[$i])
             }
 
             if (-not $script:OnConflictStrategy) {

@@ -207,6 +207,9 @@ Describe 'Search-VaultContent (grep surface)' {
                 $parsed = $err.Exception.Message | ConvertFrom-Json
                 $parsed.code | Should -Be 'ripgrep_failed'
                 $parsed.data.exitCode | Should -Be 2
+                # Presence first: an ABSENT stderr reads as $null, which matches nothing and
+                # passes a bare "not match".
+                $parsed.data.PSObject.Properties.Name | Should -Contain 'stderr'
                 $parsed.data.stderr | Should -Not -Match 'regex parse error'
             }
             finally { $handle.Dispose() }
