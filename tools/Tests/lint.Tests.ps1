@@ -984,6 +984,176 @@ nav.contents:
         }
     }
 
+    Context 'Folder-note completeness across every nav-link-set arity' {
+        # Get-LintNavLinkBasename and Expand-LintCorpusReach each build an OrdinalIgnoreCase
+        # HashSet[string] and hand it to a caller that calls .Contains() on it. PowerShell
+        # ENUMERATES a collection on output, so returning one has to suppress that or the set never
+        # arrives: at 0 members the caller gets $null, at 1 a bare [string], at 2+ an [object[]].
+        # Each breaks .Contains() differently - a throw that aborts the pass, silent SUBSTRING
+        # matching, and matching that is case-SENSITIVE despite the comparer the set was built
+        # with - so the arity is the axis these cases vary, and all three are covered for both
+        # functions. The committed test-vault's only folder note declares two links, which is why
+        # the existing coverage never reached the other two.
+        #
+        # Every fixture here is a folder note of its own (Projects/Gadget/Gadget.md) rather than an
+        # edit to Widget.md, so each case controls its link count exactly and none of them perturbs
+        # the Widget-based cases above.
+
+        It 'reports an unreferenced subfolder when the folder note declares NO nav links' {
+            # The repro, and an entirely ordinary note: a folder note whose frontmatter carries no
+            # nav block at all. The empty set arrives as $null and .Contains() throws, aborting the
+            # whole frontmatter-schema pass rather than reporting anything.
+            Write-FixtureFile -Path (Join-Path $script:VaultDir 'Projects/Gadget/Gadget.md') -Content @"
+---
+doc.created: 2026-07-16
+doc.type: Note
+---
+# Gadget.md - a folder note that routes nowhere yet
+"@
+            Write-FixtureFile -Path (Join-Path $script:VaultDir 'Projects/Gadget/Scratch/Keep.md') -Content "# Keep`n"
+
+            $pass = Get-LintPass (Invoke-Lint @{ Passes = @('frontmatter-schema') }) 'frontmatter-schema'
+            # The pass ran to completion at all - the crash took every later file with it, so this
+            # is the assertion the fix is really about.
+            $pass.status | Should -Be 'findings'
+            @($pass.findings | Where-Object {
+                    $_.issue -eq 'unreferenced-subfolder' -and $_.file -eq 'Projects/Gadget/Gadget.md'
+                }).Count | Should -Be 1
+        }
+
+        It 'does not count a subfolder as referenced because its name is a SUBSTRING of a declared link' {
+            # Exactly one link entry, so the set arrives as a bare [string] and .Contains() becomes
+            # String.Contains - substring matching. "Scratchpad-Overview".Contains("Scratch") is
+            # true, so the Scratch subfolder is silently treated as declared.
+            Write-FixtureFile -Path (Join-Path $script:VaultDir 'Projects/Gadget/Gadget.md') -Content @"
+---
+nav.contents:
+  - link: "[[Gadget-Scratchpad-Overview]]"
+    description: "How the scratchpad is organized"
+    load_when: "looking for in-flight gadget notes"
+---
+# Gadget.md - a folder note declaring exactly one link
+"@
+            Write-FixtureFile -Path (Join-Path $script:VaultDir 'Projects/Gadget/Gadget-Scratchpad-Overview.md') `
+                -Content "---`ndoc.created: 2026-07-16`ndoc.type: Note`n---`n# Gadget Scratchpad Overview`n"
+            Write-FixtureFile -Path (Join-Path $script:VaultDir 'Projects/Gadget/Gadget-Scratchpad/Keep.md') -Content "# Keep`n"
+
+            $findings = @((Get-LintPass (Invoke-Lint @{ Passes = @('frontmatter-schema') }) 'frontmatter-schema').findings |
+                    Where-Object { $_.issue -eq 'unreferenced-subfolder' -and $_.file -eq 'Projects/Gadget/Gadget.md' })
+            $findings.Count | Should -Be 1
+            $findings[0].detail | Should -Match 'Projects/Gadget/Gadget-Scratchpad'
+        }
+
+        It 'still matches a declared link against a subfolder case-insensitively at two entries' {
+            # Two entries, so the set arrives as an [object[]] and .Contains() becomes IList.Contains
+            # - Object.Equals, and so ordinal case-SENSITIVE, losing the OrdinalIgnoreCase comparer
+            # the set was constructed with. A link whose casing drifts from the folder's then reads
+            # as undeclared and the folder note is reported for a subfolder it does route to.
+            Write-FixtureFile -Path (Join-Path $script:VaultDir 'Projects/Gadget/Gadget.md') -Content @"
+---
+nav.contents:
+  - link: "[[Gadget-Alpha]]"
+    description: "The alpha notes"
+    load_when: "reviewing alpha work"
+  - link: "[[scratch]]"
+    description: "Scratch working area"
+    load_when: "looking for in-flight gadget notes"
+---
+# Gadget.md - a folder note declaring two links
+"@
+            Write-FixtureFile -Path (Join-Path $script:VaultDir 'Projects/Gadget/Gadget-Alpha.md') `
+                -Content "---`ndoc.created: 2026-07-16`ndoc.type: Note`n---`n# Gadget Alpha`n"
+            Write-FixtureFile -Path (Join-Path $script:VaultDir 'Projects/Gadget/Scratch/Scratch.md') `
+                -Content "---`ndoc.created: 2026-07-16`ndoc.type: Note`n---`n# Scratch`n"
+
+            (Get-LintPass (Invoke-Lint @{ Passes = @('frontmatter-schema') }) 'frontmatter-schema').findings |
+                Where-Object { $_.issue -eq 'unreferenced-subfolder' -and $_.file -eq 'Projects/Gadget/Gadget.md' } |
+                Should -BeNullOrEmpty
+        }
+
+        It 'reports an unlinked corpus member when the folder note declares NO nav links' {
+            # Expand-LintCorpusReach carries the identical defect, and its caller reaches it first:
+            # the Corpus branch runs before the plain-subfolder branch, so this is the arity-zero
+            # crash on the reach set rather than on the declared-link set.
+            Write-FixtureFile -Path (Join-Path $script:VaultDir 'Projects/Gadget/Gadget.md') -Content @"
+---
+doc.created: 2026-07-16
+doc.type: Note
+---
+# Gadget.md - a folder note that routes nowhere yet
+"@
+            Write-FixtureFile -Path (Join-Path $script:VaultDir 'Projects/Gadget/Corpus/Gadget-Design.md') `
+                -Content "---`ndoc.created: 2026-07-16`ndoc.type: Note`n---`n# Gadget Design`n"
+
+            $pass = Get-LintPass (Invoke-Lint @{ Passes = @('frontmatter-schema') }) 'frontmatter-schema'
+            $pass.status | Should -Be 'findings'
+            $finding = $pass.findings | Where-Object {
+                $_.issue -eq 'unlinked-corpus-member' -and $_.file -eq 'Projects/Gadget/Gadget.md'
+            }
+            @($finding).Count | Should -Be 1
+            $finding.detail | Should -Match 'Projects/Gadget/Corpus/Gadget-Design.md'
+        }
+
+        It 'does not count a corpus member as reachable because its name is a SUBSTRING of the reach set' {
+            # One declared link and no hop, so the reach set is a single-element one and arrives as
+            # a bare [string]: "Gadget-Design-Overview".Contains("Gadget-Design") is true and the
+            # unreachable member is passed over.
+            Write-FixtureFile -Path (Join-Path $script:VaultDir 'Projects/Gadget/Gadget.md') -Content @"
+---
+nav.contents:
+  - link: "[[Gadget-Design-Overview]]"
+    description: "Where the design notes live"
+    load_when: "orienting in the gadget design"
+---
+# Gadget.md - a folder note declaring exactly one link
+"@
+            Write-FixtureFile -Path (Join-Path $script:VaultDir 'Projects/Gadget/Gadget-Design-Overview.md') `
+                -Content "---`ndoc.created: 2026-07-16`ndoc.type: Note`n---`n# Gadget Design Overview`n"
+            Write-FixtureFile -Path (Join-Path $script:VaultDir 'Projects/Gadget/Corpus/Gadget-Design.md') `
+                -Content "---`ndoc.created: 2026-07-16`ndoc.type: Note`n---`n# Gadget Design`n"
+
+            $finding = (Get-LintPass (Invoke-Lint @{ Passes = @('frontmatter-schema') }) 'frontmatter-schema').findings |
+                Where-Object { $_.issue -eq 'unlinked-corpus-member' -and $_.file -eq 'Projects/Gadget/Gadget.md' }
+            @($finding).Count | Should -Be 1
+            $finding.detail | Should -Match 'Projects/Gadget/Corpus/Gadget-Design.md'
+        }
+
+        It 'reaches a corpus member through an intermediate folder note, case-insensitively' {
+            # The two-element reach set, and the hop that produces it: Gadget.md links the Corpus
+            # subfolder's own folder note, whose nav.contents routes on to the member. That second
+            # hop is the OTHER call site of Get-LintNavLinkBasename - the foreach inside
+            # Expand-LintCorpusReach - so this covers the one consumer that was never broken and
+            # must not become broken.
+            #
+            # The hop's link is cased differently from the member's filename, which is what turns
+            # the [object[]] arity into a false positive: IList.Contains is ordinal.
+            Write-FixtureFile -Path (Join-Path $script:VaultDir 'Projects/Gadget/Gadget.md') -Content @"
+---
+nav.contents:
+  - link: "[[Gadget-Hub]]"
+    description: "The corpus hub, which routes on to the design notes"
+    load_when: "orienting in the gadget corpus"
+---
+# Gadget.md - a folder note routing through a corpus hub
+"@
+            Write-FixtureFile -Path (Join-Path $script:VaultDir 'Projects/Gadget/Corpus/Gadget-Hub/Gadget-Hub.md') -Content @"
+---
+nav.contents:
+  - link: "[[gadget-deep]]"
+    description: "The deep design notes"
+    load_when: "gadget design details needed"
+---
+# Gadget-Hub.md - the corpus hub
+"@
+            Write-FixtureFile -Path (Join-Path $script:VaultDir 'Projects/Gadget/Corpus/Gadget-Hub/Gadget-Deep.md') `
+                -Content "---`ndoc.created: 2026-07-16`ndoc.type: Note`n---`n# Gadget Deep`n"
+
+            (Get-LintPass (Invoke-Lint @{ Passes = @('frontmatter-schema') }) 'frontmatter-schema').findings |
+                Where-Object { $_.issue -eq 'unlinked-corpus-member' -and $_.file -eq 'Projects/Gadget/Gadget.md' } |
+                Should -BeNullOrEmpty
+        }
+    }
+
     Context 'The RemedyOption contract' {
         It 'names every empty op slot in requires, across every pass that emits one' {
             # The invariant New-LintRemedy states: a params field is either COMPUTED or named in

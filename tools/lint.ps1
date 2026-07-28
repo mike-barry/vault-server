@@ -1256,7 +1256,14 @@ function Get-LintNavLinkBasename {
             }
         }
     }
-    $set
+    # Comma-wrapped so the set survives the return. PowerShell ENUMERATES a collection on output,
+    # so a bare `$set` hands the caller its members instead: $null at zero, a bare [string] at one,
+    # an [object[]] at two or more. Every caller here calls .Contains(), and each arity breaks it a
+    # different way - a throw that aborts the pass, String.Contains substring matching, and
+    # IList.Contains ordinal matching that discards the OrdinalIgnoreCase comparer above. The
+    # foreach consumer in Expand-LintCorpusReach iterates the set itself and is unaffected either
+    # way, since only the outer one-element wrapper is unrolled.
+    , $set
 }
 
 function Expand-LintCorpusReach {
@@ -1292,7 +1299,10 @@ function Expand-LintCorpusReach {
             if ($reach.Add($basename)) { $queue.Enqueue($basename) }
         }
     }
-    $reach
+    # Comma-wrapped for the same reason as Get-LintNavLinkBasename above: the caller calls
+    # .Contains() on this, and an enumerated return would reach it as $null, a bare [string], or an
+    # [object[]] depending on how many names the reach happened to hold.
+    , $reach
 }
 
 function Invoke-LintFrontmatterSchemaPass {
