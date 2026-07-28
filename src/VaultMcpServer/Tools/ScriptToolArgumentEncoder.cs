@@ -73,11 +73,19 @@ public static class ScriptToolArgumentEncoder
     /// arrays to <c>object?[]</c>, and objects to <c>Dictionary&lt;string, object?&gt;</c>, which
     /// PowerShell binds as its own array and hashtable. Unchanged behavior - it is what every
     /// argument got before encoding existed, and what every non-encoding argument still gets.
+    ///
+    /// The <c>(object)</c> on the number branch's integral arm is load-bearing. A conditional
+    /// expression takes its operands' best common type, and <c>long</c> converts implicitly to
+    /// <c>double</c> while the reverse does not - so written as
+    /// <c>TryGetInt64(out var l) ? l : GetDouble()</c> the whole expression is <c>double</c> and
+    /// the integral arm is widened away, leaving <c>TryGetInt64</c> computed and discarded. Boxing
+    /// each arm separately keeps the branch that actually ran. Past 2^53 that is not cosmetic: a
+    /// double cannot hold consecutive integers there, so the widening silently altered the value.
     /// </summary>
     private static object? ConvertJsonElement(JsonElement element) => element.ValueKind switch
     {
         JsonValueKind.String => element.GetString(),
-        JsonValueKind.Number => element.TryGetInt64(out var l) ? l : element.GetDouble(),
+        JsonValueKind.Number => element.TryGetInt64(out var l) ? (object)l : element.GetDouble(),
         JsonValueKind.True => true,
         JsonValueKind.False => false,
         JsonValueKind.Array => element.EnumerateArray().Select(ConvertJsonElement).ToArray(),

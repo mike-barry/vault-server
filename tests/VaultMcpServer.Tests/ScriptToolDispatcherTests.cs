@@ -354,6 +354,31 @@ public sealed class ScriptToolDispatcherTests : IClassFixture<ScriptToolDispatch
         Assert.Equal("first", report.GetProperty("itemsFirstName").GetString());
     }
 
+    /// <summary>
+    /// The plain conversion's number branch, end to end against the real host: a JSON number for a
+    /// numeric parameter has to reach the splat as an integral CLR type, not as a double.
+    ///
+    /// This earns a dispatch test rather than staying a unit assertion because the widening was
+    /// invisible at every layer above it. A whole-valued double binds to <c>[long]</c> without
+    /// complaint and stringifies to the same text, so a small integer would pass this test with the
+    /// bug in place; 2^53+1 is the smallest value where a double cannot hold consecutive integers,
+    /// which turns a CLR-type nicety into visible data loss - the script would receive
+    /// 9007199254740992 for an argument the client sent as 9007199254740993.
+    ///
+    /// No landed tool declares a numeric parameter today, so this is coverage for the contract
+    /// <c>MapJsonType</c> already advertises (<c>[int]</c>/<c>[long]</c> -> JSON "integer") rather
+    /// than for a shipped surface.
+    /// </summary>
+    [Fact]
+    public async Task ToolsCall_JsonNumberForANumericParameter_ReachesTheScriptAsAnExactInteger()
+    {
+        const long beyondDoublePrecision = 9007199254740993L;
+        var report = await CallShapeAsync(new() { ["count"] = beyondDoublePrecision });
+
+        Assert.Equal("Int64", report.GetProperty("countType").GetString());
+        Assert.Equal("9007199254740993", report.GetProperty("countValue").GetString());
+    }
+
     /// <summary>The structured-array and already-encoded-string arrivals converge on byte-identical
     /// script input - the property that lets a caller send either form.</summary>
     [Fact]
@@ -502,6 +527,10 @@ public sealed class ScriptToolDispatcherTests : IClassFixture<ScriptToolDispatch
                 { "type": "string", "description": "Plain text." }
                 .PARAMETER plain
                 A parameter with no side-car at all.
+                .PARAMETER count
+                The one parameter here that is not [string]. MapJsonType derives [long] as JSON
+                "integer", so this is what a tool declaring a numeric parameter would look like -
+                and the only way to see what the splat actually delivers for a JSON number.
                 .NOTES
                 OpClass: content:write
                 #>
@@ -510,9 +539,18 @@ public sealed class ScriptToolDispatcherTests : IClassFixture<ScriptToolDispatch
                     [string] $items,
                     [string] $payload,
                     [string] $declared_string,
-                    [string] $plain
+                    [string] $plain,
+                    [long] $count
                 )
                 $report = [ordered]@{ itemsRaw = $items; declaredString = $declared_string; plain = $plain }
+                if ($PSBoundParameters.ContainsKey('count')) {
+                    # Reported as text: the point is which CLR type the splat delivered and whether
+                    # the value survived intact, and a JSON number here would re-round-trip both.
+                    # Read off PSBoundParameters rather than off $count, which the binder has
+                    # already coerced to [long] and which would therefore report [long] either way.
+                    $report.countType = $PSBoundParameters['count'].GetType().Name
+                    $report.countValue = $count.ToString([System.Globalization.CultureInfo]::InvariantCulture)
+                }
                 if (-not [string]::IsNullOrWhiteSpace($items)) {
                     # The same parse the real tools do, -NoEnumerate and all: this is what has to
                     # succeed for the encoding to be worth anything.

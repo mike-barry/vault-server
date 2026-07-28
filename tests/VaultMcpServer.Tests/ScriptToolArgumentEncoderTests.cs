@@ -109,12 +109,71 @@ public sealed class ScriptToolArgumentEncoderTests
     public void BindArgument_ScalarForAnEncodingParameter_IsNotSerialized()
     {
         var parameter = Parameter("""{"type":"array"}""");
-        // Asserted as "not JSON text" rather than against an exact CLR numeric type: which numeric
-        // type a JSON number lands on is the plain conversion's own long-standing behavior, not
-        // this rule's business, and pinning it here would make an unrelated change look like a
-        // regression in the encoder.
-        Assert.IsNotType<string>(ScriptToolArgumentEncoder.BindArgument(parameter, Value("42")));
+        // Pinned to the exact CLR type now that the plain conversion actually keeps an integral
+        // one. This assertion was deliberately loose ("not JSON text") while the number branch
+        // widened every value to double, so that fixing the widening would not read as an encoder
+        // regression; with the branch fixed, the loose form would pass against either behavior.
+        Assert.IsType<long>(ScriptToolArgumentEncoder.BindArgument(parameter, Value("42")));
         Assert.Equal(true, ScriptToolArgumentEncoder.BindArgument(parameter, Value("true")));
         Assert.Null(ScriptToolArgumentEncoder.BindArgument(parameter, Value("null")));
+    }
+
+    /// <summary>
+    /// The plain conversion's number branch, which has to preserve integrality rather than send
+    /// everything through <c>double</c>. The branch reads
+    /// <c>TryGetInt64(out var l) ? l : GetDouble()</c>, and a conditional expression takes its
+    /// operands' best common type - <c>double</c>, since <c>long</c> converts implicitly to it and
+    /// not the reverse - so without an explicit <c>object</c> on the integral arm the successful
+    /// <c>TryGetInt64</c> is computed and then thrown away.
+    ///
+    /// Latent while every script-tool parameter is <c>[string]</c>, <c>[bool]</c>, or
+    /// <c>[string[]]</c>, because a whole-valued double stringifies to "1" under invariant
+    /// formatting. It goes live the moment a tool declares <c>[int]</c> or <c>[long]</c>, which
+    /// <c>ScriptToolLoader.MapJsonType</c> already advertises as JSON <c>"integer"</c> - a type the
+    /// binding layer would never have delivered.
+    /// </summary>
+    [Theory]
+    [InlineData("42")]
+    [InlineData("-7")]
+    [InlineData("0")]
+    // The boundaries of what TryGetInt64 accepts at all, and the reason the distinction is not
+    // cosmetic: past 2^53 a double cannot represent consecutive integers, so widening here is
+    // silent data loss rather than a change of label.
+    [InlineData("9007199254740993")]
+    [InlineData("9223372036854775807")]
+    [InlineData("-9223372036854775808")]
+    public void BindArgument_IntegralJsonNumber_ConvertsToLong(string json)
+    {
+        var bound = ScriptToolArgumentEncoder.BindArgument(Parameter(null), Value(json));
+        Assert.Equal(long.Parse(json), Assert.IsType<long>(bound));
+    }
+
+    /// <summary>The other side of the same branch: a number <c>TryGetInt64</c> refuses still lands
+    /// on <c>double</c>, so nothing about the fix narrows what the conversion accepts.</summary>
+    [Theory]
+    [InlineData("1.5", 1.5)]
+    [InlineData("-0.25", -0.25)]
+    [InlineData("1e3", 1000d)]
+    // Integral in value but outside Int64's range, so TryGetInt64 refuses it and double is the
+    // only branch left - the case that keeps this from being "integral text means long".
+    [InlineData("9223372036854775808", 9223372036854775808d)]
+    public void BindArgument_FractionalOrOutOfRangeJsonNumber_ConvertsToDouble(string json, double expected)
+    {
+        var bound = ScriptToolArgumentEncoder.BindArgument(Parameter(null), Value(json));
+        Assert.Equal(expected, Assert.IsType<double>(bound));
+    }
+
+    /// <summary>Nested numbers take the same branch, so an array or object argument carries the
+    /// distinction into the <c>object?[]</c> and dictionary the splat hands PowerShell.</summary>
+    [Fact]
+    public void BindArgument_NumbersNestedInStructure_KeepTheirClrTypes()
+    {
+        var array = (object?[])ScriptToolArgumentEncoder.BindArgument(Parameter(null), Value("[1, 1.5]"))!;
+        Assert.IsType<long>(array[0]);
+        Assert.IsType<double>(array[1]);
+
+        var map = (Dictionary<string, object?>)ScriptToolArgumentEncoder.BindArgument(Parameter(null), Value("""{"whole":1,"fraction":1.5}"""))!;
+        Assert.IsType<long>(map["whole"]);
+        Assert.IsType<double>(map["fraction"]);
     }
 }
