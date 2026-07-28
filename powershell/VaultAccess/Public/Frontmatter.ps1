@@ -1,6 +1,6 @@
 # Public/Frontmatter.ps1 - the in-memory frontmatter primitives: facet split, fence state,
 # block/list parsing, flat-scalar get/set/remove, block removal, the agent.instructions
-# directive insert/strip pair, and the nav.* entry insert/remove pair.
+# directive insert/strip pair, and the nav.* key accessor plus entry insert/remove pair.
 # PowerShell-only: this substrate serves the tool-script contract (edit / create / lint) and has
 # no C# counterpart in VaultAccess.cs. See ../VaultAccess.psm1 for the full mirror policy.
 #
@@ -473,6 +473,24 @@ function Add-VaultAgentInstructionEntry {
         $lines.Insert($bounds.End + $i, [PSCustomObject]@{ Text = $insert[$i]; Terminator = $term })
     }
     return (ConvertFrom-VaultLineList $lines)
+}
+
+function Get-VaultNavListKey {
+    <#
+    .SYNOPSIS
+    The nav block-list keys an entry op may address. A collection, not a signature: admitting a
+    third nav list is one entry here, and every consumer reads the same list, so the op
+    vocabulary, the schema validator, and lint's scans cannot drift into disagreeing about what
+    a nav list is.
+
+    Exported because it is the published legal-value set for the -Key parameter of
+    Add-VaultNavEntry / Remove-VaultNavEntry, and because out-of-module consumers (tools/lint.ps1
+    and edit.ps1's .SCHEMA guard) must read it rather than restate it.
+    #>
+    [CmdletBinding()]
+    param()
+
+    return , @('nav.contents', 'nav.see_also')
 }
 
 function Add-VaultNavEntry {

@@ -15,7 +15,9 @@
 # pathspec commit, the state token (mismatch carrying the fresh token, required-for-files-all),
 # directive guards, the git:commit capability three-way split plus the incidental-versus-explicit
 # denial split, offline fetch tolerance, cross-process lock contention and abandonment, standalone
-# invocability, and the ported New-ConflictFilePath in isolation. Also DISPATCHES each sync-directive
+# invocability, the git_failure payload at every throw site that can be provoked for real (plus a
+# structural pin over all four, which is the only reach the merge-resolve site has), and the ported
+# New-ConflictFilePath in isolation. Also DISPATCHES each sync-directive
 # remedy back through sync, taken off a real result rather than hand-authored - the rule that payload
 # shape assertions alone do not satisfy.
 
@@ -963,6 +965,87 @@ Describe 'sync' {
         }
     }
 
+    Context 'git_failure - genuinely unexpected git breakage, provoked for real' {
+        # Every It here drives a REAL git invocation to a real non-zero exit and asserts the error
+        # sync actually threw. Nothing is hand-built: a payload assertion over a constructed
+        # hashtable would stay green while the throw site drifted, which is the failure this
+        # Context exists to prevent. The fourth site (merge-resolve) carries no exitCode by
+        # design and cannot be reached without a defect - its shape is pinned structurally in the
+        # 'git_failure payload contract' Describe below.
+
+        It 'carries {repo, operation, exitCode, output} from the canonical producer when a commit fails' {
+            # A pre-commit hook that refuses is the cleanest real commit failure: git itself exits
+            # non-zero on an operation sync considered authorized, which is exactly what
+            # Assert-SyncGitOk is for.
+            $hooks = (Join-Path $script:TempRoot 'hooks') -replace '\\', '/'
+            New-Item -ItemType Directory -Path $hooks | Out-Null
+            [System.IO.File]::WriteAllText((Join-Path $hooks 'pre-commit'), "#!/bin/sh`nexit 1`n", (New-Object System.Text.UTF8Encoding $false))
+            git -C $script:VaultDir config core.hooksPath $hooks 2>&1 | Out-Null
+            Set-SyncRepoFile -Repo $script:VaultDir -Rel 'File.md' -Content "modified`n"
+
+            $err = Invoke-SyncError @{ Apply = $true; Commit = '{"message":"m","files":["File.md"]}' }
+
+            $err.code | Should -Be 'git_failure'
+            $err.data.PSObject.Properties.Name | Should -Contain 'repo'
+            $err.data.PSObject.Properties.Name | Should -Contain 'operation'
+            $err.data.PSObject.Properties.Name | Should -Contain 'exitCode'
+            $err.data.PSObject.Properties.Name | Should -Contain 'output'
+            $err.data.repo | Should -Be '.'
+            $err.data.operation | Should -Be 'commit'
+            $err.data.exitCode | Should -Not -Be 0
+            # The commit really did not happen.
+            Get-SyncHeadMessage -Repo $script:VaultDir | Should -Match 'initial commit'
+        }
+
+        It 'carries exitCode when the merge fails with NO conflicted files and is aborted' {
+            # Diverge with a real content conflict so the probe predicts one and on_conflict routes
+            # into Resolve-SyncConflict, then plant a stale index.lock - a crashed git's leftover -
+            # so the REAL merge dies before producing any conflicted file. That is precisely the
+            # branch: non-zero merge, empty --diff-filter=U.
+            $peer = New-SyncPeerClone -Base $script:TempRoot -Remote $script:Fixture.Remote
+            Set-SyncRepoFile -Repo $peer -Rel 'File.md' -Content "remote version`n"
+            Add-SyncCommit -Repo $peer -Message 'remote edit'
+            git -C $peer push -q 2>&1 | Out-Null
+            Set-SyncRepoFile -Repo $script:VaultDir -Rel 'File.md' -Content "local version`n"
+            Add-SyncCommit -Repo $script:VaultDir -Message 'local edit'
+            $headBefore = (git -C $script:VaultDir rev-parse HEAD).Trim()
+            New-Item -ItemType File -Path (Join-Path $script:VaultDir '.git/index.lock') | Out-Null
+
+            $err = Invoke-SyncError @{ Apply = $true; on_conflict = 'keep_local_save_remote' }
+
+            $err.code | Should -Be 'git_failure'
+            $err.data.operation | Should -Be 'merge'
+            # Presence first: an ABSENT exitCode reads as $null, which passes a bare "not 0".
+            $err.data.PSObject.Properties.Name | Should -Contain 'exitCode'
+            $err.data.exitCode | Should -Not -Be 0
+            $err.data.repo | Should -Be '.'
+            $err.data.output | Should -Not -BeNullOrEmpty
+            # Aborted, not left half-applied: HEAD unmoved and no merge state behind.
+            (git -C $script:VaultDir rev-parse HEAD).Trim() | Should -Be $headBefore
+            Test-Path -LiteralPath (Join-Path $script:VaultDir '.git/MERGE_HEAD') | Should -BeFalse
+        }
+
+        It 'carries exitCode when the merge-tree probe itself fails' {
+            # Unrelated histories: the remote is force-replaced with a history sharing no merge
+            # base, which leaves the repo genuinely diverged (ahead and behind both non-zero, so
+            # rung 5 is reached) while merge-tree refuses outright with an exit above 1.
+            $alien = Join-Path $script:TempRoot 'alien'
+            Initialize-SyncGitRepo -Path $alien
+            Set-SyncRepoFile -Repo $alien -Rel 'File.md' -Content "unrelated history`n"
+            Add-SyncCommit -Repo $alien -Message 'alien root'
+            git -C $alien push -q -f $script:Fixture.Remote 'master:master' 2>&1 | Out-Null
+
+            $err = Invoke-SyncError @{ Apply = $true }
+
+            $err.code | Should -Be 'git_failure'
+            $err.data.operation | Should -Be 'merge-tree'
+            $err.data.PSObject.Properties.Name | Should -Contain 'exitCode'
+            $err.data.exitCode | Should -BeGreaterThan 1
+            $err.data.repo | Should -Be '.'
+            $err.data.output | Should -Match 'unrelated histories'
+        }
+    }
+
     Context 'vault resolution' {
         It 'refuses an unconfigured vault with unknown_vault' {
             $err = Invoke-SyncError @{ Vault = 'nope' }
@@ -1158,6 +1241,74 @@ Describe 'sync - New-ConflictFilePath (ported verbatim, tested in isolation)' {
 
     It 'preserves a non-markdown extension' {
         New-ConflictFilePath -RelPath 'Assets/diagram.png' -Now $script:FixedNow | Should -Be 'Assets/diagram [CONFLICT 20260717 1432].png'
+    }
+}
+
+Describe 'sync - the git_failure payload contract over every throw site' {
+    # A SOURCE-LEVEL pin, deliberately, and it does not stand in for a behavioral test: three of the
+    # four sites are provoked for real in the 'git_failure' Context above. What no behavioral test in
+    # this suite can reach is the merge-resolve site - a should-never-happen guard downstream of a
+    # resolution loop that clears every conflicted path, so provoking it needs a defect rather than a
+    # fixture. Its deliberate OMISSION of exitCode is the field most likely to be "fixed" by a
+    # contributor reading it as an oversight, so it is pinned here structurally over the AST (the
+    # same lift-by-AST convention the New-ConflictFilePath Describe uses) rather than by a text
+    # regex that would drift with formatting.
+    #
+    # The rule: git_failure carries {repo, operation, exitCode, output} wherever `operation` names a
+    # single git invocation, and omits exitCode for the synthetic 'merge-resolve' - whose git diff
+    # SUCCEEDED, so any exit code there would be fabricated.
+
+    BeforeAll {
+        $scriptPath = (Resolve-Path (Join-Path $PSScriptRoot '..' 'sync.ps1')).Path
+        $ast = [System.Management.Automation.Language.Parser]::ParseFile($scriptPath, [ref]$null, [ref]$null)
+
+        $script:GitFailureSites = @(
+            $ast.FindAll({
+                    param($node)
+                    $node -is [System.Management.Automation.Language.CommandAst] -and $node.GetCommandName() -eq 'New-VaultToolError'
+                }, $true) | ForEach-Object {
+                $elements = $_.CommandElements
+                $code = $null
+                $data = $null
+                for ($i = 0; $i -lt $elements.Count - 1; $i++) {
+                    $element = $elements[$i]
+                    if ($element -isnot [System.Management.Automation.Language.CommandParameterAst]) { continue }
+                    if ($element.ParameterName -eq 'Code') { $code = $elements[$i + 1].Extent.Text.Trim("'", '"') }
+                    if ($element.ParameterName -eq 'Data') { $data = $elements[$i + 1] }
+                }
+                if ($code -ne 'git_failure') { return }
+
+                $hashtable = $data.Find({ param($n) $n -is [System.Management.Automation.Language.HashtableAst] }, $true)
+                $keys = @($hashtable.KeyValuePairs | ForEach-Object { $_.Item1.Extent.Text.Trim("'", '"') })
+                $operationPair = $hashtable.KeyValuePairs | Where-Object { $_.Item1.Extent.Text.Trim("'", '"') -eq 'operation' }
+                [pscustomobject]@{
+                    Line      = $_.Extent.StartLineNumber
+                    Keys      = $keys
+                    Operation = $operationPair.Item2.Extent.Text.Trim("'", '"')
+                }
+            }
+        )
+    }
+
+    It 'finds every git_failure throw site in the script' {
+        # The count is asserted HERE so the corpus may state it: a documented number with no test
+        # behind it is the shape that goes stale.
+        $script:GitFailureSites.Count | Should -Be 4
+    }
+
+    It 'carries exactly {repo, operation, exitCode, output} at every site naming one git invocation' {
+        $sites = @($script:GitFailureSites | Where-Object { $_.Operation -ne 'merge-resolve' })
+        $sites.Count | Should -Be 3
+        foreach ($site in $sites) {
+            ($site.Keys | Sort-Object) -join ',' | Should -Be 'exitCode,operation,output,repo' -Because "the site at line $($site.Line) names a single git invocation"
+        }
+    }
+
+    It 'OMITS exitCode at the synthetic merge-resolve operation - deliberately, not an oversight' {
+        $sites = @($script:GitFailureSites | Where-Object { $_.Operation -eq 'merge-resolve' })
+        $sites.Count | Should -Be 1
+        $sites[0].Keys | Should -Not -Contain 'exitCode' -Because 'the git diff it reports SUCCEEDED, so any exit code would be fabricated - do not "fix" this for symmetry'
+        ($sites[0].Keys | Sort-Object) -join ',' | Should -Be 'operation,output,repo'
     }
 }
 

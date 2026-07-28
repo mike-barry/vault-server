@@ -110,6 +110,11 @@ $ErrorActionPreference = 'Stop'
 
 Import-Module (Join-Path $PSScriptRoot '..' 'powershell' 'VaultAccess' 'VaultAccess.psd1') -Force
 
+# The nav block-list keys, read from the module that owns them rather than restated here - the
+# frontmatter-schema scans below iterate this list, so admitting a third nav list is one edit in
+# the module and none in this file. A second copy of the list here would be the drift itself.
+$script:NavListKeys = Get-VaultNavListKey
+
 # ---------------------------------------------------------------------------
 # Pass registry. The group tokens are derived from these three lists rather than spelled out
 # separately, so a pass added to the inventory cannot fall out of the group it belongs to.
@@ -1245,7 +1250,7 @@ function Get-LintNavLinkBasename {
     param([Parameter(Mandatory)] [AllowEmptyCollection()] [object[]] $Blocks)
     $set = New-Object 'System.Collections.Generic.HashSet[string]' ([System.StringComparer]::OrdinalIgnoreCase)
     foreach ($block in $Blocks) {
-        if ($block.Key -notin @('nav.contents', 'nav.see_also')) { continue }
+        if ($block.Key -notin $script:NavListKeys) { continue }
         foreach ($item in (Get-VaultFrontmatterListItems $block.Children)) {
             if (-not $item.IsMap) { continue }
             if ($item.Fields.Contains('folder') -and $item.Fields['folder']) { continue }
@@ -1341,7 +1346,7 @@ function Invoke-LintFrontmatterSchemaPass {
         # --- Source 2a: a declared folder: path that no longer resolves. Filesystem-dependent,
         # so it is lint's own rather than the shared validator's. ---
         $declaredFolders = New-Object 'System.Collections.Generic.HashSet[string]' ([System.StringComparer]::OrdinalIgnoreCase)
-        foreach ($navKey in @('nav.contents', 'nav.see_also')) {
+        foreach ($navKey in $script:NavListKeys) {
             if (-not $byKey.ContainsKey($navKey)) { continue }
             $index = 0
             foreach ($item in (Get-VaultFrontmatterListItems $byKey[$navKey].Children)) {

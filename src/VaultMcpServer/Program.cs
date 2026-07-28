@@ -110,9 +110,9 @@ builder.Services.AddSingleton<INativeTool>(mintTokenTool);
 var healthCheckTool = new HealthCheckTool(healthState, vaultConfig);
 builder.Services.AddSingleton<INativeTool>(healthCheckTool);
 
-// Elevation: the pluggable approval seam, shipped as a config-selected stub. Only "auto-deny"
-// exists today - the honest default so nothing can escalate merely because no approver was set
-// up. Constructed here (before builder.Build()) like the tools; its logger is attached post-build.
+// Elevation: the approval seam is the IElevationApprover interface, and the implementation is
+// chosen here in code, not by config. Auto-deny is the hardcoded default - the honest one, so
+// nothing can escalate by default. Constructed before builder.Build(); logger attached post-build.
 var autoDenyApprover = new AutoDenyElevationApprover();
 builder.Services.AddSingleton<IElevationApprover>(autoDenyApprover);
 var elevationOptions = new ElevationOptions(

@@ -13,8 +13,8 @@ namespace VaultMcpServer.Tests;
 /// conversion: the derivation is allowed to change how the schema is <em>produced</em> and nothing
 /// about what it <em>says</em>, because every one of these strings is already on the wire.
 ///
-/// Shared with <c>HealthCheckDispatchTests</c>, which asserts the same text arrives over HTTP - so
-/// the pinned form is checked against the tool object here and against the real <c>tools/list</c>
+/// Shared with the dispatch-level test that asserts the same text arrives over HTTP - so the
+/// pinned form is checked against the tool object here and against the real <c>tools/list</c>
 /// response there, and neither can drift alone.
 /// </summary>
 public static class NativeToolSchemas

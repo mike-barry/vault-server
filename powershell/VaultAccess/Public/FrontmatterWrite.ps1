@@ -79,7 +79,8 @@ function Invoke-VaultFrontmatterWrite {
     findings from it. A hard throw here would make lint's provenance date fix refuse on exactly
     the notes with pre-existing agent.* problems, which are the ones most needing attention.
 
-    All three consumers reach the same path with no branch of their own:
+    All three consumers reach the same path with no branch of their own, each passing
+    -RelativePath:
       edit   - -Content (the note as read), -Ops, and -Body only when it is replacing or patching
                the body facet (it resolves its own old_string/new_string against
                Split-VaultNoteContent's Body first, so the fence guard still catches a fence the
@@ -87,9 +88,9 @@ function Invoke-VaultFrontmatterWrite {
       create - -Content '' and -Frontmatter (the caller-supplied block) plus -Body. With no
                original to diff against, every agentic key present counts as a diff, which is the
                degenerate case of the same classification rather than a second rule.
-      lint   - -Content and a single set_field op on a doc.* scalar. Non-agentic by construction,
-               so the diff is empty and no key is asserted - defense in depth under lint's own
-               fix-set guarantee.
+      lint   - -Content and one or two set_field ops on doc.* scalars. Non-agentic by
+               construction, so the diff is empty and no key is asserted - defense in depth under
+               lint's own fix-set guarantee.
     .PARAMETER Content
     The note's current full content; '' when the note is being created.
     .PARAMETER Ops

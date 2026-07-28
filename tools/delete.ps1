@@ -41,8 +41,8 @@ target it is refused invalid_argument (inert-param fail-fast) rather than ignore
 accepting a flag that does nothing is how a caller's wrong mental model survives a call. It is
 NOT an override for the nested-repository refusal.
 .PARAMETER apply
-Mutation opt-in, default TRUE - uniquely among the tools that carry it, because for delete
-mutation is the point of the call and a single-file delete should not need a ceremony. False
+Mutation opt-in, default TRUE, because for delete mutation is the point of the call and a
+single-file delete should not need a ceremony. False
 runs plan and validate and returns the identical report - the complete blast radius, hidden
 files and unrecoverableFiles included - without removing anything; `applied` is the single
 field that distinguishes a plan from a result. A plan still takes the write lock and still

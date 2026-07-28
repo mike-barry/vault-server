@@ -620,12 +620,13 @@ Describe 'edit' {
         }
 
         It 'enumerates the nav block-list keys the substrate allows, and no others' {
-            # The key enum is the one place the block restates a list the substrate owns. Read
-            # through the module's own session state because Get-VaultNavListKey is private - the
+            # The key enum is the one place the block restates a list the substrate owns - a JSON
+            # literal cannot call a function, which is why this guard exists at all and why
+            # lint.ps1 needs no counterpart. Read from the module's exported accessor: the
             # allow-list is deliberately a collection in one place, and a second copy here would
             # be the drift this suite exists to refuse.
             Import-Module $ModulePath -Force
-            $navKeys = & (Get-Module VaultAccess) { Get-VaultNavListKey }
+            $navKeys = Get-VaultNavListKey
             $keyed = @($Schema.items.oneOf | Where-Object { @($_.properties.PSObject.Properties.Name) -contains 'key' })
             $keyed.Count | Should -BeGreaterThan 0
             foreach ($branch in $keyed) {

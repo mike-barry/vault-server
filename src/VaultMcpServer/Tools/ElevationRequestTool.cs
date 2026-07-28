@@ -50,9 +50,9 @@ public sealed record ElevationRequestArguments(
 /// shape, so a caller branches on <c>code</c> whichever tier refused. The codes:
 /// <c>insufficient_capability</c> for both authority denials - the missing <c>canRequestElevation</c>
 /// opt-in and the approver's "no" - deliberately sharing one code so a caller cannot tell "not allowed
-/// to ask" from "asked and refused"; <c>rate_limited</c> for the throttle (this tool's one
-/// tool-specific code - no core code names a transient throttle, and coding it as capability or
-/// argument would route a retryable condition into a non-retryable branch); <c>invalid_argument</c>
+/// to ask" from "asked and refused"; <c>rate_limited</c> for the throttle (the core
+/// code for a transient throttle - coding it as capability or argument would route a
+/// retryable condition into a non-retryable branch); <c>invalid_argument</c>
 /// for malformed or contradictory target arguments; <c>not_found</c> for a named target that is not a
 /// configured grant; <c>unknown_vault</c>/<c>vault_unavailable</c> for a scoped target's vault, the
 /// same classification <c>Resolve-VaultToolRoot</c> makes PowerShell-side.

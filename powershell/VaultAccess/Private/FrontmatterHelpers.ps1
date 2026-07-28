@@ -200,19 +200,6 @@ function Get-VaultFrontmatterBlockRange {
     return @{ KeyLine = $keyLine; BlockEnd = $blockEnd }
 }
 
-function Get-VaultNavListKey {
-    <#
-    .SYNOPSIS
-    The nav block-list keys an entry op may address. A collection, not a signature: admitting a
-    third nav list is one entry here, and the schema validator reads the same list, so the op
-    vocabulary and the schema cannot drift into disagreeing about what a nav list is.
-    #>
-    [CmdletBinding()]
-    param()
-
-    return , @('nav.contents', 'nav.see_also')
-}
-
 function Get-VaultBlockItemRange {
     <#
     .SYNOPSIS

@@ -566,7 +566,7 @@ function Resolve-SyncConflict {
     if ($conflicted.Count -eq 0 -and $merge.ExitCode -ne 0) {
         # A merge that failed for a reason other than a content conflict must not be left half-applied.
         Invoke-SyncGit -RepoPath $State.Full -Arguments @('merge', '--abort') | Out-Null
-        throw (New-VaultToolError -Code 'git_failure' -Message "Merge of '$($State.Upstream)' into '$($State.Key)' failed with no conflicted files and was aborted: $($merge.Output)" -Data @{ repo = $State.Key; operation = 'merge'; output = $merge.Output })
+        throw (New-VaultToolError -Code 'git_failure' -Message "Merge of '$($State.Upstream)' into '$($State.Key)' failed with no conflicted files and was aborted: $($merge.Output)" -Data @{ repo = $State.Key; operation = 'merge'; exitCode = $merge.ExitCode; output = $merge.Output })
     }
 
     $bodyLines = [System.Collections.Generic.List[string]]::new()

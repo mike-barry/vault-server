@@ -192,9 +192,8 @@ public sealed class ElevationRequestToolTests(TestVaultFixture fixture) : IClass
 
         Assert.Equal("insufficient_capability", Code(first));   // auto-deny, but not rate-limited
         Assert.Equal("insufficient_capability", Code(second));
-        // rate_limited is this tool's one tool-specific code: no core code names a transient throttle,
-        // and coding it as a capability or argument failure would route a retryable condition into a
-        // branch that never retries.
+        // rate_limited is the core code for a transient throttle: coding it as a capability or
+        // argument failure would route a retryable condition into a branch that never retries.
         Assert.Equal("rate_limited", Code(third));
         Assert.Equal("2", Data(third)!["limitPerMinute"]);
 

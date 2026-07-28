@@ -1,8 +1,9 @@
 # Private/RipgrepHelpers.ps1 - shared ripgrep binary resolution and invocation, not exported
-# (not in VaultAccess.psd1). PowerShell-only host plumbing with no C# counterpart. Three tools
-# shell to ripgrep - move's basename census, glob, and later grep - and share binary resolution
+# (not in VaultAccess.psd1). PowerShell-only host plumbing with no C# counterpart. Several tools
+# shell to ripgrep - for file enumeration and for content search - and share binary resolution
 # (Resolve-VaultRgPath) and invocation (Invoke-VaultRipgrep) here, but not output shape, so
-# Get-VaultFilePath and glob build their result-shaping on top of these two primitives.
+# Get-VaultFilePath and Search-VaultContent build their result-shaping on top of these two
+# primitives.
 # See ../VaultAccess.psm1 for the module header and mirror policy, and Plan-Tool-Glob
 # (vault-primary) for the shared-ripgrep-layer design.
 
