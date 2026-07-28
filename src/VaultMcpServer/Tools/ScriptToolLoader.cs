@@ -46,7 +46,18 @@ public static partial class ScriptToolLoader
     [GeneratedRegex(@"<#(.*?)#>", RegexOptions.Singleline)]
     private static partial Regex HelpBlockRegex();
 
-    [GeneratedRegex(@"^[ \t]*\.(?<tag>[A-Za-z]+)\b[ \t]*(?<arg>\S+)?[ \t]*$", RegexOptions.Multiline)]
+    /// <summary>
+    /// One `.TAG [arg]` comment-help section header, anchored to its own line.
+    ///
+    /// The trailing class carries `\r` deliberately. Under <see cref="RegexOptions.Multiline"/>
+    /// .NET's `$` matches only *before* a `\n`, never before the `\r` of a CRLF pair - so on a
+    /// script saved with CRLF endings the `\r` is left for this class to consume, and a class of
+    /// just `[ \t]` cannot. Every header would then fail to match, the script would parse zero
+    /// sections, and the loader would refuse it for a missing `.SYNOPSIS` it plainly has. The `\r`
+    /// falls outside the match either way (the leading class and `\S+` both exclude it), so
+    /// nothing downstream sees it: a section body starts on the terminator and is `Trim()`ed.
+    /// </summary>
+    [GeneratedRegex(@"^[ \t]*\.(?<tag>[A-Za-z]+)\b[ \t]*(?<arg>\S+)?[ \t\r]*$", RegexOptions.Multiline)]
     private static partial Regex SectionHeaderRegex();
 
     [GeneratedRegex(@"OpClass:\s*(\S+)", RegexOptions.IgnoreCase)]

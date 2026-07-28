@@ -666,6 +666,56 @@ public sealed class ScriptToolLoaderTests : IDisposable
         AssertListsAsBrokenEntry("bad");
     }
 
+    /// <summary>
+    /// The whole comment-help surface against a script saved with CRLF endings. Every `.ps1` in
+    /// `tools/` is LF today, so this is about what an editor can do to one on the way past: the
+    /// section-header regex anchors each line with `$` under `RegexOptions.Multiline`, and in .NET
+    /// that anchor matches only *before* a `\n`, leaving a CRLF's `\r` for the trailing character
+    /// class to absorb. With `\r` outside that class the header does not match, a CRLF script
+    /// parses zero sections, and the loader refuses it for a missing `.SYNOPSIS` it plainly has.
+    ///
+    /// Asserted across all four things the block carries - synopsis, op class, parameters, and the
+    /// `.SCHEMA` side-car - because one regex gates all of them, so a partial fix that recovered
+    /// only the simple headers would still lose the side-car. The side-car matters most: it is the
+    /// largest hand-authored block in any tool script and so the likeliest to be pasted through an
+    /// editor that rewrites line endings.
+    /// </summary>
+    [Fact]
+    public void Load_ScriptWithCrlfLineEndings_ParsesTheWholeCommentHelpBlock()
+    {
+        var path = WriteScript("edit_fm.ps1", SideCarSchemaScript.ReplaceLineEndings("\r\n"));
+
+        // The fixture is only a fixture if it really is CRLF on disk. This repo has no
+        // `.gitattributes` and its sources are LF, so a checkout that started translating endings
+        // would otherwise turn this test green by making it test nothing.
+        var text = File.ReadAllText(path);
+        Assert.Contains("\r\n", text, StringComparison.Ordinal);
+        Assert.DoesNotContain("\n", text.Replace("\r\n", string.Empty), StringComparison.Ordinal);
+
+        var healthState = new ServerHealthState();
+        var tool = Assert.Single(ScriptToolLoader.Load(_tempDir, OpClasses, healthState));
+        Assert.Empty(healthState.Problems);
+
+        Assert.Equal("Applies frontmatter ops to a note.", tool.Description);
+        Assert.Equal(OpClass.Write, tool.OpClass);
+        Assert.Equal(2, tool.Parameters.Count);
+
+        // The `.PARAMETER` text must not keep a stray `\r` either: a header match ends before the
+        // terminator, so the section body starts on it and only the trailing Trim() removes it.
+        var pathParameter = Assert.Single(tool.Parameters, p => p.Name == "path");
+        Assert.Equal("The note's vault-relative path.", pathParameter.Description);
+        Assert.True(pathParameter.Required);
+
+        var ops = Assert.Single(tool.Parameters, p => p.Name == "frontmatter_ops");
+        Assert.NotNull(ops.Schema);
+        Assert.Equal("array", ops.Schema!.Value.GetProperty("type").GetString());
+        Assert.Equal("Ordered frontmatter operations, applied as one transaction.", ops.Schema!.Value.GetProperty("description").GetString());
+        // The side-car body is multi-line JSON, so this is the part CRLF could still break past a
+        // recovered header match: the block terminates at `.NOTES` and its body parses as JSON.
+        Assert.Equal(2, ops.Schema!.Value.GetProperty("items").GetProperty("oneOf").GetArrayLength());
+        Assert.True(ops.EncodesStructuredArgument);
+    }
+
     /// <summary>Asserts the refused script surfaces as a <c>BROKEN:</c> entry rather than
     /// vanishing from `tools/list`. <see cref="ScriptToolDispatcher.ListToolsAsync"/> synthesizes
     /// that entry from exactly two things - a Degraded problem under
