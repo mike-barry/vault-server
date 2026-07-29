@@ -377,14 +377,12 @@ $result = Invoke-VaultWriteLock -Vault $Vault -Abandoned ([ref]$lockAbandoned) -
         }
     }
 
-    # --- Facet split. An unclosed fence is refused before the patch runs rather than after: with
-    # a dangling fence the body facet is the WHOLE file, so patch matching would reach the
-    # frontmatter the body-confinement guard exists to keep it out of. The wrapper refuses the
-    # same state, but only once the patch has already been resolved against it. ---
+    # --- Facet split. There is no unclosed-fence state to refuse here any more: a '---' that
+    # nothing closes is a thematic break to the standard, so such a note has no frontmatter block
+    # and its body facet is legitimately the whole file. A patch against it is a patch against
+    # body text, which is what it is. The write side still guards the converse - a frontmatter op
+    # that would prepend a fresh block above an apparent fence refuses in the substrate. ---
     $split = Split-VaultNoteContent -Content $content
-    if ($split.FenceState -eq 'Unclosed') {
-        throw (New-VaultToolError -Code 'frontmatter_integrity' -Message "The note opens a `"---`" frontmatter fence that is never closed; it cannot be edited until the fence is repaired: $notePath" -Data @{ reason = 'unclosed_fence'; path = $notePath })
-    }
 
     $writeArgs = @{ Content = $content; Ops = $ops; RelativePath = $notePath }
     if ($BodyBound) {

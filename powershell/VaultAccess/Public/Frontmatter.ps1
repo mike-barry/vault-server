@@ -1,192 +1,157 @@
-# Public/Frontmatter.ps1 - the in-memory frontmatter primitives: facet split, fence state,
-# block/list parsing, flat-scalar get/set/remove, block removal, the agent.instructions
-# directive insert/strip pair, and the nav.* key accessor plus entry insert/remove pair.
+# Public/Frontmatter.ps1 - the in-memory frontmatter primitives: facet split, field shape, flat
+# scalar get/set/remove, block removal, the agent.instructions directive insert/strip pair, and
+# the nav.* key accessor plus entry insert/remove pair.
 # PowerShell-only: this substrate serves the tool-script contract (edit / create / lint) and has
 # no C# counterpart in VaultAccess.cs. See ../VaultAccess.psm1 for the full mirror policy.
 #
-# Ported from the vault-side skill substrate (.claude/skills/_shared/vault-frontmatter.ps1),
-# which stays live for its own consumers. Two invariants this port adds and holds:
-#   1. Byte preservation. A mutation rewrites only the lines it targets; every other byte, line
-#      terminators included, survives verbatim, so a CRLF or mixed-ending note keeps its endings
-#      and a content-hash chain over successive edits stays stable.
-#   2. Unclosed fences are refused, not absorbed. A dangling '---' is a distinct state, so no
-#      mutator can prepend a second block on top of one.
+# Every mutator here reads the block to an object, changes the object, and re-emits the whole
+# block. Two consequences that callers depend on:
+#   1. Body CONTENT is preserved verbatim - every byte except line terminators, which are
+#      normalized to LF along with the rest of the note. The frontmatter block's own bytes are
+#      not preserved; only its meaning is.
+#   2. An idempotent no-op returns the caller's content unchanged rather than a reserialization
+#      of it, so nothing reformats on a write that changed nothing.
 #
 # NOTHING here touches the filesystem: every function takes and returns an in-memory content
 # string. The read/lock/write envelope belongs to the calling tool.
-
-function Get-VaultNoteFenceState {
-    <#
-    .SYNOPSIS
-    Classifies a note's frontmatter fence as 'None' (no leading '---'), 'Closed' (a complete
-    '---' ... '---' block), or 'Unclosed' (an opening fence with no closing one).
-
-    The three-way answer is the point: the skill-side substrate reported 'None' and 'Unclosed'
-    identically as $null, which is what let a set-field call on a dangling fence stack a second
-    block. Consumers raise frontmatter_integrity on 'Unclosed'.
-    .PARAMETER Content
-    Full note content.
-    #>
-    [CmdletBinding()]
-    param([Parameter(Mandatory)] [AllowEmptyString()] [string] $Content)
-
-    (Get-VaultFenceBounds (ConvertTo-VaultLineList $Content)).State
-}
 
 function Split-VaultNoteContent {
     <#
     .SYNOPSIS
     Splits a note into its two facets: @{ FenceState; Frontmatter; Body; BodyOffset }.
 
-    `Frontmatter` is the fenced block's inner text, raw and never parsed, with the fence lines
-    and the last inner line's terminator removed - byte-identical to what `read part: frontmatter`
-    returns, and '' for a note with no closed fence. `Body` is everything after the closing fence
-    line, verbatim, and is the whole content for a note with no closed fence - byte-identical to
+    `Frontmatter` is the block's inner text, raw and never parsed, with the fence lines and the
+    last inner line's terminator removed - byte-identical to what `read part: frontmatter`
+    returns, and '' for a note with no block. `Body` is everything after the closing fence line,
+    verbatim, and is the whole content for a note with no block - byte-identical to
     `read part: body`. `BodyOffset` is the character index in $Content where Body begins, so a
-    caller can splice a new body in without recomposing the block it did not touch.
+    caller can splice a new body in without recomposing the block it did not touch - which is what
+    keeps a body-only edit from reformatting the frontmatter and churning the note's hash.
+
+    `FenceState` is 'Closed' or 'None': a block is present or it is not, decided by Markdig rather
+    than by a fence scan of ours. The third state the hand-rolled scanner reported for a dangling
+    '---' is gone, because to the standard that note has no frontmatter at all.
 
     This is the body facet `edit` matches its old_string/new_string patch against; confining the
-    patch to it is what keeps frontmatter unreachable by patch.
+    patch to it is what keeps frontmatter unreachable by patch. This function is also where the
+    block-text shape is defined - `read part: frontmatter` and `edit`'s resultingFrontmatter both
+    delegate here, so the convention runs outward from here.
     .PARAMETER Content
     Full note content.
     #>
     [CmdletBinding()]
     param([Parameter(Mandatory)] [AllowEmptyString()] [string] $Content)
 
-    $lines = ConvertTo-VaultLineList $Content
-    $bounds = Get-VaultFenceBounds $lines
-    if ($bounds.State -ne 'Closed') {
-        return @{ FenceState = $bounds.State; Frontmatter = ''; Body = $Content; BodyOffset = 0 }
-    }
-
-    $bodyOffset = 0
-    for ($i = 0; $i -le $bounds.End; $i++) { $bodyOffset += $lines[$i].Text.Length + $lines[$i].Terminator.Length }
-
-    $sb = New-Object System.Text.StringBuilder
-    for ($i = 1; $i -lt $bounds.End; $i++) {
-        [void]$sb.Append($lines[$i].Text)
-        # The final inner line's terminator is dropped - the block text is the fence's inner
-        # content, not the line ending that closes it; every interior terminator is kept verbatim.
-        # This function is where that shape is defined: `read part: frontmatter` and `edit`'s
-        # resultingFrontmatter both delegate here, so the convention runs outward from this line.
-        if ($i -lt $bounds.End - 1) { [void]$sb.Append($lines[$i].Terminator) }
+    $span = Get-VaultFrontmatterSpan $Content
+    if ($null -eq $span) {
+        return @{ FenceState = 'None'; Frontmatter = ''; Body = $Content; BodyOffset = 0 }
     }
 
     return @{
         FenceState  = 'Closed'
-        Frontmatter = $sb.ToString()
-        Body        = $Content.Substring($bodyOffset)
-        BodyOffset  = $bodyOffset
+        Frontmatter = $Content.Substring($span.InnerStart, $span.InnerLength)
+        Body        = $Content.Substring($span.BodyOffset)
+        BodyOffset  = $span.BodyOffset
     }
 }
 
-function Get-VaultFrontmatterLines {
+function Get-VaultFrontmatterMap {
     <#
     .SYNOPSIS
-    The lines between the opening '---' fence and the next '---', or $null when the content has
-    no closed frontmatter block. Terminators are stripped - this is the text view the block and
-    list-item parsers consume; use Split-VaultNoteContent when raw block text is wanted.
+    A note's frontmatter as the parsed key/value tree - an empty ordered dictionary when the note
+    has no block or its block will not parse.
 
-    $null and an empty array are different answers - no block at all, versus a block with no
-    fields - so assign the result and test it for $null; do not wrap the call in @(), which
-    erases the distinction and nests the array.
+    The READ-side entry point, and the counterpart to the write side's own parse: this one is
+    deliberately TOLERANT, because its callers report on notes rather than gating them and they
+    run over every file in the vault, so a block that will not parse reads as no block. The write
+    path refuses that same note outright with frontmatter_integrity, which is where an unparseable
+    block is actionable.
+
+    Together with Get-VaultFrontmatterEntryList and Get-VaultEntryFieldValue this is the whole
+    surface a consumer needs to ask a note's frontmatter a question. It replaces the hand-rolled
+    lines/blocks/list-items trio, and the replacement is one-for-one on purpose: a consumer that
+    walked key/children/list-item shapes by hand was reimplementing a parser, and the defects this
+    substrate was ported to remove all lived in that walk.
     .PARAMETER Content
     Full note content.
     #>
     [CmdletBinding()]
     param([Parameter(Mandatory)] [AllowEmptyString()] [string] $Content)
 
-    $lines = ConvertTo-VaultLineList $Content
-    $bounds = Get-VaultFenceBounds $lines
-    if ($bounds.State -ne 'Closed') { return $null }
+    $split = Split-VaultNoteContent $Content
+    $map = $null
+    if ($split.FenceState -eq 'Closed') {
+        try { $map = ConvertFrom-Yaml -Yaml $split.Frontmatter -Ordered } catch { $map = $null }
+    }
+    if ($map -isnot [System.Collections.IDictionary]) { $map = [ordered]@{} }
+    return $map
+}
 
-    $out = New-Object System.Collections.Generic.List[string]
-    for ($i = 1; $i -lt $bounds.End; $i++) { $out.Add($lines[$i].Text) }
+function Get-VaultFrontmatterEntryList {
+    <#
+    .SYNOPSIS
+    A top-level key's entries as an array, or $null when the key is absent or holds something that
+    is not a block sequence. Shared by the directive and nav entry mutators, the schema validator,
+    and lint's own nav scans, so "this key holds entries" has one definition.
+
+    $null and an empty array are different answers - "not a list" versus "a list with nothing in
+    it" - so assign the result and test it for $null; the array is returned comma-wrapped to keep
+    an empty one from collapsing into the first of those.
+    .PARAMETER Map
+    A frontmatter tree, from Get-VaultFrontmatterMap.
+    .PARAMETER Field
+    Top-level field name, matched case-insensitively.
+    #>
+    [CmdletBinding()]
+    param([Parameter(Mandatory)] $Map, [Parameter(Mandatory)] [string] $Field)
+
+    $key = Resolve-VaultFrontmatterKey -Map $Map -Field $Field
+    if ($null -eq $key) { return $null }
+    $value = $Map[$key]
+    if ($value -is [string] -or $value -is [System.Collections.IDictionary]) { return $null }
+    if ($value -isnot [System.Collections.IEnumerable]) { return $null }
+
+    $out = New-Object 'System.Collections.Generic.List[object]'
+    foreach ($e in $value) { $out.Add($e) }
     return , $out.ToArray()
 }
 
-function Get-VaultFrontmatterBlocks {
+function Get-VaultEntryFieldValue {
     <#
     .SYNOPSIS
-    Splits frontmatter lines into top-level blocks: @{ Key; Inline; Children = @(raw indented
-    lines) }. The constrained-shape parser for the frontmatter the schema actually uses -
-    dot-namespaced top-level keys whose values are block sequences of bare strings or nested
-    objects. PowerShell has no built-in YAML and the vault takes no external module dependency.
+    A list entry's named sub-field as text, or $null when the entry is not a map or does not carry
+    it. The one reader for entry discriminators, so the nav ops, the directive strippers, the
+    schema validator, and lint cannot drift on what an entry field is.
 
-    Shared by the schema validator (read), the field-shape detector (routing), and the agentic
-    diff (classification), so all three consume one parse.
-    .PARAMETER FrontmatterLines
-    The lines between the fences, as returned by Get-VaultFrontmatterLines.
+    An entry that is a bare string answers $null to every name, which is what lets a caller test a
+    discriminator instead of first testing the entry's shape.
+    .PARAMETER Entry
+    One element of a Get-VaultFrontmatterEntryList result.
+    .PARAMETER Name
+    Sub-field name.
     #>
     [CmdletBinding()]
-    param([Parameter(Mandatory)] [AllowEmptyCollection()] [AllowNull()] [string[]] $FrontmatterLines)
+    param([AllowNull()] $Entry, [Parameter(Mandatory)] [string] $Name)
 
-    $blocks = @()
-    $cur = $null
-    foreach ($line in $FrontmatterLines) {
-        if ($null -eq $line) { continue }
-        if ($line -match '^[A-Za-z0-9_.]' -and $line -match '^([A-Za-z0-9_.]+):(.*)$') {
-            if ($cur) { $blocks += $cur }
-            $cur = @{ Key = $Matches[1]; Inline = $Matches[2].Trim(); Children = @() }
-        }
-        elseif ($null -ne $cur -and $line.Trim() -ne '') {
-            $cur.Children += $line
-        }
-    }
-    if ($cur) { $blocks += $cur }
-    return , $blocks
-}
-
-function Get-VaultFrontmatterListItems {
-    <#
-    .SYNOPSIS
-    Parses a block's child lines into list items. Each item is either a bare scalar
-    (@{ IsMap = $false; Scalar }) or a nested object (@{ IsMap = $true; Fields = [ordered] }).
-    Scalar values arrive with one layer of surrounding quotes stripped and no unescaping.
-    .PARAMETER Children
-    The block's raw child lines, as returned by Get-VaultFrontmatterBlocks.
-    #>
-    [CmdletBinding()]
-    param([Parameter(Mandatory)] [AllowEmptyCollection()] [AllowNull()] [string[]] $Children)
-
-    $items = @()
-    $cur = $null
-    foreach ($line in $Children) {
-        if ($null -eq $line) { continue }
-        if ($line -match '^\s*-\s*(.*)$') {
-            if ($cur) { $items += $cur }
-            $rest = $Matches[1]
-            if ($rest -match '^([A-Za-z0-9_]+):\s*(.*)$') {
-                $cur = @{ IsMap = $true; Fields = [ordered]@{} }
-                $cur.Fields[$Matches[1]] = (Remove-VaultFrontmatterQuote $Matches[2])
-            }
-            else {
-                $cur = @{ IsMap = $false; Scalar = (Remove-VaultFrontmatterQuote $rest) }
-            }
-        }
-        elseif ($null -ne $cur -and $cur.IsMap -and $line -match '^\s+([A-Za-z0-9_]+):\s*(.*)$') {
-            $cur.Fields[$Matches[1]] = (Remove-VaultFrontmatterQuote $Matches[2])
-        }
-    }
-    if ($cur) { $items += $cur }
-    return , $items
+    if ($Entry -isnot [System.Collections.IDictionary]) { return $null }
+    if (-not $Entry.Contains($Name)) { return $null }
+    $v = $Entry[$Name]
+    if ($null -eq $v) { return $null }
+    return "$v"
 }
 
 function Get-VaultFrontmatterFieldShape {
     <#
     .SYNOPSIS
     Detects a top-level field's shape: 'Absent', 'Scalar', or 'Block'. This is the detection the
-    two-removal-primitive split rests on - a flat-scalar op against a block field replaces or
-    deletes the key line and orphans its indented children, so consumers route a removal by shape
-    and refuse the corrupting write with field_shape_mismatch.
+    two-removal-primitive split rests on - consumers route a removal by shape and refuse a
+    flat-scalar set against a block field with field_shape_mismatch, so a caller cannot replace a
+    whole nav list with a string by naming the wrong op.
 
-    Detection reads the block parser's Inline/Children, never Get-VaultFrontmatterField: that
-    function returns $null for a block key exactly as it does for a missing one, so it cannot
-    tell the two apart.
-
-    A key declared with no inline value AND no children reports 'Scalar': there are no children
-    to orphan, so a flat set on it is not the corrupting path the guard exists to stop. (The
-    schema validator reports such a key separately as an empty block.)
+    A type test now, not an inline/children split: a value that is a sequence or a nested mapping
+    is 'Block', and everything else - including a key declared with no value at all - is 'Scalar'.
+    A valueless key has nothing to orphan, so a flat set on it is not the path the guard exists to
+    stop. (The schema validator reports such a key separately as an empty block.)
     .PARAMETER Content
     Full note content.
     .PARAMETER Field
@@ -198,24 +163,22 @@ function Get-VaultFrontmatterFieldShape {
         [Parameter(Mandatory)] [string] $Field
     )
 
-    $fmLines = Get-VaultFrontmatterLines $Content
-    if ($null -eq $fmLines) { return 'Absent' }
-    # Assigned before filtering, never piped: these collection returns are comma-wrapped so an
-    # empty result stays an empty array, which means a direct pipe would hand the whole array to
-    # the filter as one item.
-    $blocks = Get-VaultFrontmatterBlocks $fmLines
-    $block = $blocks | Where-Object { $_.Key -eq $Field } | Select-Object -First 1
-    if ($null -eq $block) { return 'Absent' }
-    if ($block.Inline -ne '') { return 'Scalar' }
-    if (@($block.Children).Count -gt 0) { return 'Block' }
+    $split = Split-VaultNoteContent $Content
+    if ($split.FenceState -ne 'Closed') { return 'Absent' }
+    $map = ConvertFrom-VaultFrontmatterText -Text $split.Frontmatter -Operation "Field shape '$Field'"
+
+    $key = Resolve-VaultFrontmatterKey -Map $map -Field $Field
+    if ($null -eq $key) { return 'Absent' }
+    $value = $map[$key]
+    if ($null -eq $value -or $value -is [string]) { return 'Scalar' }
+    if ($value -is [System.Collections.IEnumerable]) { return 'Block' }
     return 'Scalar'
 }
 
 function Get-VaultFrontmatterField {
     <#
     .SYNOPSIS
-    Reads a flat top-level scalar field (e.g. doc.created, doc.archived) from frontmatter,
-    with one layer of surrounding quotes stripped.
+    Reads a flat top-level scalar field (e.g. doc.created, doc.archived) from frontmatter.
 
     Returns $null when the field, its value, or the frontmatter block itself is absent or empty -
     so this cannot be used as a presence test (an empty value and a missing key are the same
@@ -232,39 +195,35 @@ function Get-VaultFrontmatterField {
         [Parameter(Mandatory)] [string] $Field
     )
 
-    $fmLines = Get-VaultFrontmatterLines $Content
-    if ($null -eq $fmLines) { return $null }
-    foreach ($line in $fmLines) {
-        if ($line -match "^$([regex]::Escape($Field)):\s*(.*)$") {
-            $v = Remove-VaultFrontmatterQuote $Matches[1]
-            if ($v -eq '') { return $null }
-            return $v
-        }
-    }
-    return $null
+    $split = Split-VaultNoteContent $Content
+    if ($split.FenceState -ne 'Closed') { return $null }
+    $map = ConvertFrom-VaultFrontmatterText -Text $split.Frontmatter -Operation "Field read '$Field'"
+
+    $key = Resolve-VaultFrontmatterKey -Map $map -Field $Field
+    if ($null -eq $key) { return $null }
+    $value = $map[$key]
+    if ($null -eq $value -or $value -isnot [string]) { return $null }
+    if ($value -eq '') { return $null }
+    return $value
 }
 
 function Set-VaultFrontmatterField {
     <#
     .SYNOPSIS
     Writes a flat top-level scalar field into frontmatter, returning the updated content. Updates
-    the field in place when present, inserts it just before the closing fence when the block
-    exists but the field does not, or creates a new block at the top of the file when there is
-    none. Existing fields and their order are preserved.
+    the field in place when present - keeping its position, and the note's existing key order with
+    it - appends it after the last key when the block exists but the field does not, or creates a
+    block at the top of the file when there is none.
 
-    Flat-scalar only: against a block-list field this replaces the key line and orphans its
-    children. Callers route by Get-VaultFrontmatterFieldShape and refuse that path.
-
-    Byte-preserving: an in-place update rewrites one line's text and keeps its terminator; an
-    insertion borrows the neighbouring line's terminator. No other byte moves. An unclosed fence
-    is refused with frontmatter_integrity rather than being treated as "no block" and prepended
-    over.
+    Flat-scalar only: against a block-list field this replaces the whole value. Callers route by
+    Get-VaultFrontmatterFieldShape and refuse that path with field_shape_mismatch.
     .PARAMETER Content
     Full note content.
     .PARAMETER Field
     Top-level field name.
     .PARAMETER Value
-    Scalar value, written verbatim after "field: ".
+    Scalar value. The emitter quotes and escapes it as YAML requires, so it needs no shape of its
+    own; only control characters are refused.
     #>
     [CmdletBinding()]
     param(
@@ -278,42 +237,28 @@ function Set-VaultFrontmatterField {
     $reason = Get-VaultFrontmatterTextViolation -Value $Value -Label 'value'
     if ($reason) { throw (New-VaultToolError -Code 'malformed_op' -Message "Cannot set frontmatter field '$Field': $reason" -Data @{ reason = $reason }) }
 
-    $lines = ConvertTo-VaultLineList $Content
-    $bounds = Get-VaultFenceBounds $lines
-    Assert-VaultFenceMutable -Bounds $bounds -Operation "Set-VaultFrontmatterField '$Field'"
+    $operation = "Set-VaultFrontmatterField '$Field'"
+    $split = Split-VaultNoteContent $Content
+    if ($split.FenceState -ne 'Closed') { Assert-VaultFrontmatterCreatable -Content $Content -Operation $operation }
+    $map = ConvertFrom-VaultFrontmatterText -Text $split.Frontmatter -Operation $operation
 
-    if ($bounds.State -eq 'Closed') {
-        for ($i = 1; $i -lt $bounds.End; $i++) {
-            if ($lines[$i].Text -match "^$([regex]::Escape($Field)):\s*(.*)$") {
-                $lines[$i] = [PSCustomObject]@{ Text = "$($Field): $Value"; Terminator = $lines[$i].Terminator }
-                return (ConvertFrom-VaultLineList $lines)
-            }
-        }
-        $term = Get-VaultLineTerminatorFor -Lines $lines -Anchor ($bounds.End - 1)
-        $lines.Insert($bounds.End, [PSCustomObject]@{ Text = "$($Field): $Value"; Terminator = $term })
-        return (ConvertFrom-VaultLineList $lines)
-    }
-
-    $term = Get-VaultLineTerminatorFor -Lines $lines -Anchor 0
-    $lines.Insert(0, [PSCustomObject]@{ Text = '---'; Terminator = $term })
-    $lines.Insert(1, [PSCustomObject]@{ Text = "$($Field): $Value"; Terminator = $term })
-    $lines.Insert(2, [PSCustomObject]@{ Text = '---'; Terminator = $term })
-    return (ConvertFrom-VaultLineList $lines)
+    # Through the resolver so a caller's casing updates the existing key rather than adding a
+    # second one beside it.
+    $key = Resolve-VaultFrontmatterKey -Map $map -Field $Field
+    if ($null -eq $key) { $key = $Field }
+    $map[$key] = $Value
+    return (Join-VaultNoteContent -Map $map -Body $split.Body)
 }
 
 function Remove-VaultFrontmatterField {
     <#
     .SYNOPSIS
-    Removes a flat top-level scalar field from frontmatter, returning the updated content
-    unchanged when the field or the block is absent.
+    Removes a flat top-level scalar field from frontmatter, returning the content unchanged when
+    the field or the block is absent. Drops the fence entirely when that empties the block.
 
-    Flat-scalar only: against a block-list field this deletes the key line and leaves its
-    now-unkeyed children behind. Use Remove-VaultFrontmatterBlock for those; callers route by
-    Get-VaultFrontmatterFieldShape.
-
-    Byte-preserving line-range removal - the surrounding lines keep their own terminators. An
-    unclosed fence is refused with frontmatter_integrity: the skill-side original computed a
-    reversed index range in that case and corrupted the content instead of removing the field.
+    Paired with Remove-VaultFrontmatterBlock, which callers route to by shape. The two now do the
+    same thing to the tree - the split survives because the ROUTING is the policy: it is what lets
+    a flat-scalar op be refused against a block field before it ever reaches a removal.
     .PARAMETER Content
     Full note content.
     .PARAMETER Field
@@ -325,29 +270,18 @@ function Remove-VaultFrontmatterField {
         [Parameter(Mandatory)] [string] $Field
     )
 
-    $lines = ConvertTo-VaultLineList $Content
-    $bounds = Get-VaultFenceBounds $lines
-    Assert-VaultFenceMutable -Bounds $bounds -Operation "Remove-VaultFrontmatterField '$Field'"
-    if ($bounds.State -ne 'Closed') { return $Content }
-
-    for ($i = 1; $i -lt $bounds.End; $i++) {
-        if ($lines[$i].Text -match "^$([regex]::Escape($Field)):\s*(.*)$") {
-            $lines.RemoveAt($i)
-            return (ConvertFrom-VaultLineList $lines)
-        }
-    }
-    return $Content
+    Remove-VaultFrontmatterKey -Content $Content -Field $Field -Operation "Remove-VaultFrontmatterField '$Field'"
 }
 
 function Remove-VaultFrontmatterBlock {
     <#
     .SYNOPSIS
-    Removes an entire block-list field - its key line plus all indented children - returning the
-    content unchanged when the field or the block is absent. The block-aware counterpart to
-    Remove-VaultFrontmatterField, which handles single-line flat scalars only and would leave a
-    block field's children orphaned.
+    Removes an entire block-list field - its key and every entry under it - returning the content
+    unchanged when the field or the block is absent. Drops the fence entirely when that empties
+    the block.
 
-    Byte-preserving line-range removal. An unclosed fence is refused with frontmatter_integrity.
+    The block-aware counterpart to Remove-VaultFrontmatterField in the op vocabulary; see there
+    for why the pair survives the move to an object model.
     .PARAMETER Content
     Full note content.
     .PARAMETER Field
@@ -359,16 +293,7 @@ function Remove-VaultFrontmatterBlock {
         [Parameter(Mandatory)] [string] $Field
     )
 
-    $lines = ConvertTo-VaultLineList $Content
-    $bounds = Get-VaultFenceBounds $lines
-    Assert-VaultFenceMutable -Bounds $bounds -Operation "Remove-VaultFrontmatterBlock '$Field'"
-    if ($bounds.State -ne 'Closed') { return $Content }
-
-    $block = Get-VaultFrontmatterBlockRange -Lines $lines -Bounds $bounds -Field $Field
-    if ($null -eq $block) { return $Content }
-
-    for ($i = $block.BlockEnd; $i -ge $block.KeyLine; $i--) { $lines.RemoveAt($i) }
-    return (ConvertFrom-VaultLineList $lines)
+    Remove-VaultFrontmatterKey -Content $Content -Field $Field -Operation "Remove-VaultFrontmatterBlock '$Field'"
 }
 
 function Add-VaultAgentInstructionEntry {
@@ -380,10 +305,6 @@ function Add-VaultAgentInstructionEntry {
     Idempotent: an entry identical to one already present - same Bare/Pinned text, or same
     UseSkill + When - is a no-op, so a backfill caller can invoke it unconditionally. A different
     `when` is a distinct entry, not a duplicate.
-
-    Entry text is refused when it carries a line break, a control character, or a '"'. The entry
-    is emitted with hardcoded quotes and no escaping, so any of those would close the literal
-    early and let the remainder land as a real top-level key.
     .PARAMETER Content
     Full note content.
     .PARAMETER Type
@@ -418,61 +339,45 @@ function Add-VaultAgentInstructionEntry {
         if ($reason) { throw (New-VaultToolError -Code 'malformed_op' -Message "Cannot add agent.instructions entry: $reason" -Data @{ reason = $reason }) }
     }
 
-    $newTexts = switch ($Type) {
-        'Bare' { , @("  - `"$Instruction`"") }
-        'Pinned' { , @("  - pinned: `"$Instruction`"") }
+    $newEntry = switch ($Type) {
+        'Bare' { $Instruction }
+        'Pinned' { [ordered]@{ pinned = $Instruction } }
         'UseSkill' {
-            $l = @("  - use_skill: `"$UseSkill`"", "    when: `"$When`"")
-            if (-not [string]::IsNullOrWhiteSpace($Note)) { $l += "    note: `"$Note`"" }
-            , $l
+            $e = [ordered]@{ use_skill = $UseSkill; when = $When }
+            if (-not [string]::IsNullOrWhiteSpace($Note)) { $e['note'] = $Note }
+            $e
         }
     }
 
-    $lines = ConvertTo-VaultLineList $Content
-    $bounds = Get-VaultFenceBounds $lines
-    Assert-VaultFenceMutable -Bounds $bounds -Operation 'Add-VaultAgentInstructionEntry'
+    $operation = 'Add-VaultAgentInstructionEntry'
+    $split = Split-VaultNoteContent $Content
+    if ($split.FenceState -ne 'Closed') { Assert-VaultFrontmatterCreatable -Content $Content -Operation $operation }
+    $map = ConvertFrom-VaultFrontmatterText -Text $split.Frontmatter -Operation $operation
 
-    if ($bounds.State -eq 'None') {
-        $term = Get-VaultLineTerminatorFor -Lines $lines -Anchor 0
-        $prelude = @('---', 'agent.instructions:') + $newTexts + @('---')
-        for ($i = 0; $i -lt $prelude.Count; $i++) {
-            $lines.Insert($i, [PSCustomObject]@{ Text = $prelude[$i]; Terminator = $term })
-        }
-        return (ConvertFrom-VaultLineList $lines)
-    }
+    $key = Resolve-VaultFrontmatterKey -Map $map -Field 'agent.instructions'
+    $entries = Get-VaultFrontmatterEntryList -Map $map -Field 'agent.instructions'
+    if ($null -eq $entries) { $entries = New-Object 'System.Collections.Generic.List[object]' }
 
-    $block = Get-VaultFrontmatterBlockRange -Lines $lines -Bounds $bounds -Field 'agent.instructions'
-    if ($null -ne $block) {
-        $childTexts = @()
-        for ($i = $block.KeyLine + 1; $i -le $block.BlockEnd; $i++) { $childTexts += $lines[$i].Text }
-        $items = Get-VaultFrontmatterListItems $childTexts
-        $dup = $items | Where-Object {
-            if ($Type -eq 'Bare') {
-                -not $_.IsMap -and $_.Scalar -eq $Instruction
-            }
-            elseif ($Type -eq 'Pinned') {
-                $_.IsMap -and $_.Fields.Contains('pinned') -and $_.Fields['pinned'] -eq $Instruction
-            }
-            else {
-                $_.IsMap -and $_.Fields.Contains('use_skill') -and $_.Fields['use_skill'] -eq $UseSkill `
-                    -and $_.Fields.Contains('when') -and $_.Fields['when'] -eq $When
+    foreach ($entry in $entries) {
+        $dup = switch ($Type) {
+            'Bare' { $entry -is [string] -and $entry -eq $Instruction }
+            'Pinned' { (Get-VaultEntryFieldValue -Entry $entry -Name 'pinned') -eq $Instruction }
+            'UseSkill' {
+                (Get-VaultEntryFieldValue -Entry $entry -Name 'use_skill') -eq $UseSkill -and
+                (Get-VaultEntryFieldValue -Entry $entry -Name 'when') -eq $When
             }
         }
         if ($dup) { return $Content }
-
-        $term = Get-VaultLineTerminatorFor -Lines $lines -Anchor $block.BlockEnd
-        for ($i = 0; $i -lt $newTexts.Count; $i++) {
-            $lines.Insert($block.BlockEnd + 1 + $i, [PSCustomObject]@{ Text = $newTexts[$i]; Terminator = $term })
-        }
-        return (ConvertFrom-VaultLineList $lines)
     }
 
-    $term = Get-VaultLineTerminatorFor -Lines $lines -Anchor ($bounds.End - 1)
-    $insert = @('agent.instructions:') + $newTexts
-    for ($i = 0; $i -lt $insert.Count; $i++) {
-        $lines.Insert($bounds.End + $i, [PSCustomObject]@{ Text = $insert[$i]; Terminator = $term })
-    }
-    return (ConvertFrom-VaultLineList $lines)
+    $updated = New-Object 'System.Collections.Generic.List[object]'
+    foreach ($entry in $entries) { $updated.Add($entry) }
+    $updated.Add($newEntry)
+    # A key that was absent lands after the last existing key, which is where the old line splicer
+    # put a new field: just before the closing fence.
+    if ($null -eq $key) { $key = 'agent.instructions' }
+    $map[$key] = $updated
+    return (Join-VaultNoteContent -Map $map -Body $split.Body)
 }
 
 function Get-VaultNavListKey {
@@ -499,10 +404,10 @@ function Add-VaultNavEntry {
     Inserts one entry into a note's nav.contents / nav.see_also block list, creating the key (and
     the frontmatter fence) when absent. Returns the updated content.
 
-    STRUCTURED, never pre-rendered block text. The caller supplies fields and this function
-    renders the YAML, so scalar hygiene applies per field. Accepting raw block text would let a
-    caller smuggle line breaks - and therefore top-level keys - past the same guard that stopped
-    the skill-side directive-quoting bug.
+    STRUCTURED, never pre-rendered block text. The caller supplies fields and this function builds
+    the entry, so each field is a value in the tree rather than text spliced into a line - which
+    is what makes "a description cannot become a top-level key" a property of the emitter instead
+    of a check the caller has to be trusted to have passed.
 
     Idempotent, keyed on the target value: an entry whose link (or folder) already appears under
     that key is a no-op, so a backfill caller can invoke it unconditionally. The description and
@@ -545,7 +450,7 @@ function Add-VaultNavEntry {
 
     $reason = Get-VaultNavTargetViolation -Key $Key -Link $Link -Folder $Folder
     if ($reason) { throw (New-VaultToolError -Code 'malformed_op' -Message "Cannot add a nav entry: $reason" -Data @{ reason = $reason }) }
-    # Canonical spelling, so a caller's casing cannot mint a second differently-cased key line.
+    # Canonical spelling, so a caller's casing cannot mint a second differently-cased key.
     $Key = Resolve-VaultNavListKey -Key $Key
     if ([string]::IsNullOrWhiteSpace($Description)) {
         throw (New-VaultToolError -Code 'malformed_op' -Message "Cannot add a nav entry: 'description' is required" -Data @{ reason = "'description' is required" })
@@ -562,56 +467,36 @@ function Add-VaultNavEntry {
 
     $discriminator = if ([string]::IsNullOrWhiteSpace($Link)) { 'folder' } else { 'link' }
     $target = if ($discriminator -eq 'link') { $Link } else { $Folder }
-    $newTexts = @("  - $($discriminator): `"$target`"", "    description: `"$Description`"")
-    if (-not [string]::IsNullOrWhiteSpace($LoadWhen)) { $newTexts += "    load_when: `"$LoadWhen`"" }
+    $newEntry = [ordered]@{ $discriminator = $target; description = $Description }
+    if (-not [string]::IsNullOrWhiteSpace($LoadWhen)) { $newEntry['load_when'] = $LoadWhen }
 
-    $lines = ConvertTo-VaultLineList $Content
-    $bounds = Get-VaultFenceBounds $lines
-    Assert-VaultFenceMutable -Bounds $bounds -Operation "Add-VaultNavEntry '$Key'"
+    $operation = "Add-VaultNavEntry '$Key'"
+    $split = Split-VaultNoteContent $Content
+    if ($split.FenceState -ne 'Closed') { Assert-VaultFrontmatterCreatable -Content $Content -Operation $operation }
+    $map = ConvertFrom-VaultFrontmatterText -Text $split.Frontmatter -Operation $operation
 
-    # No block at all: the entry brings the fence and the key with it, exactly as the directive
-    # inserter does. An anchor cannot be honoured against a list that does not exist.
-    if ($bounds.State -eq 'None') {
-        if ($hasBefore -or $hasAfter) {
-            $anchor = if ($hasBefore) { $Before } else { $After }
-            throw (New-VaultToolError -Code 'malformed_op' -Message "Cannot add a nav entry: no entry with target '$anchor' under '$Key' to position against" `
-                    -Data @{ reason = "no entry with target '$anchor' under '$Key'" })
-        }
-        $term = Get-VaultLineTerminatorFor -Lines $lines -Anchor 0
-        $prelude = @('---', "$($Key):") + $newTexts + @('---')
-        for ($i = 0; $i -lt $prelude.Count; $i++) {
-            $lines.Insert($i, [PSCustomObject]@{ Text = $prelude[$i]; Terminator = $term })
-        }
-        return (ConvertFrom-VaultLineList $lines)
+    $mapKey = Resolve-VaultFrontmatterKey -Map $map -Field $Key
+    $existing = Get-VaultFrontmatterEntryList -Map $map -Field $Key
+    $entries = New-Object 'System.Collections.Generic.List[object]'
+    if ($null -ne $existing) { foreach ($e in $existing) { $entries.Add($e) } }
+
+    # An anchor cannot be honoured against a list that does not exist yet.
+    if ($entries.Count -eq 0 -and ($hasBefore -or $hasAfter)) {
+        $anchor = if ($hasBefore) { $Before } else { $After }
+        throw (New-VaultToolError -Code 'malformed_op' -Message "Cannot add a nav entry: no entry with target '$anchor' under '$Key' to position against" `
+                -Data @{ reason = "no entry with target '$anchor' under '$Key'" })
     }
 
-    $block = Get-VaultFrontmatterBlockRange -Lines $lines -Bounds $bounds -Field $Key
-    if ($null -eq $block) {
-        if ($hasBefore -or $hasAfter) {
-            $anchor = if ($hasBefore) { $Before } else { $After }
-            throw (New-VaultToolError -Code 'malformed_op' -Message "Cannot add a nav entry: no entry with target '$anchor' under '$Key' to position against" `
-                    -Data @{ reason = "no entry with target '$anchor' under '$Key'" })
-        }
-        # The completeness case: a folder note carrying no nav.contents at all. The key line goes
-        # in just before the closing fence, where Set-VaultFrontmatterField puts a new field.
-        $term = Get-VaultLineTerminatorFor -Lines $lines -Anchor ($bounds.End - 1)
-        $insert = @("$($Key):") + $newTexts
-        for ($i = 0; $i -lt $insert.Count; $i++) {
-            $lines.Insert($bounds.End + $i, [PSCustomObject]@{ Text = $insert[$i]; Terminator = $term })
-        }
-        return (ConvertFrom-VaultLineList $lines)
-    }
-
-    # Indices are absolute over the same content, so they line up with $lines above.
-    $entries = Get-VaultNavEntry -Content $Content -Key $Key
-    $dup = Select-VaultNavEntry -Entries $entries -Link $Link -Folder $Folder
+    # Assigned before filtering: Get-VaultNavEntry's return is comma-wrapped, so a direct pipe
+    # would hand the whole list to the filter as one item.
+    $addressable = Get-VaultNavEntry -Content $Content -Key $Key
+    $dup = Select-VaultNavEntry -Entries $addressable -Link $Link -Folder $Folder
     if ($dup.Count -gt 0) { return $Content }
 
-    $insertAt = $block.BlockEnd + 1
-    $anchorLine = $block.BlockEnd
+    $insertAt = $entries.Count
     if ($hasBefore -or $hasAfter) {
         $anchorTarget = if ($hasBefore) { $Before } else { $After }
-        $hits = Select-VaultNavEntry -Entries $entries -Target $anchorTarget
+        $hits = Select-VaultNavEntry -Entries $addressable -Target $anchorTarget
         if ($hits.Count -eq 0) {
             throw (New-VaultToolError -Code 'malformed_op' -Message "Cannot add a nav entry: no entry with target '$anchorTarget' under '$Key' to position against" `
                     -Data @{ reason = "no entry with target '$anchorTarget' under '$Key'" })
@@ -620,21 +505,19 @@ function Add-VaultNavEntry {
             throw (New-VaultToolError -Code 'malformed_op' -Message "Cannot add a nav entry: '$anchorTarget' matches $($hits.Count) entries under '$Key', so the position is ambiguous" `
                     -Data @{ reason = "'$anchorTarget' matches $($hits.Count) entries under '$Key'" })
         }
-        if ($hasBefore) { $insertAt = $hits[0].Start; $anchorLine = $hits[0].Start }
-        else { $insertAt = $hits[0].End + 1; $anchorLine = $hits[0].End }
+        $insertAt = if ($hasBefore) { $hits[0].Index } else { $hits[0].Index + 1 }
     }
     elseif ($discriminator -eq 'link') {
         # End of the link run: before the first folder: entry, which is where every folder note in
         # the vault keeps its Inbox/Archive entries.
-        $firstFolder = $entries | Where-Object { $null -ne $_.Folder } | Select-Object -First 1
-        if ($null -ne $firstFolder) { $insertAt = $firstFolder.Start; $anchorLine = $firstFolder.Start }
+        $firstFolder = $addressable | Where-Object { $null -ne $_.Folder } | Select-Object -First 1
+        if ($null -ne $firstFolder) { $insertAt = $firstFolder.Index }
     }
 
-    $term = Get-VaultLineTerminatorFor -Lines $lines -Anchor $anchorLine
-    for ($i = 0; $i -lt $newTexts.Count; $i++) {
-        $lines.Insert($insertAt + $i, [PSCustomObject]@{ Text = $newTexts[$i]; Terminator = $term })
-    }
-    return (ConvertFrom-VaultLineList $lines)
+    $entries.Insert($insertAt, $newEntry)
+    if ($null -eq $mapKey) { $mapKey = $Key }
+    $map[$mapKey] = $entries
+    return (Join-VaultNoteContent -Map $map -Body $split.Body)
 }
 
 function Remove-VaultNavEntry {
@@ -652,8 +535,6 @@ function Remove-VaultNavEntry {
     A target matching MORE than one entry is refused with malformed_op rather than guessed at -
     the same stance as edit's patch_ambiguous. The note is already malformed in that case (two
     entries pointing at one target), and picking one would be a coin flip the caller cannot see.
-
-    Line-range based, so every surviving entry keeps its exact bytes and terminators.
     .PARAMETER Content
     Full note content.
     .PARAMETER Key
@@ -679,13 +560,13 @@ function Remove-VaultNavEntry {
         if ($reason) { throw (New-VaultToolError -Code 'malformed_op' -Message "Cannot remove a nav entry: $reason" -Data @{ reason = $reason }) }
     }
 
-    $lines = ConvertTo-VaultLineList $Content
-    $bounds = Get-VaultFenceBounds $lines
-    Assert-VaultFenceMutable -Bounds $bounds -Operation "Remove-VaultNavEntry '$Key'"
-    if ($bounds.State -ne 'Closed') { return $Content }
+    $operation = "Remove-VaultNavEntry '$Key'"
+    $split = Split-VaultNoteContent $Content
+    if ($split.FenceState -ne 'Closed') { return $Content }
+    $map = ConvertFrom-VaultFrontmatterText -Text $split.Frontmatter -Operation $operation
 
-    $block = Get-VaultFrontmatterBlockRange -Lines $lines -Bounds $bounds -Field $Key
-    if ($null -eq $block) { return $Content }
+    $existing = Get-VaultFrontmatterEntryList -Map $map -Field $Key
+    if ($null -eq $existing) { return $Content }
 
     $entries = Get-VaultNavEntry -Content $Content -Key $Key
     $hits = Select-VaultNavEntry -Entries $entries -Link $Link -Folder $Folder
@@ -698,15 +579,21 @@ function Remove-VaultNavEntry {
                 -Data @{ reason = $reason })
     }
 
-    if ($entries.Count -eq 1) {
-        # Nothing would be left under the key, so the key goes too - the same call the
-        # agent.instructions strippers make, and for the same reason.
-        for ($i = $block.BlockEnd; $i -ge $block.KeyLine; $i--) { $lines.RemoveAt($i) }
-        return (ConvertFrom-VaultLineList $lines)
+    $kept = New-Object 'System.Collections.Generic.List[object]'
+    $i = 0
+    foreach ($e in $existing) {
+        if ($i -ne $hits[0].Index) { $kept.Add($e) }
+        $i++
     }
 
-    for ($i = $hits[0].End; $i -ge $hits[0].Start; $i--) { $lines.RemoveAt($i) }
-    return (ConvertFrom-VaultLineList $lines)
+    $mapKey = Resolve-VaultFrontmatterKey -Map $map -Field $Key
+    if ($kept.Count -eq 0) {
+        # Nothing would be left under the key, so the key goes too - the same call the
+        # agent.instructions strippers make, and for the same reason.
+        $map.Remove($mapKey)
+    }
+    else { $map[$mapKey] = $kept }
+    return (Join-VaultNoteContent -Map $map -Body $split.Body)
 }
 
 function Remove-VaultUseSkillAgentInstructions {
@@ -716,9 +603,6 @@ function Remove-VaultUseSkillAgentInstructions {
     pinned: entries untouched. When that empties the block, the whole agent.instructions key is
     dropped rather than left as an empty list. A no-op when there is no block or it carries no
     use_skill: entries.
-
-    Line-range based, never a reserialize from parsed items, so surviving entries keep their exact
-    bytes and terminators.
 
     The all-at-once granularity is deliberate and asymmetric with the pinned stripper: a use_skill:
     entry is skill-authored routing, while a pinned: entry is the user's own binding rule and is
@@ -741,14 +625,12 @@ function Remove-VaultPinnedAgentInstruction {
 
     Granularity is by matched text, one entry: a pinned: entry is the user's own binding rule
     (sensitivity, no-exfil), so removing one has to name it, and a repeated text removes only the
-    first occurrence. Text is matched against the parsed entry value - one layer of surrounding
-    quotes stripped - which is the same form Add-VaultAgentInstructionEntry -Type Pinned takes.
-
-    Line-range based like the use_skill stripper, so every surviving entry keeps its exact bytes.
+    first occurrence. Text is matched CASE-SENSITIVELY against the entry's parsed value, which is
+    the same form Add-VaultAgentInstructionEntry -Type Pinned takes.
     .PARAMETER Content
     Full note content.
     .PARAMETER Text
-    The entry's exact text, unquoted.
+    The entry's exact text.
     #>
     [CmdletBinding()]
     param(

@@ -12,8 +12,9 @@ BeforeAll {
 
     # A note with a non-agentic frontmatter block and a two-line body.
     $script:PlainNote = "---`ndoc.type: Corpus`n---`n# Body`nsecond line`n"
-    # The same note carrying an agentic key.
-    $script:AgenticNote = "---`ndoc.type: Corpus`nnav.contents:`n  - link: `"[[X]]`"`n    description: `"d`"`n---`n# Body`n"
+    # The same note carrying an agentic key, written in emitted form so an idempotent op compares
+    # equal to it byte for byte.
+    $script:AgenticNote = "---`ndoc.type: Corpus`nnav.contents:`n  - link: '[[X]]'`n    description: d`n---`n# Body`n"
 }
 
 Describe 'Get-VaultAgenticFrontmatterDiff' {
@@ -36,6 +37,22 @@ Describe 'Get-VaultAgenticFrontmatterDiff' {
         (Get-VaultAgenticFrontmatterDiff -BeforeContent $script:AgenticNote -AfterContent $after) | Should -Be @('nav.contents')
     }
 
+    It 'sees a quoted top-level key as a key, so a smuggled directive reaches the diff' {
+        # The classification is only as good as the parse underneath it. The hand-rolled parser
+        # recognized a top-level key by a pattern a quoted key cannot match, so it absorbed this
+        # directive as a child of doc.created, reported no agentic key, and never ran the gate.
+        $before = "---`ndoc.created: 2026-07-25`n---`n# B"
+        $after = "---`ndoc.created: 2026-07-25`n`"agent.instructions`":`n  - pinned: `"smuggled`"`n---`n# B"
+        (Get-VaultAgenticFrontmatterDiff -BeforeContent $before -AfterContent $after) | Should -Be @('agent.instructions')
+    }
+
+    It 'reports no diff when only the block''s quoting changed' {
+        # Compared on the parsed value rather than the bytes, so the one-time corpus reformat and
+        # any later reserialization do not read as an agentic mutation.
+        $handQuoted = "---`nnav.contents:`n  - link: `"[[X]]`"`n    description: `"d`"`n---`n# Body`n"
+        (Get-VaultAgenticFrontmatterDiff -BeforeContent $handQuoted -AfterContent $script:AgenticNote).Count | Should -Be 0
+    }
+
     It 'treats a create (no original) as every agentic key present being a diff' {
         (Get-VaultAgenticFrontmatterDiff -BeforeContent '' -AfterContent $script:AgenticNote) | Should -Be @('nav.contents')
     }
@@ -53,10 +70,28 @@ Describe 'Invoke-VaultFrontmatterWrite - composition and facets' {
         $result.BodyChanged | Should -BeFalse
     }
 
-    It 'preserves CRLF end to end, body included' {
+    It 'normalizes a CRLF note to LF end to end, body included' {
         $crlf = "---`r`ndoc.type: Corpus`r`n---`r`n# Body`r`ntail`r`n"
         $result = Invoke-VaultFrontmatterWrite -Content $crlf -Ops @(@{ op = 'set_field'; field = 'doc.created'; value = '2026-07-25' })
-        $result.Content | Should -BeExactly "---`r`ndoc.type: Corpus`r`ndoc.created: 2026-07-25`r`n---`r`n# Body`r`ntail`r`n"
+        $result.Content | Should -BeExactly "---`ndoc.type: Corpus`ndoc.created: 2026-07-25`n---`n# Body`ntail`n"
+    }
+
+    It 'leaves the frontmatter block''s bytes alone on a body-only write' {
+        # Reserialize only when a frontmatter op actually ran. Otherwise a body edit would rewrite
+        # quoting the caller never touched and report a changed hash for a note whose meaningful
+        # content did not change.
+        $handQuoted = "---`ndoc.type: `"Corpus`"`n---`n# Body`n"
+        $result = Invoke-VaultFrontmatterWrite -Content $handQuoted -Body "# Replaced`n"
+        $result.Content | Should -BeExactly "---`ndoc.type: `"Corpus`"`n---`n# Replaced`n"
+        $result.Frontmatter | Should -BeExactly 'doc.type: "Corpus"'
+        $result.FrontmatterChanged | Should -BeFalse
+    }
+
+    It 'leaves the frontmatter block''s bytes alone when every op was an idempotent no-op' {
+        $handQuoted = "---`nagent.instructions:`n  - pinned: `"Same`"`n---`n# Body`n"
+        $result = Invoke-VaultFrontmatterWrite -Content $handQuoted -Ops @(@{ op = 'add_directive'; kind = 'pinned'; text = 'Same' })
+        $result.Content | Should -BeExactly $handQuoted
+        $result.FrontmatterChanged | Should -BeFalse
     }
 
     It 'records applied and changed per op, with changed false on an idempotent no-op' {
@@ -128,15 +163,21 @@ Describe 'Invoke-VaultFrontmatterWrite - the fence-introduction guard' {
         ($err.Exception.Message | ConvertFrom-Json).code | Should -Be 'frontmatter_integrity'
     }
 
-    It 'refuses a body write that opens a fence it never closes' {
-        { Invoke-VaultFrontmatterWrite -Content "# Plain note`n" -Body "---`nnav.contents: smuggled`n" } | Should -Throw '*frontmatter_integrity*'
+    It 'allows a body write that opens a fence it never closes - that is prose, not a block' {
+        # No block is minted, because to the standard an unterminated '---' is a thematic break
+        # followed by a paragraph. The guard fires on a real block, not on a lone fence line.
+        $result = Invoke-VaultFrontmatterWrite -Content "# Plain note`n" -Body "---`nnav.contents: smuggled`n"
+        $result.FrontmatterChanged | Should -BeFalse
+        $result.AgenticKeysChanged.Count | Should -Be 0
     }
 
-    It 'refuses a write against a note whose own fence never closes' {
+    It 'refuses a frontmatter op against a note whose first line is an unclosed fence' {
+        # Such a note has no frontmatter to the parser, so the refusal has moved from a fence STATE
+        # to the write that would strand the user's apparent metadata under a fresh block.
         $err = { Invoke-VaultFrontmatterWrite -Content "---`ndoc.type: Corpus`n# Body" -Ops @(@{ op = 'set_field'; field = 'doc.created'; value = '2026-07-25' }) } | Should -Throw -PassThru
         $obj = $err.Exception.Message | ConvertFrom-Json
         $obj.code | Should -Be 'frontmatter_integrity'
-        $obj.data.reason | Should -Be 'unclosed_fence'
+        $obj.data.reason | Should -Be 'apparent_fence'
     }
 
     It 'refuses a supplied frontmatter block that never closes' {
@@ -165,27 +206,35 @@ Describe 'Invoke-VaultFrontmatterWrite - scalar hygiene' {
         $obj.data.opIndex | Should -Be 1
     }
 
-    It 'refuses a value carrying a line break' {
-        { Invoke-VaultFrontmatterWrite -Content $script:PlainNote -Ops @(@{ op = 'set_field'; field = 'doc.type'; value = "Corpus`nnav.contents: smuggled" }) } |
+    It 'refuses a value carrying a control character' {
+        { Invoke-VaultFrontmatterWrite -Content $script:PlainNote -Ops @(@{ op = 'set_field'; field = 'doc.type'; value = "Corpus`e[31m" }) } |
             Should -Throw '*malformed_op*'
     }
 
-    It 'refuses directive text carrying a quote, which the spec''s field-only hygiene would have missed' {
-        # add_directive emits `- pinned: "TEXT"` with hardcoded quotes and no escaping, so quoted
-        # text plus a line break produces a real top-level key. Hygiene therefore binds every op
-        # that carries caller text, not just the field ops.
-        { Invoke-VaultFrontmatterWrite -Content $script:PlainNote -Ops @(@{ op = 'add_directive'; kind = 'pinned'; text = 'bad" text' }) } |
+    It 'refuses directive text carrying a control character, which the spec''s field-only hygiene would have missed' {
+        # The gate binds every op that carries caller text, not just the field ops: an
+        # agent.instructions directive is the most agent-facing text in the vault.
+        { Invoke-VaultFrontmatterWrite -Content $script:PlainNote -Ops @(@{ op = 'add_directive'; kind = 'pinned'; text = "bad`e[31m" }) } |
             Should -Throw '*malformed_op*'
     }
 
-    It 'refuses hint text carrying a line break' {
-        { Invoke-VaultFrontmatterWrite -Content $script:PlainNote -Ops @(@{ op = 'add_hint'; text = "a`ndoc.type: smuggled" }) } |
+    It 'refuses hint text carrying a control character' {
+        { Invoke-VaultFrontmatterWrite -Content $script:PlainNote -Ops @(@{ op = 'add_hint'; text = "a`e[31m" }) } |
             Should -Throw '*malformed_op*'
     }
 
-    It 'refuses strip_directive text carrying a quote' {
-        { Invoke-VaultFrontmatterWrite -Content $script:PlainNote -Ops @(@{ op = 'strip_directive'; kind = 'pinned'; text = 'bad" text' }) } |
+    It 'refuses strip_directive text carrying a control character' {
+        { Invoke-VaultFrontmatterWrite -Content $script:PlainNote -Ops @(@{ op = 'strip_directive'; kind = 'pinned'; text = "bad`e[31m" }) } |
             Should -Throw '*malformed_op*'
+    }
+
+    It 'accepts a value carrying a line break and a quote, keeping it inside its own key' {
+        # The two refusals that existed only because a line-splicing writer could not escape. Emit
+        # goes through the tree now, so a value cannot become structure however it is written.
+        $value = "Corpus `"quoted`"`nnav.contents: smuggled"
+        $result = Invoke-VaultFrontmatterWrite -Content $script:PlainNote -Ops @(@{ op = 'set_field'; field = 'doc.type'; value = $value })
+        Get-VaultFrontmatterField -Content $result.Content -Field 'doc.type' | Should -BeExactly $value
+        $result.AgenticKeysChanged.Count | Should -Be 0
     }
 
     It 'refuses an unknown op' {
@@ -221,13 +270,13 @@ Describe 'Invoke-VaultFrontmatterWrite - protected targets and shape routing' {
     It 'strips a named pinned entry through strip_directive, the explicit path' {
         $note = "---`nagent.instructions:`n  - pinned: `"Keep`"`n  - pinned: `"Drop`"`n---`n# B"
         $result = Invoke-VaultFrontmatterWrite -Content $note -Ops @(@{ op = 'strip_directive'; kind = 'pinned'; text = 'Drop' })
-        $result.Content | Should -BeExactly "---`nagent.instructions:`n  - pinned: `"Keep`"`n---`n# B"
+        $result.Content | Should -BeExactly "---`nagent.instructions:`n  - pinned: Keep`n---`n# B"
     }
 }
 
 Describe 'Invoke-VaultFrontmatterWrite - the nav entry ops' {
     BeforeAll {
-        $script:FolderNote = "---`ndoc.type: Corpus`nnav.contents:`n  - link: `"[[Tasks]]`"`n    description: `"Task list`"`n  - folder: `"Inbox`"`n    description: `"Working docs`"`n---`n# Body`n"
+        $script:FolderNote = "---`ndoc.type: Corpus`nnav.contents:`n  - link: '[[Tasks]]'`n    description: Task list`n  - folder: Inbox`n    description: Working docs`n---`n# Body`n"
     }
 
     AfterEach {
@@ -237,7 +286,7 @@ Describe 'Invoke-VaultFrontmatterWrite - the nav entry ops' {
     It 'adds a link entry at the end of the link run and reports the nav key as the op field' {
         $result = Invoke-VaultFrontmatterWrite -Content $script:FolderNote -Ops @(
             @{ op = 'add_nav_entry'; key = 'nav.contents'; link = '[[Design]]'; description = 'The design' })
-        $result.Content | Should -BeExactly "---`ndoc.type: Corpus`nnav.contents:`n  - link: `"[[Tasks]]`"`n    description: `"Task list`"`n  - link: `"[[Design]]`"`n    description: `"The design`"`n  - folder: `"Inbox`"`n    description: `"Working docs`"`n---`n# Body`n"
+        $result.Content | Should -BeExactly "---`ndoc.type: Corpus`nnav.contents:`n  - link: '[[Tasks]]'`n    description: Task list`n  - link: '[[Design]]'`n    description: The design`n  - folder: Inbox`n    description: Working docs`n---`n# Body`n"
         $result.OpsApplied[0].Op | Should -Be 'add_nav_entry'
         $result.OpsApplied[0].Field | Should -Be 'nav.contents'
         $result.OpsApplied[0].Changed | Should -BeTrue
@@ -247,17 +296,17 @@ Describe 'Invoke-VaultFrontmatterWrite - the nav entry ops' {
     It 'adds a folder entry at the end of the list, with load_when' {
         $result = Invoke-VaultFrontmatterWrite -Content $script:FolderNote -Ops @(
             @{ op = 'add_nav_entry'; key = 'nav.contents'; folder = 'Archive'; description = 'Completed work'; load_when = 'referencing past work' })
-        $result.Content | Should -BeExactly "---`ndoc.type: Corpus`nnav.contents:`n  - link: `"[[Tasks]]`"`n    description: `"Task list`"`n  - folder: `"Inbox`"`n    description: `"Working docs`"`n  - folder: `"Archive`"`n    description: `"Completed work`"`n    load_when: `"referencing past work`"`n---`n# Body`n"
+        $result.Content | Should -BeExactly "---`ndoc.type: Corpus`nnav.contents:`n  - link: '[[Tasks]]'`n    description: Task list`n  - folder: Inbox`n    description: Working docs`n  - folder: Archive`n    description: Completed work`n    load_when: referencing past work`n---`n# Body`n"
         $result.Violations.Count | Should -Be 0
     }
 
     It 'honours before and after against an existing entry target' {
         $before = Invoke-VaultFrontmatterWrite -Content $script:FolderNote -Ops @(
             @{ op = 'add_nav_entry'; key = 'nav.contents'; link = '[[First]]'; description = 'first'; before = '[[Tasks]]' })
-        $before.Content | Should -Match ([regex]::Escape("nav.contents:`n  - link: `"[[First]]`""))
+        $before.Content | Should -Match ([regex]::Escape("nav.contents:`n  - link: '[[First]]'"))
         $after = Invoke-VaultFrontmatterWrite -Content $script:FolderNote -Ops @(
             @{ op = 'add_nav_entry'; key = 'nav.contents'; link = '[[Last]]'; description = 'last'; after = 'Inbox' })
-        $after.Content | Should -Match ([regex]::Escape("    description: `"Working docs`"`n  - link: `"[[Last]]`""))
+        $after.Content | Should -Match ([regex]::Escape("    description: Working docs`n  - link: '[[Last]]'"))
     }
 
     It 'creates the key when the note carries none - lint''s folder-note completeness case' {
@@ -265,7 +314,7 @@ Describe 'Invoke-VaultFrontmatterWrite - the nav entry ops' {
         # design, and a body patch is body-confined, so before this there was no way to apply it.
         $result = Invoke-VaultFrontmatterWrite -Content $script:PlainNote -Ops @(
             @{ op = 'add_nav_entry'; key = 'nav.contents'; link = '[[Tasks]]'; description = 'Task list' })
-        $result.Content | Should -BeExactly "---`ndoc.type: Corpus`nnav.contents:`n  - link: `"[[Tasks]]`"`n    description: `"Task list`"`n---`n# Body`nsecond line`n"
+        $result.Content | Should -BeExactly "---`ndoc.type: Corpus`nnav.contents:`n  - link: '[[Tasks]]'`n    description: Task list`n---`n# Body`nsecond line`n"
         $result.Violations.Count | Should -Be 0
     }
 
@@ -283,7 +332,7 @@ Describe 'Invoke-VaultFrontmatterWrite - the nav entry ops' {
             @{ op = 'add_nav_entry'; key = 'nav.contents'; link = '[[B]]'; description = 'b'; after = '[[A]]' }
             @{ op = 'remove_nav_entry'; key = 'nav.contents'; link = '[[Tasks]]' }
         )
-        $result.Content | Should -BeExactly "---`ndoc.type: Corpus`nnav.contents:`n  - link: `"[[A]]`"`n    description: `"a`"`n  - link: `"[[B]]`"`n    description: `"b`"`n  - folder: `"Inbox`"`n    description: `"Working docs`"`n---`n# Body`n"
+        $result.Content | Should -BeExactly "---`ndoc.type: Corpus`nnav.contents:`n  - link: '[[A]]'`n    description: a`n  - link: '[[B]]'`n    description: b`n  - folder: Inbox`n    description: Working docs`n---`n# Body`n"
         $result.OpsApplied.Count | Should -Be 3
     }
 
@@ -359,36 +408,28 @@ Describe 'Invoke-VaultFrontmatterWrite - the nav entry ops' {
             Should -Throw '*malformed_op*'
     }
 
-    It 'refuses a line break in any caller-text field - the op takes fields, not block text' {
-        # The reason the op is structured rather than taking pre-rendered block text: hygiene
-        # applies per field, and raw block text would carry the newline straight through.
+    It 'refuses a control character in any caller-text field' {
         foreach ($op in @(
-                @{ op = 'add_nav_entry'; key = 'nav.contents'; link = "[[X]]`ndoc.type: smuggled"; description = 'x' }
-                @{ op = 'add_nav_entry'; key = 'nav.contents'; folder = "Inbox`ndoc.type: smuggled"; description = 'x' }
-                @{ op = 'add_nav_entry'; key = 'nav.contents'; link = '[[X]]'; description = "x`ndoc.type: smuggled" }
-                @{ op = 'add_nav_entry'; key = 'nav.contents'; link = '[[X]]'; description = 'x'; load_when = "w`ndoc.type: smuggled" }
-                @{ op = 'add_nav_entry'; key = 'nav.contents'; link = '[[X]]'; description = 'x'; before = "[[Tasks]]`nx: 1" }
-                @{ op = 'add_nav_entry'; key = 'nav.contents'; link = '[[X]]'; description = 'x'; after = "Inbox`nx: 1" }
-                @{ op = 'remove_nav_entry'; key = 'nav.contents'; link = "[[X]]`nx: 1" }
-                @{ op = 'remove_nav_entry'; key = 'nav.contents'; folder = "Inbox`nx: 1" }
+                @{ op = 'add_nav_entry'; key = 'nav.contents'; link = "[[X]]`e[31m"; description = 'x' }
+                @{ op = 'add_nav_entry'; key = 'nav.contents'; folder = "Inbox`e[31m"; description = 'x' }
+                @{ op = 'add_nav_entry'; key = 'nav.contents'; link = '[[X]]'; description = "x`e[31m" }
+                @{ op = 'add_nav_entry'; key = 'nav.contents'; link = '[[X]]'; description = 'x'; load_when = "w`e[31m" }
+                @{ op = 'add_nav_entry'; key = 'nav.contents'; link = '[[X]]'; description = 'x'; before = "[[Tasks]]`e[31m" }
+                @{ op = 'add_nav_entry'; key = 'nav.contents'; link = '[[X]]'; description = 'x'; after = "Inbox`e[31m" }
+                @{ op = 'remove_nav_entry'; key = 'nav.contents'; link = "[[X]]`e[31m" }
+                @{ op = 'remove_nav_entry'; key = 'nav.contents'; folder = "Inbox`e[31m" }
             )) {
             { Invoke-VaultFrontmatterWrite -Content $script:FolderNote -Ops @($op) } | Should -Throw '*malformed_op*'
         }
     }
 
-    It 'refuses a quote in any caller-text field' {
-        foreach ($op in @(
-                @{ op = 'add_nav_entry'; key = 'nav.contents'; link = 'bad" link'; description = 'x' }
-                @{ op = 'add_nav_entry'; key = 'nav.contents'; folder = 'bad" folder'; description = 'x' }
-                @{ op = 'add_nav_entry'; key = 'nav.contents'; link = '[[X]]'; description = 'bad" text' }
-                @{ op = 'add_nav_entry'; key = 'nav.contents'; link = '[[X]]'; description = 'x'; load_when = 'bad" when' }
-                @{ op = 'add_nav_entry'; key = 'nav.contents'; link = '[[X]]'; description = 'x'; before = 'bad" anchor' }
-                @{ op = 'add_nav_entry'; key = 'nav.contents'; link = '[[X]]'; description = 'x'; after = 'bad" anchor' }
-                @{ op = 'remove_nav_entry'; key = 'nav.contents'; link = 'bad" link' }
-                @{ op = 'remove_nav_entry'; key = 'nav.contents'; folder = 'bad" folder' }
-            )) {
-            { Invoke-VaultFrontmatterWrite -Content $script:FolderNote -Ops @($op) } | Should -Throw '*malformed_op*'
-        }
+    It 'keeps a line break in a caller-text field inside its own entry - the op takes fields, not block text' {
+        # The reason the op is structured rather than taking pre-rendered block text: each field is
+        # a value in the tree the emitter escapes, so no field can be shaped into a top-level key.
+        $result = Invoke-VaultFrontmatterWrite -Content $script:FolderNote -Ops @(
+            @{ op = 'add_nav_entry'; key = 'nav.see_also'; link = '[[X]]'; description = "x`ndoc.type: smuggled" })
+        Get-VaultFrontmatterField -Content $result.Content -Field 'doc.type' | Should -BeExactly 'Corpus'
+        $result.AgenticKeysChanged | Should -Be @('nav.see_also')
     }
 
     It 'accepts an ops array deserialized from JSON, not just hashtables' {
@@ -396,13 +437,13 @@ Describe 'Invoke-VaultFrontmatterWrite - the nav entry ops' {
         # take both shapes - including the snake_case load_when member.
         $ops = ConvertFrom-Json -NoEnumerate -InputObject '[{"op":"add_nav_entry","key":"nav.see_also","link":"[[Y]]","description":"why","load_when":"asked about Y"}]'
         (Invoke-VaultFrontmatterWrite -Content $script:PlainNote -Ops $ops).Content |
-            Should -BeExactly "---`ndoc.type: Corpus`nnav.see_also:`n  - link: `"[[Y]]`"`n    description: `"why`"`n    load_when: `"asked about Y`"`n---`n# Body`nsecond line`n"
+            Should -BeExactly "---`ndoc.type: Corpus`nnav.see_also:`n  - link: '[[Y]]'`n    description: why`n    load_when: asked about Y`n---`n# Body`nsecond line`n"
     }
 
-    It 'leaves a mixed-ending note mixed through the wrapper, body included' {
+    It 'writes a mixed-ending note out as LF throughout, body included' {
         $mixed = "---`r`ndoc.type: Corpus`r`nnav.contents:`r`n  - link: `"[[A]]`"`n    description: `"a`"`r`n  - folder: `"Inbox`"`r`n    description: `"i`"`r`n---`n# Body`r`ntail`n"
         (Invoke-VaultFrontmatterWrite -Content $mixed -Ops @(@{ op = 'add_nav_entry'; key = 'nav.contents'; link = '[[B]]'; description = 'b' })).Content |
-            Should -BeExactly "---`r`ndoc.type: Corpus`r`nnav.contents:`r`n  - link: `"[[A]]`"`n    description: `"a`"`r`n  - link: `"[[B]]`"`r`n    description: `"b`"`r`n  - folder: `"Inbox`"`r`n    description: `"i`"`r`n---`n# Body`r`ntail`n"
+            Should -BeExactly "---`ndoc.type: Corpus`nnav.contents:`n  - link: '[[A]]'`n    description: a`n  - link: '[[B]]'`n    description: b`n  - folder: Inbox`n    description: i`n---`n# Body`ntail`n"
     }
 
     It 'asserts agentic:write on a nav mutation - the ops inherit the gate with no wiring' {
@@ -516,7 +557,7 @@ Describe 'Invoke-VaultFrontmatterWrite - the three consumers reach one path' {
         $result = Invoke-VaultFrontmatterWrite -Content $script:AgenticNote -RelativePath 'Projects/Widget/Widget.md' `
             -Ops @(@{ op = 'add_directive'; kind = 'use_skill'; skill = 'vault-docs'; when = 'editing this file' }) `
             -Body $patchedBody
-        $result.Content | Should -BeExactly "---`ndoc.type: Corpus`nnav.contents:`n  - link: `"[[X]]`"`n    description: `"d`"`nagent.instructions:`n  - use_skill: `"vault-docs`"`n    when: `"editing this file`"`n---`n# Patched`n"
+        $result.Content | Should -BeExactly "---`ndoc.type: Corpus`nnav.contents:`n  - link: '[[X]]'`n    description: d`nagent.instructions:`n  - use_skill: vault-docs`n    when: editing this file`n---`n# Patched`n"
         $result.FrontmatterChanged | Should -BeTrue
         $result.BodyChanged | Should -BeTrue
         $result.CapabilitiesUsed | Should -Be @('agentic:write')

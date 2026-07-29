@@ -2,17 +2,18 @@
 # content string and an applied/changed record out.
 # PowerShell-only. See ../VaultAccess.psm1 for the full mirror policy.
 #
-# Each op maps 1:1 onto a substrate primitive; the guards around the dispatch are what stop the
-# three ways a byte-preserving line insertion can be turned into something it is not:
-#   - hygiene, so op-supplied text can never mint a top-level key the caller did not author;
+# Each op maps 1:1 onto a substrate primitive. The guards around the dispatch are policy the YAML
+# layer supplies none of:
+#   - hygiene, so op-supplied text carries no control characters into agent-facing values;
+#   - the key check, so a field op cannot mint an unauthored top-level key;
 #   - the protected-target refusal, so pinned:/use_skill: entries cannot be dropped by a generic
 #     field op instead of the explicit strip op that names them;
-#   - shape routing, so a flat-scalar op never orphans a block field's children.
+#   - shape routing, so a flat-scalar op cannot overwrite a block field's whole list.
 #
 # The two nav entry ops add a fourth: an allow-list of nav block-list keys (Get-VaultNavListKey),
 # so entry insertion reaches the lists it was written for and no other block key. They take
-# structured FIELDS rather than pre-rendered block text for the same reason hygiene binds
-# directive text - block text would carry line breaks past the per-field check.
+# structured FIELDS rather than pre-rendered block text so that each field is a value in the tree
+# the emitter escapes, rather than text a caller could shape into structure.
 
 function New-VaultOpError {
     # malformed_op with the {opIndex, reason} retry material the error convention requires.
@@ -24,10 +25,8 @@ function New-VaultOpError {
 
 function Assert-VaultOpText {
     # Hygiene on every caller-supplied scalar an op carries. Bound to ALL text-bearing ops, not
-    # just the field ops: directive entries are emitted with hardcoded quotes and no escaping, so
-    # unchecked directive text smuggles top-level keys exactly as an unchecked field value would -
-    # and a smuggled non-agentic key (doc.type, say) is invisible to both the agentic diff and the
-    # schema validator, which only look at agent.*/nav.*.
+    # just the field ops: the gate is a content policy about agent-facing text, and directive text
+    # is the most agent-facing text in the vault.
     [CmdletBinding()]
     param([int] $OpIndex, [AllowEmptyString()] [AllowNull()] [string] $Value, [Parameter(Mandatory)] [string] $Label)
 
@@ -220,7 +219,7 @@ function Assert-VaultOpTarget {
     }
     if ($RequireScalar -and (Get-VaultFrontmatterFieldShape -Content $Content -Field $Field) -eq 'Block') {
         throw (New-VaultToolError -Code 'field_shape_mismatch' `
-                -Message "Op #$($OpIndex): '$Field' is a block-list field; a flat-scalar op would replace its key line and orphan its children." `
+                -Message "Op #$($OpIndex): '$Field' is a block-list field; a flat-scalar op would replace its whole list with a string." `
                 -Data @{ field = $Field; opIndex = $OpIndex })
     }
 }

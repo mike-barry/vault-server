@@ -78,11 +78,11 @@ function Get-VaultFrontmatterSchemaViolation {
             })
     }
 
-    $fmLines = Get-VaultFrontmatterLines $Content
-    $blocks = if ($null -ne $fmLines) { Get-VaultFrontmatterBlocks $fmLines } else { @() }
-
-    $byKey = @{}
-    foreach ($b in $blocks) { $byKey[$b.Key] = $b }
+    # Tolerant parse, single-sourced in Get-VaultFrontmatterMap: this reports on notes rather than
+    # gating them, and lint runs it over every file in the vault, so a block that will not parse
+    # reads as no block here. The write path refuses that same note outright, which is where an
+    # unparseable block is actionable.
+    $fm = Get-VaultFrontmatterMap -Content $Content
 
     # Skill-owned Tasks.md must carry its vault-tasks use_skill: directive, keyed off the literal
     # filename - absence is a violation here, unlike every other field where absence is valid.
@@ -92,9 +92,12 @@ function Get-VaultFrontmatterSchemaViolation {
         $relFwd = $RelativePath -replace '\\', '/'
         if (($relFwd -split '/')[-1] -ieq 'Tasks.md' -and $relFwd -notmatch '(^|/)Archive(/|$)') {
             $ok = $false
-            if ($byKey.ContainsKey('agent.instructions')) {
-                $items = Get-VaultFrontmatterListItems $byKey['agent.instructions'].Children
-                $ok = [bool]($items | Where-Object { $_.IsMap -and $_.Fields.Contains('use_skill') -and $_.Fields['use_skill'] -match 'vault-tasks' })
+            # Assigned before enumerating, never @()-wrapped: the entry list is returned
+            # comma-wrapped so an empty one survives, and wrapping the call would nest it.
+            $directives = Get-VaultFrontmatterEntryList -Map $fm -Field 'agent.instructions'
+            foreach ($it in $directives) {
+                $skill = Get-VaultEntryFieldValue -Entry $it -Name 'use_skill'
+                if ($null -ne $skill -and $skill -match 'vault-tasks') { $ok = $true; break }
             }
             if (-not $ok) {
                 New-Violation -Rule 'tasks_missing_use_skill' -Field 'agent.instructions' -EntryIndex $null -Detail 'vault-tasks' `
@@ -103,8 +106,8 @@ function Get-VaultFrontmatterSchemaViolation {
         }
     }
 
-    foreach ($b in $blocks) {
-        $key = $b.Key
+    foreach ($rawKey in @($fm.Keys)) {
+        $key = "$rawKey"
         # Only the agent.*/nav.* namespace is in scope; lifecycle/top-level fields are ignored.
         if ($key -notmatch '^(agent|nav)\.') { continue }
         if ($knownKeys -notcontains $key) {
@@ -113,25 +116,35 @@ function Get-VaultFrontmatterSchemaViolation {
             continue
         }
 
-        # Presence means content: every known key is a non-empty block list. An empty list, an
-        # empty-marker inline ([]), or a stray inline scalar are all malformed.
-        $items = @()
-        if ($b.Inline -eq '') {
-            $items = Get-VaultFrontmatterListItems $b.Children
-            if ($items.Count -eq 0) {
-                New-Violation -Rule 'empty_block' -Field $key -EntryIndex $null -Detail $null `
-                    -Reason "Empty '$key' - omit the field instead (presence means content)"
-                continue
-            }
-        }
-        elseif ($b.Inline -in @('[]', "''", '""')) {
-            New-Violation -Rule 'empty_placeholder' -Field $key -EntryIndex $null -Detail $b.Inline `
-                -Reason "Empty placeholder '$($key): $($b.Inline)' - omit the field instead (presence means content)"
+        # Presence means content: every known key is a non-empty block list. A valueless key, an
+        # empty-marker value ([] or ''), or a stray scalar are all malformed.
+        $value = $fm[$rawKey]
+        $items = $null
+        if ($null -eq $value) {
+            New-Violation -Rule 'empty_block' -Field $key -EntryIndex $null -Detail $null `
+                -Reason "Empty '$key' - omit the field instead (presence means content)"
             continue
         }
-        else {
-            New-Violation -Rule 'inline_scalar' -Field $key -EntryIndex $null -Detail $b.Inline `
-                -Reason "'$key' should be a block list, found inline value '$($b.Inline)'"
+        if ($value -is [string]) {
+            if ($value -eq '') {
+                New-Violation -Rule 'empty_placeholder' -Field $key -EntryIndex $null -Detail "''" `
+                    -Reason "Empty placeholder '$($key): ''' - omit the field instead (presence means content)"
+            }
+            else {
+                New-Violation -Rule 'inline_scalar' -Field $key -EntryIndex $null -Detail $value `
+                    -Reason "'$key' should be a block list, found inline value '$value'"
+            }
+            continue
+        }
+        $items = Get-VaultFrontmatterEntryList -Map $fm -Field $key
+        if ($null -eq $items) {
+            New-Violation -Rule 'inline_scalar' -Field $key -EntryIndex $null -Detail "$value" `
+                -Reason "'$key' should be a block list, found inline value '$value'"
+            continue
+        }
+        if (@($items).Count -eq 0) {
+            New-Violation -Rule 'empty_placeholder' -Field $key -EntryIndex $null -Detail '[]' `
+                -Reason "Empty placeholder '$($key): []' - omit the field instead (presence means content)"
             continue
         }
 
@@ -139,13 +152,13 @@ function Get-VaultFrontmatterSchemaViolation {
             $idx = 0
             foreach ($it in $items) {
                 $idx++
-                if (-not $it.IsMap) {
+                if ($it -isnot [System.Collections.IDictionary]) {
                     New-Violation -Rule 'entry_not_object' -Field $key -EntryIndex $idx -Detail $null `
                         -Reason "$key entry #$idx is a bare string, expected a link/folder object"
                     continue
                 }
-                $hasLink = $it.Fields.Contains('link')
-                $hasFolder = $it.Fields.Contains('folder')
+                $hasLink = $it.Contains('link')
+                $hasFolder = $it.Contains('folder')
                 if ($hasLink -and $hasFolder) {
                     New-Violation -Rule 'link_folder_both' -Field $key -EntryIndex $idx -Detail $null `
                         -Reason "$key entry #$idx has both 'link' and 'folder' (exactly one required)"
@@ -154,13 +167,13 @@ function Get-VaultFrontmatterSchemaViolation {
                     New-Violation -Rule 'link_folder_neither' -Field $key -EntryIndex $idx -Detail $null `
                         -Reason "$key entry #$idx has neither 'link' nor 'folder'"
                 }
-                if (-not $it.Fields.Contains('description') -or [string]::IsNullOrWhiteSpace($it.Fields['description'])) {
+                if ([string]::IsNullOrWhiteSpace((Get-VaultEntryFieldValue -Entry $it -Name 'description'))) {
                     New-Violation -Rule 'missing_description' -Field $key -EntryIndex $idx -Detail 'description' `
                         -Reason "$key entry #$idx is missing 'description'"
                 }
-                foreach ($f in @($it.Fields.Keys)) {
-                    if ($entryFields -notcontains $f) {
-                        New-Violation -Rule 'unknown_entry_field' -Field $key -EntryIndex $idx -Detail $f `
+                foreach ($f in @($it.Keys)) {
+                    if ($entryFields -notcontains "$f") {
+                        New-Violation -Rule 'unknown_entry_field' -Field $key -EntryIndex $idx -Detail "$f" `
                             -Reason "$key entry #$idx has unknown field '$f'"
                     }
                 }
@@ -174,29 +187,29 @@ function Get-VaultFrontmatterSchemaViolation {
             $idx = 0
             foreach ($it in $items) {
                 $idx++
-                if (-not $it.IsMap) { continue }
-                $hasPinned = $it.Fields.Contains('pinned')
-                $hasSkill = $it.Fields.Contains('use_skill')
+                if ($it -isnot [System.Collections.IDictionary]) { continue }
+                $hasPinned = $it.Contains('pinned')
+                $hasSkill = $it.Contains('use_skill')
                 if ($hasPinned -and $hasSkill) {
                     New-Violation -Rule 'both_discriminators' -Field $key -EntryIndex $idx -Detail $null `
                         -Reason "agent.instructions entry #$idx has both 'pinned' and 'use_skill' (exactly one discriminator allowed)"
                 }
                 elseif ($hasPinned) {
-                    foreach ($f in @($it.Fields.Keys)) {
-                        if ($pinnedFields -notcontains $f) {
-                            New-Violation -Rule 'unexpected_pinned_field' -Field $key -EntryIndex $idx -Detail $f `
+                    foreach ($f in @($it.Keys)) {
+                        if ($pinnedFields -notcontains "$f") {
+                            New-Violation -Rule 'unexpected_pinned_field' -Field $key -EntryIndex $idx -Detail "$f" `
                                 -Reason "agent.instructions entry #$idx (pinned) has unexpected field '$f'"
                         }
                     }
                 }
                 elseif ($hasSkill) {
-                    if (-not $it.Fields.Contains('when') -or [string]::IsNullOrWhiteSpace($it.Fields['when'])) {
+                    if ([string]::IsNullOrWhiteSpace((Get-VaultEntryFieldValue -Entry $it -Name 'when'))) {
                         New-Violation -Rule 'use_skill_missing_when' -Field $key -EntryIndex $idx -Detail 'when' `
                             -Reason "agent.instructions entry #$idx (use_skill) is missing 'when'"
                     }
-                    foreach ($f in @($it.Fields.Keys)) {
-                        if ($skillFields -notcontains $f) {
-                            New-Violation -Rule 'unexpected_use_skill_field' -Field $key -EntryIndex $idx -Detail $f `
+                    foreach ($f in @($it.Keys)) {
+                        if ($skillFields -notcontains "$f") {
+                            New-Violation -Rule 'unexpected_use_skill_field' -Field $key -EntryIndex $idx -Detail "$f" `
                                 -Reason "agent.instructions entry #$idx (use_skill) has unexpected field '$f'"
                         }
                     }

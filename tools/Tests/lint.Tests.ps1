@@ -469,9 +469,12 @@ An archived note whose doc.created is recoverable from its filename date.
             Invoke-Lint @{ Passes = @('provenance'); Apply = $true } | Out-Null
             $content = [System.IO.File]::ReadAllText($script:ArchivedFile)
             Get-VaultFrontmatterField -Content $content -Field 'doc.created' | Should -Be '2026-01-05'
-            # The wrapper's byte preservation, which the skill-side original did not have: the
-            # pinned entry and the body are untouched.
-            $content | Should -Match 'pinned: "Frozen - do not rewrite"'
+            # The wrapper preserves the note's CONTENT, which the skill-side original did not:
+            # the pinned directive rides across the reserialize with its text intact. Its BYTES
+            # are not preserved and are not asserted - a frontmatter op re-emits the whole block,
+            # so the quoting the note happened to carry is the emitter's to choose.
+            $directives = Get-VaultFrontmatterEntryList -Map (Get-VaultFrontmatterMap -Content $content) -Field 'agent.instructions'
+            Get-VaultEntryFieldValue -Entry $directives[0] -Name 'pinned' | Should -Be 'Frozen - do not rewrite'
         }
 
         It 'reports missing doc.type as remedy-only, with the value declared in requires' {
@@ -787,7 +790,7 @@ nav.contents:
 
             $after = [System.IO.File]::ReadAllText($ghost)
             $after | Should -Not -Match 'Resources/Ghost/Gone'
-            $after | Should -Match 'link: "\[\[Gizmo-Reference\]\]"'
+            $after | Should -Match "link: '\[\[Gizmo-Reference\]\]'"
             (Get-LintPass (Invoke-Lint @{ Passes = @('frontmatter-schema') }) 'frontmatter-schema').findings |
                 Where-Object { $_.issue -eq 'folder-entry-unresolved' } | Should -BeNullOrEmpty
         }
@@ -830,7 +833,7 @@ nav.contents:
 
             $after = [System.IO.File]::ReadAllText($ghost)
             $after | Should -Not -Match 'Resources/Ghost/Gone'
-            $after | Should -Match 'folder: "Resources/Ghost/Moved"'
+            $after | Should -Match 'folder: Resources/Ghost/Moved'
             # The entry's own prose rode across untouched - that is the deterministic half the
             # payload exists to carry, and it never passed through the caller's hands.
             $after | Should -Match 'a folder that is not there'
@@ -876,7 +879,7 @@ nav.contents:
             $edit.frontmatterChanged | Should -BeTrue
             @($edit.opsApplied)[0].op | Should -Be 'add_nav_entry'
 
-            [System.IO.File]::ReadAllText($widget) | Should -Match 'folder: "Projects/Widget/Inbox"'
+            [System.IO.File]::ReadAllText($widget) | Should -Match 'folder: Projects/Widget/Inbox'
             # The end-to-end assertion: the finding the payload came from is gone, and the write
             # introduced no schema violation of its own.
             $after = @((Get-LintPass (Invoke-Lint @{ Passes = @('frontmatter-schema') }) 'frontmatter-schema').findings |
@@ -935,7 +938,7 @@ nav.contents:
             (Invoke-RemedyThroughEdit $remedy).frontmatterChanged | Should -BeTrue
 
             $after = [System.IO.File]::ReadAllText($widget)
-            $after | Should -Match 'link: "\[\[Widget-Design\]\]"'
+            $after | Should -Match "link: '\[\[Widget-Design\]\]'"
             $after | Should -Match 'How the widget is put together'
             (Get-LintPass (Invoke-Lint @{ Passes = @('frontmatter-schema') }) 'frontmatter-schema').findings |
                 Where-Object { $_.issue -eq 'unlinked-corpus-member' } | Should -BeNullOrEmpty

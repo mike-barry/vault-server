@@ -1247,15 +1247,19 @@ function Get-LintNavLinkBasename {
     The lowercased link basenames a note declares across its nav.* blocks. A folder: entry is
     not a link, so it is skipped here - the completeness scan tracks those separately.
     #>
-    param([Parameter(Mandatory)] [AllowEmptyCollection()] [object[]] $Blocks)
+    param([Parameter(Mandatory)] [AllowNull()] $Map)
     $set = New-Object 'System.Collections.Generic.HashSet[string]' ([System.StringComparer]::OrdinalIgnoreCase)
-    foreach ($block in $Blocks) {
-        if ($block.Key -notin $script:NavListKeys) { continue }
-        foreach ($item in (Get-VaultFrontmatterListItems $block.Children)) {
-            if (-not $item.IsMap) { continue }
-            if ($item.Fields.Contains('folder') -and $item.Fields['folder']) { continue }
-            if (-not $item.Fields.Contains('link')) { continue }
-            if ($item.Fields['link'] -match '\[\[([^\]]+)\]\]') {
+    if ($null -eq $Map) { return , $set }
+    foreach ($navKey in $script:NavListKeys) {
+        # Assigned before enumerating, never @()-wrapped: the entry list is returned comma-wrapped
+        # so an empty one survives, and wrapping the call would nest it one level deep.
+        $entries = Get-VaultFrontmatterEntryList -Map $Map -Field $navKey
+        foreach ($item in $entries) {
+            $folder = Get-VaultEntryFieldValue -Entry $item -Name 'folder'
+            if (-not [string]::IsNullOrEmpty($folder)) { continue }
+            $link = Get-VaultEntryFieldValue -Entry $item -Name 'link'
+            if ($null -eq $link) { continue }
+            if ($link -match '\[\[([^\]]+)\]\]') {
                 $inner = ((($Matches[1] -split '\|')[0]) -split '#')[0].Trim()
                 if ($inner) { [void]$set.Add((($inner -replace '\\', '/') -split '/')[-1]) }
             }
@@ -1298,9 +1302,7 @@ function Expand-LintCorpusReach {
         if (-not $visited.Add($key)) { continue }
         $hopContent = Read-LintNote -File $folderNotes[$key]
         if ($null -eq $hopContent) { continue }
-        $hopLines = Get-VaultFrontmatterLines $hopContent
-        if ($null -eq $hopLines) { continue }
-        foreach ($basename in (Get-LintNavLinkBasename -Blocks (Get-VaultFrontmatterBlocks $hopLines))) {
+        foreach ($basename in (Get-LintNavLinkBasename -Map (Get-VaultFrontmatterMap -Content $hopContent))) {
             if ($reach.Add($basename)) { $queue.Enqueue($basename) }
         }
     }
@@ -1338,22 +1340,20 @@ function Invoke-LintFrontmatterSchemaPass {
                         -Issue "schema:$($violation.Rule)" -Detail $detail))
         }
 
-        $fmLines = Get-VaultFrontmatterLines $content
-        $blocks = if ($null -ne $fmLines) { Get-VaultFrontmatterBlocks $fmLines } else { @() }
-        $byKey = @{}
-        foreach ($block in $blocks) { $byKey[$block.Key] = $block }
+        $fm = Get-VaultFrontmatterMap -Content $content
 
         # --- Source 2a: a declared folder: path that no longer resolves. Filesystem-dependent,
         # so it is lint's own rather than the shared validator's. ---
         $declaredFolders = New-Object 'System.Collections.Generic.HashSet[string]' ([System.StringComparer]::OrdinalIgnoreCase)
         foreach ($navKey in $script:NavListKeys) {
-            if (-not $byKey.ContainsKey($navKey)) { continue }
+            # Assigned before enumerating, never @()-wrapped: the entry list is returned
+            # comma-wrapped so an empty one survives, and wrapping the call would nest it.
+            $entries = Get-VaultFrontmatterEntryList -Map $fm -Field $navKey
             $index = 0
-            foreach ($item in (Get-VaultFrontmatterListItems $byKey[$navKey].Children)) {
+            foreach ($item in $entries) {
                 $index++
-                if (-not $item.IsMap) { continue }
-                if (-not ($item.Fields.Contains('folder') -and $item.Fields['folder'])) { continue }
-                $declared = $item.Fields['folder']
+                $declared = Get-VaultEntryFieldValue -Entry $item -Name 'folder'
+                if ([string]::IsNullOrEmpty($declared)) { continue }
                 [void]$declaredFolders.Add((ConvertTo-LintComparablePath $declared))
                 $abs = Join-Path $script:VaultRoot ($declared -replace '/', [System.IO.Path]::DirectorySeparatorChar)
                 if (-not (Test-Path -LiteralPath $abs -PathType Container)) {
@@ -1368,7 +1368,7 @@ function Invoke-LintFrontmatterSchemaPass {
                     # entry's own description and load_when ride along, so the ONLY slot the caller
                     # fills is the new path - lint knows everything about this entry except where
                     # it was supposed to point.
-                    $existingDescription = if ($item.Fields.Contains('description')) { "$($item.Fields['description'])" } else { '' }
+                    $existingDescription = "$(Get-VaultEntryFieldValue -Entry $item -Name 'description')"
                     $removeOp = [ordered]@{ op = 'remove_nav_entry'; key = $navKey; folder = $declared }
                     $addOp = [ordered]@{ op = 'add_nav_entry'; key = $navKey; folder = ''; description = $existingDescription }
                     $repointRequires = @('frontmatter_ops.1.folder')
@@ -1376,9 +1376,8 @@ function Invoke-LintFrontmatterSchemaPass {
                     # refuses an empty one, so the slot becomes the caller's too rather than a
                     # payload that would come back malformed_op.
                     if ([string]::IsNullOrWhiteSpace($existingDescription)) { $repointRequires += 'frontmatter_ops.1.description' }
-                    if ($item.Fields.Contains('load_when') -and -not [string]::IsNullOrWhiteSpace("$($item.Fields['load_when'])")) {
-                        $addOp['load_when'] = "$($item.Fields['load_when'])"
-                    }
+                    $existingLoadWhen = "$(Get-VaultEntryFieldValue -Entry $item -Name 'load_when')"
+                    if (-not [string]::IsNullOrWhiteSpace($existingLoadWhen)) { $addOp['load_when'] = $existingLoadWhen }
                     $findings.Add((New-LintFinding -File $file.Rel -Line $null -Disposition 'reported' `
                                 -Issue 'folder-entry-unresolved' -Detail "$navKey entry #${index}: folder path does not resolve: '$declared'" `
                                 -RemedyOptions @(
@@ -1395,7 +1394,7 @@ function Invoke-LintFrontmatterSchemaPass {
         # children, so the subfolders that physically exist are compared against what it
         # declares. ---
         if (-not (Test-LintFolderNote -Rel $file.Rel)) { continue }
-        $declaredLinks = Get-LintNavLinkBasename -Blocks $blocks
+        $declaredLinks = Get-LintNavLinkBasename -Map $fm
         $parentDir = Split-Path -Parent $file.Full
 
         foreach ($childDir in @(Get-ChildItem -LiteralPath $parentDir -Directory -ErrorAction SilentlyContinue | Where-Object { -not $_.Name.StartsWith('.') })) {

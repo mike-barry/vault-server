@@ -25,6 +25,10 @@ BeforeAll {
     $script:ScriptPath = Join-Path $PSScriptRoot '..' 'edit.ps1'
     $script:ReadScriptPath = Join-Path $PSScriptRoot '..' 'read.ps1'
     $script:RepoRoot = (Resolve-Path (Join-Path $PSScriptRoot '..' '..')).Path
+    # A handful of assertions read a written note's frontmatter as the parsed TREE rather than by
+    # matching on emitted text - the durable form for "the value survived", now that the emitter
+    # rather than the caller decides how a value is quoted.
+    Import-Module (Join-Path $script:RepoRoot 'powershell' 'VaultAccess' 'VaultAccess.psd1') -Force
 
     function Invoke-EditError {
         # Runs edit.ps1, expecting it to throw the shared {code, message, data?} JSON error
@@ -332,10 +336,12 @@ Describe 'edit' {
             $viaRead = & $script:ReadScriptPath -Path $padded -Part 'frontmatter'
             $result.resultingFrontmatter | Should -BeExactly $viaRead
             $result.resultingFrontmatter | Should -BeExactly "doc.type: Note`ndoc.archived: 2026-07-25"
-            # The padded fence line itself is preserved byte for byte - recognizing it is not
-            # licence to normalize it.
+            # The padded fence line is NOT preserved: a frontmatter op re-emits the whole block
+            # through the module's only fence writer, which writes a bare "---". Recognizing the
+            # padding is what the parity contract needs; keeping it is not something any caller
+            # can observe once the block has been rewritten.
             [System.IO.File]::ReadAllText((Join-Path $script:VaultDir $padded)) |
-                Should -BeExactly "--- `ndoc.type: Note`ndoc.archived: 2026-07-25`n---`nBody`n"
+                Should -BeExactly "---`ndoc.type: Note`ndoc.archived: 2026-07-25`n---`nBody`n"
         }
 
         It 'returns resultingFrontmatter matching read on a whitespace-padded closing fence' {
@@ -353,29 +359,42 @@ Describe 'edit' {
             & $script:ReadScriptPath -Path $padded -Part 'body' | Should -BeExactly "Body`n"
         }
 
-        It 'returns resultingFrontmatter matching read when an inner line starts with "---"' {
-            # The sharpest case. A fence is a whole line, not a prefix: "---junk" is not one, so
-            # the block runs on to the real "---" three lines down and both tools report every
-            # inner line - "---junk" among them - as block text.
+        It 'agrees with read that an inner line starting with "---" is block text, and refuses it' {
+            # The sharpest case, and the one where the two tools' agreement is about WHAT THE
+            # BLOCK IS rather than what edit can do with it. A fence is a whole line, not a
+            # prefix: "---junk" is not one, so the block runs on to the real "---" three lines
+            # down and read reports every inner line - "---junk" among them - as block text.
+            #
+            # edit sees the same block and refuses it, because that block is not YAML. That is
+            # the parity holding, not breaking: both tools take the split from the substrate's
+            # Split-VaultNoteContent and agree on its extent; only edit goes on to PARSE it, and
+            # a block a real parser rejects is a note that cannot be written until it is repaired.
             $inner = 'Inbox/Edit-Inner-Dashes.md'
             [System.IO.File]::WriteAllText((Join-Path $script:VaultDir $inner), "---`ndoc.type: Note`n---junk`nmore`n---`nBody`n")
 
-            $result = & $script:ScriptPath -Path $inner -frontmatter_ops '[{"op":"set_field","field":"doc.archived","value":"2026-07-25"}]' | ConvertFrom-Json
-            $viaRead = & $script:ReadScriptPath -Path $inner -Part 'frontmatter'
-            $result.resultingFrontmatter | Should -BeExactly $viaRead
-            $result.resultingFrontmatter | Should -BeExactly "doc.type: Note`n---junk`nmore`ndoc.archived: 2026-07-25"
+            & $script:ReadScriptPath -Path $inner -Part 'frontmatter' |
+                Should -BeExactly "doc.type: Note`n---junk`nmore"
+            $err = Invoke-EditError @{ Path = $inner; frontmatter_ops = '[{"op":"set_field","field":"doc.archived","value":"2026-07-25"}]' }
+            $err.code | Should -Be 'frontmatter_integrity'
+            $err.data.reason | Should -Be 'frontmatter_unparsed'
+            # Refused means untouched, so the note is still there to repair.
+            [System.IO.File]::ReadAllText((Join-Path $script:VaultDir $inner)) |
+                Should -BeExactly "---`ndoc.type: Note`n---junk`nmore`n---`nBody`n"
         }
 
         It 'agrees with read that a "----" closing line closes nothing' {
             # The whole-line rule from the other direction: "----" is not a fence, so the opening
-            # one never closes. read reports no frontmatter and hands back the whole file as body,
-            # and edit refuses the note outright rather than editing a block it invented.
+            # one never closes - and to the standard a "---" that nothing closes is a thematic
+            # break, not an opening fence, so the note has no frontmatter at all. read hands back
+            # the whole file as body, and edit refuses to prepend a block that would strand the
+            # user's apparent metadata below it. The reason is apparent_fence: the note-level
+            # unclosed state is retired, so there is no unclosed_fence to report here.
             $dashes = 'Inbox/Edit-Four-Dashes.md'
             [System.IO.File]::WriteAllText((Join-Path $script:VaultDir $dashes), "---`ndoc.type: Note`n----`nBody`n")
 
             $err = Invoke-EditError @{ Path = $dashes; frontmatter_ops = '[{"op":"set_field","field":"doc.archived","value":"2026-07-25"}]' }
             $err.code | Should -Be 'frontmatter_integrity'
-            $err.data.reason | Should -Be 'unclosed_fence'
+            $err.data.reason | Should -Be 'apparent_fence'
             & $script:ReadScriptPath -Path $dashes -Part 'frontmatter' | Should -BeExactly ''
             & $script:ReadScriptPath -Path $dashes -Part 'body' | Should -BeExactly "---`ndoc.type: Note`n----`nBody`n"
         }
@@ -511,26 +530,37 @@ Describe 'edit' {
             $result.opsApplied[0].PSObject.Properties.Name | Should -Not -Contain 'kind'
 
             $result.frontmatterChanged | Should -BeTrue
-            $result.resultingFrontmatter | Should -Match ([regex]::Escape('link: "[[Gizmo-Reference]]"'))
-            $result.resultingFrontmatter | Should -Match ([regex]::Escape('description: "Reference for gizmo parts"'))
-            $result.resultingFrontmatter | Should -Match ([regex]::Escape('load_when: "researching gizmo parts"'))
-            [System.IO.File]::ReadAllText($widget) | Should -Match ([regex]::Escape('link: "[[Gizmo-Reference]]"'))
+            # Quoted on need rather than by habit, which is the YAML emitter's rule and not ours:
+            # a leading '[' is the flow-sequence indicator so a wikilink is quoted, and ordinary
+            # prose is not quoted at all.
+            $result.resultingFrontmatter | Should -Match ([regex]::Escape("link: '[[Gizmo-Reference]]'"))
+            $result.resultingFrontmatter | Should -Match ([regex]::Escape('description: Reference for gizmo parts'))
+            $result.resultingFrontmatter | Should -Match ([regex]::Escape('load_when: researching gizmo parts'))
+            [System.IO.File]::ReadAllText($widget) | Should -Match ([regex]::Escape("link: '[[Gizmo-Reference]]'"))
         }
 
-        It 'round-trips remove_nav_entry: removing the added entry restores the original frontmatter byte for byte' {
-            $original = & $script:ReadScriptPath -Path 'Projects/Widget/Widget.md' -Part 'frontmatter'
-            & $script:ScriptPath -Path 'Projects/Widget/Widget.md' `
-                -frontmatter_ops '[{"op":"add_nav_entry","key":"nav.contents","link":"[[Gizmo-Reference]]","description":"Reference for gizmo parts","load_when":"researching gizmo parts"}]' | Out-Null
+        It 'round-trips remove_nav_entry: removing the added entry restores the frontmatter byte for byte' {
+            $add = '[{"op":"add_nav_entry","key":"nav.contents","link":"[[Gizmo-Reference]]","description":"Reference for gizmo parts","load_when":"researching gizmo parts"}]'
+            $remove = '[{"op":"remove_nav_entry","key":"nav.contents","link":"[[Gizmo-Reference]]"}]'
 
-            $result = & $script:ScriptPath -Path 'Projects/Widget/Widget.md' `
-                -frontmatter_ops '[{"op":"remove_nav_entry","key":"nav.contents","link":"[[Gizmo-Reference]]"}]' | ConvertFrom-Json
+            # One warm-up cycle first, and it is the whole reason this is not a single add/remove
+            # pair. A frontmatter op re-emits the block, so the FIRST write a fixture note takes
+            # also reformats whatever quoting it was authored with - a one-time change, since emit
+            # is idempotent. Baselining after that reformat is what makes the byte-for-byte claim
+            # a claim about the ROUND TRIP rather than about the fixture's authored bytes.
+            & $script:ScriptPath -Path 'Projects/Widget/Widget.md' -frontmatter_ops $add | Out-Null
+            & $script:ScriptPath -Path 'Projects/Widget/Widget.md' -frontmatter_ops $remove | Out-Null
+            $baseline = & $script:ReadScriptPath -Path 'Projects/Widget/Widget.md' -Part 'frontmatter'
+
+            & $script:ScriptPath -Path 'Projects/Widget/Widget.md' -frontmatter_ops $add | Out-Null
+            $result = & $script:ScriptPath -Path 'Projects/Widget/Widget.md' -frontmatter_ops $remove | ConvertFrom-Json
 
             $result.opsApplied[0].op | Should -Be 'remove_nav_entry'
             $result.opsApplied[0].field | Should -Be 'nav.contents'
             $result.opsApplied[0].changed | Should -BeTrue
             $result.frontmatterChanged | Should -BeTrue
-            $result.resultingFrontmatter | Should -BeExactly $original
-            (& $script:ReadScriptPath -Path 'Projects/Widget/Widget.md' -Part 'frontmatter') | Should -BeExactly $original
+            $result.resultingFrontmatter | Should -BeExactly $baseline
+            (& $script:ReadScriptPath -Path 'Projects/Widget/Widget.md' -Part 'frontmatter') | Should -BeExactly $baseline
         }
 
         It 'records changed:false through the tool for a duplicate add_nav_entry, and asserts nothing' {
@@ -563,7 +593,7 @@ Describe 'edit' {
             $result.opsApplied[0].op | Should -Be 'add_nav_entry'
             $result.opsApplied[0].field | Should -Be 'nav.see_also'
             $result.opsApplied[0].changed | Should -BeTrue
-            $result.resultingFrontmatter | Should -Match ([regex]::Escape('folder: "Archive"'))
+            $result.resultingFrontmatter | Should -Match ([regex]::Escape('folder: Archive'))
         }
     }
 
@@ -697,29 +727,44 @@ Describe 'edit' {
     }
 
     Context 'byte preservation' {
-        It 'keeps a CRLF note''s CRLF endings on disk through a frontmatter op' {
-            # The defect this invariant exists for: a substrate that splits on \r?\n and rejoins
-            # on \n rewrites every line terminator in the file on every op, invisibly - and would
-            # break the resultingSha chain for content that did not meaningfully change.
+        It 'normalizes a CRLF note to LF throughout when a frontmatter op recomposes it' {
+            # Retired and replaced: this used to assert the note's CRLF endings SURVIVED the op.
+            # They no longer do, and that is the locked policy rather than a regression - a
+            # frontmatter op recomposes the note through the module's one composer, which writes
+            # LF with nothing to detect. What is preserved is body CONTENT: every byte except the
+            # terminators, which is the narrowed guarantee the whole terminator-preservation model
+            # was traded for.
             [System.IO.File]::WriteAllText($script:NoteFull, "---`r`ndoc.created: 2026-07-16`r`ndoc.type: Note`r`n---`r`n`r`n# Edit-Case`r`nalpha line`r`n")
             & $script:ScriptPath -Path $script:NotePath -frontmatter_ops '[{"op":"set_field","field":"doc.archived","value":"2026-07-25"}]' | Out-Null
-            [System.IO.File]::ReadAllText($script:NoteFull) |
-                Should -BeExactly "---`r`ndoc.created: 2026-07-16`r`ndoc.type: Note`r`ndoc.archived: 2026-07-25`r`n---`r`n`r`n# Edit-Case`r`nalpha line`r`n"
+            $raw = [System.IO.File]::ReadAllText($script:NoteFull)
+            $raw | Should -BeExactly "---`ndoc.created: 2026-07-16`ndoc.type: Note`ndoc.archived: 2026-07-25`n---`n`n# Edit-Case`nalpha line`n"
+            # Stated as the invariant rather than inferred from the literal above: not one CR is
+            # left anywhere in the file, frontmatter or body.
+            $raw | Should -Not -Match "`r"
         }
 
-        It 'keeps CRLF through a body patch, including on the untouched lines' {
+        It 'flattens a CRLF note to LF through a body patch, frontmatter included' {
+            # The body splice is the path that would most plausibly have been left preserving what
+            # arrived, since it never reaches the emitter - which is why it is the one worth
+            # pinning. LF is unconditional, and it reaches the block a body write does not
+            # otherwise touch.
             [System.IO.File]::WriteAllText($script:NoteFull, "---`r`ndoc.type: Note`r`n---`r`n`r`n# Edit-Case`r`nalpha line`r`nbeta line`r`n")
             & $script:ScriptPath -Path $script:NotePath -old_string 'alpha line' -new_string 'ALPHA LINE' | Out-Null
             $raw = [System.IO.File]::ReadAllText($script:NoteFull)
-            $raw | Should -BeExactly "---`r`ndoc.type: Note`r`n---`r`n`r`n# Edit-Case`r`nALPHA LINE`r`nbeta line`r`n"
-            # No terminator was silently normalized: every LF in the file is part of a CRLF.
-            ([regex]::Matches($raw, "(?<!`r)`n")).Count | Should -Be 0
+            $raw | Should -BeExactly "---`ndoc.type: Note`n---`n`n# Edit-Case`nALPHA LINE`nbeta line`n"
+            $raw | Should -Not -Match "`r"
         }
 
-        It 'leaves a mixed-ending note mixed' {
+        It 'flattens a mixed-ending note to LF through a frontmatter op' {
+            # Retired and replaced for the same reason as the CRLF case above. The rule this used
+            # to assert - keep a mixed file locally consistent, terminator by terminator - was the
+            # most intricate part of the model that went, and there is nothing left to be
+            # consistent WITH: one composer, one terminator.
             [System.IO.File]::WriteAllText($script:NoteFull, "---`r`ndoc.type: Note`r`n---`n`n# Edit-Case`nalpha line`r`n")
             & $script:ScriptPath -Path $script:NotePath -frontmatter_ops '[{"op":"set_field","field":"doc.type","value":"Corpus"}]' | Out-Null
-            [System.IO.File]::ReadAllText($script:NoteFull) | Should -BeExactly "---`r`ndoc.type: Corpus`r`n---`n`n# Edit-Case`nalpha line`r`n"
+            $raw = [System.IO.File]::ReadAllText($script:NoteFull)
+            $raw | Should -BeExactly "---`ndoc.type: Corpus`n---`n`n# Edit-Case`nalpha line`n"
+            $raw | Should -Not -Match "`r"
         }
     }
 
@@ -936,17 +981,35 @@ Describe 'edit' {
             $err.data.opIndex | Should -Be 0
         }
 
-        It 'refuses a value carrying a line break (key smuggling)' {
+        It 'writes a value carrying a line break INSIDE its own key rather than minting one' {
+            # Retired and replaced: this used to assert a REFUSAL, which existed only because a
+            # line-splicing emitter could not escape a newline. It can now - the value goes
+            # through the YAML emitter as a block or quoted scalar - so the refusal went, and what
+            # is asserted instead is the property the refusal was standing in for: the smuggled
+            # text lands as part of doc.type's value and mints no second key.
             $ops = ConvertTo-Json -Compress -Depth 5 @(@{ op = 'set_field'; field = 'doc.type'; value = "Note`nnav.contents: smuggled" })
-            $err = Invoke-EditError @{ Path = $script:NotePath; frontmatter_ops = $ops }
-            $err.code | Should -Be 'malformed_op'
-            $err.data.reason | Should -Match 'line break'
+            $result = & $script:ScriptPath -Path $script:NotePath -frontmatter_ops $ops | ConvertFrom-Json
+            $result.frontmatterChanged | Should -BeTrue
+
+            $map = Get-VaultFrontmatterMap -Content ([System.IO.File]::ReadAllText($script:NoteFull))
+            $map['doc.type'] | Should -BeExactly "Note`nnav.contents: smuggled"
+            # The whole point: no key was created by the value's contents.
+            @($map.Keys) | Should -Not -Contain 'nav.contents'
         }
 
-        It 'refuses directive text carrying a double quote (the hardcoded-quote emit hole)' {
+        It 'round-trips directive text carrying a double quote (the retired emit hole)' {
+            # Retired and replaced for the same reason. The double-quote refusal was a bespoke
+            # format's limitation leaking into the tool contract - a YAML emitter needs no special
+            # handling for a quote at all - so what is asserted now is that the quote survives the
+            # write and reads back as the caller wrote it.
             $ops = ConvertTo-Json -Compress -Depth 5 @(@{ op = 'add_directive'; kind = 'pinned'; text = 'bad" text' })
-            $err = Invoke-EditError @{ Path = $script:NotePath; frontmatter_ops = $ops }
-            $err.code | Should -Be 'malformed_op'
+            $result = & $script:ScriptPath -Path $script:NotePath -frontmatter_ops $ops | ConvertFrom-Json
+            $result.frontmatterChanged | Should -BeTrue
+
+            $map = Get-VaultFrontmatterMap -Content ([System.IO.File]::ReadAllText($script:NoteFull))
+            $directives = Get-VaultFrontmatterEntryList -Map $map -Field 'agent.instructions'
+            @($directives).Count | Should -Be 1
+            Get-VaultEntryFieldValue -Entry $directives[0] -Name 'pinned' | Should -BeExactly 'bad" text'
         }
 
         It 'refuses a field name outside the frontmatter key pattern' {
@@ -983,19 +1046,32 @@ Describe 'edit' {
     }
 
     Context 'errors - integrity and schema' {
-        It 'errors frontmatter_integrity on a note whose own fence never closes' {
+        It 'errors frontmatter_integrity on a note whose first line is a fence nothing closes' {
+            # The reason moved, and the reasoning under it did too. There is no note-level
+            # "unclosed" state any more: to the standard a '---' that nothing closes is a
+            # thematic break, so this note simply has no frontmatter. What edit refuses is
+            # therefore not a broken block but the prospect of prepending a NEW block above the
+            # user's apparent metadata and stranding it as prose - hence apparent_fence.
             [System.IO.File]::WriteAllText($script:NoteFull, "---`ndoc.type: Note`n# Body with no closing fence`n")
             $err = Invoke-EditError @{ Path = $script:NotePath; frontmatter_ops = '[{"op":"set_field","field":"doc.created","value":"2026-07-25"}]' }
             $err.code | Should -Be 'frontmatter_integrity'
-            $err.data.reason | Should -Be 'unclosed_fence'
+            $err.data.reason | Should -Be 'apparent_fence'
+            [System.IO.File]::ReadAllText($script:NoteFull) | Should -Not -Match 'doc.created'
         }
 
-        It 'refuses a patch against an unclosed-fence note before the anchor is even resolved' {
-            # With a dangling fence the body facet is the whole file, so patch matching would
-            # otherwise reach the frontmatter body-confinement exists to protect.
+        It 'patches such a note as the body it is, since the fence never made a block' {
+            # Retired and replaced: this used to assert a REFUSAL, on the reasoning that a
+            # dangling fence made the body facet the whole file and patch matching would reach
+            # "the frontmatter". There is no frontmatter to reach - the file is body, all of it,
+            # and text that is body is patchable. Body confinement is untouched: it means the
+            # patch matches the body FACET, and here that facet is the file.
             [System.IO.File]::WriteAllText($script:NoteFull, "---`ndoc.type: Note`n# Body`n")
-            $err = Invoke-EditError @{ Path = $script:NotePath; old_string = 'doc.type: Note'; new_string = 'doc.type: Corpus' }
-            $err.code | Should -Be 'frontmatter_integrity'
+            $result = & $script:ScriptPath -Path $script:NotePath -old_string 'doc.type: Note' -new_string 'doc.type: Corpus' | ConvertFrom-Json
+            $result.bodyChanged | Should -BeTrue
+            $result.frontmatterChanged | Should -BeFalse
+            # Still no block: the patch rewrote prose and minted nothing.
+            $result.resultingFrontmatter | Should -BeExactly ''
+            [System.IO.File]::ReadAllText($script:NoteFull) | Should -BeExactly "---`ndoc.type: Corpus`n# Body`n"
         }
 
         It 'errors frontmatter_integrity when a body replace would mint a frontmatter block' {
@@ -1029,7 +1105,7 @@ Describe 'edit' {
             $result = & $script:ScriptPath -Path 'Projects/Widget/Tasks.md' `
                 -frontmatter_ops '[{"op":"add_directive","kind":"use_skill","skill":"vault-tasks","when":"managing tasks"},{"op":"set_field","field":"doc.type","value":"Tasks"}]' | ConvertFrom-Json
             $result.frontmatterChanged | Should -BeTrue
-            $result.resultingFrontmatter | Should -Match 'use_skill: "vault-tasks"'
+            $result.resultingFrontmatter | Should -Match 'use_skill: vault-tasks'
         }
     }
 

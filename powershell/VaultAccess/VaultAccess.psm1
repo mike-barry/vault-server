@@ -37,6 +37,15 @@
 # Public/ or Private/ file a function lives in.
 $script:VaultAccessModuleRoot = $PSScriptRoot
 
+# The frontmatter substrate's YAML parser and emitter. A declared, first-class dependency
+# installed from PSGallery at latest - not vendored and not version-pinned, because security and
+# bug-fix updates matter more here than insulation from a breaking release. Imported into the
+# module's own session state rather than declared in RequiredModules so the caller's session does
+# not silently gain ConvertTo-Yaml/ConvertFrom-Yaml as a side effect of loading this module.
+# Markdig, the other half of the substrate, needs no import at all: it ships inside PowerShell as
+# the engine behind ConvertFrom-Markdown and every type is reachable in-process.
+Import-Module powershell-yaml -ErrorAction Stop
+
 $script:VaultConfig = $null
 
 # The vault's wikilink grammar, compiled once and handed out by Get-VaultLinkPattern

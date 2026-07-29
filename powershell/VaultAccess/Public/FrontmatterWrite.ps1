@@ -59,15 +59,15 @@ function Invoke-VaultFrontmatterWrite {
 
     Three refusals are hard throws, because a caller cannot sensibly proceed past any of them:
 
-      frontmatter_integrity   - an unclosed fence on input or output, or a composed result whose
-                                re-extracted frontmatter differs from what the ops produced. The
-                                second covers both directions: a body write that introduces a
-                                fence on a fence-less note (minting a block no op authored, past
-                                schema validation and past the key assertion), and one that
-                                destroys or truncates an existing fence.
-      malformed_op            - an unknown op, a missing op parameter, or field/value/text
-                                hygiene: a bad key name, or a line break, control character, or
-                                '"' in caller-supplied text.
+      frontmatter_integrity   - a composed result whose re-extracted frontmatter differs from what
+                                the ops produced, a block the ops could not parse, or a supplied
+                                -Frontmatter block that does not hold as one. The first covers
+                                both directions: a body write that introduces a fence on a
+                                fence-less note (minting a block no op authored, past schema
+                                validation and past the key assertion), and one that destroys or
+                                truncates an existing fence.
+      malformed_op            - an unknown op, a missing op parameter, or field/value hygiene: a
+                                bad key name, or a control character in caller-supplied text.
       insufficient_capability - the agentic diff is non-empty and the injected op-class set lacks
                                 agentic:write. Nothing has been written at that point, and the
                                 caller gets no content back, so the denial is zero-mutation. An
@@ -130,14 +130,15 @@ function Invoke-VaultFrontmatterWrite {
     $hasFrontmatter = $PSBoundParameters.ContainsKey('Frontmatter')
     $hasBody = $PSBoundParameters.ContainsKey('Body')
 
-    # An input fence that never closes is refused up front: every mutator would otherwise read it
-    # as "no frontmatter" and stack a second complete block on top of it.
+    # LF at the door, so the guarantee covers the body splice as well as the emitter - a body-only
+    # write never reaches ConvertTo-VaultFrontmatterText, so normalizing there alone would leave
+    # exactly that path preserving whatever arrived. Here rather than on the way out because the
+    # fence guard below compares the block before and after the body write, and a normalization
+    # applied between those two reads would fire it on the terminators alone.
+    $Content = $Content -replace "`r`n", "`n"
+    if ($hasBody) { $Body = $Body -replace "`r`n", "`n" }
+
     $originalSplit = Split-VaultNoteContent $Content
-    if ($originalSplit.FenceState -eq 'Unclosed') {
-        throw (New-VaultToolError -Code 'frontmatter_integrity' `
-                -Message 'The note opens a "---" frontmatter fence that is never closed; it cannot be written until the fence is repaired.' `
-                -Data @{ reason = 'unclosed_fence' })
-    }
 
     $working = if ($hasFrontmatter) {
         (New-VaultFrontmatterBlockText -Frontmatter $Frontmatter) + $originalSplit.Body
@@ -158,10 +159,11 @@ function Invoke-VaultFrontmatterWrite {
     $final = $working
     if ($hasBody) {
         if ($afterOps.FenceState -eq 'Closed') {
+            # Spliced through BodyOffset, never recomposed: a write that ran no frontmatter op
+            # leaves the block's bytes exactly as they were on disk, so a body-only edit does not
+            # reformat the frontmatter and does not churn the note's hash.
             $prefix = $working.Substring(0, $afterOps.BodyOffset)
-            if ($Body -ne '' -and -not $prefix.EndsWith("`n")) {
-                $prefix += (Get-VaultLineTerminatorFor -Lines (ConvertTo-VaultLineList $prefix) -Anchor 0)
-            }
+            if ($Body -ne '' -and -not $prefix.EndsWith("`n")) { $prefix += "`n" }
             $final = $prefix + $Body
         }
         else {
@@ -176,11 +178,6 @@ function Invoke-VaultFrontmatterWrite {
         throw (New-VaultToolError -Code 'frontmatter_integrity' `
                 -Message 'The composed content''s frontmatter does not match what the frontmatter ops produced - a body write introduced, altered, or truncated the fence.' `
                 -Data @{ reason = 'body_write_changed_frontmatter'; expectedFenceState = $afterOps.FenceState; actualFenceState = $finalSplit.FenceState })
-    }
-    if ($finalSplit.FenceState -eq 'Unclosed') {
-        throw (New-VaultToolError -Code 'frontmatter_integrity' `
-                -Message 'The composed content opens a "---" frontmatter fence that is never closed.' `
-                -Data @{ reason = 'unclosed_fence' })
     }
 
     $validateArgs = @{ Content = $final }
