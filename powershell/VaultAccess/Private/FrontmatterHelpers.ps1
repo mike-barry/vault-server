@@ -1,35 +1,21 @@
-# Private/FrontmatterHelpers.ps1 - internal machinery for the frontmatter substrate: the Markdig
-# block locator, the YAML parse/emit pair every mutation runs through, the composer that is the
-# module's only fence writer, op-text hygiene, and the shared nav/op accessors.
+# Private/FrontmatterHelpers.ps1 - internal machinery for the frontmatter substrate: the fence
+# locator, the YAML parse/emit pair every mutation runs through, the composer that is the module's
+# only fence writer, op-text hygiene, and the shared nav/op accessors.
 # PowerShell-only: the frontmatter substrate serves the tool-script contract and has no C#
 # counterpart in VaultAccess.cs. See ../VaultAccess.psm1 for the full mirror policy.
 #
-# Two libraries, two jobs, and the split is the invariant this file exists for. Markdig decides
-# what a frontmatter block IS - the standard's answer, not a fence scan of our own - and
-# powershell-yaml decides what it MEANS. Every mutation is therefore a dictionary or list
-# operation over a parsed tree that is re-emitted whole, so blank lines, nesting, indentation,
-# quoting, and escaping are the parser's problem rather than ours. Nothing here splices lines,
-# which is why nothing here reasons about terminators: a composed note is written LF.
-
-function Get-VaultMarkdownPipeline {
-    <#
-    .SYNOPSIS
-    The Markdig pipeline the frontmatter locator parses through, built once and cached.
-
-    UseYamlFrontMatter is required and is precisely what the ConvertFrom-Markdown cmdlet's own
-    pipeline omits: without it Markdig reads a leading '---' as a thematic break and there is no
-    YamlFrontMatterBlock to find at all. Nothing needs installing - Markdig ships inside
-    PowerShell as the engine behind that cmdlet, and every type is reachable in-process.
-    #>
-    [CmdletBinding()]
-    param()
-
-    if ($null -eq $script:VaultMarkdownPipeline) {
-        $script:VaultMarkdownPipeline =
-            [Markdig.MarkdownExtensions]::UseYamlFrontMatter([Markdig.MarkdownPipelineBuilder]::new()).Build()
-    }
-    return $script:VaultMarkdownPipeline
-}
+# The split this file rests on: locating the block is a line-level question with a grammar small
+# enough to state in a sentence, while READING it is where blank lines, nesting, indentation,
+# quoting, and escaping live - so powershell-yaml owns the second and nothing here hand-rolls it.
+# Every mutation is a dictionary or list operation over a parsed tree that is re-emitted whole.
+# Nothing here splices lines, which is why nothing here reasons about terminators: a composed
+# note is written LF.
+#
+# The locator's grammar is not ours to invent, and Frontmatter.Tests.ps1 pins it differentially
+# against Markdig's YamlFrontMatterBlock - the standard's implementation - over every note in the
+# vault plus a table of degenerate shapes. Markdig is the authority on what a frontmatter block
+# is; it exercises that authority at test time rather than on every call, so the substrate carries
+# no runtime dependency on a library PowerShell bundles without declaring.
 
 function Get-VaultFrontmatterSpan {
     <#
@@ -39,49 +25,54 @@ function Get-VaultFrontmatterSpan {
 
     InnerStart/InnerLength delimit the block's inner text - what lies between the opening fence
     line's terminator and the closing fence line, with the last inner line's terminator excluded.
-    BodyOffset is where the body begins, which is one line terminator past the closing fence
-    (Markdig's span stops at the fence itself).
+    BodyOffset is where the body begins, one line terminator past the closing fence.
 
-    The block is whatever Markdig calls one, so the degenerate shapes resolve the standard's way
-    rather than ours: an opening fence that never closes is a thematic break plus a paragraph, and
-    a '---' / '---' pair is two thematic breaks. Both are simply "no block" here.
+    The grammar, in full: the opening fence is the note's FIRST line and is exactly '---' once
+    trailing whitespace is discounted, so a leading space or a fourth dash disqualifies it; the
+    closing fence is a later line that is exactly '---' or '...' under the same rule. An opening
+    fence nothing closes is not a block - the standard reads it as a thematic break followed by a
+    paragraph - and neither is a pair with nothing between them, which is two thematic breaks.
+
+    That last case is the one place this deliberately does NOT follow Markdig, because Markdig
+    does not follow itself: it reads '---' / '---' as two thematic breaks under LF and as a real
+    block under CRLF. Empty is empty under either terminator here.
     #>
     [CmdletBinding()]
     param([Parameter(Mandatory)] [AllowEmptyString()] [string] $Content)
 
     if ([string]::IsNullOrEmpty($Content)) { return $null }
 
-    $doc = [Markdig.Markdown]::Parse($Content, (Get-VaultMarkdownPipeline))
-    $block = $null
-    foreach ($node in $doc) {
-        if ($node -is [Markdig.Extensions.Yaml.YamlFrontMatterBlock]) { $block = $node; break }
-    }
-    if ($null -eq $block) { return $null }
+    $firstBreak = $Content.IndexOf("`n")
+    if ($firstBreak -lt 0) { return $null }
+    if ($Content.Substring(0, $firstBreak).TrimEnd(" `t`r") -ne '---') { return $null }
 
-    # The span runs from the opening fence's first character through the closing fence's last,
-    # terminator excluded, so both edges are found by walking to the terminators around it.
-    $spanEnd = [Math]::Min($block.Span.End, $Content.Length - 1)
-    $firstBreak = $Content.IndexOf("`n", $block.Span.Start)
-    if ($firstBreak -lt 0 -or $firstBreak -gt $spanEnd) { return $null }
     $innerStart = $firstBreak + 1
-
-    $lastBreak = $Content.LastIndexOf("`n", $spanEnd)
-    $innerEnd = if ($lastBreak -lt $innerStart) { $innerStart } else { $lastBreak }
-    if ($innerEnd -gt $innerStart -and $Content[$innerEnd - 1] -eq "`r") { $innerEnd-- }
-
-    # The span stops at the closing fence's last '-' and EXCLUDES any trailing whitespace on that
-    # line, so the padding is skipped before the terminator is consumed. Without this a "--- "
-    # closing fence leaks its own trailing space into the body as a " \n" fragment, and the body
-    # facet is what `edit` matches a patch against and `read part: body` hands back.
-    $bodyOffset = $spanEnd + 1
-    while ($bodyOffset -lt $Content.Length -and ($Content[$bodyOffset] -eq ' ' -or $Content[$bodyOffset] -eq "`t")) { $bodyOffset++ }
-
-    # One terminator, and a lone "`r" is not one - it is an ordinary character inside a line, so
-    # consuming it would take a byte of the body with it.
-    if ($bodyOffset + 1 -lt $Content.Length -and $Content[$bodyOffset] -eq "`r" -and $Content[$bodyOffset + 1] -eq "`n") { $bodyOffset += 2 }
-    elseif ($bodyOffset -lt $Content.Length -and $Content[$bodyOffset] -eq "`n") { $bodyOffset++ }
-
-    return @{ InnerStart = $innerStart; InnerLength = $innerEnd - $innerStart; BodyOffset = $bodyOffset }
+    $pos = $innerStart
+    while ($pos -le $Content.Length) {
+        $next = $Content.IndexOf("`n", $pos)
+        $lineEnd = if ($next -lt 0) { $Content.Length } else { $next }
+        $line = $Content.Substring($pos, $lineEnd - $pos).TrimEnd(" `t`r")
+        if ($line -eq '---' -or $line -eq '...') {
+            # The inner region stops before the terminator that ends the last inner line, and that
+            # terminator is not part of it. A lone "`r" is not a terminator - it is an ordinary
+            # character inside a line - so only a "`r" immediately preceding the "`n" comes off.
+            $innerEnd = $pos
+            if ($innerEnd -gt $innerStart) {
+                $innerEnd--
+                if ($innerEnd -gt $innerStart -and $Content[$innerEnd - 1] -eq "`r") { $innerEnd-- }
+            }
+            if ($innerEnd -le $innerStart) { return $null }
+            # Taken from the terminator rather than from the fence text, so trailing whitespace on
+            # the closing line belongs to the fence. Derived the other way it leaks into the body
+            # as a " `n" fragment - and the body facet is what `edit` matches a patch against and
+            # `read part: body` hands back.
+            $bodyOffset = if ($next -lt 0) { $Content.Length } else { $next + 1 }
+            return @{ InnerStart = $innerStart; InnerLength = $innerEnd - $innerStart; BodyOffset = $bodyOffset }
+        }
+        if ($next -lt 0) { break }
+        $pos = $next + 1
+    }
+    return $null
 }
 
 function ConvertFrom-VaultFrontmatterText {

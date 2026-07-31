@@ -132,17 +132,16 @@ Describe 'read' {
             $frontmatter | Should -Be ''
         }
 
-        # The CRLF variant answers DIFFERENTLY, and this pins the library rather than a rule:
-        # Markdig 0.44.0 reads "---\r\n---\r\n" as a YamlFrontMatterBlock while reading the LF
-        # spelling of the same file as two thematic breaks. Inert in practice - the vault is LF
-        # throughout and every primitive now writes LF - but it is the one place the "an empty
-        # fence pair is not frontmatter" reading does not hold, so it is recorded here as an
-        # accident of the parser rather than left to read as intent.
-        It 'returns the body after an empty fence pair under CRLF endings' {
+        # The CRLF spelling answers the same way, which is a rule rather than an accident. Markdig
+        # 0.44.0 does not: it reads "---\r\n---\r\n" as a YamlFrontMatterBlock while reading the LF
+        # spelling of the same file as two thematic breaks. "An empty fence pair is not
+        # frontmatter" is a reading of the shape, not of the terminator, so the locator applies it
+        # under both - the one place it departs from the oracle its grammar is pinned against.
+        It 'returns the whole file for an empty fence pair under CRLF endings too' {
             $notePath = Join-Path $script:VaultDir 'Inbox/Empty-Fence-Crlf.md'
             [System.IO.File]::WriteAllText($notePath, "---`r`n---`r`n# Note`r`nline two`r`n")
             $body = & $script:ScriptPath -Path 'Inbox/Empty-Fence-Crlf.md' -Part 'body'
-            $body | Should -Be "# Note`r`nline two`r`n"
+            $body | Should -Be "---`r`n---`r`n# Note`r`nline two`r`n"
         }
 
         It 'returns the fences themselves for an empty fence pair with nothing after it' {

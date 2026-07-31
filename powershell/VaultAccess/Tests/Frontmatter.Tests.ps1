@@ -672,3 +672,95 @@ Describe 'Emit idempotency' {
         Get-VaultFrontmatterField -Content $result -Field 'scope' | Should -BeExactly 'no'
     }
 }
+
+Describe 'the block grammar, differentially against Markdig' {
+    # Locating a frontmatter block is a line-level question, so the substrate answers it with a
+    # bounded scan rather than a full markdown parse of every note. What a frontmatter block IS
+    # remains the standard's call, not ours - so Markdig's YamlFrontMatterBlock, the standard's
+    # implementation and the one PowerShell itself ships, is the oracle HERE instead of a runtime
+    # dependency on a library bundled without being declared. If a PowerShell upgrade moves the
+    # grammar, this is what says so.
+    BeforeAll {
+        $script:Oracle = {
+            param([string] $Text)
+            if ([string]::IsNullOrEmpty($Text)) { return $null }
+            $pipeline = [Markdig.MarkdownExtensions]::UseYamlFrontMatter([Markdig.MarkdownPipelineBuilder]::new()).Build()
+            foreach ($node in [Markdig.Markdown]::Parse($Text, $pipeline)) {
+                if ($node -is [Markdig.Extensions.Yaml.YamlFrontMatterBlock]) { return $node }
+            }
+            return $null
+        }
+        # The scan's answer reduced to the one thing both sides can state: is there a block, and
+        # where does its closing fence end. Markdig's span stops at the fence's last character and
+        # excludes trailing whitespace, so the scan's BodyOffset is walked back over any padding
+        # before the two are compared.
+        $script:ScanEnd = {
+            param([string] $Text)
+            $span = InModuleScope VaultAccess { param($t) Get-VaultFrontmatterSpan -Content $t } -ArgumentList $Text
+            if ($null -eq $span) { return $null }
+            $end = $span.BodyOffset - 1
+            while ($end -ge 0 -and $Text[$end] -in @("`n", "`r", ' ', "`t")) { $end-- }
+            return $end
+        }
+    }
+
+    $cases = @(
+        @{ Name = 'basic'; Text = "---`na: 1`n---`nBody`n" }
+        @{ Name = 'no trailing newline'; Text = "---`na: 1`n---" }
+        @{ Name = 'four-dash opener'; Text = "----`na: 1`n---`nBody`n" }
+        @{ Name = 'four-dash closer'; Text = "---`na: 1`n----`nBody`n" }
+        @{ Name = 'opener trailing space'; Text = "--- `na: 1`n---`nBody`n" }
+        @{ Name = 'closer trailing space'; Text = "---`na: 1`n--- `nBody`n" }
+        @{ Name = 'closer trailing tab'; Text = "---`na: 1`n---`t`nBody`n" }
+        @{ Name = 'opener leading space'; Text = " ---`na: 1`n---`nBody`n" }
+        @{ Name = 'closer one-space indent'; Text = "---`na: 1`n ---`nBody`n" }
+        @{ Name = 'closer three-space indent'; Text = "---`na: 1`n   ---`nBody`n" }
+        @{ Name = 'closer four-space indent'; Text = "---`na: 1`n    ---`nBody`n" }
+        @{ Name = 'dots closer'; Text = "---`na: 1`n...`nBody`n" }
+        @{ Name = 'four-dot closer'; Text = "---`na: 1`n....`nBody`n" }
+        @{ Name = 'unclosed fence'; Text = "---`na: 1`nBody`n" }
+        @{ Name = 'blank lines inside'; Text = "---`n`na: 1`n`n---`nBody`n" }
+        @{ Name = 'CRLF throughout'; Text = "---`r`na: 1`r`n---`r`nBody`r`n" }
+        @{ Name = 'fence not on the first line'; Text = "`n---`na: 1`n---`nBody`n" }
+        @{ Name = 'heading before the fence'; Text = "# H`n---`na: 1`n---`nBody`n" }
+        @{ Name = 'fence alone'; Text = '---' }
+        @{ Name = 'fence alone with terminator'; Text = "---`n" }
+        @{ Name = 'empty content'; Text = '' }
+        @{ Name = 'two blocks back to back'; Text = "---`na: 1`n---`n---`nb: 2`n---`nBody`n" }
+        @{ Name = 'a --- line inside a block scalar'; Text = "---`na: |`n  ---`n---`nBody`n" }
+    )
+
+    It 'agrees with Markdig on <Name>' -TestCases $cases {
+        param($Name, $Text)
+        $block = & $script:Oracle $Text
+        $scanEnd = & $script:ScanEnd $Text
+        if ($null -eq $block) { $scanEnd | Should -Be $null }
+        else {
+            $scanEnd | Should -Not -Be $null
+            $scanEnd | Should -Be $block.Span.End
+        }
+    }
+
+    It 'departs from Markdig only on an empty fence pair, and only because Markdig is inconsistent there' {
+        # Markdig reads '---' / '---' as two thematic breaks under LF and as a real block under
+        # CRLF. The vault is LF and [[Plan-Frontmatter-YAML-Migration]] locks the LF reading, so
+        # the scan applies it under both terminators rather than inheriting the split.
+        (& $script:ScanEnd "---`n---`nBody`n") | Should -Be $null
+        (& $script:ScanEnd "---`r`n---`r`nBody`r`n") | Should -Be $null
+        (& $script:Oracle "---`n---`nBody`n") | Should -Be $null
+        (& $script:Oracle "---`r`n---`r`nBody`r`n") | Should -Not -Be $null
+    }
+
+    It 'agrees with Markdig on every note in the repo fixture vault' {
+        # A table of shapes proves the rules; a real corpus proves the rules are the ones the
+        # vault's notes actually exercise.
+        $notes = @(Get-ChildItem -LiteralPath (Join-Path $PSScriptRoot '../../../test-vault') -Recurse -Filter '*.md' -File)
+        $notes.Count | Should -BeGreaterThan 0
+        foreach ($note in $notes) {
+            $text = [System.IO.File]::ReadAllText($note.FullName)
+            $block = & $script:Oracle $text
+            $expected = if ($null -eq $block) { $null } else { $block.Span.End }
+            & $script:ScanEnd $text | Should -Be $expected -Because "of $($note.Name)"
+        }
+    }
+}

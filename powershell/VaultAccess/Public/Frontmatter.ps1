@@ -28,9 +28,10 @@ function Split-VaultNoteContent {
     caller can splice a new body in without recomposing the block it did not touch - which is what
     keeps a body-only edit from reformatting the frontmatter and churning the note's hash.
 
-    `FenceState` is 'Closed' or 'None': a block is present or it is not, decided by Markdig rather
-    than by a fence scan of ours. The third state the hand-rolled scanner reported for a dangling
-    '---' is gone, because to the standard that note has no frontmatter at all.
+    `FenceState` is 'Closed' or 'None': a block is present or it is not. The third state the old
+    scanner reported for a dangling '---' is gone, because to the standard that note has no
+    frontmatter at all - see Get-VaultFrontmatterSpan for the grammar and for the differential
+    test that holds it to the standard's own implementation.
 
     This is the body facet `edit` matches its old_string/new_string patch against; confining the
     patch to it is what keeps frontmatter unreachable by patch. This function is also where the
