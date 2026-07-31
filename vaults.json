@@ -1,7 +1,6 @@
 {
-  "default_vault": "primary",
+  "default_vault": "test",
   "vaults": {
-    "primary": "C:/Repos/vault-primary",
-    "test": "C:/Repos/vault-server/test-vault"
+    "test": "C:/Repos/vault-server-redesign/test-vault"
   }
 }
