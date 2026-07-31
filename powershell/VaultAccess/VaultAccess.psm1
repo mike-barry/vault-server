@@ -42,8 +42,8 @@ $script:VaultAccessModuleRoot = $PSScriptRoot
 # bug-fix updates matter more here than insulation from a breaking release. Imported into the
 # module's own session state rather than declared in RequiredModules so the caller's session does
 # not silently gain ConvertTo-Yaml/ConvertFrom-Yaml as a side effect of loading this module.
-# Markdig, the other half of the substrate, needs no import at all: it ships inside PowerShell as
-# the engine behind ConvertFrom-Markdown and every type is reachable in-process.
+# It is the substrate's only runtime library: locating a frontmatter block is a bounded scan of
+# our own, and Markdig appears solely as the oracle that scan's grammar is tested against.
 Import-Module powershell-yaml -ErrorAction Stop
 
 $script:VaultConfig = $null
