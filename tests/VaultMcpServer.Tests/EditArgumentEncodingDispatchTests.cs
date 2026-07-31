@@ -95,7 +95,10 @@ public sealed class EditArgumentEncodingDispatchTests : IClassFixture<EditArgume
             ["frontmatter_ops"] = new object[]
             {
                 new { op = "set_field", field = "doc.type", value = "Corpus" },
-                new { op = "set_field", field = "doc.summary", value = awkward },
+                // `scope` because the awkward payload has to survive verbatim: it is the one
+                // registry key whose declared value pattern is any string, so what is under test
+                // stays the argument encoding rather than the frontmatter schema.
+                new { op = "set_field", field = "scope", value = awkward },
             },
             // A parameter with no side-car, sent alongside in the same call: it must still bind as
             // the plain string it is, or edit would refuse the write as state_mismatch.
@@ -107,11 +110,11 @@ public sealed class EditArgumentEncodingDispatchTests : IClassFixture<EditArgume
         // Both ops, in the order sent - the array survived as an array, not as one op or as junk.
         var applied = result.RootElement.GetProperty("opsApplied").EnumerateArray().ToList();
         Assert.Equal(2, applied.Count);
-        Assert.Equal(["doc.type", "doc.summary"], applied.Select(o => o.GetProperty("field").GetString()));
+        Assert.Equal(["doc.type", "scope"], applied.Select(o => o.GetProperty("field").GetString()));
 
         var written = await File.ReadAllTextAsync(notePath);
         Assert.Contains("doc.type: Corpus", written, StringComparison.Ordinal);
-        Assert.Contains($"doc.summary: {awkward}", written, StringComparison.Ordinal);
+        Assert.Contains($"scope: {awkward}", written, StringComparison.Ordinal);
     }
 
     /// <summary>
@@ -128,12 +131,12 @@ public sealed class EditArgumentEncodingDispatchTests : IClassFixture<EditArgume
         var text = await CallEditAsync(new()
         {
             ["path"] = "Projects/Widget/Widget.md",
-            ["frontmatter_ops"] = """[{"op":"set_field","field":"doc.status","value":"Active"}]""",
+            ["frontmatter_ops"] = """[{"op":"set_field","field":"doc.archived","value":"2026-07-25"}]""",
         });
 
         using var result = JsonDocument.Parse(text);
         Assert.True(result.RootElement.GetProperty("frontmatterChanged").GetBoolean(), text);
-        Assert.Contains("doc.status: Active", await File.ReadAllTextAsync(notePath), StringComparison.Ordinal);
+        Assert.Contains("doc.archived: 2026-07-25", await File.ReadAllTextAsync(notePath), StringComparison.Ordinal);
     }
 
     private static string Sha256Hex(string path) =>

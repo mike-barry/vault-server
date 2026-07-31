@@ -224,7 +224,7 @@ function Set-VaultFrontmatterField {
     Top-level field name.
     .PARAMETER Value
     Scalar value. The emitter quotes and escapes it as YAML requires, so it needs no shape of its
-    own; only control characters are refused.
+    own beyond the key's registry value pattern; control characters are refused outright.
     #>
     [CmdletBinding()]
     param(
@@ -233,10 +233,12 @@ function Set-VaultFrontmatterField {
         [Parameter(Mandatory)] [AllowEmptyString()] [string] $Value
     )
 
-    $reason = Get-VaultFrontmatterKeyViolation $Field
+    # The registry, not a character class: an unrecognized key is unwritable, and a recognized
+    # one's value must match its declared pattern. Both checks live here as well as at the op
+    # layer, so the primitive cannot be reached around to mint a key or fill a legitimate one with
+    # arbitrary text.
+    $reason = Get-VaultFrontmatterRegistryViolation -Field $Field -Value $Value
     if ($reason) { throw (New-VaultToolError -Code 'malformed_op' -Message "Cannot set frontmatter field: $reason" -Data @{ reason = $reason }) }
-    $reason = Get-VaultFrontmatterTextViolation -Value $Value -Label 'value'
-    if ($reason) { throw (New-VaultToolError -Code 'malformed_op' -Message "Cannot set frontmatter field '$Field': $reason" -Data @{ reason = $reason }) }
 
     $operation = "Set-VaultFrontmatterField '$Field'"
     $split = Split-VaultNoteContent $Content
@@ -384,10 +386,10 @@ function Add-VaultAgentInstructionEntry {
 function Get-VaultNavListKey {
     <#
     .SYNOPSIS
-    The nav block-list keys an entry op may address. A collection, not a signature: admitting a
-    third nav list is one entry here, and every consumer reads the same list, so the op
-    vocabulary, the schema validator, and lint's scans cannot drift into disagreeing about what
-    a nav list is.
+    The nav block-list keys an entry op may address - the registry's NavList-flagged entries, read
+    rather than restated, so the op vocabulary, the schema validator, and lint's scans cannot drift
+    into disagreeing about what a nav list is. Admitting a third nav list is one entry in
+    Get-VaultFrontmatterKeyRegistry.
 
     Exported because it is the published legal-value set for the -Key parameter of
     Add-VaultNavEntry / Remove-VaultNavEntry, and because out-of-module consumers (tools/lint.ps1
@@ -396,7 +398,8 @@ function Get-VaultNavListKey {
     [CmdletBinding()]
     param()
 
-    return , @('nav.contents', 'nav.see_also')
+    $registry = Get-VaultFrontmatterKeyRegistry
+    return , @(@($registry.Keys) | Where-Object { $registry[$_].NavList })
 }
 
 function Add-VaultNavEntry {

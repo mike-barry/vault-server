@@ -412,7 +412,7 @@ Describe 'edit' {
         }
 
         It 'reports opsApplied in order with per-op changed flags' {
-            $result = & $script:ScriptPath -Path $script:NotePath -frontmatter_ops '[{"op":"set_field","field":"doc.type","value":"Corpus"},{"op":"remove_field","field":"doc.absent"}]' | ConvertFrom-Json
+            $result = & $script:ScriptPath -Path $script:NotePath -frontmatter_ops '[{"op":"set_field","field":"doc.type","value":"Corpus"},{"op":"remove_field","field":"doc.archived"}]' | ConvertFrom-Json
             $result.opsApplied.Count | Should -Be 2
             $result.opsApplied[0].op | Should -Be 'set_field'
             $result.opsApplied[0].changed | Should -BeTrue
@@ -495,7 +495,10 @@ Describe 'edit' {
         }
 
         It 'records changed:false for a remove_field against an absent field' {
-            $result = & $script:ScriptPath -Path $script:NotePath -frontmatter_ops '[{"op":"remove_field","field":"doc.absent"}]' | ConvertFrom-Json
+            # A REGISTRY key the note happens not to carry. An unrecognized key is refused rather
+            # than reported absent, because removal is a write and the tooling does not delete what
+            # it cannot author.
+            $result = & $script:ScriptPath -Path $script:NotePath -frontmatter_ops '[{"op":"remove_field","field":"doc.archived"}]' | ConvertFrom-Json
             $result.opsApplied[0].changed | Should -BeFalse
             $result.frontmatterChanged | Should -BeFalse
         }
@@ -982,19 +985,46 @@ Describe 'edit' {
         }
 
         It 'writes a value carrying a line break INSIDE its own key rather than minting one' {
-            # Retired and replaced: this used to assert a REFUSAL, which existed only because a
-            # line-splicing emitter could not escape a newline. It can now - the value goes
-            # through the YAML emitter as a block or quoted scalar - so the refusal went, and what
-            # is asserted instead is the property the refusal was standing in for: the smuggled
-            # text lands as part of doc.type's value and mints no second key.
-            $ops = ConvertTo-Json -Compress -Depth 5 @(@{ op = 'set_field'; field = 'doc.type'; value = "Note`nnav.contents: smuggled" })
+            # Retired and replaced twice over. It first asserted a REFUSAL that existed only
+            # because a line-splicing emitter could not escape a newline; the emitter goes through
+            # the tree now, so what is asserted is the property that refusal stood in for - the
+            # text lands as part of the key's own value and mints no second key. Asserted against
+            # `scope`, whose registry pattern is any string: on doc.type the registry refuses this
+            # value a step earlier, which is the case below.
+            $ops = ConvertTo-Json -Compress -Depth 5 @(@{ op = 'set_field'; field = 'scope'; value = "personal`nnav.contents: smuggled" })
             $result = & $script:ScriptPath -Path $script:NotePath -frontmatter_ops $ops | ConvertFrom-Json
             $result.frontmatterChanged | Should -BeTrue
 
             $map = Get-VaultFrontmatterMap -Content ([System.IO.File]::ReadAllText($script:NoteFull))
-            $map['doc.type'] | Should -BeExactly "Note`nnav.contents: smuggled"
+            $map['scope'] | Should -BeExactly "personal`nnav.contents: smuggled"
             # The whole point: no key was created by the value's contents.
             @($map.Keys) | Should -Not -Contain 'nav.contents'
+        }
+
+        It 'refuses a set_field value that fails its key''s registry pattern' {
+            # Values are enforced against the registry, not just key names: a caller blocked from
+            # inventing a key must not be able to put arbitrary text into a legitimate one.
+            $ops = ConvertTo-Json -Compress -Depth 5 @(@{ op = 'set_field'; field = 'doc.type'; value = "Note`nnav.contents: smuggled" })
+            $err = Invoke-EditError @{ Path = $script:NotePath; frontmatter_ops = $ops }
+            $err.code | Should -Be 'malformed_op'
+        }
+
+        It 'leaves an unrecognized key already in the note intact, and still refuses to write it' {
+            # The extent split, on a real shape: six Tasks/ notes carry Obsidian's own
+            # obsidianUIMode. edit validates only the keys an op TOUCHES, so those notes stay
+            # writable and keep the key - and the key itself stays unwritable through the tooling.
+            [System.IO.File]::WriteAllText($script:NoteFull, "---`nobsidianUIMode: preview`ndoc.type: Note`n---`n# B`n")
+            $result = & $script:ScriptPath -Path $script:NotePath -frontmatter_ops '[{"op":"set_field","field":"doc.type","value":"Corpus"}]' | ConvertFrom-Json
+            $result.frontmatterChanged | Should -BeTrue
+
+            $map = Get-VaultFrontmatterMap -Content ([System.IO.File]::ReadAllText($script:NoteFull))
+            $map['obsidianUIMode'] | Should -BeExactly 'preview'
+            $map['doc.type'] | Should -BeExactly 'Corpus'
+
+            (Invoke-EditError @{ Path = $script:NotePath; frontmatter_ops = '[{"op":"set_field","field":"obsidianUIMode","value":"source"}]' }).code | Should -Be 'malformed_op'
+            (Invoke-EditError @{ Path = $script:NotePath; frontmatter_ops = '[{"op":"remove_field","field":"obsidianUIMode"}]' }).code | Should -Be 'malformed_op'
+            # Still there after both refusals - a refusal is zero-mutation.
+            (Get-VaultFrontmatterMap -Content ([System.IO.File]::ReadAllText($script:NoteFull)))['obsidianUIMode'] | Should -BeExactly 'preview'
         }
 
         It 'round-trips directive text carrying a double quote (the retired emit hole)' {

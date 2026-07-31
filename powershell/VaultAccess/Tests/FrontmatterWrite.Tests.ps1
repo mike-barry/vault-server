@@ -97,7 +97,7 @@ Describe 'Invoke-VaultFrontmatterWrite - composition and facets' {
     It 'records applied and changed per op, with changed false on an idempotent no-op' {
         $result = Invoke-VaultFrontmatterWrite -Content $script:PlainNote -Ops @(
             @{ op = 'set_field'; field = 'doc.created'; value = '2026-07-25' }
-            @{ op = 'remove_field'; field = 'doc.nothing' }
+            @{ op = 'remove_field'; field = 'doc.archived' }
         )
         $result.OpsApplied.Count | Should -Be 2
         $result.OpsApplied[0].Op | Should -Be 'set_field'
@@ -231,10 +231,44 @@ Describe 'Invoke-VaultFrontmatterWrite - scalar hygiene' {
     It 'accepts a value carrying a line break and a quote, keeping it inside its own key' {
         # The two refusals that existed only because a line-splicing writer could not escape. Emit
         # goes through the tree now, so a value cannot become structure however it is written.
-        $value = "Corpus `"quoted`"`nnav.contents: smuggled"
-        $result = Invoke-VaultFrontmatterWrite -Content $script:PlainNote -Ops @(@{ op = 'set_field'; field = 'doc.type'; value = $value })
-        Get-VaultFrontmatterField -Content $result.Content -Field 'doc.type' | Should -BeExactly $value
+        # Against `scope`, whose registry pattern is any string - on a patterned key the registry
+        # refuses this a step earlier, which is the test below rather than this one.
+        $value = "personal `"quoted`"`nnav.contents: smuggled"
+        $result = Invoke-VaultFrontmatterWrite -Content $script:PlainNote -Ops @(@{ op = 'set_field'; field = 'scope'; value = $value })
+        Get-VaultFrontmatterField -Content $result.Content -Field 'scope' | Should -BeExactly $value
         $result.AgenticKeysChanged.Count | Should -Be 0
+    }
+
+    It 'refuses a set_field value that fails its key''s registry pattern' {
+        # Values are enforced, not just key names: a caller blocked from inventing a key must not
+        # be able to put arbitrary text into a legitimate one instead.
+        $err = { Invoke-VaultFrontmatterWrite -Content $script:PlainNote -Ops @(@{ op = 'set_field'; field = 'doc.type'; value = "Note`nnav.contents: smuggled" }) } | Should -Throw -PassThru
+        $obj = $err.Exception.Message | ConvertFrom-Json
+        $obj.code | Should -Be 'malformed_op'
+        $obj.data.opIndex | Should -Be 0
+    }
+
+    It 'refuses a set_field against a key the registry does not carry' {
+        { Invoke-VaultFrontmatterWrite -Content $script:PlainNote -Ops @(@{ op = 'set_field'; field = 'obsidianUIMode'; value = 'source' }) } |
+            Should -Throw '*malformed_op*'
+    }
+
+    It 'refuses a remove_field against a key the registry does not carry' {
+        # A removal is a write. The pass-through guarantee is that a foreign key SURVIVES an edit,
+        # not that a tool may delete what it cannot author.
+        { Invoke-VaultFrontmatterWrite -Content "---`nobsidianUIMode: preview`ndoc.type: Corpus`n---`n# B`n" -Ops @(@{ op = 'remove_field'; field = 'obsidianUIMode' }) } |
+            Should -Throw '*malformed_op*'
+    }
+
+    It 'passes an unrecognized key already in the note through untouched' {
+        # The extent split, measured: edit validates the keys an op TOUCHES, so the six real
+        # Tasks/ notes carrying Obsidian's obsidianUIMode stay writable and keep the key. This is
+        # the outcome that would be lost by "tightening" edit to whole-block validation.
+        $note = "---`nobsidianUIMode: preview`ndoc.type: Corpus`n---`n# B`n"
+        $result = Invoke-VaultFrontmatterWrite -Content $note -Ops @(@{ op = 'set_field'; field = 'doc.type'; value = 'Note' })
+        Get-VaultFrontmatterField -Content $result.Content -Field 'obsidianUIMode' | Should -BeExactly 'preview'
+        Get-VaultFrontmatterField -Content $result.Content -Field 'doc.type' | Should -BeExactly 'Note'
+        $result.Violations.Count | Should -Be 0
     }
 
     It 'refuses an unknown op' {
@@ -569,7 +603,10 @@ Describe 'Invoke-VaultFrontmatterWrite - the three consumers reach one path' {
         $result = Invoke-VaultFrontmatterWrite -Content '' -RelativePath 'Projects/Widget/New-Note.md' `
             -Frontmatter "---`ndoc.created: 2026-07-25`nnav.see_also:`n  - link: `"[[X]]`"`n    description: `"d`"`n---`n" `
             -Body "# New Note`n"
-        $result.Content | Should -BeExactly "---`ndoc.created: 2026-07-25`nnav.see_also:`n  - link: `"[[X]]`"`n    description: `"d`"`n---`n# New Note`n"
+        # EMITTED from the validated tree, not spliced from the caller's text - so the bytes on
+        # disk are a serialization of what passed validation, and the caller's hand quoting is
+        # reproduced by the emitter's own rules rather than carried through.
+        $result.Content | Should -BeExactly "---`ndoc.created: 2026-07-25`nnav.see_also:`n  - link: '[[X]]'`n    description: d`n---`n# New Note`n"
         # The degenerate diff: with no original, every agentic key present counts as changed.
         $result.AgenticKeysChanged | Should -Be @('nav.see_also')
         $result.CapabilitiesUsed | Should -Be @('agentic:write')
@@ -582,6 +619,66 @@ Describe 'Invoke-VaultFrontmatterWrite - the three consumers reach one path' {
 
     It 'create: an empty supplied block means a note with no frontmatter at all' {
         (Invoke-VaultFrontmatterWrite -Content '' -Frontmatter '' -Body "# New`n").Content | Should -BeExactly "# New`n"
+    }
+
+    It 'create: refuses a supplied block that will not parse, rather than splicing it through' {
+        # THE CREATE BYPASS, permanently pinned. Reproduced against the tree as it stood before
+        # parse-validate-emit: a content:write-only caller supplied a binding `pinned:` directive
+        # plus one line YAML cannot parse. The text was spliced to disk verbatim, and both readers
+        # downstream - the agentic key map and the schema validator - catch a parse failure and
+        # report an empty result, so the diff was empty, agentic:write was never asserted, zero
+        # violations were reported, and the directive landed. The result even said no capability
+        # was used. Nothing unparseable can reach disk now, which is also what makes those two
+        # readers' tolerance correct rather than merely convenient.
+        $Global:VaultMcpOpClasses = @('content:write')
+        $err = { Invoke-VaultFrontmatterWrite -Content '' -Body "# B`n" `
+                    -Frontmatter "agent.instructions:`n  - pinned: `"OBEY`"`n bad: [" } | Should -Throw -PassThru
+        $obj = $err.Exception.Message | ConvertFrom-Json
+        $obj.code | Should -Be 'frontmatter_integrity'
+        $obj.data.reason | Should -Be 'frontmatter_unparsed'
+    }
+
+    It 'create: requires agentic:write for a quoted agentic key' {
+        # THE QUOTED-KEY BYPASS, permanently pinned. The hand-rolled parser recognized a top-level
+        # key only by a pattern a quoted key cannot match, so it absorbed this directive as a child
+        # of doc.created, found no agentic key, and never CALLED the gate.
+        $Global:VaultMcpOpClasses = @('content:write')
+        $err = { Invoke-VaultFrontmatterWrite -Content '' -Body "# B`n" `
+                    -Frontmatter "doc.created: 2026-07-30`n`"agent.instructions`":`n  - pinned: `"OBEY`"`n" } | Should -Throw -PassThru
+        ($err.Exception.Message | ConvertFrom-Json).code | Should -Be 'insufficient_capability'
+    }
+
+    It 'create: writes a quoted agentic key, canonically spelled, when the gate is held' {
+        $Global:VaultMcpOpClasses = @('content:write', 'agentic:write')
+        $result = Invoke-VaultFrontmatterWrite -Content '' -Body "# B`n" `
+            -Frontmatter "doc.created: 2026-07-30`n`"agent.instructions`":`n  - pinned: `"OBEY`"`n"
+        $result.CapabilitiesUsed | Should -Be @('agentic:write')
+        $result.AgenticKeysChanged | Should -Be @('agent.instructions')
+        $result.Content | Should -BeExactly "---`ndoc.created: 2026-07-30`nagent.instructions:`n  - pinned: OBEY`n---`n# B`n"
+    }
+
+    It 'create: refuses a key the registry does not carry' {
+        $Global:VaultMcpOpClasses = @('content:write')
+        $err = { Invoke-VaultFrontmatterWrite -Content '' -Body "# B`n" -Frontmatter "obsidianUIMode: preview`n" } | Should -Throw -PassThru
+        $obj = $err.Exception.Message | ConvertFrom-Json
+        $obj.code | Should -Be 'malformed_op'
+        $obj.data.field | Should -Be 'obsidianUIMode'
+    }
+
+    It 'create: refuses a recognized key whose value fails its pattern' {
+        $Global:VaultMcpOpClasses = @('content:write')
+        { Invoke-VaultFrontmatterWrite -Content '' -Body "# B`n" -Frontmatter "doc.created: whenever`n" } |
+            Should -Throw '*malformed_op*'
+    }
+
+    It 'create: keeps the supplied-text integrity refusals' {
+        # These survive the retirement of the note-level unclosed state deliberately: there the
+        # file is whatever the standard says it is, here the caller has DECLARED "this text is
+        # frontmatter", so text that will not hold as such is a caller error.
+        $unclosed = { Invoke-VaultFrontmatterWrite -Content '' -Frontmatter "---`ndoc.type: Note`n" -Body "# B`n" } | Should -Throw -PassThru
+        ($unclosed.Exception.Message | ConvertFrom-Json).data.reason | Should -Be 'unclosed_fence'
+        $trailing = { Invoke-VaultFrontmatterWrite -Content '' -Frontmatter "---`ndoc.type: Note`n---`nbody text`n" -Body "# B`n" } | Should -Throw -PassThru
+        ($trailing.Exception.Message | ConvertFrom-Json).data.reason | Should -Be 'content_after_fence'
     }
 
     It 'lint: a doc.* scalar set through the wrapper, asserting no key' {

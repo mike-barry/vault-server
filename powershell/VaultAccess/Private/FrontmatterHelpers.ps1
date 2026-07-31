@@ -182,22 +182,6 @@ function Assert-VaultFrontmatterCreatable {
     }
 }
 
-function Get-VaultFrontmatterKeyViolation {
-    <#
-    .SYNOPSIS
-    Returns a reason string when $Field is not a legal top-level frontmatter key name, else
-    $null. Holds the line against a tool minting arbitrary keys until the key registry lands.
-    #>
-    [CmdletBinding()]
-    param([AllowEmptyString()] [AllowNull()] [string] $Field)
-
-    if ([string]::IsNullOrEmpty($Field)) { return 'field name is empty' }
-    if ($Field -notmatch '^[A-Za-z0-9_.]+$') {
-        return "field name '$Field' is not a legal frontmatter key (allowed: letters, digits, '_', '.')"
-    }
-    return $null
-}
-
 function Get-VaultFrontmatterTextViolation {
     <#
     .SYNOPSIS
@@ -299,12 +283,12 @@ function Remove-VaultAgentInstructionItem {
     return (Join-VaultNoteContent -Map $map -Body $split.Body)
 }
 
-function New-VaultFrontmatterBlockText {
+function Get-VaultSuppliedFrontmatterText {
     <#
     .SYNOPSIS
-    Normalizes a caller-supplied frontmatter block into LF-terminated fenced block text, ready to
-    have a body appended. Returns '' for an empty or whitespace-only block (a note with
-    deliberately no frontmatter).
+    Reduces a caller-supplied frontmatter block to its INNER text - what lies between the fences -
+    LF-terminated. Returns '' for an empty or whitespace-only block (a note with deliberately no
+    frontmatter).
 
     Accepts the block either already fenced or as bare inner lines. Two refusals, both
     frontmatter_integrity: an opening fence that never closes, and content after the closing
@@ -314,6 +298,12 @@ function New-VaultFrontmatterBlockText {
     These two survive the retirement of the note-level unclosed state deliberately. There the file
     is whatever the standard says it is; here the caller has DECLARED "this text is frontmatter",
     so text that will not hold as such is a caller error rather than a reading of the file.
+
+    Inner text rather than fenced block text because the caller's string is an INPUT TO A PARSE and
+    nothing else. It used to be spliced through to disk, which is what let a block carrying an
+    unparseable line smuggle a binding directive past both readers - each tolerant of a parse
+    failure, so neither classified the directive and the agentic gate never ran. Handing back inner
+    text keeps the only route onward through ConvertFrom-VaultFrontmatterText.
     #>
     [CmdletBinding()]
     param([Parameter(Mandatory)] [AllowEmptyString()] [string] $Frontmatter)
@@ -337,20 +327,24 @@ function New-VaultFrontmatterBlockText {
                     -Message 'Supplied frontmatter carries content after its closing "---" fence; body content belongs in the body facet.' `
                     -Data @{ reason = 'content_after_fence' })
         }
-        return (($lines[0..$close] -join "`n") + "`n")
+        if ($close -le 1) { return '' }
+        return (($lines[1..($close - 1)] -join "`n") + "`n")
     }
 
     $inner = ($lines -join "`n")
     if (-not $inner.EndsWith("`n")) { $inner += "`n" }
-    return "---`n" + $inner + "---`n"
+    return $inner
 }
 
 function Get-VaultAgenticKeyMap {
     <#
     .SYNOPSIS
-    Maps a note's agent.* / nav.* top-level keys to a canonical text form of their values, for the
-    outcome diff. Canonical (re-emitted) because this is a comparison, never a write: the question
-    is only "did the layer move", so a reformat that changed quoting must not read as a change.
+    Maps a note's AGENTIC top-level keys to a canonical text form of their values, for the outcome
+    diff. Canonical (re-emitted) because this is a comparison, never a write: the question is only
+    "did the layer move", so a reformat that changed quoting must not read as a change.
+
+    Membership is Test-VaultFrontmatterKeyAgentic's answer, so the registry is the single
+    declaration of what the agentic layer is and this cannot drift from what create and edit gate on.
     #>
     [CmdletBinding()]
     param([Parameter(Mandatory)] [AllowEmptyString()] [string] $Content)
@@ -365,7 +359,7 @@ function Get-VaultAgenticKeyMap {
     if ($parsed -isnot [System.Collections.IDictionary]) { return $map }
 
     foreach ($key in @($parsed.Keys)) {
-        if ("$key" -notmatch '^(agent|nav)\.') { continue }
+        if (-not (Test-VaultFrontmatterKeyAgentic -Field "$key")) { continue }
         $one = [ordered]@{}
         $one["$key"] = $parsed[$key]
         $map["$key"] = (ConvertTo-VaultFrontmatterText -Map $one)

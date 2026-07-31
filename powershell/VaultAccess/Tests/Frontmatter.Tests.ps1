@@ -173,8 +173,23 @@ Describe 'Set-VaultFrontmatterField' {
         $obj.data.reason | Should -Be 'apparent_fence'
     }
 
-    It 'refuses a field name outside the frontmatter key pattern' {
+    It 'refuses a field name the registry does not carry' {
         $err = { Set-VaultFrontmatterField -Content "---`na: 1`n---`n# B" -Field 'doc created' -Value 'x' } | Should -Throw -PassThru
+        ($err.Exception.Message | ConvertFrom-Json).code | Should -Be 'malformed_op'
+    }
+
+    It 'refuses a well-formed key name that is simply not in the registry' {
+        # The inversion the registry is for: a name passing any character class is not the test -
+        # membership is. obsidianUIMode is Obsidian's own preference, carried by six real notes,
+        # and it stays unwritable while those notes stay writable.
+        $err = { Set-VaultFrontmatterField -Content "---`na: 1`n---`n# B" -Field 'obsidianUIMode' -Value 'preview' } | Should -Throw -PassThru
+        ($err.Exception.Message | ConvertFrom-Json).code | Should -Be 'malformed_op'
+    }
+
+    It 'refuses a recognized key whose value fails its registry pattern' {
+        # The narrower smuggling channel the value patterns close: a caller blocked from inventing
+        # a key putting arbitrary text into a legitimate one instead.
+        $err = { Set-VaultFrontmatterField -Content "---`na: 1`n---`n# B" -Field 'doc.created' -Value 'whenever' } | Should -Throw -PassThru
         ($err.Exception.Message | ConvertFrom-Json).code | Should -Be 'malformed_op'
     }
 
@@ -185,16 +200,18 @@ Describe 'Set-VaultFrontmatterField' {
 
     It 'writes a line break as a block scalar that reads back as the value given' {
         # The refusal that existed only because a line-splicing writer could not escape. A value is
-        # a value in the tree now, so a line break in it cannot become structure.
-        $value = "Corpus`ndoc.smuggled: yes"
-        $result = Set-VaultFrontmatterField -Content "---`na: 1`n---`n# B" -Field 'doc.type' -Value $value
-        Get-VaultFrontmatterField -Content $result -Field 'doc.type' | Should -BeExactly $value
+        # a value in the tree now, so a line break in it cannot become structure. Asserted against
+        # `scope`, whose registry pattern is any string: doc.type's own pattern refuses this value
+        # a step earlier, which would test the registry rather than the emitter.
+        $value = "personal`ndoc.smuggled: yes"
+        $result = Set-VaultFrontmatterField -Content "---`na: 1`n---`n# B" -Field 'scope' -Value $value
+        Get-VaultFrontmatterField -Content $result -Field 'scope' | Should -BeExactly $value
         Get-VaultFrontmatterField -Content $result -Field 'doc.smuggled' | Should -BeNullOrEmpty
     }
 
     It 'writes a double quote and reads it back unchanged' {
-        $result = Set-VaultFrontmatterField -Content "---`na: 1`n---`n# B" -Field 'doc.type' -Value 'say "hi"'
-        Get-VaultFrontmatterField -Content $result -Field 'doc.type' | Should -BeExactly 'say "hi"'
+        $result = Set-VaultFrontmatterField -Content "---`na: 1`n---`n# B" -Field 'scope' -Value 'say "hi"'
+        Get-VaultFrontmatterField -Content $result -Field 'scope' | Should -BeExactly 'say "hi"'
     }
 }
 

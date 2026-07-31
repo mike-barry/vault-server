@@ -5,7 +5,8 @@
 # Each op maps 1:1 onto a substrate primitive. The guards around the dispatch are policy the YAML
 # layer supplies none of:
 #   - hygiene, so op-supplied text carries no control characters into agent-facing values;
-#   - the key check, so a field op cannot mint an unauthored top-level key;
+#   - the registry check, so a field op can only write a key the vault's tooling declares, with a
+#     value matching that key's declared pattern;
 #   - the protected-target refusal, so pinned:/use_skill: entries cannot be dropped by a generic
 #     field op instead of the explicit strip op that names them;
 #   - shape routing, so a flat-scalar op cannot overwrite a block field's whole list.
@@ -61,7 +62,12 @@ function Invoke-VaultFrontmatterOp {
             if ([string]::IsNullOrEmpty($field)) { throw (New-VaultOpError -OpIndex $OpIndex -Reason "set_field requires 'field'") }
             $value = Get-VaultOpValue -Op $Op -Name 'value'
             if ($null -eq $value) { throw (New-VaultOpError -OpIndex $OpIndex -Reason "set_field requires 'value'") }
-            $reason = Get-VaultFrontmatterKeyViolation $field
+            # The registry, over key AND value: an unrecognized key is unwritable, and a
+            # recognized non-agentic one must satisfy its declared pattern - otherwise a caller
+            # blocked from inventing a key could still put arbitrary text into a legitimate one.
+            # Checked here rather than only in the primitive so the refusal carries the opIndex,
+            # which in an ordered list is the actionable half of the answer.
+            $reason = Get-VaultFrontmatterRegistryViolation -Field $field -Value "$value"
             if ($reason) { throw (New-VaultOpError -OpIndex $OpIndex -Reason $reason) }
             Assert-VaultOpText -OpIndex $OpIndex -Value "$value" -Label 'value'
             Assert-VaultOpTarget -OpIndex $OpIndex -Field $field -Content $Content -RequireScalar
@@ -69,7 +75,10 @@ function Invoke-VaultFrontmatterOp {
         }
         'remove_field' {
             if ([string]::IsNullOrEmpty($field)) { throw (New-VaultOpError -OpIndex $OpIndex -Reason "remove_field requires 'field'") }
-            $reason = Get-VaultFrontmatterKeyViolation $field
+            # Key only - a removal names no value. An unrecognized key already in the note is
+            # therefore passed through untouched rather than removable, which is the whole of
+            # edit's extent: the tooling neither writes nor deletes a key it does not recognize.
+            $reason = Get-VaultFrontmatterRegistryViolation -Field $field
             if ($reason) { throw (New-VaultOpError -OpIndex $OpIndex -Reason $reason) }
             Assert-VaultOpTarget -OpIndex $OpIndex -Field $field -Content $Content
             # Routed by detected shape - the whole reason two removal primitives exist.

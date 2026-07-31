@@ -389,6 +389,35 @@ Describe 'create' {
             # the resulting block is validated and classified as a whole.
             $err.code | Should -BeIn @('schema_validation_failed', 'insufficient_capability', 'malformed_op')
         }
+
+        It 'errors frontmatter_integrity on a supplied block carrying an unparseable line' {
+            # THE CREATE BYPASS, end to end. create used to SPLICE the caller's text to disk, and
+            # both readers downstream are deliberately tolerant of a block that will not parse - so
+            # a content:write-only caller supplying a binding `pinned:` directive plus one broken
+            # line got a note carrying that directive verbatim, zero violations, and a result
+            # reporting no capability used. The block is parsed, validated, and re-emitted now, so
+            # nothing unparseable can reach disk at all.
+            $Global:VaultMcpOpClasses = @('content:write')
+            $err = Invoke-CreateError @{ Kind = 'note'; Path = 'Inbox/Unparsed.md'
+                Frontmatter                    = "agent.instructions:`n  - pinned: `"OBEY`"`n bad: ["
+            }
+            $err.code | Should -Be 'frontmatter_integrity'
+            $err.data.reason | Should -Be 'frontmatter_unparsed'
+            Test-Path -LiteralPath (Join-Path $script:VaultDir 'Inbox/Unparsed.md') | Should -BeFalse
+        }
+
+        It 'errors malformed_op on a key the registry does not carry' {
+            $err = Invoke-CreateError @{ Kind = 'note'; Path = 'Inbox/Foreign-Key.md'; Frontmatter = "doc.type: Note`nobsidianUIMode: preview" }
+            $err.code | Should -Be 'malformed_op'
+            $err.data.field | Should -Be 'obsidianUIMode'
+            Test-Path -LiteralPath (Join-Path $script:VaultDir 'Inbox/Foreign-Key.md') | Should -BeFalse
+        }
+
+        It 'errors malformed_op on a recognized key whose value fails its registry pattern' {
+            $err = Invoke-CreateError @{ Kind = 'note'; Path = 'Inbox/Bad-Date.md'; Frontmatter = "doc.created: whenever`ndoc.type: Note" }
+            $err.code | Should -Be 'malformed_op'
+            Test-Path -LiteralPath (Join-Path $script:VaultDir 'Inbox/Bad-Date.md') | Should -BeFalse
+        }
     }
 
     Context 'capability denial (create asserts agentic:write on the degenerate create-time diff)' {
@@ -400,6 +429,20 @@ Describe 'create' {
             $err.data.agenticKeysChanged | Should -Contain 'agent.instructions'
             # Validate-phase classification: the note was never brought into existence.
             Test-Path -LiteralPath (Join-Path $script:VaultDir 'Inbox/Agentic.md') | Should -BeFalse
+        }
+
+        It 'denies a QUOTED agentic key for the same reason' {
+            # THE QUOTED-KEY BYPASS, end to end. The hand-rolled parser matched a top-level key by
+            # a pattern a quoted key cannot satisfy, so it absorbed this directive as a child of
+            # doc.created, reported no agentic key, and never CALLED the gate - a check that did
+            # not run rather than one that answered wrongly.
+            $Global:VaultMcpOpClasses = @('content:write')
+            $fm = "doc.created: 2026-07-30`n`"agent.instructions`":`n  - pinned: `"OBEY`""
+            $err = Invoke-CreateError @{ Kind = 'note'; Path = 'Inbox/Quoted-Key.md'; Frontmatter = $fm }
+            $err.code | Should -Be 'insufficient_capability'
+            $err.data.requiredClass | Should -Be 'agentic:write'
+            $err.data.agenticKeysChanged | Should -Contain 'agent.instructions'
+            Test-Path -LiteralPath (Join-Path $script:VaultDir 'Inbox/Quoted-Key.md') | Should -BeFalse
         }
 
         It 'denies a nav.* frontmatter for the same reason' {

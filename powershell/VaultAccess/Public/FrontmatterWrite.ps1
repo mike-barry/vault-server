@@ -66,8 +66,12 @@ function Invoke-VaultFrontmatterWrite {
                                 fence-less note (minting a block no op authored, past schema
                                 validation and past the key assertion), and one that destroys or
                                 truncates an existing fence.
-      malformed_op            - an unknown op, a missing op parameter, or field/value hygiene: a
-                                bad key name, or a control character in caller-supplied text.
+      malformed_op            - an unknown op, a missing op parameter, or a registry violation: a
+                                key the vault's tooling does not recognize, a recognized key whose
+                                value does not match its declared pattern, or a control character
+                                in caller-supplied text. Both tools validate against the same
+                                registry, over different extents - create over the whole supplied
+                                block, edit over the keys an op touches.
       insufficient_capability - the agentic diff is non-empty and the injected op-class set lacks
                                 agentic:write. Nothing has been written at that point, and the
                                 caller gets no content back, so the denial is zero-mutation. An
@@ -140,8 +144,23 @@ function Invoke-VaultFrontmatterWrite {
 
     $originalSplit = Split-VaultNoteContent $Content
 
+    # PARSE, VALIDATE, EMIT - never splice. The caller's -Frontmatter string is an input to a
+    # parse: it is reduced to inner text (which is where the two supplied-text refusals live),
+    # parsed to a tree, validated whole against the key registry, and then SERIALIZED from that
+    # tree. What lands on disk is therefore exactly what passed validation, with no second reading
+    # of the caller's bytes for a smuggled key to hide in.
+    #
+    # Splicing the text through was a live bypass, not a hypothetical one: both downstream readers
+    # (Get-VaultAgenticKeyMap and the schema validator) are deliberately tolerant of a block that
+    # will not parse, so a supplied block carrying a binding `pinned:` directive plus one
+    # unparseable line reported no agentic keys and no violations - a content:write-only caller
+    # wrote a directive future agents obey, and the result said no capability was used. Their
+    # tolerance is correct now precisely because nothing unparseable can reach disk any more.
     $working = if ($hasFrontmatter) {
-        (New-VaultFrontmatterBlockText -Frontmatter $Frontmatter) + $originalSplit.Body
+        $suppliedText = Get-VaultSuppliedFrontmatterText -Frontmatter $Frontmatter
+        $suppliedMap = ConvertFrom-VaultFrontmatterText -Text $suppliedText -Operation 'The supplied frontmatter block'
+        Assert-VaultFrontmatterRegistry -Map $suppliedMap -Operation 'The supplied frontmatter block'
+        Join-VaultNoteContent -Map $suppliedMap -Body $originalSplit.Body
     }
     else { $Content }
 
