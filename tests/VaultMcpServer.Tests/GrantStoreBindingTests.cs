@@ -186,14 +186,16 @@ public sealed class GrantStoreBindingTests(TestVaultFixture fixture) : IClassFix
 
         var opClasses = (IReadOnlySet<string>)new HashSet<string> { "content:read" };
         var vaults = (IReadOnlySet<string>)new HashSet<string> { "test" };
-        var scopeRoots = new Dictionary<string, IReadOnlySet<string>> { ["test"] = new HashSet<string> { "Projects/Foo" } };
+        var scopeRoots = new Dictionary<string, VaultScope> { ["test"] = VaultScope.Of(new HashSet<string> { "Projects/Foo" }) };
 
         store.RebindToMintedGrant(GrantStore.HashKey("caller-token"), "elevated-abc", opClasses, vaults, scopeRoots, DateTimeOffset.UtcNow.AddMinutes(10));
 
         var grant = store.Authenticate("caller-token");
         Assert.NotNull(grant);
         Assert.Equal("elevated-abc", grant.Id);
-        Assert.Equal(new HashSet<string> { "Projects/Foo" }, grant.ScopeRoots["test"]);
+        Assert.Equal(
+            new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "Projects/Foo" },
+            Assert.IsType<VaultScope.RootedScope>(grant.ScopeRoots["test"]).Roots);
 
         // A minted elevation target is not a valid named-grant target for a later request.
         Assert.False(store.TryGetNamedGrant("elevated-abc", out _));

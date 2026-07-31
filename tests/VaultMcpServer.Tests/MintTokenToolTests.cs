@@ -93,8 +93,8 @@ public sealed class MintTokenToolTests(TestVaultFixture fixture) : IClassFixture
         Assert.True(mintedGrant.ScopeRoots!.ContainsKey("test"));
         Assert.True(mintedGrant.ScopeRoots!.ContainsKey("scratch"));
 
-        var testRoots = mintedGrant.ScopeRoots!["test"];
-        var scratchRoots = mintedGrant.ScopeRoots!["scratch"];
+        var testRoots = Assert.IsType<VaultScope.RootedScope>(mintedGrant.ScopeRoots!["test"]).Roots;
+        var scratchRoots = Assert.IsType<VaultScope.RootedScope>(mintedGrant.ScopeRoots!["scratch"]).Roots;
 
         Assert.Contains("Projects/Foo", testRoots);
         Assert.DoesNotContain("Areas/Bar", testRoots);
@@ -104,7 +104,7 @@ public sealed class MintTokenToolTests(TestVaultFixture fixture) : IClassFixture
     }
 
     [Fact]
-    public async Task InvokeAsync_WholeVaultScopeRoot_ProducesEmptySetForThatVault()
+    public async Task InvokeAsync_WholeVaultScopeRoot_ProducesUnscopedForThatVault()
     {
         var store = MakeStore();
         var tool = new MintTokenTool(store, OpClasses, _vaultConfig);
@@ -122,7 +122,7 @@ public sealed class MintTokenToolTests(TestVaultFixture fixture) : IClassFixture
 
         var mintedGrant = store.Authenticate(token);
         Assert.NotNull(mintedGrant?.ScopeRoots);
-        Assert.Empty(mintedGrant!.ScopeRoots!["test"]);
+        Assert.Equal(VaultScope.Unscoped, mintedGrant!.ScopeRoots!["test"]);
     }
 
     [Theory]
@@ -166,11 +166,11 @@ public sealed class MintTokenToolTests(TestVaultFixture fixture) : IClassFixture
         var token = minted.RootElement.GetProperty("token").GetString()!;
 
         var mintedGrant = store.Authenticate(token);
-        Assert.Contains("Projects/Foo", mintedGrant!.ScopeRoots!["test"]);
+        Assert.Contains("Projects/Foo", Assert.IsType<VaultScope.RootedScope>(mintedGrant!.ScopeRoots!["test"]).Roots);
     }
 
     [Fact]
-    public async Task InvokeAsync_WholeVaultAndSubtreeForSameVault_WholeVaultWinsProducingEmptySet()
+    public async Task InvokeAsync_WholeVaultAndSubtreeForSameVault_WholeVaultWinsProducingUnscoped()
     {
         var store = MakeStore();
         var tool = new MintTokenTool(store, OpClasses, _vaultConfig);
@@ -188,7 +188,7 @@ public sealed class MintTokenToolTests(TestVaultFixture fixture) : IClassFixture
 
         var mintedGrant = store.Authenticate(token);
         Assert.NotNull(mintedGrant?.ScopeRoots);
-        Assert.Empty(mintedGrant!.ScopeRoots!["test"]);
+        Assert.Equal(VaultScope.Unscoped, mintedGrant!.ScopeRoots!["test"]);
     }
 
     // --- Attenuation-only minting ---------------------------------------------------------

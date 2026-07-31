@@ -17,7 +17,7 @@ public sealed class HealthCheckToolTests(TestVaultFixture fixture) : IClassFixtu
 
     private static Grant MakeGrant(string id = "caller") =>
         new(id, new HashSet<string> { OpClass.Read }, new HashSet<string> { "test" }, null,
-            new Dictionary<string, IReadOnlySet<string>> { ["test"] = new HashSet<string>() });
+            new Dictionary<string, VaultScope> { ["test"] = VaultScope.Unscoped });
 
     [Fact]
     public async Task InvokeAsync_HealthyState_ReportsNotFatallyDegradedAndNoProblems()

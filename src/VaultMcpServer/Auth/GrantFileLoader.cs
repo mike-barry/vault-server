@@ -245,13 +245,14 @@ public static class GrantFileLoader
     /// in <paramref name="vaults"/> - the same treatment <c>ttl</c> gets from <see cref="ReadTtl"/>:
     /// scope must be explicit, so a vault can never silently end up with full access just
     /// because someone forgot to add a <c>scopeRoots</c> entry for it. A vault key's value being
-    /// empty or exactly <c>["*"]</c> means that vault is explicitly unscoped (full access within
-    /// it) - still a valid, common choice, just no longer the default for an absent key.
+    /// empty or exactly <c>["*"]</c> means that vault is explicitly unscoped, and both spellings
+    /// parse to <see cref="VaultScope.Unscoped"/> - the file format keeps the empty-list spelling,
+    /// the model does not.
     ///
     /// The whole-grant wildcard <c>{ "*": ["*"] }</c> - mirroring the <c>"*"</c> convention
     /// already used by <c>opClasses</c>/<c>vaults</c>/<c>ttl</c> - means "every vault in
-    /// <paramref name="vaults"/>, fully open" and is expanded here at load time into a concrete
-    /// empty-set entry per vault, the same way <c>vaults: ["*"]</c> is expanded to the current
+    /// <paramref name="vaults"/>, fully open" and is expanded here at load time into an explicit
+    /// unscoped entry per vault, the same way <c>vaults: ["*"]</c> is expanded to the current
     /// configured vault set before this method ever runs. It must be the row's only
     /// <c>scopeRoots</c> key (mixing it with explicit per-vault entries is rejected as
     /// redundant/ambiguous) and its value must be exactly <c>["*"]</c>.
@@ -263,15 +264,15 @@ public static class GrantFileLoader
     /// <see cref="Vault.VaultAccess.NormalizeScopeSegments"/>) - rooted, escaping, or empty
     /// entries skip the row, the same rigor as an unknown opClass.
     /// </summary>
-    private static IReadOnlyDictionary<string, IReadOnlySet<string>> ReadScopeRoots(JsonElement grant, string path, string id, IReadOnlySet<string> vaults)
+    private static IReadOnlyDictionary<string, VaultScope> ReadScopeRoots(JsonElement grant, string path, string id, IReadOnlySet<string> vaults)
     {
         if (!grant.TryGetProperty("scopeRoots", out var prop))
             throw new InvalidDataException($"{path}: grant \"{id}\" is missing a \"scopeRoots\" object.");
         if (prop.ValueKind != JsonValueKind.Object)
             throw new InvalidDataException($"{path}: grant \"{id}\" has a \"scopeRoots\" that is not an object keyed by vault name.");
 
-        // Whole-grant wildcard: { "*": ["*"] } expands to an explicit, empty (fully open) entry
-        // for every vault the grant has - the scopeRoots equivalent of vaults: ["*"].
+        // Whole-grant wildcard: { "*": ["*"] } expands to an explicit unscoped entry for every
+        // vault the grant has - the scopeRoots equivalent of vaults: ["*"].
         if (prop.EnumerateObject().Any(p => p.Name == "*"))
         {
             if (prop.EnumerateObject().Count() != 1)
@@ -286,11 +287,11 @@ public static class GrantFileLoader
 
             return vaults.ToDictionary(
                 v => v,
-                IReadOnlySet<string> (_) => new HashSet<string>(StringComparer.OrdinalIgnoreCase),
+                VaultScope (_) => VaultScope.Unscoped,
                 StringComparer.OrdinalIgnoreCase);
         }
 
-        var result = new Dictionary<string, IReadOnlySet<string>>(StringComparer.OrdinalIgnoreCase);
+        var result = new Dictionary<string, VaultScope>(StringComparer.OrdinalIgnoreCase);
         foreach (var vaultEntry in prop.EnumerateObject())
         {
             var vaultName = vaultEntry.Name;
@@ -308,9 +309,11 @@ public static class GrantFileLoader
                 raw.Add(value);
             }
 
-            if (IsWildcard(raw))
+            // Both whole-vault spellings - ["*"] and the empty list - land on the same explicit
+            // case, so the sentinel never leaves this parser.
+            if (raw.Count == 0 || IsWildcard(raw))
             {
-                result[vaultName] = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+                result[vaultName] = VaultScope.Unscoped;
                 continue;
             }
 
@@ -326,7 +329,7 @@ public static class GrantFileLoader
                     throw new InvalidDataException($"{path}: grant \"{id}\" has an invalid \"scopeRoots\" entry \"{entry}\" for vault \"{vaultName}\": {ex.Message}");
                 }
             }
-            result[vaultName] = canonicalized;
+            result[vaultName] = VaultScope.Of(canonicalized);
         }
 
         var missingVaults = vaults.Where(v => !result.ContainsKey(v)).ToList();

@@ -130,7 +130,7 @@ public sealed class ScriptToolRunner : IDisposable
     /// degrades open, mirroring how an unscoped scope-roots map degrades. An empty (non-null) set is
     /// distinct: injected as an empty array, an empty key ring DENIES every asserted class.
     /// </param>
-    public async Task<ScriptToolExecution> InvokeAsync(string scriptPath, IReadOnlyDictionary<string, object?> parameters, CancellationToken cancellationToken, IReadOnlyDictionary<string, IReadOnlySet<string>>? scopeRoots = null, IReadOnlySet<string>? opClasses = null)
+    public async Task<ScriptToolExecution> InvokeAsync(string scriptPath, IReadOnlyDictionary<string, object?> parameters, CancellationToken cancellationToken, IReadOnlyDictionary<string, Vault.VaultScope>? scopeRoots = null, IReadOnlySet<string>? opClasses = null)
     {
         using var ps = PowerShell.Create();
         ps.RunspacePool = _pool;
@@ -139,11 +139,15 @@ public sealed class ScriptToolRunner : IDisposable
         foreach (var (name, value) in parameters)
             scriptParameters[name] = value;
 
+        // The runspace wire format is the flat root array, where an empty array means unscoped -
+        // a script-side convention that predates the two-case model and stays put, since it is an
+        // external contract rather than an internal representation. The projection happens here,
+        // at the boundary, so the sentinel never travels back inward.
         var scopeRootsTable = new Hashtable(StringComparer.OrdinalIgnoreCase);
         if (scopeRoots is not null)
         {
-            foreach (var (vault, roots) in scopeRoots)
-                scopeRootsTable[vault] = roots.ToArray();
+            foreach (var (vault, scope) in scopeRoots)
+                scopeRootsTable[vault] = scope is Vault.VaultScope.RootedScope rooted ? rooted.Roots.ToArray() : [];
         }
 
         // Preserve the null-vs-empty distinction the PowerShell side depends on: a null set binds

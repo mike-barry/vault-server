@@ -10,11 +10,12 @@ namespace VaultMcpServer.Auth;
 /// load-time "now"), or <c>null</c> for a <c>"*"</c> (infinite) ttl.
 /// </param>
 /// <param name="ScopeRoots">
-/// Per-vault folder-prefix roots (vault-relative, forward-slash, canonicalized at load time)
-/// the grant is restricted to, distinct from <paramref name="Vaults"/> - path scope restricts
-/// *within* a vault the grant already has <see cref="Vaults"/> access to. Keyed by vault name
-/// (case-insensitive); each value is that vault's list of folder-prefix roots. Also the shape
-/// used for grants minted at runtime by <see cref="GrantStore.Mint"/>.
+/// Per-vault path scope, distinct from <paramref name="Vaults"/> - path scope restricts *within*
+/// a vault the grant already has <see cref="Vaults"/> access to. Keyed by vault name
+/// (case-insensitive); each value is a <see cref="VaultMcpServer.Vault.VaultScope"/>, which is
+/// either unscoped or a non-empty set of folder-prefix roots (vault-relative, forward-slash,
+/// canonicalized at load time). Also the shape used for grants minted at runtime by
+/// <see cref="GrantStore.Mint"/>.
 ///
 /// Required and always fully populated, for both a file-loaded grant (see
 /// <see cref="GrantStore.Load"/>) and one minted at runtime (see <see cref="GrantStore.Mint"/>):
@@ -22,22 +23,19 @@ namespace VaultMcpServer.Auth;
 /// <c>null</c> and never missing a vault's entry - a <c>grants.json</c> row that omits
 /// <c>scopeRoots</c> entirely, or that lists a vault in <c>vaults</c> without a matching
 /// <c>scopeRoots</c> key, fails to load rather than silently granting that vault full access,
-/// and <see cref="GrantStore.Mint"/> enforces the same coverage at runtime. There is no longer
-/// any "missing key" or "missing map" state to interpret - the only way to grant a vault full
-/// access is the explicit empty-set entry below.
+/// and <see cref="GrantStore.Mint"/> enforces the same coverage at runtime. There is no
+/// "missing key" or "missing map" state to interpret.
 ///
-/// An entry's value being empty or exactly <c>["*"]</c> means that vault is explicitly
-/// unscoped - full access within it - still the same meaning as before, just no longer the
-/// default for an absent key. The whole-grant wildcard <c>{ "*": ["*"] }</c> means "every vault
-/// in <c>vaults</c>, fully open" and is expanded at load time into a concrete empty-set entry
-/// per vault, mirroring how <c>vaults: ["*"]</c> itself expands. <c>MintTokenTool</c> always
-/// supplies a concrete per-vault map derived from its required <c>scope_roots</c> argument, with
-/// an explicit empty set (not a missing key) representing a minted grant's whole-vault access.
+/// Whole-vault access is <see cref="VaultMcpServer.Vault.VaultScope.Unscoped"/> and nothing else:
+/// the configuration spellings <c>[]</c> and <c>["*"]</c> both parse to it at load, and the
+/// whole-grant wildcard <c>{ "*": ["*"] }</c> expands to one such entry per vault, mirroring how
+/// <c>vaults: ["*"]</c> itself expands. An empty root set is not a representable value, so no
+/// caller can produce whole-vault authority by accident.
 ///
-/// An empty/blank scope-root string is not a valid element of a set; it is treated as
+/// An empty/blank scope-root string is not a valid element of a root set; it is treated as
 /// malformed input, not as a "matches everything" sentinel - see
 /// <see cref="VaultMcpServer.Vault.VaultAccess.NormalizeScopeSegments"/>.
-/// Resolve a vault's flat root list via
+/// Resolve a vault's scope via
 /// <see cref="VaultMcpServer.Vault.VaultAccess.ResolveVaultScopeRoots"/> before checking with
 /// <see cref="VaultMcpServer.Vault.VaultAccess.IsPathInScope"/> - given this map, that resolution
 /// step now throws rather than falling back to "unscoped" if a queried vault has no entry, since
@@ -48,7 +46,7 @@ namespace VaultMcpServer.Auth;
 /// by <see cref="VaultMcpServer.Vault.VaultAccess"/>'s own optional <c>scopeRoots</c> parameters,
 /// not something a real <see cref="Grant"/> ever produces.)
 /// </param>
-public sealed record Grant(string Id, IReadOnlySet<string> OpClasses, IReadOnlySet<string> Vaults, DateTimeOffset? ExpiresAtUtc, IReadOnlyDictionary<string, IReadOnlySet<string>> ScopeRoots)
+public sealed record Grant(string Id, IReadOnlySet<string> OpClasses, IReadOnlySet<string> Vaults, DateTimeOffset? ExpiresAtUtc, IReadOnlyDictionary<string, VaultMcpServer.Vault.VaultScope> ScopeRoots)
 {
     /// <summary>
     /// Whether a session bound to this grant may request an elevation rebind (see

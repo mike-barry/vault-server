@@ -123,7 +123,7 @@ public sealed class ElevationRequestTool(
         bool mintTarget;
         IReadOnlySet<string> mintOpClasses = new HashSet<string>();
         IReadOnlySet<string> mintVaults = new HashSet<string>();
-        IReadOnlyDictionary<string, IReadOnlySet<string>> mintScopeRoots = new Dictionary<string, IReadOnlySet<string>>();
+        IReadOnlyDictionary<string, VaultScope> mintScopeRoots = new Dictionary<string, VaultScope>();
         int ttlMinutes;
         string? sessionContext;
         try
@@ -193,7 +193,7 @@ public sealed class ElevationRequestTool(
     /// argument) or a freshly-minted scoped grant (<c>scope_roots</c> + <c>op_class</c>). Exactly
     /// one form must be supplied - a cross-argument rule the schema cannot express, so it stays here.
     /// </summary>
-    private (string Id, Grant Grant, bool Mint, IReadOnlySet<string> OpClasses, IReadOnlySet<string> Vaults, IReadOnlyDictionary<string, IReadOnlySet<string>> ScopeRoots) ResolveTarget(ElevationRequestArguments args)
+    private (string Id, Grant Grant, bool Mint, IReadOnlySet<string> OpClasses, IReadOnlySet<string> Vaults, IReadOnlyDictionary<string, VaultScope> ScopeRoots) ResolveTarget(ElevationRequestArguments args)
     {
         var hasNamed = !string.IsNullOrEmpty(args.Grant);
         var hasScoped = args.ScopeRoots is not null || args.OpClass is not null;
@@ -213,7 +213,7 @@ public sealed class ElevationRequestTool(
             if (!grantStore.TryGetNamedGrant(id, out var named))
                 throw new ElevationArgumentException("not_found", $"Unknown named grant \"{id}\" - not a configured elevation target.", new { argument = "grant", grant = id });
             var empty = (IReadOnlySet<string>)new HashSet<string>();
-            return (id, named, false, empty, empty, new Dictionary<string, IReadOnlySet<string>>());
+            return (id, named, false, empty, empty, new Dictionary<string, VaultScope>());
         }
 
         var (opClasses, vaults, scopeRootsByVault) = ParseScopedTarget(args);
@@ -232,7 +232,7 @@ public sealed class ElevationRequestTool(
     /// only (no <c>"*"</c>). Attenuation against the caller's own grant is a separate, later
     /// checklist item and is not enforced here.
     /// </summary>
-    private (IReadOnlySet<string> OpClasses, IReadOnlySet<string> Vaults, IReadOnlyDictionary<string, IReadOnlySet<string>> ScopeRoots) ParseScopedTarget(ElevationRequestArguments args)
+    private (IReadOnlySet<string> OpClasses, IReadOnlySet<string> Vaults, IReadOnlyDictionary<string, VaultScope> ScopeRoots) ParseScopedTarget(ElevationRequestArguments args)
     {
         var scopeRoots = RequireNonEmptyEntries(args.ScopeRoots, "scope_roots");
         if (scopeRoots.Count == 0)
@@ -289,11 +289,14 @@ public sealed class ElevationRequestTool(
             else
                 wholeVault.Add(vaultName);
         }
-        foreach (var vaultName in wholeVault)
-            byVault[vaultName].Clear();
-
         var vaults = new HashSet<string>(byVault.Keys, StringComparer.OrdinalIgnoreCase);
-        var scopeRootsByVault = byVault.ToDictionary(kv => kv.Key, kv => (IReadOnlySet<string>)kv.Value, StringComparer.OrdinalIgnoreCase);
+        // A whole-vault entry subsumes any subtree entry for the same vault.
+        var scopeRootsByVault = byVault.ToDictionary(
+            kv => kv.Key,
+            kv => wholeVault.Contains(kv.Key) || kv.Value.Count == 0
+                ? VaultScope.Unscoped
+                : VaultScope.Of(kv.Value),
+            StringComparer.OrdinalIgnoreCase);
         return (opClasses, vaults, scopeRootsByVault);
     }
 

@@ -416,8 +416,8 @@ public sealed class GrantStoreTests(TestVaultFixture fixture) : IClassFixture<Te
         Assert.NotNull(grant.ScopeRoots);
         Assert.True(grant.ScopeRoots.ContainsKey("test"));
         Assert.True(grant.ScopeRoots.ContainsKey("scratch"));
-        Assert.Empty(grant.ScopeRoots["test"]);
-        Assert.Empty(grant.ScopeRoots["scratch"]);
+        Assert.Equal(VaultScope.Unscoped, grant.ScopeRoots["test"]);
+        Assert.Equal(VaultScope.Unscoped, grant.ScopeRoots["scratch"]);
     }
 
     [Fact]
@@ -450,7 +450,7 @@ public sealed class GrantStoreTests(TestVaultFixture fixture) : IClassFixture<Te
         Assert.NotNull(grant);
         Assert.NotNull(grant.ScopeRoots);
         Assert.True(grant.ScopeRoots.ContainsKey("test"));
-        Assert.Empty(grant.ScopeRoots["test"]);
+        Assert.Equal(VaultScope.Unscoped, grant.ScopeRoots["test"]);
     }
 
     [Fact]
@@ -462,7 +462,7 @@ public sealed class GrantStoreTests(TestVaultFixture fixture) : IClassFixture<Te
         var grant = store.Authenticate("token-a");
         Assert.NotNull(grant);
         Assert.NotNull(grant.ScopeRoots);
-        Assert.Equal(new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "Projects/Widget", "Areas/Homelab" }, grant.ScopeRoots["test"]);
+        AssertRoots(new[] { "Projects/Widget", "Areas/Homelab" }, grant.ScopeRoots["test"]);
     }
 
     [Fact]
@@ -536,8 +536,8 @@ public sealed class GrantStoreTests(TestVaultFixture fixture) : IClassFixture<Te
         Assert.NotNull(grant.ScopeRoots);
         Assert.True(grant.ScopeRoots.ContainsKey("test"));
         Assert.True(grant.ScopeRoots.ContainsKey("scratch"));
-        Assert.Equal(new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "Area" }, grant.ScopeRoots["test"]);
-        Assert.Empty(grant.ScopeRoots["scratch"]);
+        AssertRoots(new[] { "Area" }, grant.ScopeRoots["test"]);
+        Assert.Equal(VaultScope.Unscoped, grant.ScopeRoots["scratch"]);
     }
 
     [Fact]
@@ -671,7 +671,7 @@ public sealed class GrantStoreTests(TestVaultFixture fixture) : IClassFixture<Te
     }
 
     /// <summary>Builds the per-vault <see cref="Grant.ScopeRoots"/> dictionary shape from (vault, subtree) pairs, grouping subtrees under their vault key.</summary>
-    private static Dictionary<string, IReadOnlySet<string>> ScopeRoots(params (string Vault, string Subtree)[] entries)
+    private static Dictionary<string, VaultScope> ScopeRoots(params (string Vault, string Subtree)[] entries)
     {
         var byVault = new Dictionary<string, HashSet<string>>();
         foreach (var (vault, subtree) in entries)
@@ -680,6 +680,16 @@ public sealed class GrantStoreTests(TestVaultFixture fixture) : IClassFixture<Te
                 byVault[vault] = subtrees = new HashSet<string>();
             subtrees.Add(subtree);
         }
-        return byVault.ToDictionary(kv => kv.Key, kv => (IReadOnlySet<string>)kv.Value);
+        return byVault.ToDictionary(kv => kv.Key, kv => VaultScope.Of(kv.Value));
     }
+
+    /// <summary>A per-vault map where every named vault is unscoped - the whole-vault case.</summary>
+    private static Dictionary<string, VaultScope> UnscopedFor(params string[] vaults) =>
+        vaults.ToDictionary(v => v, _ => VaultScope.Unscoped, StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>Asserts a vault's scope is confined to exactly <paramref name="expected"/>.</summary>
+    private static void AssertRoots(IEnumerable<string> expected, VaultScope actual) =>
+        Assert.Equal(
+            expected.ToHashSet(StringComparer.OrdinalIgnoreCase),
+            Assert.IsType<VaultScope.RootedScope>(actual).Roots);
 }

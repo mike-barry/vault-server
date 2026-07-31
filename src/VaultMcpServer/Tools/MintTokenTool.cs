@@ -96,7 +96,7 @@ public sealed class MintTokenTool(GrantStore grantStore, OpClassRegistry opClass
         HashSet<string> vaults;
         int ttlMinutes;
 
-        Dictionary<string, IReadOnlySet<string>> scopeRootsByVault;
+        Dictionary<string, VaultScope> scopeRootsByVault;
         try
         {
             var args = NativeToolArguments.Bind<MintTokenArguments>(arguments);
@@ -157,7 +157,7 @@ public sealed class MintTokenTool(GrantStore grantStore, OpClassRegistry opClass
     /// grant's held classes, vault set, or scope roots and would turn a replayable denial into a
     /// per-item enumeration of the caller's authority.
     /// </summary>
-    private static void ValidateAttenuation(Grant grant, HashSet<string> opClasses, HashSet<string> vaults, Dictionary<string, IReadOnlySet<string>> scopeRootsByVault)
+    private static void ValidateAttenuation(Grant grant, HashSet<string> opClasses, HashSet<string> vaults, Dictionary<string, VaultScope> scopeRootsByVault)
     {
         var missingOpClasses = opClasses.Where(o => !grant.OpClasses.Contains(o)).ToList();
         if (missingOpClasses.Count > 0)
@@ -175,20 +175,23 @@ public sealed class MintTokenTool(GrantStore grantStore, OpClassRegistry opClass
                 $"\"{grant.Id}\" (caller's vaults: {FormatSet(grant.Vaults)}).",
                 new { argument = "scope_roots" });
 
-        foreach (var (vaultName, requestedRoots) in scopeRootsByVault)
+        foreach (var (vaultName, requestedScope) in scopeRootsByVault)
         {
-            var callerRoots = VaultAccess.ResolveVaultScopeRoots(vaultName, grant.ScopeRoots);
-            if (callerRoots.Count == 0)
-                continue; // caller is unscoped for this vault - any requested root is permitted.
+            // A caller unscoped in this vault can delegate anything within it, so there is
+            // nothing to attenuate against.
+            if (VaultAccess.ResolveVaultScopeRoots(vaultName, grant.ScopeRoots) is not VaultScope.RootedScope callerScope)
+                continue;
 
-            if (requestedRoots.Count == 0)
+            var callerRoots = callerScope.Roots;
+
+            if (requestedScope is not VaultScope.RootedScope requestedRooted)
                 throw new MintArgumentException(
                     "out_of_scope",
                     $"\"scope_roots\" requests unscoped access to vault \"{vaultName}\", but the caller's own grant \"{grant.Id}\" " +
                     $"is scoped there to {FormatSet(callerRoots)}.",
                     new { argument = "scope_roots", vault = vaultName });
 
-            var outOfScope = requestedRoots.Where(r => !VaultAccess.IsPathInScope(r, callerRoots)).ToList();
+            var outOfScope = requestedRooted.Roots.Where(r => !VaultAccess.IsPathInScope(r, callerScope)).ToList();
             if (outOfScope.Count > 0)
                 throw new MintArgumentException(
                     "out_of_scope",
@@ -262,10 +265,10 @@ public sealed class MintTokenTool(GrantStore grantStore, OpClassRegistry opClass
     /// <summary>
     /// Splits each vault-prefixed <c>scope_roots</c> entry on its leading path segment (the
     /// vault name) and groups the remainders into a per-vault set, matching
-    /// <see cref="Grant.ScopeRoots"/>'s <c>IReadOnlyDictionary&lt;string, IReadOnlySet&lt;string&gt;&gt;</c>
-    /// shape. A whole-vault entry with no subtree (e.g. <c>"primary"</c>, no <c>/</c>) means "no
-    /// restriction within this vault", which is represented by an <em>empty</em> set for that
-    /// vault key - never by an empty-string element. Each subtree remainder is canonicalized via
+    /// <see cref="Grant.ScopeRoots"/>'s per-vault <see cref="VaultScope"/> shape. A whole-vault
+    /// entry with no subtree (e.g. <c>"primary"</c>, no <c>/</c>) means "no restriction within this
+    /// vault", which is <see cref="VaultScope.Unscoped"/> for that vault key - never an
+    /// empty-string element and never an empty root set. Each subtree remainder is canonicalized via
     /// <see cref="VaultAccess.NormalizeScopeSegments"/> (the same validation
     /// <see cref="Auth.GrantStore.Load"/> applies to a file-loaded grant's scopeRoots), so a
     /// rooted, escaping, or empty remainder is rejected here as a mint argument error rather than
@@ -273,11 +276,11 @@ public sealed class MintTokenTool(GrantStore grantStore, OpClassRegistry opClass
     /// mint call names both a whole-vault entry and a subtree
     /// entry for the same vault (e.g. <c>"primary"</c> and <c>"primary/Projects/Foo"</c>), the
     /// whole-vault entry wins: it already covers the subtree, so the subtree entry is redundant
-    /// and dropped, leaving that vault's set empty. Entries for different vaults never leak into
-    /// each other's set - e.g. <c>"primary/Projects/Foo"</c> and <c>"test/Areas/Bar"</c> produce
-    /// two separate single-entry sets, one per vault key.
+    /// and dropped, leaving that vault unscoped. Entries for different vaults never leak into
+    /// each other's scope - e.g. <c>"primary/Projects/Foo"</c> and <c>"test/Areas/Bar"</c> produce
+    /// two separate single-root scopes, one per vault key.
     /// </summary>
-    private static Dictionary<string, IReadOnlySet<string>> GroupScopeRootsByVault(List<string> scopeRoots)
+    private static Dictionary<string, VaultScope> GroupScopeRootsByVault(List<string> scopeRoots)
     {
         var byVault = new Dictionary<string, HashSet<string>>(StringComparer.OrdinalIgnoreCase);
         var wholeVault = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
@@ -318,10 +321,14 @@ public sealed class MintTokenTool(GrantStore grantStore, OpClassRegistry opClass
                 wholeVault.Add(vaultName);
         }
 
-        foreach (var vaultName in wholeVault)
-            byVault[vaultName].Clear();
-
-        return byVault.ToDictionary(kv => kv.Key, kv => (IReadOnlySet<string>)kv.Value, StringComparer.OrdinalIgnoreCase);
+        // A whole-vault entry subsumes any subtree entry for the same vault, so that vault
+        // resolves to the unscoped case rather than to a set emptied of its subtrees.
+        return byVault.ToDictionary(
+            kv => kv.Key,
+            kv => wholeVault.Contains(kv.Key) || kv.Value.Count == 0
+                ? VaultScope.Unscoped
+                : VaultScope.Of(kv.Value),
+            StringComparer.OrdinalIgnoreCase);
     }
 
     private HashSet<string> ReadOpClasses(MintTokenArguments args)

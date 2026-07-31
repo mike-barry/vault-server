@@ -260,7 +260,7 @@ public sealed class ElevationRequestToolTests(TestVaultFixture fixture) : IClass
         var elevated = store.Authenticate(CallerToken);
         Assert.NotNull(elevated);
         Assert.StartsWith("elevated-", elevated.Id);
-        Assert.Contains("Projects/Foo", elevated.ScopeRoots["test"]);
+        Assert.Contains("Projects/Foo", Assert.IsType<VaultScope.RootedScope>(elevated.ScopeRoots["test"]).Roots);
     }
 
     [Fact]

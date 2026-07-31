@@ -32,32 +32,30 @@ public sealed class VaultAccess(VaultConfig config)
     ///
     /// <paramref name="scopeRootsByVault"/> being <c>null</c> means no scope map was supplied to
     /// this call at all (e.g. a caller with no grant context, such as a test calling this class
-    /// directly) - returns an empty set, same meaning as an explicit empty list. This is
-    /// distinct from a <em>non-null</em> map having no entry for <paramref name="vault"/>, which
-    /// is now a defensive-throw case: every real <see cref="Auth.Grant"/> (whether file-loaded
+    /// directly) - returns <see cref="VaultScope.Unscoped"/>. This is distinct from a
+    /// <em>non-null</em> map having no entry for <paramref name="vault"/>, which is a
+    /// defensive-throw case: every real <see cref="Auth.Grant"/> (whether file-loaded
     /// via <see cref="Auth.GrantStore.Load"/> or minted via <see cref="Auth.GrantStore.Mint"/>)
     /// is guaranteed to have a <see cref="Auth.Grant.ScopeRoots"/> entry for every vault it can
     /// access, so a non-null map missing the queried vault's key means that invariant was
     /// violated somewhere upstream - it must fail loudly rather than silently falling back to
     /// full access.
     /// </summary>
-    public static IReadOnlySet<string> ResolveVaultScopeRoots(string vault, IReadOnlyDictionary<string, IReadOnlySet<string>>? scopeRootsByVault)
+    public static VaultScope ResolveVaultScopeRoots(string vault, IReadOnlyDictionary<string, VaultScope>? scopeRootsByVault)
     {
         if (scopeRootsByVault is null)
-            return EmptyScopeRoots;
+            return VaultScope.Unscoped;
 
-        foreach (var (key, roots) in scopeRootsByVault)
+        foreach (var (key, scope) in scopeRootsByVault)
         {
             if (string.Equals(key, vault, StringComparison.OrdinalIgnoreCase))
-                return roots;
+                return scope;
         }
 
         throw new InvalidOperationException(
-            $"Grant configuration invariant violated: vault \"{vault}\" has no scope-roots entry in a non-null scope-roots map. " +
-            "Every vault a grant can access must have an explicit entry (an empty set for full access) - this should be impossible for any grant built through GrantStore.Load or GrantStore.Mint.");
+            $"Grant configuration invariant violated: vault \"{vault}\" has no scope entry in a non-null scope map. " +
+            "Every vault a grant can access must have an explicit entry - this should be impossible for any grant built through GrantStore.Load or GrantStore.Mint.");
     }
-
-    private static readonly IReadOnlySet<string> EmptyScopeRoots = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
     /// <summary>
     /// Splits a folder-prefix scope root or candidate vault-relative path into normalized,
@@ -95,10 +93,10 @@ public sealed class VaultAccess(VaultConfig config)
     }
 
     /// <summary>
-    /// True if <paramref name="relativePath"/> falls under any of <paramref name="scopeRoots"/> -
-    /// folder-prefix containment matched by path segment, not raw string prefix, so a root of
-    /// "Projects/Foo" does not match "Projects/Foo-Other/...". An empty <paramref name="scopeRoots"/>
-    /// means unscoped (always in scope).
+    /// True if <paramref name="relativePath"/> falls under <paramref name="scope"/> - folder-prefix
+    /// containment matched by path segment, not raw string prefix, so a root of "Projects/Foo"
+    /// does not match "Projects/Foo-Other/...". An unscoped <paramref name="scope"/> admits every
+    /// path, which is a case of the type rather than a property of the root count.
     ///
     /// Every root (and the path itself) is normalized via <see cref="NormalizeScopeSegments"/>
     /// before any match is attempted - eagerly, so one malformed root makes the whole check
@@ -107,13 +105,13 @@ public sealed class VaultAccess(VaultConfig config)
     /// containment-check level: a grant whose configured scope can't be fully resolved is
     /// treated as broken, not partially trusted.
     /// </summary>
-    public static bool IsPathInScope(string relativePath, IReadOnlyCollection<string> scopeRoots)
+    public static bool IsPathInScope(string relativePath, VaultScope scope)
     {
-        if (scopeRoots.Count == 0)
+        if (scope is not VaultScope.RootedScope rooted)
             return true;
 
         var pathSegments = NormalizeScopeSegments(relativePath);
-        var rootSegmentsList = scopeRoots.Select(NormalizeScopeSegments).ToList();
+        var rootSegmentsList = rooted.Roots.Select(NormalizeScopeSegments).ToList();
         return rootSegmentsList.Any(rootSegments =>
             rootSegments.Length <= pathSegments.Length &&
             !rootSegments.Where((s, i) => !string.Equals(s, pathSegments[i], StringComparison.OrdinalIgnoreCase)).Any());

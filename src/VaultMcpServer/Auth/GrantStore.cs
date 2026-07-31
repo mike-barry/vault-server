@@ -85,7 +85,7 @@ public sealed class GrantStore
         new HashSet<string>(StringComparer.OrdinalIgnoreCase),
         new HashSet<string>(StringComparer.OrdinalIgnoreCase),
         ExpiresAtUtc: null,
-        new Dictionary<string, IReadOnlySet<string>>(StringComparer.OrdinalIgnoreCase))
+        new Dictionary<string, Vault.VaultScope>(StringComparer.OrdinalIgnoreCase))
     { CanRequestElevation = true };
 
     /// <summary>
@@ -239,7 +239,7 @@ public sealed class GrantStore
     /// request. Op classes/vaults/scope roots are treated as already-validated concrete sets, same
     /// contract as <see cref="Mint"/>.
     /// </summary>
-    public Grant RebindToMintedGrant(string tokenHashKey, string id, IReadOnlySet<string> opClasses, IReadOnlySet<string> vaults, IReadOnlyDictionary<string, IReadOnlySet<string>> scopeRoots, DateTimeOffset expiresAt)
+    public Grant RebindToMintedGrant(string tokenHashKey, string id, IReadOnlySet<string> opClasses, IReadOnlySet<string> vaults, IReadOnlyDictionary<string, Vault.VaultScope> scopeRoots, DateTimeOffset expiresAt)
     {
         var grant = new Grant(id, opClasses, vaults, expiresAt, scopeRoots);
         _grantsById[id] = grant;
@@ -297,8 +297,8 @@ public sealed class GrantStore
     /// concrete sets, and it is also where the attenuation-only minting decision's TTL cap
     /// (see <c>MintTokenTool</c>) is applied. <paramref name="scopeRoots"/> is the per-vault shape
     /// stored directly on <see cref="Grant.ScopeRoots"/> - required, and required to have an entry
-    /// for every vault in <paramref name="vaults"/> (an empty set for a vault means that vault is
-    /// unscoped, full access within it - the same "explicit, never implicit" convention
+    /// for every vault in <paramref name="vaults"/> (<see cref="Vault.VaultScope.Unscoped"/> for a
+    /// vault means full access within it - the same "explicit, never implicit" convention
     /// <c>GrantFileLoader</c> enforces for file-loaded grants). Checked defensively below rather
     /// than merely trusted, so a future caller that forgets to populate every vault's entry fails
     /// loudly instead of producing a grant with a silent full-access gap. Callers (see
@@ -316,7 +316,7 @@ public sealed class GrantStore
     /// down to it instead of rejecting the mint outright - the returned <c>TtlCapped</c> flag tells
     /// the caller (<c>MintTokenTool</c>) this happened so it can report the effective expiry.
     /// </param>
-    public (string Token, DateTimeOffset ExpiresAtUtc, bool TtlCapped) Mint(string id, IReadOnlySet<string> opClasses, IReadOnlySet<string> vaults, IReadOnlyDictionary<string, IReadOnlySet<string>> scopeRoots, int ttlMinutes, DateTimeOffset? maxExpiresAtUtc = null)
+    public (string Token, DateTimeOffset ExpiresAtUtc, bool TtlCapped) Mint(string id, IReadOnlySet<string> opClasses, IReadOnlySet<string> vaults, IReadOnlyDictionary<string, Vault.VaultScope> scopeRoots, int ttlMinutes, DateTimeOffset? maxExpiresAtUtc = null)
     {
         if (string.IsNullOrWhiteSpace(id))
             throw new ArgumentException("Minted grant id must not be empty.", nameof(id));
@@ -327,7 +327,7 @@ public sealed class GrantStore
         var missingScopeRootsVaults = vaults.Where(v => !scopeRoots.ContainsKey(v)).ToList();
         if (missingScopeRootsVaults.Count > 0)
             throw new ArgumentException(
-                $"scopeRoots is missing an entry for vault{(missingScopeRootsVaults.Count > 1 ? "s" : "")} {string.Join(", ", missingScopeRootsVaults.Select(v => $"\"{v}\""))} - every vault the grant can access must have an explicit entry (empty set for full access).",
+                $"scopeRoots is missing an entry for vault{(missingScopeRootsVaults.Count > 1 ? "s" : "")} {string.Join(", ", missingScopeRootsVaults.Select(v => $"\"{v}\""))} - every vault the grant can access must have an explicit entry (VaultScope.Unscoped for full access).",
                 nameof(scopeRoots));
         if (ttlMinutes <= 0)
             throw new ArgumentOutOfRangeException(nameof(ttlMinutes), ttlMinutes, "ttl must be a positive number of minutes.");
