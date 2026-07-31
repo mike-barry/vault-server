@@ -139,10 +139,13 @@ $script:LintExcludeFiles = @('Document-Conventions.md')
 $script:LintExcludePaths = @('Resources/Vault/Templates')
 
 # check-provenance.ps1's own set: skill-owned formats and non-authored files, plus the hidden
-# content that is not authored vault documents (skill docs are harness contract, .vault is
-# state, .myai is external tooling).
+# content that is not authored vault documents (.vault is state, .myai is external tooling).
+# .claude/skills is deliberately absent here and comes from Get-VaultExcludedFrontmatterPath
+# instead, via -ExcludeFrontmatterPaths below: provenance is the one pass that WRITES frontmatter,
+# so it is the one pass that has to agree with the write path's refusal, and a hand-restated copy
+# of that list is exactly the drift the single-sourcing exists to prevent.
 $script:ProvenanceExcludeFiles = @('Tasks.md', 'CLAUDE.md', 'Vault-Manifest.md')
-$script:ProvenanceExcludePaths = @('Tasks', '.claude/skills', '.myai', '.vault', '.pytest_cache')
+$script:ProvenanceExcludePaths = @('Tasks', '.myai', '.vault', '.pytest_cache')
 
 $script:StateFolder = '.vault/state/vault-lint'
 
@@ -493,7 +496,8 @@ function Test-LintFileAccepted {
         [Parameter(Mandatory)] [string] $Rel,
         [string[]] $ExcludeFiles,
         [string[]] $ExcludePaths,
-        [bool] $ApplyHiddenFilter
+        [bool] $ApplyHiddenFilter,
+        [bool] $ExcludeFrontmatterPaths
     )
     $name = ($Rel -split '/')[-1]
     if ($ExcludeFiles -and ($ExcludeFiles -contains $name)) { return $false }
@@ -510,6 +514,14 @@ function Test-LintFileAccepted {
             if ($segments[$i].StartsWith('.')) { return $false }
         }
     }
+    # The frontmatter exclusion, for the one pass that writes frontmatter. Same list
+    # Invoke-VaultFrontmatterWrite refuses on, tested here so an excluded file never REACHES that
+    # refusal: a tool acting on one named file must not fail silently, but a tool sweeping a set
+    # must not abort on a file the caller never singled out. Asked for per pass rather than applied
+    # to every one of them, because the exclusion is about frontmatter OWNERSHIP - a skill file's
+    # anchor links are still lint's business, and dropping it from the check passes would narrow
+    # lint's coverage for a reason that has nothing to do with them.
+    if ($ExcludeFrontmatterPaths -and (Test-VaultFrontmatterPathExcluded -RelativePath $Rel)) { return $false }
     if ($script:ScopeRoots.Count -gt 0 -and -not (Test-VaultPathInScope -Path $Rel -ScopeRoots $script:ScopeRoots)) { return $false }
     $true
 }
@@ -524,7 +536,8 @@ function Get-LintScanFile {
         [string[]] $IncludeFolders,
         [string[]] $ExcludeFiles,
         [string[]] $ExcludePaths,
-        [switch] $IncludeHiddenFolders
+        [switch] $IncludeHiddenFolders,
+        [switch] $ExcludeFrontmatterPaths
     )
 
     $files = New-Object System.Collections.Generic.List[object]
@@ -534,7 +547,7 @@ function Get-LintScanFile {
     # override mode, where the include-folder list does not apply and neither does the
     # dot-directory filter - the same semantics the skill scripts' -PathOverride has.
     if ($script:SingleFileRel) {
-        if (Test-LintFileAccepted -Rel $script:SingleFileRel -ExcludeFiles $ExcludeFiles -ExcludePaths $ExcludePaths -ApplyHiddenFilter $false) {
+        if (Test-LintFileAccepted -Rel $script:SingleFileRel -ExcludeFiles $ExcludeFiles -ExcludePaths $ExcludePaths -ApplyHiddenFilter $false -ExcludeFrontmatterPaths $ExcludeFrontmatterPaths) {
             $files.Add((New-LintFileRecord -Rel $script:SingleFileRel))
         }
         return , $files.ToArray()
@@ -550,7 +563,7 @@ function Get-LintScanFile {
         if (-not (Test-Path -LiteralPath $root -PathType Container)) { continue }
         foreach ($item in @(Get-ChildItem -LiteralPath $root -Recurse -Filter '*.md' -File -ErrorAction SilentlyContinue)) {
             $rel = [System.IO.Path]::GetRelativePath($script:VaultRoot, $item.FullName).Replace('\', '/')
-            if (-not (Test-LintFileAccepted -Rel $rel -ExcludeFiles $ExcludeFiles -ExcludePaths $ExcludePaths -ApplyHiddenFilter $applyHiddenFilter)) { continue }
+            if (-not (Test-LintFileAccepted -Rel $rel -ExcludeFiles $ExcludeFiles -ExcludePaths $ExcludePaths -ApplyHiddenFilter $applyHiddenFilter -ExcludeFrontmatterPaths $ExcludeFrontmatterPaths)) { continue }
             $files.Add((New-LintFileRecord -Rel $rel -Full $item.FullName))
         }
     }
@@ -792,7 +805,7 @@ function Get-LintArchivedDate {
 }
 
 function Invoke-LintProvenancePass {
-    $files = Get-LintScanFile -ExcludeFiles $script:ProvenanceExcludeFiles -ExcludePaths $script:ProvenanceExcludePaths -IncludeHiddenFolders
+    $files = Get-LintScanFile -ExcludeFiles $script:ProvenanceExcludeFiles -ExcludePaths $script:ProvenanceExcludePaths -IncludeHiddenFolders -ExcludeFrontmatterPaths
     $findings = New-Object System.Collections.Generic.List[object]
     $counters = [ordered]@{ 'archive-dates' = 0; 'created' = 0; 'doc-type' = 0; 'stale-use-skill' = 0 }
     $scanned = 0

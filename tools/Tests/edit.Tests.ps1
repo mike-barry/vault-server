@@ -1243,6 +1243,53 @@ Describe 'edit' {
             }
         }
     }
+
+    Context 'the excluded frontmatter paths' {
+        BeforeEach {
+            # Built in the scratch copy rather than committed to test-vault/: the fixture exists to
+            # be refused, and a committed one would sit in the repo as a file nothing may write.
+            $script:SkillDir = Join-Path $script:VaultDir '.claude/skills/temp-skill'
+            New-Item -ItemType Directory -Force -Path $script:SkillDir | Out-Null
+            $script:SkillFull = Join-Path $script:SkillDir 'SKILL.md'
+            $script:SkillText = "---`nname: temp-skill`ndescription: >`n  A folded scalar spanning`n  more than one line.`n---`n# Temp Skill`n"
+            [System.IO.File]::WriteAllText($script:SkillFull, $script:SkillText)
+        }
+
+        It 'refuses a frontmatter op under .claude/skills, leaving the file byte-identical' {
+            $err = Invoke-EditError @{ path = '.claude/skills/temp-skill/SKILL.md'
+                frontmatter_ops = (ConvertTo-Json -Compress -Depth 5 @(@{ op = 'set_field'; field = 'doc.created'; value = '2026-07-30' }))
+            }
+            $err.code | Should -Be 'frontmatter_path_excluded'
+            [System.IO.File]::ReadAllText($script:SkillFull) | Should -BeExactly $script:SkillText
+        }
+
+        It 'refuses a body patch too, because the chokepoint is the whole write path' {
+            # A consequence of where the check lives rather than a second rule: every edit routes
+            # through Invoke-VaultFrontmatterWrite, body-only ones included, so a skill file is
+            # not writable through this tool at all. That is the right answer for a file whose
+            # body is as much harness contract as its frontmatter.
+            (Invoke-EditError @{ path = '.claude/skills/temp-skill/SKILL.md'; old_string = '# Temp Skill'; new_string = '# Renamed' }).code |
+                Should -Be 'frontmatter_path_excluded'
+            [System.IO.File]::ReadAllText($script:SkillFull) | Should -BeExactly $script:SkillText
+        }
+
+        It 'refuses however the excluded path is spelled' {
+            foreach ($p in @('.CLAUDE/Skills/temp-skill/SKILL.md', '.claude\skills\temp-skill\SKILL.md', 'Inbox/../.claude/skills/temp-skill/SKILL.md')) {
+                (Invoke-EditError @{ path = $p
+                        frontmatter_ops = (ConvertTo-Json -Compress -Depth 5 @(@{ op = 'set_field'; field = 'doc.created'; value = '2026-07-30' }))
+                    }).code | Should -Be 'frontmatter_path_excluded'
+            }
+        }
+
+        It 'leaves .claude/guides editable - the exclusion is skills, not the dot directory' {
+            $guide = Join-Path $script:VaultDir '.claude/guides/Temp-Guide.md'
+            New-Item -ItemType Directory -Force -Path (Split-Path -Parent $guide) | Out-Null
+            [System.IO.File]::WriteAllText($guide, "---`ndoc.type: Guide`n---`n# Temp Guide`n")
+            $result = & $script:ScriptPath -path '.claude/guides/Temp-Guide.md' `
+                -frontmatter_ops (ConvertTo-Json -Compress -Depth 5 @(@{ op = 'set_field'; field = 'doc.created'; value = '2026-07-30' })) | ConvertFrom-Json
+            $result.opsApplied[0].changed | Should -BeTrue
+        }
+    }
 }
 
 Describe 'edit standalone invocability' {

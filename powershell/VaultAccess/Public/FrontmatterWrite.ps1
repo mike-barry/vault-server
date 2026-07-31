@@ -72,6 +72,12 @@ function Invoke-VaultFrontmatterWrite {
                                 in caller-supplied text. Both tools validate against the same
                                 registry, over different extents - create over the whole supplied
                                 block, edit over the keys an op touches.
+      frontmatter_path_excluded
+                              - -RelativePath sits under one of Get-VaultExcludedFrontmatterPath's
+                                prefixes, whose frontmatter the vault's tooling does not own. Its
+                                own code rather than a reused out_of_scope: that one means the
+                                caller's GRANT does not reach the path and widening it would help,
+                                which is exactly the wrong thing to tell a caller here.
       insufficient_capability - the agentic diff is non-empty and the injected op-class set lacks
                                 agentic:write. Nothing has been written at that point, and the
                                 caller gets no content back, so the denial is zero-mutation. An
@@ -119,8 +125,10 @@ function Invoke-VaultFrontmatterWrite {
     .PARAMETER Body
     The new body facet. Unbound leaves the body untouched; '' truncates it.
     .PARAMETER RelativePath
-    Optional vault-relative path of the note, passed through to the schema validator to enable
-    its one path-dependent check (Tasks.md's required vault-tasks directive).
+    The note's vault-relative path. MANDATORY, because a refusal now depends on it: an optional
+    parameter may gate an optional check - the schema validator's Tasks.md rule - but never a
+    refusal, where absence would read as permission and the excluded-path check would silently not
+    run. Every production caller already passed it.
     #>
     [CmdletBinding()]
     param(
@@ -128,8 +136,19 @@ function Invoke-VaultFrontmatterWrite {
         [AllowEmptyCollection()] [AllowNull()] [object[]] $Ops = @(),
         [AllowEmptyString()] [string] $Frontmatter,
         [AllowEmptyString()] [string] $Body,
-        [string] $RelativePath
+        [Parameter(Mandatory)] [string] $RelativePath
     )
+
+    # First, before any parse or compose: an excluded path is refused with nothing read, nothing
+    # built, and nothing returned. Here rather than in Test-VaultPathInScope because this is
+    # PowerShell-only policy and that function is mirrored on the C# side, so the check costs
+    # nothing there; here rather than in each tool because all three production callers route
+    # through this function, which is what makes the refusal structural instead of remembered.
+    if (Test-VaultFrontmatterPathExcluded -RelativePath $RelativePath) {
+        throw (New-VaultToolError -Code 'frontmatter_path_excluded' `
+                -Message "Frontmatter operations do not touch `"$RelativePath`": it carries frontmatter this vault's tooling does not own." `
+                -Data @{ path = $RelativePath; excludedPaths = @(Get-VaultExcludedFrontmatterPath) })
+    }
 
     $hasFrontmatter = $PSBoundParameters.ContainsKey('Frontmatter')
     $hasBody = $PSBoundParameters.ContainsKey('Body')
@@ -199,11 +218,9 @@ function Invoke-VaultFrontmatterWrite {
                 -Data @{ reason = 'body_write_changed_frontmatter'; expectedFenceState = $afterOps.FenceState; actualFenceState = $finalSplit.FenceState })
     }
 
-    $validateArgs = @{ Content = $final }
-    if (-not [string]::IsNullOrWhiteSpace($RelativePath)) { $validateArgs['RelativePath'] = $RelativePath }
-    # Assigned, never @()-wrapped: both of these return a comma-wrapped array so that an empty
-    # result survives as an empty array, and wrapping the call would nest it one level deep.
-    $violations = Get-VaultFrontmatterSchemaViolation @validateArgs
+    # Assigned, never @()-wrapped: this returns a comma-wrapped array so that an empty result
+    # survives as an empty array, and wrapping the call would nest it one level deep.
+    $violations = Get-VaultFrontmatterSchemaViolation -Content $final -RelativePath $RelativePath
 
     # Outcome-based classification, over the diff rather than over what the ops nominally
     # targeted, and asserted before the caller has anything to write.

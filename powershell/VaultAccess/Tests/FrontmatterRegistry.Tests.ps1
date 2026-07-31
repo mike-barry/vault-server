@@ -257,3 +257,48 @@ Describe 'The registry against the corpus it was derived from' {
         $unknown | Should -Be @('description', 'disable-model-invocation', 'name', 'obsidianUIMode', 'status', 'title')
     }
 }
+
+Describe 'Get-VaultExcludedFrontmatterPath / Test-VaultFrontmatterPathExcluded' {
+    It 'carries .claude/skills and nothing else' {
+        Get-VaultExcludedFrontmatterPath | Should -Be @('.claude/skills')
+    }
+
+    It 'matches a path under the prefix' {
+        Test-VaultFrontmatterPathExcluded -RelativePath '.claude/skills/vault-docs/SKILL.md' | Should -BeTrue
+    }
+
+    It 'matches case-insensitively, because a caller must not reach it by spelling it differently' {
+        Test-VaultFrontmatterPathExcluded -RelativePath '.CLAUDE/Skills/vault-docs/SKILL.md' | Should -BeTrue
+    }
+
+    It 'matches through a backslash separator' {
+        Test-VaultFrontmatterPathExcluded -RelativePath '.claude\skills\vault-docs\SKILL.md' | Should -BeTrue
+        Test-VaultFrontmatterPathExcluded -RelativePath '.claude/skills\vault-mode\SKILL.md' | Should -BeTrue
+    }
+
+    It 'cannot be defeated by a .. segment that climbs back into the prefix' {
+        Test-VaultFrontmatterPathExcluded -RelativePath 'Areas/../.claude/skills/vault-bug/SKILL.md' | Should -BeTrue
+        Test-VaultFrontmatterPathExcluded -RelativePath './.claude/./skills/vault-bug/SKILL.md' | Should -BeTrue
+        Test-VaultFrontmatterPathExcluded -RelativePath '.claude/skills/vault-bug/../vault-docs/SKILL.md' | Should -BeTrue
+    }
+
+    It 'does not catch a path that only leaves the prefix through ..' {
+        Test-VaultFrontmatterPathExcluded -RelativePath '.claude/skills/../guides/Vault-Guide.md' | Should -BeFalse
+    }
+
+    It 'leaves .claude/guides alone - those are vault notes under a dot directory' {
+        Test-VaultFrontmatterPathExcluded -RelativePath '.claude/guides/Vault-Guide.md' | Should -BeFalse
+        Test-VaultFrontmatterPathExcluded -RelativePath '.claude/settings.json' | Should -BeFalse
+    }
+
+    It 'matches whole segments only' {
+        Test-VaultFrontmatterPathExcluded -RelativePath '.claude/skillset/x.md' | Should -BeFalse
+        Test-VaultFrontmatterPathExcluded -RelativePath 'my.claude/skills/x.md' | Should -BeFalse
+        Test-VaultFrontmatterPathExcluded -RelativePath 'Areas/Homelab/.claude/skills/x.md' | Should -BeFalse
+    }
+
+    It 'returns false rather than throwing on an empty or absent path' {
+        Test-VaultFrontmatterPathExcluded -RelativePath '' | Should -BeFalse
+        Test-VaultFrontmatterPathExcluded -RelativePath $null | Should -BeFalse
+    }
+}

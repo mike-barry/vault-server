@@ -35,6 +35,8 @@
         'Test-VaultFrontmatterKeyAgentic'
         'Get-VaultFrontmatterRegistryViolation'
         'Assert-VaultFrontmatterRegistry'
+        'Get-VaultExcludedFrontmatterPath'
+        'Test-VaultFrontmatterPathExcluded'
         'Split-VaultNoteContent'
         'Get-VaultFrontmatterMap'
         'Get-VaultFrontmatterEntryList'

@@ -1,6 +1,7 @@
-# Public/FrontmatterRegistry.ps1 - the frontmatter key registry: the single declaration of which
+# Public/FrontmatterRegistry.ps1 - the frontmatter registry: the single declaration of which
 # top-level keys the vault's tooling recognizes, what each non-agentic key's value must look like,
-# and which keys are agentic and therefore gated behind agentic:write.
+# which keys are agentic and therefore gated behind agentic:write, and which paths carry
+# frontmatter the vault's tooling does not own at all.
 # PowerShell-only: this substrate serves the tool-script contract (edit / create / lint) and has
 # no C# counterpart in VaultAccess.cs. See ../VaultAccess.psm1 for the full mirror policy.
 #
@@ -208,4 +209,73 @@ function Assert-VaultFrontmatterRegistry {
         # declared agentic key was supplied, and it fires before the tree is serialized.
         Assert-VaultOpClass -OpClass 'agentic:write' -Data @{ requiredClass = 'agentic:write'; agenticKeysChanged = @($agentic | Sort-Object) }
     }
+}
+
+function Get-VaultExcludedFrontmatterPath {
+    <#
+    .SYNOPSIS
+    The vault-relative path prefixes whose frontmatter the vault's tooling does not touch, as
+    forward-slashed, lower-cased, trailing-slash-free strings.
+
+    One list, one member. `.claude/skills/` carries CLAUDE CODE's frontmatter schema rather than
+    the vault's - `name` / `description` / `disable-model-invocation` in place of `doc.*` - so none
+    of it is in the key registry above and every file under it would refuse on the first key
+    anyway. The reason the exclusion exists as its own rule is shape rather than schema: three
+    skills carry a `description: >` folded scalar, and a reserialization re-emits the fold as a
+    literal block whose paragraphs are single 200-435 character lines (measured 2026-07-30 across
+    all 18 skill files). Semantically identical - folding is defined to produce one string - and
+    exactly the shape those blocks exist for, destroyed.
+
+    `.claude/guides/` is deliberately NOT here. Those are vault notes that happen to live under a
+    dot directory, and they carry the vault's own frontmatter.
+
+    Deliberately not a config surface and not an abstraction. Test-VaultPathInScope is the server's
+    only existing scoping facility and it is per-grant and allow-only, so there is nothing here to
+    reuse; generalizing one is follow-on work rather than this list's business.
+    #>
+    [CmdletBinding()]
+    param()
+
+    return , @('.claude/skills')
+}
+
+function Test-VaultFrontmatterPathExcluded {
+    <#
+    .SYNOPSIS
+    True when a vault-relative path sits under one of Get-VaultExcludedFrontmatterPath's prefixes.
+
+    Matched CASE-INSENSITIVELY, on a path normalized first: separators folded to '/', and '.' and
+    '..' segments resolved away. Both matter as anti-evasion rather than as convenience - the
+    server runs on Windows where '\' and '/' are interchangeable, and `Areas/../.claude/skills/x.md`
+    names the same file as `.claude/skills/x.md`. A caller must not reach an excluded file by
+    spelling it differently.
+
+    A prefix match is on whole segments: '.claude/skillset/x.md' does not match '.claude/skills'.
+    .PARAMETER RelativePath
+    The note's vault-relative path.
+    #>
+    [CmdletBinding()]
+    param([AllowEmptyString()] [AllowNull()] [string] $RelativePath)
+
+    if ([string]::IsNullOrWhiteSpace($RelativePath)) { return $false }
+
+    $segments = New-Object System.Collections.Generic.List[string]
+    foreach ($segment in (($RelativePath -replace '\\', '/') -split '/')) {
+        if ($segment -eq '' -or $segment -eq '.') { continue }
+        if ($segment -eq '..') {
+            # A '..' that would climb above the vault root is kept as a literal segment rather than
+            # dropped: such a path is out of contract, and silently rebasing it at the root is how a
+            # normalizer invents a match - or an escape - the caller never wrote.
+            if ($segments.Count -gt 0 -and $segments[$segments.Count - 1] -ne '..') { $segments.RemoveAt($segments.Count - 1) }
+            else { $segments.Add('..') }
+            continue
+        }
+        $segments.Add($segment)
+    }
+    $normalized = ($segments -join '/').ToLowerInvariant()
+
+    foreach ($prefix in (Get-VaultExcludedFrontmatterPath)) {
+        if ($normalized -eq $prefix -or $normalized.StartsWith($prefix + '/', [System.StringComparison]::Ordinal)) { return $true }
+    }
+    return $false
 }

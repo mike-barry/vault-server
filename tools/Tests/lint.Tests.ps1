@@ -1452,7 +1452,7 @@ for another line so the pair of lines is a genuine join candidate for the checke
             $content = [System.IO.File]::ReadAllText($script:ArchivedFile)
             $thrown = $null
             try {
-                Invoke-VaultFrontmatterWrite -Content $content -Ops @(@{ op = 'add_hint'; text = 'a hint' }) | Out-Null
+                Invoke-VaultFrontmatterWrite -RelativePath $script:ArchivedRel -Content $content -Ops @(@{ op = 'add_hint'; text = 'a hint' }) | Out-Null
             }
             catch { $thrown = $_ }
             $thrown | Should -Not -BeNullOrEmpty
@@ -1534,6 +1534,42 @@ for another line so the pair of lines is a genuine join candidate for the checke
                 Stop-Job $holder -ErrorAction SilentlyContinue
                 Remove-Job $holder -Force -ErrorAction SilentlyContinue
             }
+        }
+    }
+
+    Context 'The excluded frontmatter paths - skipped, not refused' {
+        BeforeEach {
+            # A skill file that would otherwise be a provenance FIX target: no doc.created, no
+            # doc.type, and an unrecoverable one at that - so if provenance saw it, it would try
+            # to write it and the write path would throw rather than report.
+            $script:SkillFull = Join-Path $script:VaultDir '.claude/skills/temp-skill/SKILL.md'
+            New-Item -ItemType Directory -Force -Path (Split-Path -Parent $script:SkillFull) | Out-Null
+            $script:SkillText = "---`nname: temp-skill`ndescription: >`n  A folded scalar spanning`n  more than one line.`n---`n# Temp Skill`n`nSee [the section](#a-heading).`n`n## A Heading`n"
+            [System.IO.File]::WriteAllText($script:SkillFull, $script:SkillText)
+        }
+
+        It 'skips an excluded file in a sweep rather than aborting on it' {
+            # The asymmetry with create and edit: a tool acting on one NAMED file must not fail
+            # silently, but a tool sweeping a set must not abort on a file the caller never
+            # singled out. So the same list that refuses there filters here.
+            $result = Invoke-Lint @{ Passes = @('provenance'); Apply = $true }
+            @((Get-LintPass $result 'provenance').findings | Where-Object { $_.file -like '.claude/skills/*' }) | Should -BeNullOrEmpty
+            [System.IO.File]::ReadAllText($script:SkillFull) | Should -BeExactly $script:SkillText
+        }
+
+        It 'skips it when it is the single-file target, where the hidden-folder filter is off' {
+            $result = Invoke-Lint @{ Passes = @('provenance'); Apply = $true; Path = '.claude/skills/temp-skill/SKILL.md' }
+            (Get-LintPass $result 'provenance').filesScanned | Should -Be 0
+            [System.IO.File]::ReadAllText($script:SkillFull) | Should -BeExactly $script:SkillText
+        }
+
+        It 'still lints an excluded file for everything that is not frontmatter' {
+            # The exclusion is about frontmatter OWNERSHIP, so it is asked for per pass rather than
+            # applied to the scan set wholesale. anchor-links has no stake in whose schema the
+            # block follows, and dropping skill files from it would narrow lint's coverage for a
+            # reason that has nothing to do with them.
+            $result = Invoke-Lint @{ Passes = @('anchor-links') }
+            @((Get-LintPass $result 'anchor-links').findings | Where-Object { $_.file -like '.claude/skills/*' }).Count | Should -Be 1
         }
     }
 }

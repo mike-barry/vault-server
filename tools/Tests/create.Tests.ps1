@@ -600,6 +600,34 @@ Describe 'create' {
             $scriptText | Should -Not -Match '(?m)^\s*\.PARAMETER\s+apply\s*$'
         }
     }
+
+    Context 'the excluded frontmatter paths' {
+        It 'refuses a note under .claude/skills, and writes nothing' {
+            # Claude Code's frontmatter schema, not the vault's - and its folded description
+            # scalars do not survive a reserialization with their shape intact. create routes
+            # through the same chokepoint edit does, so it inherits the refusal with no wiring.
+            $err = Invoke-CreateError @{ Kind = 'note'; Path = '.claude/skills/temp-skill/New.md'
+                Frontmatter = 'doc.created: 2026-07-30'; Body = "# N`n"
+            }
+            $err.code | Should -Be 'frontmatter_path_excluded'
+            Test-Path -LiteralPath (Join-Path $script:VaultDir '.claude/skills/temp-skill/New.md') | Should -BeFalse
+        }
+
+        It 'refuses however the excluded path is spelled' {
+            foreach ($p in @('.CLAUDE/Skills/temp/New.md', '.claude\skills\temp\New.md', 'Inbox/../.claude/skills/temp/New.md')) {
+                (Invoke-CreateError @{ Kind = 'note'; Path = $p; Frontmatter = 'doc.created: 2026-07-30'; Body = "# N`n" }).code |
+                    Should -Be 'frontmatter_path_excluded'
+            }
+        }
+
+        It 'leaves .claude/guides creatable - the exclusion is skills, not the dot directory' {
+            # create requires an existing parent, so the tier has to exist before the note can.
+            New-Item -ItemType Directory -Force -Path (Join-Path $script:VaultDir '.claude/guides') | Out-Null
+            $result = & $script:ScriptPath -Kind 'note' -Path '.claude/guides/New-Guide.md' `
+                -Frontmatter 'doc.created: 2026-07-30' -Body "# N`n" | ConvertFrom-Json
+            $result.created | Should -Be @('.claude/guides/New-Guide.md')
+        }
+    }
 }
 
 Describe 'create standalone invocability' {
