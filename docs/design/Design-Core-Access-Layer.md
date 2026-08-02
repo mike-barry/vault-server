@@ -3,37 +3,37 @@
 ## What This Answers
 
 - [[Spec-Vault-Access-Design.md#Load-Bearing Semantics]] - out-of-scope paths
-  unrepresentable rather than checked, met by §The Ladder Of Proofs and the single
-  producer in §Producing An Admitted Path; containment decided textually, met by
-  §Paths And Vaults; a search that cannot read a file failing the search, met by
-  §Enumeration And Search; ranking that does not search, met by §Wikilinks.
+  unrepresentable rather than checked, met by [[#The Ladder Of Proofs]] and the single
+  producer in [[#Producing An Admitted Path]]; containment decided textually, met by
+  [[#Paths And Vaults]]; a search that cannot read a file failing the search, met by
+  [[#Enumeration And Search]]; ranking that does not search, met by [[#Wikilinks]].
 - [[Spec-Vault-Access-Design.md#Guarantees To Callers]] - containment and
-  vault-relative terms, met by §Paths And Vaults; filtering silent and gating loud,
-  met by the two entry points in §Producing An Admitted Path; no parent created on
-  the way past and read-failure classification, met by §The File Primitives.
+  vault-relative terms, met by [[#Paths And Vaults]]; filtering silent and gating loud,
+  met by the two entry points in [[#Producing An Admitted Path]]; no parent created on
+  the way past and read-failure classification, met by [[#The File Primitives]].
 - [[Spec-Vault-Access-Design.md#The Mutex Lock Name]] - the derivation, met by
-  §The Lock's Identity. Acquiring is not here.
+  [[#The Lock's Identity]]. Acquiring is not here.
 - [[Spec-Auth-Requirements.md#What The Layer Must Do]] - every path-touching
   operation through the scope check and read-class operations through the read
-  check, met by §The Ladder Of Proofs; authority handed in and never ambient, met
-  by §Producing An Admitted Path; refusal without an oracle, met by §Refusals; the
-  mid-operation key assertion, met by §Producing An Admitted Path.
+  check, met by [[#The Ladder Of Proofs]]; authority handed in and never ambient, met
+  by [[#Producing An Admitted Path]]; refusal without an oracle, met by [[#Refusals]]; the
+  mid-operation key assertion, met by [[#Producing An Admitted Path]].
 - [[Spec-Access-Layer-Capabilities.md#Vault Resolution]] - the canonical name and
-  the two structurally distinguishable failures, met by §Paths And Vaults.
+  the two structurally distinguishable failures, met by [[#Paths And Vaults]].
 - [[Spec-Access-Layer-Capabilities.md#Enumeration]] and
   [[Spec-Access-Layer-Capabilities.md#Content Search]] - both surfaces, the glob,
-  the dot switch, and the four outcomes, met by §Enumeration And Search.
+  the dot switch, and the four outcomes, met by [[#Enumeration And Search]].
 - [[Spec-Access-Layer-Capabilities.md#Reading]],
   [[Spec-Access-Layer-Capabilities.md#Writing]],
   [[Spec-Access-Layer-Capabilities.md#Moving]],
   [[Spec-Access-Layer-Capabilities.md#Removal]] and
-  [[Spec-Access-Layer-Capabilities.md#Name Validation]] - met by §The File
-  Primitives.
+  [[Spec-Access-Layer-Capabilities.md#Name Validation]] - met by
+  [[#The File Primitives]].
 - [[Spec-Access-Layer-Capabilities.md#Wikilink Grammar And Resolution]] and
   [[Spec-Obsidian-Link-Behavior.md]] - recognition, the two ranges, and the one
-  comparator, met by §Wikilinks.
+  comparator, met by [[#Wikilinks]].
 - [[Spec-Tool-Capabilities.md#Wikilink Maintenance]] - the pass scope does not
-  bound, met by §The Vault-Wide Pass.
+  bound, met by [[#The Vault-Wide Pass]].
 
 Not answered here, deliberately:
 
@@ -229,8 +229,8 @@ resolved source ordinally so a case-only rename is not mistaken for a collision;
 the outcome says the move was case-only, so a later git pickup can stage it.
 
 **Removal is two operations, not one** - remove a file, remove an empty folder -
-because a path does not say which of those it names (§What A Path Does Not
-Assert) and neither may guess. Both take a `WritePath`, both refuse from the
+because a path does not say which of those it names
+([[#What A Path Does Not Assert]]) and neither may guess. Both take a `WritePath`, both refuse from the
 attempt rather than from a prior probe, and neither walks a tree: the caller holds
 the validated plan and drives it entry by entry
 ([[Spec-Access-Layer-Capabilities.md#Removal]]).

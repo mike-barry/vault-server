@@ -44,9 +44,9 @@ A coverage map from spec section to the section of this document that meets it. 
 ```markdown
 - [[Spec-Vault-Access-Design.md#Load-Bearing Semantics]] - the unrepresentability
   property, met by the resolved-path type's single construction seam
-  (§Resolved Paths).
+  ([[#Resolved Paths]]).
 - [[Spec-Access-Layer-Capabilities.md#Content Search]] - the four distinguishable
-  outcomes, met by §Search Results.
+  outcomes, met by [[#Search Results]].
 - [[Spec-Access-Layer-Capabilities.md#The Mutex Lock]] - only the two consequences
   that bind the layer: no primitive acquires, and the hold is single-threaded.
   The lock itself is [[Design-Tool-Vocabulary.md]].
@@ -121,7 +121,7 @@ A document that runs over has usually restated requirements or dropped to member
 
 ## Cross-References
 
-Wikilink syntax, with the file extension and the header where one applies: `[[Spec-Tool-Capabilities.md#The Argument Surface]]`, `[[Design-Core-Access-Layer.md]]`. A section of the same document is `§Resolved Paths`.
+Wikilink syntax throughout, with the file extension and the header where one applies: `[[Spec-Tool-Capabilities.md#The Argument Surface]]`, `[[Design-Core-Access-Layer.md]]`. A section of the same document drops the file and keeps the header: `[[#Resolved Paths]]`. One syntax for every reference, so a reader follows them all the same way and a search for a section name finds the places that point at it.
 
 ## Boundaries
 
@@ -130,7 +130,7 @@ A design document that absorbs either of these becomes a second source of truth.
 - **The bundle cannot answer it.** `Questions.md`, after agreement. The design document does not proceed under a guess and does not record the gap.
 - **It only makes sense beside the code.** A comment. Design documents name types and their contracts; they do not list members.
 
-There is no separate decision log. A choice the specs left open is §What This Closes, and how the change was reached is the commit message.
+There is no separate decision log. A choice the specs left open is [[#What This Closes]], and how the change was reached is the commit message.
 
 ## Lifetime
 
