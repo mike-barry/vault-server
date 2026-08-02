@@ -23,7 +23,7 @@ Runs before any build work begins.
 
 ## Design
 
-Design runs ahead of the code it governs, and a phase ends in the specs and `Decisions.md` rather than in source. A design that lands as code is a design nobody reviewed.
+Design runs ahead of the code it governs and lands in its own documents under `design/`, split into logical areas rather than accumulated in one. The specs stay the requirement; a design doc says how this build meets it. A design that lands as code is a design nobody reviewed.
 
 - [ ] Design the core access layer, resolved-path type first - every later choice depends on whether an out-of-scope path is representable
 - [ ] Design the tool vocabulary as one surface: argument shapes, return tiers, error vocabulary, the preview convention, the write-class envelope. The largest single task here, and its own phase
