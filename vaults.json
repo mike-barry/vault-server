@@ -1,6 +1,11 @@
 {
   "default_vault": "test",
   "vaults": {
-    "test": "C:/Repos/vault-server-redesign/test-vault"
+    "test": {
+      "path": "C:/Repos/vault-server-redesign/test-vault",
+      "path_policy": [
+        { "path": "Resources/Vault/Guides", "always_readable": true }
+      ]
+    }
   }
 }

@@ -473,7 +473,7 @@ public sealed class ScriptToolDispatcherTests : IClassFixture<ScriptToolDispatch
             File.WriteAllText(vaultsPath, JsonSerializer.Serialize(new
             {
                 default_vault = "personal",
-                vaults = new Dictionary<string, string> { ["personal"] = vaultRoot },
+                vaults = new Dictionary<string, object>{ ["personal"] = new { path = vaultRoot } },
             }));
 
             var grantsPath = Path.Combine(TempDir, "grants.json");

@@ -174,7 +174,7 @@ public sealed class VaultMembershipDispatchTests : IClassFixture<VaultMembership
             File.WriteAllText(vaultsPath, JsonSerializer.Serialize(new
             {
                 default_vault = "test",
-                vaults = new Dictionary<string, string> { ["personal"] = personalRoot, ["test"] = testRoot },
+                vaults = new Dictionary<string, object>{ ["personal"] = new { path = personalRoot }, ["test"] = new { path = testRoot } },
             }));
 
             var grantsPath = Path.Combine(TempDir, "grants.json");

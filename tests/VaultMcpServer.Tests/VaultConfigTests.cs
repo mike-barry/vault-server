@@ -56,7 +56,7 @@ public sealed class VaultConfigLoadTests : IDisposable
     [Fact]
     public void Load_MissingDefaultVaultThrows()
     {
-        var path = WriteConfig($$"""{ "vaults": { "a": {{JsonPath(_tempDir)}} } }""");
+        var path = WriteConfig($$"""{ "vaults": { "a": {{JsonVault(_tempDir)}} } }""");
         var healthState = new ServerHealthState();
         var config = VaultConfig.Load(path, healthState);
 
@@ -66,7 +66,7 @@ public sealed class VaultConfigLoadTests : IDisposable
     [Fact]
     public void Load_DefaultNotInVaultsThrows()
     {
-        var path = WriteConfig($$"""{ "default_vault": "b", "vaults": { "a": {{JsonPath(_tempDir)}} } }""");
+        var path = WriteConfig($$"""{ "default_vault": "b", "vaults": { "a": {{JsonVault(_tempDir)}} } }""");
         var healthState = new ServerHealthState();
         var config = VaultConfig.Load(path, healthState);
 
@@ -88,7 +88,7 @@ public sealed class VaultConfigLoadTests : IDisposable
     {
         // Two configured vaults, one with a missing root: the load is NOT fatal - the broken
         // vault is skipped (with a Degraded record) and the healthy vault keeps working.
-        var path = WriteConfig($$"""{ "default_vault": "a", "vaults": { "a": {{JsonPath(_tempDir)}}, "b": {{JsonPath(Path.Combine(_tempDir, "no-such-dir"))}} } }""");
+        var path = WriteConfig($$"""{ "default_vault": "a", "vaults": { "a": {{JsonVault(_tempDir)}}, "b": {{JsonVault(Path.Combine(_tempDir, "no-such-dir"))}} } }""");
         var healthState = new ServerHealthState();
         var config = VaultConfig.Load(path, healthState);
 
@@ -110,7 +110,7 @@ public sealed class VaultConfigLoadTests : IDisposable
     [Fact]
     public void Resolve_SkippedVaultFailsAsUnavailableDistinctFromUnknown()
     {
-        var path = WriteConfig($$"""{ "default_vault": "a", "vaults": { "a": {{JsonPath(_tempDir)}}, "b": {{JsonPath(Path.Combine(_tempDir, "no-such-dir"))}} } }""");
+        var path = WriteConfig($$"""{ "default_vault": "a", "vaults": { "a": {{JsonVault(_tempDir)}}, "b": {{JsonVault(Path.Combine(_tempDir, "no-such-dir"))}} } }""");
         var config = VaultConfig.Load(path, new ServerHealthState());
 
         var unavailable = Assert.Throws<ArgumentException>(() => config.Resolve("b"));
@@ -127,7 +127,7 @@ public sealed class VaultConfigLoadTests : IDisposable
     {
         // Per-entry skip semantics hold even when every entry skips: the server still starts
         // (nothing resolvable, one Degraded per vault) rather than going fatal.
-        var path = WriteConfig($$"""{ "default_vault": "a", "vaults": { "a": {{JsonPath(Path.Combine(_tempDir, "gone-a"))}}, "b": {{JsonPath(Path.Combine(_tempDir, "gone-b"))}} } }""");
+        var path = WriteConfig($$"""{ "default_vault": "a", "vaults": { "a": {{JsonVault(Path.Combine(_tempDir, "gone-a"))}}, "b": {{JsonVault(Path.Combine(_tempDir, "gone-b"))}} } }""");
         var healthState = new ServerHealthState();
         var config = VaultConfig.Load(path, healthState);
 
@@ -156,5 +156,6 @@ public sealed class VaultConfigLoadTests : IDisposable
         Assert.Throws<ArgumentException>(() => config.Resolve(null));
     }
 
-    private static string JsonPath(string path) => System.Text.Json.JsonSerializer.Serialize(path);
+    private static string JsonVault(string path) =>
+        $$"""{ "path": {{System.Text.Json.JsonSerializer.Serialize(path)}} }""";
 }

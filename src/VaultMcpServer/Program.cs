@@ -63,19 +63,6 @@ var localhostAuthOptions = new LocalhostAuthOptions(
     ExpectedLocalhostToken: builder.Configuration["LocalhostAuth:ExpectedLocalhostToken"] is { Length: > 0 } exp ? exp : null,
     DefaultGrantId: builder.Configuration["LocalhostAuth:DefaultGrantId"] is { Length: > 0 } def ? def : null);
 
-// The read-class scope floor (see SharedReadRoots): vault-relative paths every grant reaches for
-// read-class operations, in every configured vault. Configured beside the grant model's other
-// knobs rather than in the vault's own frontmatter registry declaration - scope is the grant
-// model's question, and a declaration whose every other section restricts should not also hand
-// out reach. Loaded before the grants themselves because it is a property of the scope model they
-// are read into, and validated here so a malformed entry surfaces at startup rather than at the
-// first read that touches it.
-var sharedReadRoots = SharedReadRoots.Load(
-    builder.Configuration.GetSection("SharedReadRoots").GetChildren().Select(c => c.Value),
-    vaultConfig,
-    healthState);
-builder.Services.AddSingleton(sharedReadRoots);
-
 GrantStore grantStore;
 if (healthState.IsFatallyDegraded)
 {
@@ -192,10 +179,11 @@ app.Logger.LogInformation("Op classes loaded from {Path}: {OpClasses}", opClasse
 app.Logger.LogInformation(
     "Vaults loaded from {Path}: {Vaults} (default: {Default})",
     vaultsConfigPath, string.Join(", ", vaultConfig.Vaults.Keys), vaultConfig.DefaultVault);
+foreach (var (vaultName, vaultEntry) in vaultConfig.Vaults.Where(v => v.Value.PathPolicy.AlwaysReadableRoots.Count > 0))
+    app.Logger.LogInformation(
+        "Vault {Vault} always-readable roots: {Roots}",
+        vaultName, string.Join(", ", vaultEntry.PathPolicy.AlwaysReadableRoots));
 app.Logger.LogInformation("Grants loaded from {Path}", grantsConfigPath);
-app.Logger.LogInformation(
-    "Shared read roots in effect for every grant: {Roots}",
-    sharedReadRoots.Roots.Count > 0 ? string.Join(", ", sharedReadRoots.Roots) : "(none)");
 app.Logger.LogInformation("Tools loaded from {Path}: {Count}", toolsDir, scriptToolRegistry.Tools.Count);
 
 app.Lifetime.ApplicationStopping.Register(scriptToolRunner.Dispose);

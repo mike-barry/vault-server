@@ -695,10 +695,10 @@ public sealed class GrantStoreTests(TestVaultFixture fixture) : IClassFixture<Te
         File.WriteAllText(configPath, System.Text.Json.JsonSerializer.Serialize(new
         {
             default_vault = "ok",
-            vaults = new Dictionary<string, string>
+            vaults = new Dictionary<string, object>
             {
-                ["ok"] = _tempDir,
-                ["broken"] = Path.Combine(_tempDir, "no-such-vault-root"),
+                ["ok"] = new { path = _tempDir },
+                ["broken"] = new { path = Path.Combine(_tempDir, "no-such-vault-root") },
             },
         }));
         var config = VaultConfig.Load(configPath, new ServerHealthState());

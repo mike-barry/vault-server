@@ -89,14 +89,6 @@ public sealed class CascadeAvoidanceDispatchTests
             var vaultRoot = Path.Combine(TempDir, "personal");
             Directory.CreateDirectory(vaultRoot);
 
-            // The shared read-root floor configured in appsettings, present here for the same
-            // reason the tools/ directory below is empty: this cascade is about the
-            // vaults.json/op-classes.json -> GrantStore skip, and a vault missing the configured
-            // floor would add an unrelated SharedReadRoots Degraded problem that muddies the
-            // exact-count assertions. Creating the folder is the honest neutralizer - the floor
-            // then has nothing to report, rather than being suppressed.
-            Directory.CreateDirectory(Path.Combine(vaultRoot, "Resources", "Vault", "Guides"));
-
             // An empty tools/ directory - this cascade is entirely about the
             // vaults.json/op-classes.json -> GrantStore skip; pointing at the real repo
             // tools/ directory here would layer unrelated ScriptTools Degraded problems on
@@ -130,7 +122,7 @@ public sealed class CascadeAvoidanceDispatchTests
                 // (the real, valid repo file), so this is the only Fatal in the picture.
                 File.WriteAllText(vaultsPath, JsonSerializer.Serialize(new
                 {
-                    vaults = new Dictionary<string, string> { ["personal"] = vaultRoot },
+                    vaults = new Dictionary<string, object>{ ["personal"] = new { path = vaultRoot } },
                 }));
             }
             else
@@ -139,7 +131,7 @@ public sealed class CascadeAvoidanceDispatchTests
                 File.WriteAllText(vaultsPath, JsonSerializer.Serialize(new
                 {
                     default_vault = "personal",
-                    vaults = new Dictionary<string, string> { ["personal"] = vaultRoot },
+                    vaults = new Dictionary<string, object>{ ["personal"] = new { path = vaultRoot } },
                 }));
 
                 // Non-array root - OpClassRegistry.Load records a whole-file Fatal (see

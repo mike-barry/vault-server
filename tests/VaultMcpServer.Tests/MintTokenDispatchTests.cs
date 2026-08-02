@@ -199,7 +199,7 @@ public sealed class MintTokenDispatchTests : IClassFixture<MintTokenDispatchTest
             File.WriteAllText(vaultsPath, JsonSerializer.Serialize(new
             {
                 default_vault = "personal",
-                vaults = new Dictionary<string, string> { ["personal"] = vaultRoot, ["test"] = secondVaultRoot },
+                vaults = new Dictionary<string, object>{ ["personal"] = new { path = vaultRoot }, ["test"] = new { path = secondVaultRoot } },
             }));
 
             var grantsPath = Path.Combine(TempDir, "grants.json");

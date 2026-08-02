@@ -118,7 +118,7 @@ public sealed class LocalhostAuthDispatchTests : IClassFixture<LocalhostAuthDisp
             File.WriteAllText(vaultsPath, JsonSerializer.Serialize(new
             {
                 default_vault = "personal",
-                vaults = new Dictionary<string, string> { ["personal"] = vaultRoot },
+                vaults = new Dictionary<string, object>{ ["personal"] = new { path = vaultRoot } },
             }));
 
             // A token-less named "admin" grant (the default-binding target) plus one ordinary

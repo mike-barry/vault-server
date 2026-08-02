@@ -36,7 +36,7 @@ public sealed class TestVaultFixture : IDisposable
         File.WriteAllText(configPath, JsonSerializer.Serialize(new
         {
             default_vault = "test",
-            vaults = new { test, scratch },
+            vaults = new { test = new { path = test }, scratch = new { path = scratch } },
         }));
         // Load no longer throws on failure - it records into the health state and returns
         // an inert config. This fixture's config is always expected to be valid, so surface
