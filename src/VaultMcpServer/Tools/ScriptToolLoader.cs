@@ -1,7 +1,7 @@
 using System.Management.Automation.Language;
 using System.Text.Json;
 using System.Text.RegularExpressions;
-using VaultShared.Health;
+using VaultMcpServer.Health;
 using VaultShared.Configuration;
 
 namespace VaultMcpServer.Tools;

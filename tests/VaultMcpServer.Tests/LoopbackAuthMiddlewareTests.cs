@@ -3,7 +3,7 @@ using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.Logging.Abstractions;
 using VaultMcpServer.Auth;
 using VaultShared.Auth;
-using VaultShared.Health;
+using VaultMcpServer.Health;
 using VaultShared.Configuration;
 using VaultShared.Tests;
 

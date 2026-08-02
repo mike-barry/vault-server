@@ -1,33 +1,9 @@
 using System.Collections.Concurrent;
 using Microsoft.Extensions.Logging;
+using VaultMcpServer.Health;
+using VaultShared.Health;
 
-namespace VaultShared.Health;
-
-/// <summary>How serious a recorded <see cref="HealthProblem"/> is.</summary>
-public enum ProblemSeverity
-{
-    /// <summary>A per-entry skip - one grants.json row, one vaults.json entry, one tool
-    /// script - that doesn't affect the rest of that file. Recorded either append-only
-    /// (<see cref="ServerHealthState.RecordDegraded"/>, for startup-only loads that never
-    /// re-run) or as a replaceable per-source set
-    /// (<see cref="ServerHealthState.ReplaceDegraded"/>, for sources that re-scan at
-    /// runtime and must be able to clear a fixed problem).</summary>
-    Degraded,
-
-    /// <summary>Whole-file failure of vaults.json, grants.json, or op-classes.json - the
-    /// file is missing, unparseable, or structurally invalid. Any fatal problem puts the
-    /// server in the "fatally degraded" state <see cref="ServerHealthState.IsFatallyDegraded"/>
-    /// reports.</summary>
-    Fatal,
-}
-
-/// <summary>One recorded config problem: how bad it is, what subsystem found it, and a
-/// human-readable detail message safe to put in a log line. <paramref name="SubjectPath"/> is
-/// the optional file this problem is about (e.g. the tool script that failed to load) - carried
-/// as structured data so consumers that need the path (the broken-tool listing in
-/// the MCP front-end's script-tool dispatcher) read it directly instead of parsing it back out of
-/// <paramref name="Detail"/>.</summary>
-public sealed record HealthProblem(ProblemSeverity Severity, string Source, string Detail, DateTimeOffset RecordedAtUtc, string? SubjectPath = null);
+namespace VaultMcpServer.Health;
 
 /// <summary>A single problem to record via <see cref="ServerHealthState.ReplaceDegraded(string, IReadOnlyList{DegradedProblem})"/>:
 /// its human-readable detail plus, optionally, the path of the file it concerns.</summary>
@@ -64,7 +40,7 @@ public sealed record DegradedProblem(string Detail, string? SubjectPath = null);
 /// (runtime re-scans) are logged as they are recorded, so nothing depends on a second
 /// flush pass.
 /// </summary>
-public sealed class ServerHealthState(TimeProvider? timeProvider = null)
+public sealed class ServerHealthState(TimeProvider? timeProvider = null) : IConfigProblemSink
 {
     private readonly TimeProvider _timeProvider = timeProvider ?? TimeProvider.System;
     private readonly ConcurrentQueue<HealthProblem> _problems = new();

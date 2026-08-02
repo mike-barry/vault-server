@@ -33,7 +33,7 @@ public sealed class OpClassRegistryTests : IDisposable
     [Fact]
     public void Load_ValidFile_ExposesEveryName()
     {
-        var registry = OpClassRegistry.Load(WriteRegistry(ThreeClasses), new ServerHealthState());
+        var registry = OpClassRegistry.Load(WriteRegistry(ThreeClasses), new RecordingProblemSink());
 
         Assert.Equal(3, registry.Names.Count);
         Assert.True(registry.IsValid("Read"));
@@ -45,7 +45,7 @@ public sealed class OpClassRegistryTests : IDisposable
     [Fact]
     public void Load_MissingFileThrows()
     {
-        var healthState = new ServerHealthState();
+        var healthState = new RecordingProblemSink();
         var registry = OpClassRegistry.Load(Path.Combine(_tempDir, "absent.json"), healthState);
 
         AssertFatalAndEmpty(healthState, registry);
@@ -54,7 +54,7 @@ public sealed class OpClassRegistryTests : IDisposable
     [Fact]
     public void Load_NonArrayRootThrows()
     {
-        var healthState = new ServerHealthState();
+        var healthState = new RecordingProblemSink();
         var registry = OpClassRegistry.Load(WriteRegistry("""{ "name": "Read" }"""), healthState);
 
         AssertFatalAndEmpty(healthState, registry);
@@ -63,7 +63,7 @@ public sealed class OpClassRegistryTests : IDisposable
     [Fact]
     public void Load_EmptyArrayThrows()
     {
-        var healthState = new ServerHealthState();
+        var healthState = new RecordingProblemSink();
         var registry = OpClassRegistry.Load(WriteRegistry("[]"), healthState);
 
         AssertFatalAndEmpty(healthState, registry);
@@ -72,7 +72,7 @@ public sealed class OpClassRegistryTests : IDisposable
     [Fact]
     public void Load_RowMissingNameThrows()
     {
-        var healthState = new ServerHealthState();
+        var healthState = new RecordingProblemSink();
         var registry = OpClassRegistry.Load(WriteRegistry("""[ { "description": "no name" } ]"""), healthState);
 
         AssertFatalAndEmpty(healthState, registry);
@@ -82,7 +82,7 @@ public sealed class OpClassRegistryTests : IDisposable
     public void Load_DuplicateNameThrows()
     {
         var json = """[ { "name": "Read" }, { "name": "read" } ]""";
-        var healthState = new ServerHealthState();
+        var healthState = new RecordingProblemSink();
         var registry = OpClassRegistry.Load(WriteRegistry(json), healthState);
 
         AssertFatalAndEmpty(healthState, registry);
@@ -92,7 +92,7 @@ public sealed class OpClassRegistryTests : IDisposable
     /// stays all-or-nothing (there is no per-row skip for it), so a whole-file failure
     /// records a single Fatal problem from source "OpClassRegistry" and returns a registry
     /// with no valid op-classes at all - never a partial one.</summary>
-    private static void AssertFatalAndEmpty(ServerHealthState healthState, OpClassRegistry registry)
+    private static void AssertFatalAndEmpty(RecordingProblemSink healthState, OpClassRegistry registry)
     {
         Assert.True(healthState.IsFatallyDegraded);
         var problem = Assert.Single(healthState.Problems);
@@ -107,7 +107,7 @@ public sealed class OpClassRegistryTests : IDisposable
     [Fact]
     public void Canonicalize_ReturnsRegistryCasingForACaseInsensitiveMatch()
     {
-        var registry = OpClassRegistry.Load(WriteRegistry(ThreeClasses), new ServerHealthState());
+        var registry = OpClassRegistry.Load(WriteRegistry(ThreeClasses), new RecordingProblemSink());
 
         Assert.Equal("ManageGrants", registry.Canonicalize("managegrants"));
         Assert.Equal("Read", registry.Canonicalize("READ"));

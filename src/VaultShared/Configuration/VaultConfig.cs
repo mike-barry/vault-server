@@ -72,7 +72,7 @@ public sealed class VaultConfig
     /// health-state redesign exists to eliminate. Callers that only exercise the success
     /// path (tests) pass a fresh local instance.
     /// </param>
-    public static VaultConfig Load(string path, ServerHealthState healthState)
+    public static VaultConfig Load(string path, IConfigProblemSink healthState)
     {
         try
         {
@@ -85,7 +85,7 @@ public sealed class VaultConfig
         }
     }
 
-    private static VaultConfig LoadCore(string path, ServerHealthState healthState)
+    private static VaultConfig LoadCore(string path, IConfigProblemSink healthState)
     {
         if (!File.Exists(path))
             throw new FileNotFoundException($"Vault config not found: {path}", path);

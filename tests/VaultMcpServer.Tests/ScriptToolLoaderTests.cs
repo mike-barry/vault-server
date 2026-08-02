@@ -1,4 +1,5 @@
 using System.Text.Json;
+using VaultMcpServer.Health;
 using VaultShared.Health;
 using VaultMcpServer.Tools;
 using VaultShared.Configuration;

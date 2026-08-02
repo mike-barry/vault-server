@@ -131,7 +131,7 @@ public sealed class GrantStore
     /// <see cref="GrantFileLoader"/> for the whole-file-Fatal / per-row-Degraded split. Callers that
     /// already hold parsed rows can bypass this and use the constructor.
     /// </summary>
-    public static GrantStore Load(string path, OpClassRegistry opClassRegistry, VaultConfig vaultConfig, ServerHealthState healthState, TimeProvider? timeProvider = null, LocalhostAuthOptions? localhostOptions = null)
+    public static GrantStore Load(string path, OpClassRegistry opClassRegistry, VaultConfig vaultConfig, IConfigProblemSink healthState, TimeProvider? timeProvider = null, LocalhostAuthOptions? localhostOptions = null)
     {
         var resolvedTimeProvider = timeProvider ?? TimeProvider.System;
         var contents = GrantFileLoader.Load(path, opClassRegistry, vaultConfig, healthState, resolvedTimeProvider.GetUtcNow());

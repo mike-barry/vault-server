@@ -57,7 +57,7 @@ public static class GrantFileLoader
     /// (<see cref="GrantStore.Load"/>) supplies it from its <see cref="TimeProvider"/> so tests can
     /// control it without depending on real elapsed wall-clock time.
     /// </param>
-    public static GrantFileContents Load(string path, OpClassRegistry opClassRegistry, VaultConfig vaultConfig, ServerHealthState healthState, DateTimeOffset now)
+    public static GrantFileContents Load(string path, OpClassRegistry opClassRegistry, VaultConfig vaultConfig, IConfigProblemSink healthState, DateTimeOffset now)
     {
         try
         {
@@ -70,7 +70,7 @@ public static class GrantFileLoader
         }
     }
 
-    private static GrantFileContents LoadCore(string path, OpClassRegistry opClassRegistry, VaultConfig vaultConfig, ServerHealthState healthState, DateTimeOffset now)
+    private static GrantFileContents LoadCore(string path, OpClassRegistry opClassRegistry, VaultConfig vaultConfig, IConfigProblemSink healthState, DateTimeOffset now)
     {
         if (!File.Exists(path))
             throw new FileNotFoundException($"Grants config not found: {path}", path);

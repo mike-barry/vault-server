@@ -1,7 +1,8 @@
 using Microsoft.Extensions.Logging;
+using VaultMcpServer.Health;
 using VaultShared.Health;
 
-namespace VaultShared.Tests;
+namespace VaultMcpServer.Tests;
 
 /// <summary>
 /// Unit-level coverage for <see cref="ServerHealthState"/> itself, independent of any

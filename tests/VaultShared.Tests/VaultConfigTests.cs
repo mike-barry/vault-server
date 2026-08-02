@@ -47,7 +47,7 @@ public sealed class VaultConfigLoadTests : IDisposable
     [Fact]
     public void Load_MissingFileThrows()
     {
-        var healthState = new ServerHealthState();
+        var healthState = new RecordingProblemSink();
         var config = VaultConfig.Load(Path.Combine(_tempDir, "absent.json"), healthState);
 
         AssertFatalAndEmpty(healthState, config);
@@ -57,7 +57,7 @@ public sealed class VaultConfigLoadTests : IDisposable
     public void Load_MissingDefaultVaultThrows()
     {
         var path = WriteConfig($$"""{ "vaults": { "a": {{JsonVault(_tempDir)}} } }""");
-        var healthState = new ServerHealthState();
+        var healthState = new RecordingProblemSink();
         var config = VaultConfig.Load(path, healthState);
 
         AssertFatalAndEmpty(healthState, config);
@@ -67,7 +67,7 @@ public sealed class VaultConfigLoadTests : IDisposable
     public void Load_DefaultNotInVaultsThrows()
     {
         var path = WriteConfig($$"""{ "default_vault": "b", "vaults": { "a": {{JsonVault(_tempDir)}} } }""");
-        var healthState = new ServerHealthState();
+        var healthState = new RecordingProblemSink();
         var config = VaultConfig.Load(path, healthState);
 
         AssertFatalAndEmpty(healthState, config);
@@ -77,7 +77,7 @@ public sealed class VaultConfigLoadTests : IDisposable
     public void Load_EmptyVaultsThrows()
     {
         var path = WriteConfig("""{ "default_vault": "a", "vaults": {} }""");
-        var healthState = new ServerHealthState();
+        var healthState = new RecordingProblemSink();
         var config = VaultConfig.Load(path, healthState);
 
         AssertFatalAndEmpty(healthState, config);
@@ -89,7 +89,7 @@ public sealed class VaultConfigLoadTests : IDisposable
         // Two configured vaults, one with a missing root: the load is NOT fatal - the broken
         // vault is skipped (with a Degraded record) and the healthy vault keeps working.
         var path = WriteConfig($$"""{ "default_vault": "a", "vaults": { "a": {{JsonVault(_tempDir)}}, "b": {{JsonVault(Path.Combine(_tempDir, "no-such-dir"))}} } }""");
-        var healthState = new ServerHealthState();
+        var healthState = new RecordingProblemSink();
         var config = VaultConfig.Load(path, healthState);
 
         Assert.False(healthState.IsFatallyDegraded);
@@ -111,7 +111,7 @@ public sealed class VaultConfigLoadTests : IDisposable
     public void Resolve_SkippedVaultFailsAsUnavailableDistinctFromUnknown()
     {
         var path = WriteConfig($$"""{ "default_vault": "a", "vaults": { "a": {{JsonVault(_tempDir)}}, "b": {{JsonVault(Path.Combine(_tempDir, "no-such-dir"))}} } }""");
-        var config = VaultConfig.Load(path, new ServerHealthState());
+        var config = VaultConfig.Load(path, new RecordingProblemSink());
 
         var unavailable = Assert.Throws<ArgumentException>(() => config.Resolve("b"));
         Assert.Contains("currently unavailable", unavailable.Message);
@@ -128,7 +128,7 @@ public sealed class VaultConfigLoadTests : IDisposable
         // Per-entry skip semantics hold even when every entry skips: the server still starts
         // (nothing resolvable, one Degraded per vault) rather than going fatal.
         var path = WriteConfig($$"""{ "default_vault": "a", "vaults": { "a": {{JsonVault(Path.Combine(_tempDir, "gone-a"))}}, "b": {{JsonVault(Path.Combine(_tempDir, "gone-b"))}} } }""");
-        var healthState = new ServerHealthState();
+        var healthState = new RecordingProblemSink();
         var config = VaultConfig.Load(path, healthState);
 
         Assert.False(healthState.IsFatallyDegraded);
@@ -144,7 +144,7 @@ public sealed class VaultConfigLoadTests : IDisposable
     /// <summary>Shared assertion for every whole-file-failure case above: the load no
     /// longer throws - it records a Fatal problem from source "VaultConfig" and returns an
     /// inert config with no resolvable vaults.</summary>
-    private static void AssertFatalAndEmpty(ServerHealthState healthState, VaultConfig config)
+    private static void AssertFatalAndEmpty(RecordingProblemSink healthState, VaultConfig config)
     {
         Assert.True(healthState.IsFatallyDegraded);
         var problem = Assert.Single(healthState.Problems);

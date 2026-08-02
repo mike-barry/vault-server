@@ -5,6 +5,7 @@ using System.Text.Json;
 using Microsoft.Extensions.DependencyInjection;
 using VaultMcpServer.Auth;
 using VaultShared.Auth;
+using VaultMcpServer.Health;
 using VaultShared.Health;
 using VaultShared.Tests;
 

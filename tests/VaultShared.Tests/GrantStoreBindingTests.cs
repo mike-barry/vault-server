@@ -16,7 +16,7 @@ namespace VaultShared.Tests;
 /// </summary>
 public sealed class GrantStoreBindingTests(TestVaultFixture fixture) : IClassFixture<TestVaultFixture>, IDisposable
 {
-    private static readonly OpClassRegistry OpClasses = OpClassRegistry.Load(Path.Combine(TestVaultFixture.RepoRoot, "op-classes.json"), new ServerHealthState());
+    private static readonly OpClassRegistry OpClasses = OpClassRegistry.Load(Path.Combine(TestVaultFixture.RepoRoot, "op-classes.json"), new RecordingProblemSink());
 
     private readonly string _tempDir = Directory.CreateTempSubdirectory("vault-mcp-binding-tests-").FullName;
     private readonly VaultConfig _vaultConfig = fixture.Config;
@@ -27,7 +27,7 @@ public sealed class GrantStoreBindingTests(TestVaultFixture fixture) : IClassFix
     {
         var path = Path.Combine(_tempDir, "grants.json");
         File.WriteAllText(path, json);
-        return GrantStore.Load(path, OpClasses, _vaultConfig, new ServerHealthState(), timeProvider, localhostOptions);
+        return GrantStore.Load(path, OpClasses, _vaultConfig, new RecordingProblemSink(), timeProvider, localhostOptions);
     }
 
     // A token-keyed opt-in caller row plus a token-less named "elevated" grant with broader access.
@@ -65,7 +65,7 @@ public sealed class GrantStoreBindingTests(TestVaultFixture fixture) : IClassFix
     [Fact]
     public void Load_DuplicateIdAcrossTokenAndNamedGrant_SkipsSecond()
     {
-        var healthState = new ServerHealthState();
+        var healthState = new RecordingProblemSink();
         var path = Path.Combine(_tempDir, "grants.json");
         File.WriteAllText(path, """
             {

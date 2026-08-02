@@ -1,5 +1,6 @@
 using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.Logging.Abstractions;
+using VaultMcpServer.Health;
 using VaultShared.Health;
 using VaultMcpServer.Tools;
 using VaultShared.Configuration;

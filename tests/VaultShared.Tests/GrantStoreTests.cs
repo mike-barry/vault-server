@@ -7,7 +7,7 @@ namespace VaultShared.Tests;
 
 public sealed class GrantStoreTests(TestVaultFixture fixture) : IClassFixture<TestVaultFixture>, IDisposable
 {
-    private static readonly OpClassRegistry OpClasses = OpClassRegistry.Load(Path.Combine(TestVaultFixture.RepoRoot, "op-classes.json"), new ServerHealthState());
+    private static readonly OpClassRegistry OpClasses = OpClassRegistry.Load(Path.Combine(TestVaultFixture.RepoRoot, "op-classes.json"), new RecordingProblemSink());
 
     private readonly string _tempDir = Directory.CreateTempSubdirectory("vault-mcp-grants-tests-").FullName;
     private readonly VaultConfig _vaultConfig = fixture.Config;
@@ -35,10 +35,10 @@ public sealed class GrantStoreTests(TestVaultFixture fixture) : IClassFixture<Te
     private const string GoodRow = """ "good-token": { "id": "good", "opClasses": ["content:read"], "vaults": ["test"], "ttl": "*", "scopeRoots": { "test": ["*"] } } """;
 
     /// <summary>Loads a grants.json built from the given rows (each a `"token": {...}` fragment) against the fixture config and a fresh health state.</summary>
-    private (GrantStore Store, ServerHealthState HealthState) LoadRows(params string[] rows)
+    private (GrantStore Store, RecordingProblemSink HealthState) LoadRows(params string[] rows)
     {
         var json = "{\n" + string.Join(",\n", rows) + "\n}";
-        var healthState = new ServerHealthState();
+        var healthState = new RecordingProblemSink();
         var store = GrantStore.Load(WriteGrants(json), OpClasses, _vaultConfig, healthState);
         return (store, healthState);
     }
@@ -46,7 +46,7 @@ public sealed class GrantStoreTests(TestVaultFixture fixture) : IClassFixture<Te
     [Fact]
     public void Authenticate_KnownTokenReturnsItsGrant()
     {
-        var store = GrantStore.Load(WriteGrants(TwoGrants), OpClasses, _vaultConfig, new ServerHealthState());
+        var store = GrantStore.Load(WriteGrants(TwoGrants), OpClasses, _vaultConfig, new RecordingProblemSink());
 
         var admin = store.Authenticate("admin-token");
         Assert.NotNull(admin);
@@ -67,21 +67,21 @@ public sealed class GrantStoreTests(TestVaultFixture fixture) : IClassFixture<Te
     [Fact]
     public void Authenticate_UnknownTokenReturnsNull()
     {
-        var store = GrantStore.Load(WriteGrants(TwoGrants), OpClasses, _vaultConfig, new ServerHealthState());
+        var store = GrantStore.Load(WriteGrants(TwoGrants), OpClasses, _vaultConfig, new RecordingProblemSink());
         Assert.Null(store.Authenticate("not-a-real-token"));
     }
 
     [Fact]
     public void Authenticate_EmptyTokenReturnsNull()
     {
-        var store = GrantStore.Load(WriteGrants(TwoGrants), OpClasses, _vaultConfig, new ServerHealthState());
+        var store = GrantStore.Load(WriteGrants(TwoGrants), OpClasses, _vaultConfig, new RecordingProblemSink());
         Assert.Null(store.Authenticate(""));
     }
 
     [Fact]
     public void Load_MissingFileIsFatal()
     {
-        var healthState = new ServerHealthState();
+        var healthState = new RecordingProblemSink();
         var store = GrantStore.Load(Path.Combine(_tempDir, "absent.json"), OpClasses, _vaultConfig, healthState: healthState);
 
         AssertFatalAndEmpty(healthState, store);
@@ -92,7 +92,7 @@ public sealed class GrantStoreTests(TestVaultFixture fixture) : IClassFixture<Te
     {
         // Zero configured rows is a structurally-empty grant table - still whole-file Fatal,
         // unlike a table whose rows were individually skipped.
-        var healthState = new ServerHealthState();
+        var healthState = new RecordingProblemSink();
         var store = GrantStore.Load(WriteGrants("{}"), OpClasses, _vaultConfig, healthState: healthState);
 
         AssertFatalAndEmpty(healthState, store);
@@ -185,7 +185,7 @@ public sealed class GrantStoreTests(TestVaultFixture fixture) : IClassFixture<Te
         var config = LoadConfigWithBrokenVault();
 
         var json = """{ "token-a": { "id": "admin", "opClasses": ["content:read"], "vaults": ["broken"], "ttl": "*", "scopeRoots": { "broken": ["*"] } } }""";
-        var healthState = new ServerHealthState();
+        var healthState = new RecordingProblemSink();
         var store = GrantStore.Load(WriteGrants(json), OpClasses, config, healthState);
 
         Assert.DoesNotContain(healthState.Problems, p => p.Source == "GrantStore");
@@ -202,7 +202,7 @@ public sealed class GrantStoreTests(TestVaultFixture fixture) : IClassFixture<Te
         var config = LoadConfigWithBrokenVault();
 
         var json = """{ "token-a": { "id": "admin", "opClasses": ["content:read"], "vaults": ["*"], "ttl": "*", "scopeRoots": { "*": ["*"] } } }""";
-        var store = GrantStore.Load(WriteGrants(json), OpClasses, config, new ServerHealthState());
+        var store = GrantStore.Load(WriteGrants(json), OpClasses, config, new RecordingProblemSink());
 
         var grant = store.Authenticate("token-a");
         Assert.NotNull(grant);
@@ -230,7 +230,7 @@ public sealed class GrantStoreTests(TestVaultFixture fixture) : IClassFixture<Te
     public void Load_OpClassesWildcardExpandsToAllRegistryClasses()
     {
         var json = """{ "token-a": { "id": "admin", "opClasses": ["*"], "vaults": ["test"], "ttl": "*", "scopeRoots": { "test": ["*"] } } }""";
-        var store = GrantStore.Load(WriteGrants(json), OpClasses, _vaultConfig, new ServerHealthState());
+        var store = GrantStore.Load(WriteGrants(json), OpClasses, _vaultConfig, new RecordingProblemSink());
 
         var grant = store.Authenticate("token-a");
         Assert.NotNull(grant);
@@ -242,7 +242,7 @@ public sealed class GrantStoreTests(TestVaultFixture fixture) : IClassFixture<Te
     public void Load_VaultsWildcardExpandsToAllConfiguredVaults()
     {
         var json = """{ "token-a": { "id": "admin", "opClasses": ["content:read"], "vaults": ["*"], "ttl": "*", "scopeRoots": { "*": ["*"] } } }""";
-        var store = GrantStore.Load(WriteGrants(json), OpClasses, _vaultConfig, new ServerHealthState());
+        var store = GrantStore.Load(WriteGrants(json), OpClasses, _vaultConfig, new RecordingProblemSink());
 
         var grant = store.Authenticate("token-a");
         Assert.NotNull(grant);
@@ -254,7 +254,7 @@ public sealed class GrantStoreTests(TestVaultFixture fixture) : IClassFixture<Te
     public void Load_BothWildcardsExpandTogether()
     {
         var json = """{ "token-a": { "id": "admin", "opClasses": ["*"], "vaults": ["*"], "ttl": "*", "scopeRoots": { "*": ["*"] } } }""";
-        var store = GrantStore.Load(WriteGrants(json), OpClasses, _vaultConfig, new ServerHealthState());
+        var store = GrantStore.Load(WriteGrants(json), OpClasses, _vaultConfig, new RecordingProblemSink());
 
         var grant = store.Authenticate("token-a");
         Assert.NotNull(grant);
@@ -306,7 +306,7 @@ public sealed class GrantStoreTests(TestVaultFixture fixture) : IClassFixture<Te
     public void Load_WildcardTtlNeverExpires()
     {
         var json = """{ "token-a": { "id": "admin", "opClasses": ["content:read"], "vaults": ["test"], "ttl": "*", "scopeRoots": { "test": ["*"] } } }""";
-        var store = GrantStore.Load(WriteGrants(json), OpClasses, _vaultConfig, new ServerHealthState());
+        var store = GrantStore.Load(WriteGrants(json), OpClasses, _vaultConfig, new RecordingProblemSink());
 
         var grant = store.Authenticate("token-a");
         Assert.NotNull(grant);
@@ -320,7 +320,7 @@ public sealed class GrantStoreTests(TestVaultFixture fixture) : IClassFixture<Te
     {
         var loadedAt = new DateTimeOffset(2026, 1, 1, 0, 0, 0, TimeSpan.Zero);
         var json = """{ "token-a": { "id": "admin", "opClasses": ["content:read"], "vaults": ["test"], "ttl": 30, "scopeRoots": { "test": ["*"] } } }""";
-        var store = GrantStore.Load(WriteGrants(json), OpClasses, _vaultConfig, new ServerHealthState(), new FixedTimeProvider(loadedAt));
+        var store = GrantStore.Load(WriteGrants(json), OpClasses, _vaultConfig, new RecordingProblemSink(), new FixedTimeProvider(loadedAt));
 
         var grant = store.Authenticate("token-a");
         Assert.NotNull(grant);
@@ -334,7 +334,7 @@ public sealed class GrantStoreTests(TestVaultFixture fixture) : IClassFixture<Te
         // deterministic without depending on real elapsed wall-clock time in the test.
         var loadedAt = DateTimeOffset.UtcNow.AddMinutes(-10);
         var json = """{ "token-a": { "id": "admin", "opClasses": ["content:read"], "vaults": ["test"], "ttl": 1, "scopeRoots": { "test": ["*"] } } }""";
-        var store = GrantStore.Load(WriteGrants(json), OpClasses, _vaultConfig, new ServerHealthState(), new FixedTimeProvider(loadedAt));
+        var store = GrantStore.Load(WriteGrants(json), OpClasses, _vaultConfig, new RecordingProblemSink(), new FixedTimeProvider(loadedAt));
 
         var grant = store.Authenticate("token-a");
         Assert.NotNull(grant);
@@ -350,7 +350,7 @@ public sealed class GrantStoreTests(TestVaultFixture fixture) : IClassFixture<Te
         // must be indistinguishable from an unknown one to this method.
         var timeProvider = new FixedTimeProvider(DateTimeOffset.UtcNow);
         var json = """{ "token-a": { "id": "admin", "opClasses": ["content:read"], "vaults": ["test"], "ttl": 1, "scopeRoots": { "test": ["*"] } } }""";
-        var store = GrantStore.Load(WriteGrants(json), OpClasses, _vaultConfig, new ServerHealthState(), timeProvider);
+        var store = GrantStore.Load(WriteGrants(json), OpClasses, _vaultConfig, new RecordingProblemSink(), timeProvider);
 
         timeProvider.Now = timeProvider.Now.AddMinutes(10);
 
@@ -362,7 +362,7 @@ public sealed class GrantStoreTests(TestVaultFixture fixture) : IClassFixture<Te
     {
         var timeProvider = new FixedTimeProvider(DateTimeOffset.UtcNow);
         var json = """{ "token-a": { "id": "admin", "opClasses": ["content:read"], "vaults": ["test"], "ttl": 30, "scopeRoots": { "test": ["*"] } } }""";
-        var store = GrantStore.Load(WriteGrants(json), OpClasses, _vaultConfig, new ServerHealthState(), timeProvider);
+        var store = GrantStore.Load(WriteGrants(json), OpClasses, _vaultConfig, new RecordingProblemSink(), timeProvider);
 
         timeProvider.Now = timeProvider.Now.AddMinutes(5);
 
@@ -377,7 +377,7 @@ public sealed class GrantStoreTests(TestVaultFixture fixture) : IClassFixture<Te
         // a call.
         var timeProvider = new FixedTimeProvider(DateTimeOffset.UtcNow);
         var json = """{ "token-a": { "id": "admin", "opClasses": ["content:read"], "vaults": ["test"], "ttl": 1, "scopeRoots": { "test": ["*"] } } }""";
-        var store = GrantStore.Load(WriteGrants(json), OpClasses, _vaultConfig, new ServerHealthState(), timeProvider);
+        var store = GrantStore.Load(WriteGrants(json), OpClasses, _vaultConfig, new RecordingProblemSink(), timeProvider);
 
         timeProvider.Now = timeProvider.Now.AddMinutes(10);
 
@@ -388,7 +388,7 @@ public sealed class GrantStoreTests(TestVaultFixture fixture) : IClassFixture<Te
     [Fact]
     public void GetAuthFailureReason_ReturnsUnknownForUnrecognizedToken()
     {
-        var store = GrantStore.Load(WriteGrants(TwoGrants), OpClasses, _vaultConfig, new ServerHealthState());
+        var store = GrantStore.Load(WriteGrants(TwoGrants), OpClasses, _vaultConfig, new RecordingProblemSink());
         Assert.Equal(AuthFailureReason.Unknown, store.GetAuthFailureReason("not-a-real-token"));
     }
 
@@ -416,7 +416,7 @@ public sealed class GrantStoreTests(TestVaultFixture fixture) : IClassFixture<Te
     public void Load_ScopeRootsWildcardKeyGrantsFullAccessToEveryVault()
     {
         var json = """{ "token-a": { "id": "admin", "opClasses": ["content:read"], "vaults": ["test", "scratch"], "ttl": "*", "scopeRoots": { "*": ["*"] } } }""";
-        var store = GrantStore.Load(WriteGrants(json), OpClasses, _vaultConfig, new ServerHealthState());
+        var store = GrantStore.Load(WriteGrants(json), OpClasses, _vaultConfig, new RecordingProblemSink());
 
         var grant = store.Authenticate("token-a");
         Assert.NotNull(grant);
@@ -451,7 +451,7 @@ public sealed class GrantStoreTests(TestVaultFixture fixture) : IClassFixture<Te
     public void Load_ScopeRootsVaultWildcardMeansThatVaultIsUnscoped()
     {
         var json = """{ "token-a": { "id": "admin", "opClasses": ["content:read"], "vaults": ["test"], "ttl": "*", "scopeRoots": { "test": ["*"] } } }""";
-        var store = GrantStore.Load(WriteGrants(json), OpClasses, _vaultConfig, new ServerHealthState());
+        var store = GrantStore.Load(WriteGrants(json), OpClasses, _vaultConfig, new RecordingProblemSink());
 
         var grant = store.Authenticate("token-a");
         Assert.NotNull(grant);
@@ -481,10 +481,10 @@ public sealed class GrantStoreTests(TestVaultFixture fixture) : IClassFixture<Te
         // while proving nothing.
         var empty = GrantStore.Load(
             WriteGrants("""{ "token-a": { "id": "admin", "opClasses": ["content:read"], "vaults": ["test"], "ttl": "*", "scopeRoots": { "test": [] } } }"""),
-            OpClasses, _vaultConfig, new ServerHealthState());
+            OpClasses, _vaultConfig, new RecordingProblemSink());
         var wildcard = GrantStore.Load(
             WriteGrants("""{ "token-a": { "id": "admin", "opClasses": ["content:read"], "vaults": ["test"], "ttl": "*", "scopeRoots": { "test": ["*"] } } }"""),
-            OpClasses, _vaultConfig, new ServerHealthState());
+            OpClasses, _vaultConfig, new RecordingProblemSink());
 
         Assert.Null(empty.Authenticate("token-a"));
         Assert.Equal(VaultScope.Unscoped, wildcard.Authenticate("token-a")!.ScopeRoots["test"]);
@@ -494,7 +494,7 @@ public sealed class GrantStoreTests(TestVaultFixture fixture) : IClassFixture<Te
     public void Load_ScopeRootsCanonicalizesEntries()
     {
         var json = """{ "token-a": { "id": "admin", "opClasses": ["content:read"], "vaults": ["test"], "ttl": "*", "scopeRoots": { "test": ["Projects\\Widget", "Areas/./Homelab"] } } }""";
-        var store = GrantStore.Load(WriteGrants(json), OpClasses, _vaultConfig, new ServerHealthState());
+        var store = GrantStore.Load(WriteGrants(json), OpClasses, _vaultConfig, new RecordingProblemSink());
 
         var grant = store.Authenticate("token-a");
         Assert.NotNull(grant);
@@ -566,7 +566,7 @@ public sealed class GrantStoreTests(TestVaultFixture fixture) : IClassFixture<Te
     public void Load_ScopeRootsMultiVaultKeepsEachVaultsRootsSeparate()
     {
         var json = """{ "token-a": { "id": "admin", "opClasses": ["content:read"], "vaults": ["test", "scratch"], "ttl": "*", "scopeRoots": { "test": ["Area"], "scratch": ["*"] } } }""";
-        var store = GrantStore.Load(WriteGrants(json), OpClasses, _vaultConfig, new ServerHealthState());
+        var store = GrantStore.Load(WriteGrants(json), OpClasses, _vaultConfig, new RecordingProblemSink());
 
         var grant = store.Authenticate("token-a");
         Assert.NotNull(grant);
@@ -580,7 +580,7 @@ public sealed class GrantStoreTests(TestVaultFixture fixture) : IClassFixture<Te
     [Fact]
     public void Mint_ReturnsATokenThatAuthenticatesToTheMintedGrant()
     {
-        var store = GrantStore.Load(WriteGrants(TwoGrants), OpClasses, _vaultConfig, new ServerHealthState());
+        var store = GrantStore.Load(WriteGrants(TwoGrants), OpClasses, _vaultConfig, new RecordingProblemSink());
 
         var (token, _, _) = store.Mint(
             "minted-1",
@@ -601,7 +601,7 @@ public sealed class GrantStoreTests(TestVaultFixture fixture) : IClassFixture<Te
     [Fact]
     public void Mint_DoesNotAffectFileLoadedGrants()
     {
-        var store = GrantStore.Load(WriteGrants(TwoGrants), OpClasses, _vaultConfig, new ServerHealthState());
+        var store = GrantStore.Load(WriteGrants(TwoGrants), OpClasses, _vaultConfig, new RecordingProblemSink());
         store.Mint("minted-1", new HashSet<string> { OpClass.Read }, new HashSet<string> { "scratch" }, ScopeRoots(("scratch", "")), ttlMinutes: 30);
 
         var admin = store.Authenticate("admin-token");
@@ -614,7 +614,7 @@ public sealed class GrantStoreTests(TestVaultFixture fixture) : IClassFixture<Te
     public void Mint_ExpiresAfterItsTtlElapses()
     {
         var timeProvider = new FixedTimeProvider(DateTimeOffset.UtcNow);
-        var store = GrantStore.Load(WriteGrants(TwoGrants), OpClasses, _vaultConfig, new ServerHealthState(), timeProvider);
+        var store = GrantStore.Load(WriteGrants(TwoGrants), OpClasses, _vaultConfig, new RecordingProblemSink(), timeProvider);
 
         var (token, _, _) = store.Mint("minted-1", new HashSet<string> { OpClass.Read }, new HashSet<string> { "test" }, ScopeRoots(("test", "")), ttlMinutes: 1);
         Assert.NotNull(store.Authenticate(token));
@@ -628,7 +628,7 @@ public sealed class GrantStoreTests(TestVaultFixture fixture) : IClassFixture<Te
     [Fact]
     public void Mint_UnknownTokenAfterMintingIsStillUnknown()
     {
-        var store = GrantStore.Load(WriteGrants(TwoGrants), OpClasses, _vaultConfig, new ServerHealthState());
+        var store = GrantStore.Load(WriteGrants(TwoGrants), OpClasses, _vaultConfig, new RecordingProblemSink());
         store.Mint("minted-1", new HashSet<string> { OpClass.Read }, new HashSet<string> { "test" }, ScopeRoots(("test", "")), ttlMinutes: 30);
 
         Assert.Null(store.Authenticate("not-a-real-token"));
@@ -638,7 +638,7 @@ public sealed class GrantStoreTests(TestVaultFixture fixture) : IClassFixture<Te
     [Fact]
     public void Mint_EachCallReturnsADistinctUnguessableToken()
     {
-        var store = GrantStore.Load(WriteGrants(TwoGrants), OpClasses, _vaultConfig, new ServerHealthState());
+        var store = GrantStore.Load(WriteGrants(TwoGrants), OpClasses, _vaultConfig, new RecordingProblemSink());
 
         var (tokenA, _, _) = store.Mint("minted-a", new HashSet<string> { OpClass.Read }, new HashSet<string> { "test" }, ScopeRoots(("test", "")), ttlMinutes: 30);
         var (tokenB, _, _) = store.Mint("minted-b", new HashSet<string> { OpClass.Read }, new HashSet<string> { "test" }, ScopeRoots(("test", "")), ttlMinutes: 30);
@@ -651,7 +651,7 @@ public sealed class GrantStoreTests(TestVaultFixture fixture) : IClassFixture<Te
     [Fact]
     public void Mint_NonPositiveTtlThrows()
     {
-        var store = GrantStore.Load(WriteGrants(TwoGrants), OpClasses, _vaultConfig, new ServerHealthState());
+        var store = GrantStore.Load(WriteGrants(TwoGrants), OpClasses, _vaultConfig, new RecordingProblemSink());
         Assert.Throws<ArgumentOutOfRangeException>(() =>
             store.Mint("minted-1", new HashSet<string> { OpClass.Read }, new HashSet<string> { "test" }, ScopeRoots(("test", "")), ttlMinutes: 0));
     }
@@ -661,7 +661,7 @@ public sealed class GrantStoreTests(TestVaultFixture fixture) : IClassFixture<Te
     /// and returns an inert store nobody can authenticate against. Per-row validation
     /// failures no longer land here - they skip just their row; see
     /// <see cref="AssertSingleRowSkipped"/>.</summary>
-    private static void AssertFatalAndEmpty(ServerHealthState healthState, GrantStore store)
+    private static void AssertFatalAndEmpty(RecordingProblemSink healthState, GrantStore store)
     {
         Assert.True(healthState.IsFatallyDegraded);
         var problem = Assert.Single(healthState.Problems);
@@ -676,7 +676,7 @@ public sealed class GrantStoreTests(TestVaultFixture fixture) : IClassFixture<Te
     /// <summary>Shared assertion for every row-level skip case: exactly one Degraded problem
     /// from source "GrantStore" (never Fatal - the server stays fully operational), the bad
     /// "token-a" row does not authenticate, and the known-good row loaded normally.</summary>
-    private static void AssertSingleRowSkipped(ServerHealthState healthState, GrantStore store, string? expectedDetailFragment = null)
+    private static void AssertSingleRowSkipped(RecordingProblemSink healthState, GrantStore store, string? expectedDetailFragment = null)
     {
         Assert.False(healthState.IsFatallyDegraded);
         var problem = Assert.Single(healthState.Problems);
@@ -702,7 +702,7 @@ public sealed class GrantStoreTests(TestVaultFixture fixture) : IClassFixture<Te
                 ["broken"] = new { path = Path.Combine(_tempDir, "no-such-vault-root") },
             },
         }));
-        var config = VaultConfig.Load(configPath, new ServerHealthState());
+        var config = VaultConfig.Load(configPath, new RecordingProblemSink());
         Assert.Single(config.SkippedVaults);
         return config;
     }

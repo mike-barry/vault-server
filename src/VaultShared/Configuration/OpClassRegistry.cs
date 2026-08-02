@@ -33,7 +33,7 @@ public sealed class OpClassRegistry
     /// health-state redesign exists to eliminate. Callers that only exercise the success
     /// path (tests) pass a fresh local instance.
     /// </param>
-    public static OpClassRegistry Load(string path, ServerHealthState healthState)
+    public static OpClassRegistry Load(string path, IConfigProblemSink healthState)
     {
         try
         {

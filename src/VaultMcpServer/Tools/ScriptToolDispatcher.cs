@@ -6,7 +6,7 @@ using Microsoft.Extensions.Logging.Abstractions;
 using ModelContextProtocol.Protocol;
 using ModelContextProtocol.Server;
 using VaultShared.Auth;
-using VaultShared.Health;
+using VaultMcpServer.Health;
 using VaultShared.Configuration;
 using VaultMcpServer.Auth;
 

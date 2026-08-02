@@ -2,7 +2,7 @@ using System.Net;
 using System.Text;
 using System.Text.Json;
 using VaultShared.Auth;
-using VaultShared.Health;
+using VaultMcpServer.Health;
 
 namespace VaultMcpServer.Auth;
 

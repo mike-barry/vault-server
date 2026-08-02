@@ -1,5 +1,4 @@
 using System.Text.Json;
-using VaultShared.Health;
 using VaultShared.Configuration;
 
 namespace VaultShared.Tests;
@@ -40,7 +39,7 @@ public sealed class TestVaultFixture : IDisposable
         // an inert config. This fixture's config is always expected to be valid, so surface
         // any recorded problem loudly here rather than letting an empty VaultConfig produce
         // confusing downstream test failures.
-        var healthState = new ServerHealthState();
+        var healthState = new RecordingProblemSink();
         Config = VaultConfig.Load(configPath, healthState);
         if (healthState.IsFatallyDegraded)
             throw new InvalidOperationException(

@@ -47,3 +47,15 @@ Rejected: leaving the null-map branch in `ResolveVaultScopeRoots` alone. It beca
 The parameter is now required, so the shape cannot be reached by a caller who forgot rather than decided. A caller meaning the whole vault passes a map holding `VaultScope.Unscoped` - the same discipline `VaultScope` already applies to the empty root set.
 
 Answers `Spec-Auth-Requirements.md:What The Layer Must Do`.
+
+## The config loaders take a write-only problem sink, not the server's health state
+
+2026-08-02, design.
+
+Rejected: keeping `ServerHealthState` in `VaultShared`, where the migration first put it because five loaders take it as a required parameter. That works, and the CLI could use it - construct one, hand it to the loaders, ask `IsFatallyDegraded` afterwards.
+
+It lost on what the loaders actually use. They call `RecordFatal` and `RecordDegraded` and never read back: two of seven members, write-only. The other five have no consumer outside the MCP front-end, and three are shaped by it - `InstructionsSummary` renders the `initialize` response's `instructions` field, `AttachLogger` is host wiring, and `ReplaceDegraded` exists so the script watcher's re-scan can retract a fixed problem. Loading `vaults.json` should not depend on any of them.
+
+`ServerHealthState` moves back to `VaultMcpServer` and implements `IConfigProblemSink`. Its members and bodies are unchanged and no call site in the server moved, so health reporting itself is untouched - `Spec-Vault-Access-Design.md:Scope Of The Build` keeps that out of design, and the change is to what the loaders accept. An approved change to retained code. `VaultShared` keeps `ProblemSeverity` and `HealthProblem` as data a second front-end will need to report, and drops its only package reference, `Microsoft.Extensions.Logging.Abstractions`, which existed for the `ILogger` on `AttachLogger` alone.
+
+What made the seam worth having rather than tolerating the wide parameter: the two front-ends must decide differently. `Spec-Auth-Requirements.md:Both Front-Ends Are Granted` fails the CLI on configuration that will not load, where the server records the problem and stays up to report it.

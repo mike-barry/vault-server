@@ -1,6 +1,6 @@
 using System.Text.Json;
 using VaultShared.Auth;
-using VaultShared.Health;
+using VaultMcpServer.Health;
 using VaultMcpServer.Tools;
 using VaultShared.Configuration;
 using VaultShared.Scope;

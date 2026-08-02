@@ -1,5 +1,4 @@
 using System.Text.Json;
-using VaultShared.Health;
 using VaultShared.Configuration;
 using VaultShared.Scope;
 
@@ -22,7 +21,7 @@ public sealed class PathPolicyTests : IDisposable
     /// <summary>Writes a vaults.json for one vault rooted at a fresh temp directory, creating
     /// <paramref name="contents"/> inside it (".md" entries become files, everything else a
     /// directory) and giving it <paramref name="policyJson"/> as its path_policy.</summary>
-    private VaultConfig Load(ServerHealthState healthState, string? policyJson, params string[] contents)
+    private VaultConfig Load(RecordingProblemSink healthState, string? policyJson, params string[] contents)
     {
         var root = Path.Combine(_tempDir, "test");
         Directory.CreateDirectory(root);
@@ -48,7 +47,7 @@ public sealed class PathPolicyTests : IDisposable
         return VaultConfig.Load(configPath, healthState);
     }
 
-    private static string[] Problems(ServerHealthState healthState) =>
+    private static string[] Problems(RecordingProblemSink healthState) =>
         healthState.Problems.Select(p => p.Detail).ToArray();
 
     private static VaultScope Rooted(params string[] roots) =>
@@ -59,7 +58,7 @@ public sealed class PathPolicyTests : IDisposable
     [Fact]
     public void Load_CanonicalizesTargetAndReportsNothingWhenItExists()
     {
-        var healthState = new ServerHealthState();
+        var healthState = new RecordingProblemSink();
 
         var config = Load(healthState, """[ { "path": "Resources\\Vault\\.\\Guides", "always_readable": true } ]""", Guides);
 
@@ -70,7 +69,7 @@ public sealed class PathPolicyTests : IDisposable
     [Fact]
     public void Load_NoPolicyDeclaredIsNoFloor()
     {
-        var healthState = new ServerHealthState();
+        var healthState = new RecordingProblemSink();
 
         var config = Load(healthState, policyJson: null);
 
@@ -89,7 +88,7 @@ public sealed class PathPolicyTests : IDisposable
     [InlineData("\"Areas\"", "not an object")]
     public void Load_MalformedEntryIsDroppedAndReported(string entryJson, string why)
     {
-        var healthState = new ServerHealthState();
+        var healthState = new RecordingProblemSink();
 
         var config = Load(healthState, $$"""[ {{entryJson}}, { "path": "{{Guides}}", "always_readable": true } ]""", Guides);
 
@@ -106,7 +105,7 @@ public sealed class PathPolicyTests : IDisposable
     {
         // Silently ignoring these would let config claim a path is protected while nothing
         // enforces it - a lie that reads as working.
-        var healthState = new ServerHealthState();
+        var healthState = new RecordingProblemSink();
 
         var config = Load(healthState, $$"""[ { "path": "Areas", "{{key}}": "agentic:write" } ]""");
 
@@ -117,7 +116,7 @@ public sealed class PathPolicyTests : IDisposable
     [Fact]
     public void Load_DeclaredTargetMissingFromDiskIsReportedButKept()
     {
-        var healthState = new ServerHealthState();
+        var healthState = new RecordingProblemSink();
 
         var config = Load(healthState, $$"""[ { "path": "{{Guides}}", "always_readable": true } ]""");
 
@@ -128,7 +127,7 @@ public sealed class PathPolicyTests : IDisposable
     [Fact]
     public void Load_FileTargetIsValid()
     {
-        var healthState = new ServerHealthState();
+        var healthState = new RecordingProblemSink();
 
         var config = Load(healthState, """[ { "path": "Vault-Manifest.md", "always_readable": true } ]""", "Vault-Manifest.md");
 
@@ -141,7 +140,7 @@ public sealed class PathPolicyTests : IDisposable
     {
         // The property the flat, every-vault shape could not have: a vault that keeps no such
         // material declares none, and nothing is checked against it or reported for it.
-        var healthState = new ServerHealthState();
+        var healthState = new RecordingProblemSink();
         var withGuides = Path.Combine(_tempDir, "primary");
         var without = Path.Combine(_tempDir, "scratch");
         Directory.CreateDirectory(Path.Combine(withGuides, "Resources", "Vault", "Guides"));
@@ -169,7 +168,7 @@ public sealed class PathPolicyTests : IDisposable
     [Fact]
     public void Load_BareStringVaultEntryIsFatal()
     {
-        var healthState = new ServerHealthState();
+        var healthState = new RecordingProblemSink();
         var configPath = Path.Combine(_tempDir, "vaults.json");
         File.WriteAllText(configPath, $$"""{ "default_vault": "test", "vaults": { "test": {{JsonSerializer.Serialize(_tempDir)}} } }""");
 
@@ -188,7 +187,7 @@ public sealed class PathPolicyTests : IDisposable
         // Unrecognized at the vault level rather than dropped: unlike a path_policy entry there
         // is no rest-of-the-list to preserve, and a vault carrying a key nobody reads is a
         // configuration someone believes is in effect.
-        var healthState = new ServerHealthState();
+        var healthState = new RecordingProblemSink();
         var configPath = Path.Combine(_tempDir, "vaults.json");
         File.WriteAllText(configPath, $$"""
             { "default_vault": "test", "vaults": { "test": { "path": {{JsonSerializer.Serialize(_tempDir)}}, "{{key}}": "x" } } }
@@ -206,7 +205,7 @@ public sealed class PathPolicyTests : IDisposable
     [Fact]
     public void EffectiveReadScope_UnionsTheFloorIntoARootedGrantScope()
     {
-        var policy = Load(new ServerHealthState(), $$"""[ { "path": "{{Guides}}", "always_readable": true } ]""", Guides).PathPolicyFor("test");
+        var policy = Load(new RecordingProblemSink(), $$"""[ { "path": "{{Guides}}", "always_readable": true } ]""", Guides).PathPolicyFor("test");
 
         var effective = Assert.IsType<VaultScope.RootedScope>(policy.EffectiveReadScope(Rooted("Projects/Widget")));
 
@@ -216,7 +215,7 @@ public sealed class PathPolicyTests : IDisposable
     [Fact]
     public void EffectiveReadScope_LeavesAnUnscopedGrantUnscoped()
     {
-        var policy = Load(new ServerHealthState(), $$"""[ { "path": "{{Guides}}", "always_readable": true } ]""", Guides).PathPolicyFor("test");
+        var policy = Load(new RecordingProblemSink(), $$"""[ { "path": "{{Guides}}", "always_readable": true } ]""", Guides).PathPolicyFor("test");
 
         Assert.Same(VaultScope.Unscoped, policy.EffectiveReadScope(VaultScope.Unscoped));
     }
@@ -232,7 +231,7 @@ public sealed class PathPolicyTests : IDisposable
     [Fact]
     public void IsPathInReadScope_NarrowGrantReachesTheFloorAndKeepsItsOwnRoots()
     {
-        var policy = Load(new ServerHealthState(), $$"""[ { "path": "{{Guides}}", "always_readable": true } ]""", Guides).PathPolicyFor("test");
+        var policy = Load(new RecordingProblemSink(), $$"""[ { "path": "{{Guides}}", "always_readable": true } ]""", Guides).PathPolicyFor("test");
         var scope = Rooted("Projects/Widget");
 
         Assert.True(VaultAccess.IsPathInReadScope($"{Guides}/Vault-Guide.md", scope, policy));
@@ -243,7 +242,7 @@ public sealed class PathPolicyTests : IDisposable
     [Fact]
     public void IsPathInReadScope_MatchesTheFloorBySegmentLikeAnyOtherRoot()
     {
-        var policy = Load(new ServerHealthState(), $$"""[ { "path": "{{Guides}}", "always_readable": true } ]""", Guides).PathPolicyFor("test");
+        var policy = Load(new RecordingProblemSink(), $$"""[ { "path": "{{Guides}}", "always_readable": true } ]""", Guides).PathPolicyFor("test");
 
         Assert.False(VaultAccess.IsPathInReadScope("Resources/Vault/Guides-Old/Vault-Guide.md", Rooted("Projects/Widget"), policy));
     }
@@ -272,7 +271,7 @@ public sealed class PathPolicyTests : IDisposable
     [Fact]
     public void IsPathInReadScope_AttenuatedScopeStillReachesTheFloor()
     {
-        var policy = Load(new ServerHealthState(), $$"""[ { "path": "{{Guides}}", "always_readable": true } ]""", Guides).PathPolicyFor("test");
+        var policy = Load(new RecordingProblemSink(), $$"""[ { "path": "{{Guides}}", "always_readable": true } ]""", Guides).PathPolicyFor("test");
 
         Assert.True(VaultAccess.IsPathInReadScope($"{Guides}/Document-Conventions.md", Rooted("Projects/Widget/Inbox"), policy));
     }
@@ -295,7 +294,7 @@ public sealed class PathPolicyFixtureTests(TestVaultFixture fixture) : IClassFix
     /// reports nothing - which is only true if that vault really carries the folder.</summary>
     private static PathPolicy GuidesPolicy(VaultConfig config, string vault)
     {
-        var healthState = new ServerHealthState();
+        var healthState = new RecordingProblemSink();
         using var doc = JsonDocument.Parse($$"""[ { "path": "{{Guides}}", "always_readable": true } ]""");
         var policy = PathPolicy.Parse(doc.RootElement, vault, config.Resolve(vault).Root, "vaults.json", healthState);
         Assert.Empty(healthState.Problems);

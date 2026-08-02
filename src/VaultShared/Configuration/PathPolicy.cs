@@ -56,7 +56,7 @@ public sealed class PathPolicy
     /// about its own layout, worth saying once, and a root matching nothing widens nothing. With
     /// no resolvable root there is nowhere to look, and the vault's own skip already reports that.
     /// </param>
-    public static PathPolicy Parse(JsonElement policy, string vaultName, string vaultRoot, string configPath, ServerHealthState healthState)
+    public static PathPolicy Parse(JsonElement policy, string vaultName, string vaultRoot, string configPath, IConfigProblemSink healthState)
     {
         if (policy.ValueKind != JsonValueKind.Array)
         {

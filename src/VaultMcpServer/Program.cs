@@ -1,6 +1,7 @@
 using Microsoft.AspNetCore.Http;
 using VaultMcpServer.Auth;
 using VaultShared.Auth;
+using VaultMcpServer.Health;
 using VaultShared.Health;
 using VaultMcpServer.Logging;
 using VaultMcpServer.Tools;

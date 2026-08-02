@@ -1,4 +1,4 @@
-using VaultShared.Health;
+using VaultMcpServer.Health;
 using VaultShared.Configuration;
 
 namespace VaultMcpServer.Tools;
