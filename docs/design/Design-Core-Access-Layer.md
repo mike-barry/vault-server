@@ -32,7 +32,7 @@
   [[Spec-Obsidian-Link-Behavior.md]] - recognition, the two ranges, and the one
   comparator, met by §Wikilinks.
 - [[Spec-Tool-Capabilities.md#Wikilink Maintenance]] - the pass scope does not
-  bound, met by §The Unscoped Link Pass.
+  bound, met by §The Vault-Wide Pass.
 
 Not answered here, deliberately:
 
@@ -248,20 +248,25 @@ takes the candidates it is given, finds nothing itself, and is the whole of what
 comparator that can be changed in a line or two when the editor's behaviour is
 re-measured.
 
-## The Unscoped Link Pass
+## The Vault-Wide Pass
 
 Wikilink maintenance is the one pass scope does not bound: it must reach notes the
-grant can neither read nor write. Rather than a hole in the ladder, the layer
-offers one operation over merely-contained paths - it walks every note in the
-vault, hands each note's link occurrences to its caller, and applies the
-substitutions the caller returns.
+grant can neither read nor write. Those operations - enumerate every note, read
+one, write one - take merely-contained paths and sit on their own object, obtained
+from `VaultAccess` by a call that names what it is.
 
-The exception is therefore to *link text*, not to content. No note body crosses the
-boundary: a caller sees occurrences and offers replacement targets, and every
-consumer the specs name - repair on move, bystander pinning on create, the census
-on delete, and link linting - needs exactly that and no more. A consumer needing
-more than a substitution needs a new primitive and its own argument for one, rather
-than reaching for the general write.
+The separate object is the whole of the mechanism. The operations themselves are
+ordinary, so a consumer composes what it needs and no new primitive is required
+each time one wants something slightly different. What the seam buys is that
+bypassing scope is a deliberate call rather than a method that happens to be within
+reach on an object a caller already holds, and that every site doing it is one grep
+away when the question is asked.
+
+What may be *reported* out of such a pass - how much of an out-of-scope note
+reaches a result, a preview, or a log - is a constraint on the report rather than
+on the primitive, and belongs to [[Design-Tool-Vocabulary.md]] with the rest of the
+result tiers. That is where it binds the consumer the specs actually worry about, a
+minted grant driving an automated caller.
 
 ## What A Path Does Not Assert
 
@@ -330,10 +335,12 @@ working any one of these is expected to turn up others.
 - **The layer writes nothing to health state.** An operational failure is returned
   to its caller. A layer that could degrade the server from inside a call would
   give one caller's failure server-wide visibility.
-- **How the unscoped wikilink pass stays inside the ladder.** One operation over
-  merely-contained paths, exchanging link occurrences and substitutions. No note
-  body crosses the boundary, so the exception is to link text rather than to
-  content.
+- **How the vault-wide pass sits outside the ladder.** Unscoped enumerate, read
+  and write take merely-contained paths and live on their own object, obtained by
+  an explicitly-named call, so bypassing scope is deliberate and greppable.
+  Rejected: a single operation exchanging link occurrences for substitutions, which
+  confines the pass to link text but makes every consumer wanting anything else a
+  new primitive and a new decision.
 - **What the path type does not assert.** Neither existence, nor a conforming name,
   nor whether it names a file or a folder. Each is checked by the operation that
   needs it, where it needs it.
