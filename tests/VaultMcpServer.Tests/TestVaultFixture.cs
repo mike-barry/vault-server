@@ -13,7 +13,6 @@ namespace VaultMcpServer.Tests;
 public sealed class TestVaultFixture : IDisposable
 {
     public static string RepoRoot { get; } = FindRepoRoot();
-    public static string CasesDir { get; } = Path.Combine(RepoRoot, "tests", "cases");
 
     public string TempRoot { get; }
     public VaultConfig Config { get; }

@@ -6,7 +6,7 @@ public sealed class VaultAccessTests(TestVaultFixture fixture) : IClassFixture<T
 {
     [Theory]
     [MemberData(nameof(PathCases))]
-    public void ResolvePath_SharedCases(string name, string path, bool valid)
+    public void ResolvePath_ContainmentCases(string name, string path, bool valid)
     {
         if (valid)
         {
@@ -22,41 +22,27 @@ public sealed class VaultAccessTests(TestVaultFixture fixture) : IClassFixture<T
 
     [Theory]
     [MemberData(nameof(ScopeCases))]
-    public void IsPathInScope_SharedCases(string name, string vault, string path, Dictionary<string, List<string>> scopeRoots, string outcome)
+    public void IsPathInScope_ContainmentCases(string name, string vault, string path, IReadOnlyDictionary<string, VaultScope> scopeRoots, Outcome expected)
     {
-        // The case files spell whole-vault access the way the config format does - ["*"] and
-        // nothing else - which maps to the explicit unscoped case here. An empty list is not a
-        // second spelling of it at either layer, so no case carries one.
-        var scopeRootsByVault = scopeRoots.ToDictionary(
-            kv => kv.Key,
-            VaultScope (kv) => kv.Value is ["*"]
-                ? VaultScope.Unscoped
-                : VaultScope.Of(kv.Value.ToHashSet(StringComparer.OrdinalIgnoreCase)),
-            StringComparer.OrdinalIgnoreCase);
-        var resolved = VaultAccess.ResolveVaultScopeRoots(vault, scopeRootsByVault);
+        var resolved = VaultAccess.ResolveVaultScopeRoots(vault, scopeRoots);
 
-        switch (outcome)
+        switch (expected)
         {
-            case "inScope":
+            case Outcome.InScope:
                 Assert.True(VaultAccess.IsPathInScope(path, resolved), $"{name}: expected in scope");
                 break;
-            case "outOfScope":
+            case Outcome.OutOfScope:
                 Assert.False(VaultAccess.IsPathInScope(path, resolved), $"{name}: expected out of scope");
                 break;
-            case "invalid":
+            case Outcome.Invalid:
                 Assert.Throws<ArgumentException>(() => VaultAccess.IsPathInScope(path, resolved));
-                break;
-            default:
-                Assert.Fail($"{name}: unknown outcome {outcome}");
                 break;
         }
     }
 
-    private static IReadOnlyDictionary<string, VaultScope> ScopeFor(string vault, params string[] roots) =>
-        new Dictionary<string, VaultScope>(StringComparer.OrdinalIgnoreCase)
-        {
-            [vault] = VaultScope.Of(roots.ToHashSet(StringComparer.OrdinalIgnoreCase)),
-        };
+    /// <summary>What a scope case asserts. An enum rather than a string, so a case cannot name an
+    /// outcome the theory does not handle.</summary>
+    public enum Outcome { InScope, OutOfScope, Invalid }
 
     [Fact]
     public void VaultScope_EmptyRootSetIsNotConstructible()
@@ -85,10 +71,47 @@ public sealed class VaultAccessTests(TestVaultFixture fixture) : IClassFixture<T
         // reach (enforced by GrantStore.Load and GrantStore.Mint), so a non-null map missing
         // the queried vault's key means that invariant was violated upstream - it must fail
         // loudly rather than silently falling back to full access.
-        var scopeRoots = ScopeFor("primary", "Projects");
-        Assert.Throws<InvalidOperationException>(() => VaultAccess.ResolveVaultScopeRoots("test", scopeRoots));
+        Assert.Throws<InvalidOperationException>(
+            () => VaultAccess.ResolveVaultScopeRoots("test", Scopes(("primary", Rooted("Projects")))));
     }
 
-    public static TheoryData<string, string, bool> PathCases => SharedCases.Paths();
-    public static TheoryData<string, string, string, Dictionary<string, List<string>>, string> ScopeCases => SharedCases.Scope();
+    public static TheoryData<string, string, bool> PathCases => new()
+    {
+        { "simple relative path", "Inbox/Note-Loose-Thought.md", true },
+        { "backslash separators", @"Inbox\Note-Loose-Thought.md", true },
+        { "dot-dot that stays inside the vault", "Projects/../Test-Vault.md", true },
+        { "nonexistent relative path still resolves", "Not/Yet/Written.md", true },
+        { "rooted path rejected", "C:/Windows/win.ini", false },
+        { "single dot-dot escape rejected", "../outside.md", false },
+        { "nested dot-dot escape rejected", "Projects/../../outside.md", false },
+        { "whitespace-only path rejected", "   ", false },
+    };
+
+    public static TheoryData<string, string, string, IReadOnlyDictionary<string, VaultScope>, Outcome> ScopeCases => new()
+    {
+        { "unscoped grant allows anything", "primary", "Areas/Personal/Health.md", Scopes(("primary", VaultScope.Unscoped)), Outcome.InScope },
+        { "path directly under a single-segment root", "primary", "Projects/Widget/Widget.md", Scopes(("primary", Rooted("Projects"))), Outcome.InScope },
+        { "path directly under a multi-segment root", "primary", "Projects/Vault-MCP-Server/Corpus/Server-Structure.md", Scopes(("primary", Rooted("Projects/Vault-MCP-Server"))), Outcome.InScope },
+        { "path equal to the root plus one segment", "primary", "Projects/Vault-MCP-Server/Tasks.md", Scopes(("primary", Rooted("Projects/Vault-MCP-Server"))), Outcome.InScope },
+        { "path under a different top-level folder is out of scope", "primary", "Areas/Personal/Health.md", Scopes(("primary", Rooted("Projects/Vault-MCP-Server"))), Outcome.OutOfScope },
+        { "sibling folder sharing a string prefix is out of scope", "primary", "Projects/Vault-MCP-Server-Old/Notes.md", Scopes(("primary", Rooted("Projects/Vault-MCP-Server"))), Outcome.OutOfScope },
+        { "note whose name string-prefixes the root but sits outside it is out of scope", "primary", "Projects/Vault-MCP-Server.md", Scopes(("primary", Rooted("Projects/Vault-MCP-Server"))), Outcome.OutOfScope },
+        { "path matches when any of several roots contains it", "primary", "Areas/Homelab/Servers.md", Scopes(("primary", Rooted("Projects/Vault-MCP-Server", "Areas/Homelab"))), Outcome.InScope },
+        { "path matches none of several roots", "primary", "Areas/Personal/Health.md", Scopes(("primary", Rooted("Projects/Vault-MCP-Server", "Areas/Homelab"))), Outcome.OutOfScope },
+        { "case-insensitive segment match", "primary", "projects/WIDGET/widget.md", Scopes(("primary", Rooted("Projects/Widget"))), Outcome.InScope },
+        { "backslash-separated path normalizes the same as forward-slash", "primary", @"Projects\Widget\Widget.md", Scopes(("primary", Rooted("Projects/Widget"))), Outcome.InScope },
+        { "root with a trailing dot-dot that stays inside the vault normalizes cleanly", "primary", "Projects/Widget/Widget.md", Scopes(("primary", Rooted("Projects/Foo/../Widget"))), Outcome.InScope },
+        { "root that escapes the vault is unscopeable", "primary", "Projects/Widget/Widget.md", Scopes(("primary", Rooted("../outside"))), Outcome.Invalid },
+        { "rooted root path is unscopeable", "primary", "Projects/Widget/Widget.md", Scopes(("primary", Rooted("C:/Windows"))), Outcome.Invalid },
+        { "empty-string root is unscopeable", "primary", "Projects/Widget/Widget.md", Scopes(("primary", Rooted(""))), Outcome.Invalid },
+        { "one malformed root among otherwise-matching roots still errors", "primary", "Projects/Widget/Widget.md", Scopes(("primary", Rooted("Projects/Widget", "../outside"))), Outcome.Invalid },
+        { "an explicit whole-vault entry for a vault means fully unscoped, even though another vault has a scope root configured", "test", "Areas/Personal/Health.md", Scopes(("primary", Rooted("Projects")), ("test", VaultScope.Unscoped)), Outcome.InScope },
+        { "a scope root configured for one vault still restricts that same vault directly", "primary", "Areas/Personal/Health.md", Scopes(("primary", Rooted("Projects"))), Outcome.OutOfScope },
+        { "a scope root configured for one vault does not leak into a second vault's own (different) scope root", "test", "Projects/Widget/Widget.md", Scopes(("primary", Rooted("Projects/Widget")), ("test", Rooted("Areas/Homelab"))), Outcome.OutOfScope },
+    };
+
+    private static VaultScope Rooted(params string[] roots) => VaultScope.Of(roots.ToHashSet(StringComparer.OrdinalIgnoreCase));
+
+    private static IReadOnlyDictionary<string, VaultScope> Scopes(params (string Vault, VaultScope Scope)[] entries) =>
+        entries.ToDictionary(e => e.Vault, e => e.Scope, StringComparer.OrdinalIgnoreCase);
 }
