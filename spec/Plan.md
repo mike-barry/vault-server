@@ -18,12 +18,20 @@ Its neighbours do different jobs: `Decisions.md` records what was chosen and wha
 Runs before any build work begins.
 
 - [x] Carry the spec bundle into `spec/` - the brief and seven specs, vault frontmatter stripped and cross-references rewritten as file links
+- [ ] Flush out this plan with the operator before any build work begins. What is below is a seed: the phases, their order, what each produces, and where a phase ends are settled together rather than assumed. Bring proposals rather than questions
 - [ ] Verify from inside this repo that the knowledge vault is unreachable - no MCP registration, no additional-directory grant, no path out
+
+## Design
+
+Design runs ahead of the code it governs, and a phase ends in the specs and `Decisions.md` rather than in source. A design that lands as code is a design nobody reviewed.
+
+- [ ] Design the core access layer, resolved-path type first - every later choice depends on whether an out-of-scope path is representable
+- [ ] Design the tool vocabulary as one surface: argument shapes, return tiers, error vocabulary, the preview convention, the write-class envelope. The largest single task here, and its own phase
+- [ ] Design the front-end projection - one tool declaration, two front-ends, and what each may vary
 
 ## Build
 
-- [ ] Build the core access layer, resolved-path type first - every later choice depends on whether an out-of-scope path is representable
-- [ ] Design the tool vocabulary as one surface: argument shapes, return tiers, error vocabulary, the preview convention, the write-class envelope. The largest single task here, and its own phase
+- [ ] Build the core access layer
 - [ ] Build the tool layer over the access layer, with the transport-neutral result and error representation
 - [ ] Verify the read-class scope floor end to end, the first point a read path exists to do it with. The floor is retained code with unit coverage and no end-to-end proof: `test-vault` declares `Resources/Vault/Guides` `always_readable` in `vaults.json`, so a grant scoped to `Projects/Widget` alone must read and glob both guide docs, must be refused writing either, and must reach nothing else outside its roots. A failure here is the floor's, not the tool's - it means an operation reached the scope check on a path that should have been unioned in, or a write path consulted the floor when it must not
 - [ ] Build the MCP front-end as a projection of the tool declarations
