@@ -56,30 +56,30 @@ public sealed class VaultAccessTests
         // the queried vault's key means that invariant was violated upstream - it must fail
         // loudly rather than silently falling back to full access.
         Assert.Throws<InvalidOperationException>(
-            () => VaultAccess.ResolveVaultScopeRoots("test", Scopes(("primary", Rooted("Projects")))));
+            () => VaultAccess.ResolveVaultScopeRoots("scratch", Scopes(("test", Rooted("Projects")))));
     }
 
     public static TheoryData<string, string, string, IReadOnlyDictionary<string, VaultScope>, Outcome> ScopeCases => new()
     {
-        { "unscoped grant allows anything", "primary", "Areas/Personal/Health.md", Scopes(("primary", VaultScope.Unscoped)), Outcome.InScope },
-        { "path directly under a single-segment root", "primary", "Projects/Widget/Widget.md", Scopes(("primary", Rooted("Projects"))), Outcome.InScope },
-        { "path directly under a multi-segment root", "primary", "Projects/Vault-MCP-Server/Corpus/Server-Structure.md", Scopes(("primary", Rooted("Projects/Vault-MCP-Server"))), Outcome.InScope },
-        { "path equal to the root plus one segment", "primary", "Projects/Vault-MCP-Server/Tasks.md", Scopes(("primary", Rooted("Projects/Vault-MCP-Server"))), Outcome.InScope },
-        { "path under a different top-level folder is out of scope", "primary", "Areas/Personal/Health.md", Scopes(("primary", Rooted("Projects/Vault-MCP-Server"))), Outcome.OutOfScope },
-        { "sibling folder sharing a string prefix is out of scope", "primary", "Projects/Vault-MCP-Server-Old/Notes.md", Scopes(("primary", Rooted("Projects/Vault-MCP-Server"))), Outcome.OutOfScope },
-        { "note whose name string-prefixes the root but sits outside it is out of scope", "primary", "Projects/Vault-MCP-Server.md", Scopes(("primary", Rooted("Projects/Vault-MCP-Server"))), Outcome.OutOfScope },
-        { "path matches when any of several roots contains it", "primary", "Areas/Homelab/Servers.md", Scopes(("primary", Rooted("Projects/Vault-MCP-Server", "Areas/Homelab"))), Outcome.InScope },
-        { "path matches none of several roots", "primary", "Areas/Personal/Health.md", Scopes(("primary", Rooted("Projects/Vault-MCP-Server", "Areas/Homelab"))), Outcome.OutOfScope },
-        { "case-insensitive segment match", "primary", "projects/WIDGET/widget.md", Scopes(("primary", Rooted("Projects/Widget"))), Outcome.InScope },
-        { "backslash-separated path normalizes the same as forward-slash", "primary", @"Projects\Widget\Widget.md", Scopes(("primary", Rooted("Projects/Widget"))), Outcome.InScope },
-        { "root with a trailing dot-dot that stays inside the vault normalizes cleanly", "primary", "Projects/Widget/Widget.md", Scopes(("primary", Rooted("Projects/Foo/../Widget"))), Outcome.InScope },
-        { "root that escapes the vault is unscopeable", "primary", "Projects/Widget/Widget.md", Scopes(("primary", Rooted("../outside"))), Outcome.Invalid },
-        { "rooted root path is unscopeable", "primary", "Projects/Widget/Widget.md", Scopes(("primary", Rooted("C:/Windows"))), Outcome.Invalid },
-        { "empty-string root is unscopeable", "primary", "Projects/Widget/Widget.md", Scopes(("primary", Rooted(""))), Outcome.Invalid },
-        { "one malformed root among otherwise-matching roots still errors", "primary", "Projects/Widget/Widget.md", Scopes(("primary", Rooted("Projects/Widget", "../outside"))), Outcome.Invalid },
-        { "an explicit whole-vault entry for a vault means fully unscoped, even though another vault has a scope root configured", "test", "Areas/Personal/Health.md", Scopes(("primary", Rooted("Projects")), ("test", VaultScope.Unscoped)), Outcome.InScope },
-        { "a scope root configured for one vault still restricts that same vault directly", "primary", "Areas/Personal/Health.md", Scopes(("primary", Rooted("Projects"))), Outcome.OutOfScope },
-        { "a scope root configured for one vault does not leak into a second vault's own (different) scope root", "test", "Projects/Widget/Widget.md", Scopes(("primary", Rooted("Projects/Widget")), ("test", Rooted("Areas/Homelab"))), Outcome.OutOfScope },
+        { "unscoped grant allows anything", "test", "Inbox/Note-Loose-Thought.md", Scopes(("test", VaultScope.Unscoped)), Outcome.InScope },
+        { "path directly under a single-segment root", "test", "Projects/Widget/Widget.md", Scopes(("test", Rooted("Projects"))), Outcome.InScope },
+        { "path directly under a multi-segment root", "test", "Projects/Widget/Inbox/Plan-Widget-Assembly.md", Scopes(("test", Rooted("Projects/Widget"))), Outcome.InScope },
+        { "path equal to the root plus one segment", "test", "Projects/Widget/Tasks.md", Scopes(("test", Rooted("Projects/Widget"))), Outcome.InScope },
+        { "path under a different top-level folder is out of scope", "test", "Inbox/Note-Loose-Thought.md", Scopes(("test", Rooted("Projects/Widget"))), Outcome.OutOfScope },
+        { "sibling folder sharing a string prefix is out of scope", "test", "Projects/Widget-Retired/Notes.md", Scopes(("test", Rooted("Projects/Widget"))), Outcome.OutOfScope },
+        { "note whose name string-prefixes the root but sits outside it is out of scope", "test", "Projects/Widget.md", Scopes(("test", Rooted("Projects/Widget"))), Outcome.OutOfScope },
+        { "path matches when any of several roots contains it", "test", "Resources/Vault/Guides/Vault-Guide.md", Scopes(("test", Rooted("Projects/Widget", "Resources/Vault/Guides"))), Outcome.InScope },
+        { "path matches none of several roots", "test", "Inbox/Note-Loose-Thought.md", Scopes(("test", Rooted("Projects/Widget", "Resources/Vault/Guides"))), Outcome.OutOfScope },
+        { "case-insensitive segment match", "test", "projects/WIDGET/widget.md", Scopes(("test", Rooted("Projects/Widget"))), Outcome.InScope },
+        { "backslash-separated path normalizes the same as forward-slash", "test", @"Projects\Widget\Widget.md", Scopes(("test", Rooted("Projects/Widget"))), Outcome.InScope },
+        { "root with a trailing dot-dot that stays inside the vault normalizes cleanly", "test", "Projects/Widget/Widget.md", Scopes(("test", Rooted("Projects/Elsewhere/../Widget"))), Outcome.InScope },
+        { "root that escapes the vault is unscopeable", "test", "Projects/Widget/Widget.md", Scopes(("test", Rooted("../outside"))), Outcome.Invalid },
+        { "rooted root path is unscopeable", "test", "Projects/Widget/Widget.md", Scopes(("test", Rooted("C:/Windows"))), Outcome.Invalid },
+        { "empty-string root is unscopeable", "test", "Projects/Widget/Widget.md", Scopes(("test", Rooted(""))), Outcome.Invalid },
+        { "one malformed root among otherwise-matching roots still errors", "test", "Projects/Widget/Widget.md", Scopes(("test", Rooted("Projects/Widget", "../outside"))), Outcome.Invalid },
+        { "an explicit whole-vault entry for a vault means fully unscoped, even though another vault has a scope root configured", "scratch", "Inbox/Note-Loose-Thought.md", Scopes(("test", Rooted("Projects")), ("scratch", VaultScope.Unscoped)), Outcome.InScope },
+        { "a scope root configured for one vault still restricts that same vault directly", "test", "Inbox/Note-Loose-Thought.md", Scopes(("test", Rooted("Projects"))), Outcome.OutOfScope },
+        { "a scope root configured for one vault does not leak into a second vault's own (different) scope root", "scratch", "Projects/Widget/Widget.md", Scopes(("test", Rooted("Projects/Widget")), ("scratch", Rooted("Resources"))), Outcome.OutOfScope },
     };
 
     private static VaultScope Rooted(params string[] roots) => VaultScope.Of(roots.ToHashSet(StringComparer.OrdinalIgnoreCase));
