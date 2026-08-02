@@ -66,7 +66,7 @@ public sealed class ScriptToolsWatcher : IDisposable
         }
         catch (Exception ex)
         {
-            // Per-script validation problems no longer throw - ScriptToolLoader skips the
+            // Per-script validation problems do not throw - ScriptToolLoader skips the
             // script and records the problem into ServerHealthState's replaceable
             // ScriptTools set (which also logs, via the attached logger). This catch is a
             // safety net for anything unexpected (e.g. an IO failure enumerating the

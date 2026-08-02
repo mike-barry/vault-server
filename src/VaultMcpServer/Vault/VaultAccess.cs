@@ -1,27 +1,13 @@
 namespace VaultMcpServer.Vault;
 
 /// <summary>
-/// The vault-access chokepoint: path resolution and the grant-scope check primitives
-/// (<see cref="IsPathInScope"/>, <see cref="ResolveVaultScopeRoots"/>,
-/// <see cref="NormalizeScopeSegments"/>) live here - the scope primitives real callers
-/// (mint, grant load, the elevation tool) use. The PowerShell counterpart for script tools,
-/// powershell/VaultAccess/VaultAccess.psm1, mirrors these operations and semantics and also
-/// carries the full read/write/enumerate/search/move instance-op surface for tool scripts -
-/// the C# side dropped its caller-less mirror of that half (2026-07-19, see
-/// Plan-Grant-Tool-Trust-Model's "Mirrored chokepoint drift surface"; the last of the mirrored
-/// resolution surface, wikilink resolution, retired 2026-07-23 when read/move superseded it);
-/// re-mirror by porting from the then-current PowerShell implementation when a native vault tool
-/// needs it.
-///
-/// Vault conventions (filename rules, layout) are encoded only here and in the PowerShell
-/// module; they implement the vault's Document-Conventions.md and Vault-Guide.md
-/// (Resources/Vault/Guides/ in the vault repo).
+/// The vault-access chokepoint, holding the grant-scope primitives.
+/// <see cref="NormalizeScopeSegments"/> canonicalizes a scope root or a candidate path,
+/// <see cref="ResolveVaultScopeRoots"/> narrows a grant's per-vault map to one vault, and
+/// <see cref="IsPathInScope"/> turns that into a containment answer.
 /// </summary>
-public sealed class VaultAccess(VaultConfig config)
+public sealed class VaultAccess
 {
-    /// <summary>Directory segments never treated as vault content.</summary>
-    private static bool IsHiddenSegment(string segment) => segment.StartsWith('.');
-
     /// <summary>
     /// Resolves a grant's per-vault <see cref="Auth.Grant.ScopeRoots"/> map down to the flat,
     /// already-vault-scoped root list for one specific <paramref name="vault"/> - the shape
@@ -140,23 +126,4 @@ public sealed class VaultAccess(VaultConfig config)
     public static bool IsPathInReadScope(string relativePath, VaultScope scope, PathPolicy pathPolicy) =>
         IsPathInScope(relativePath, pathPolicy.EffectiveReadScope(scope));
 
-    public (string Name, string Root) ResolveVault(string? vault) => config.Resolve(vault);
-
-    /// <summary>
-    /// Resolves a vault-relative path to an absolute path, rejecting rooted paths and
-    /// any path that escapes the vault root.
-    /// </summary>
-    public string ResolvePath(string? vault, string relativePath)
-    {
-        if (string.IsNullOrWhiteSpace(relativePath))
-            throw new ArgumentException("Path is empty.", nameof(relativePath));
-        if (Path.IsPathRooted(relativePath))
-            throw new ArgumentException($"Path must be vault-relative, not rooted: {relativePath}", nameof(relativePath));
-
-        var (name, root) = config.Resolve(vault);
-        var full = Path.GetFullPath(Path.Combine(root, relativePath));
-        if (!full.StartsWith(root + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase) && !full.Equals(root, StringComparison.OrdinalIgnoreCase))
-            throw new ArgumentException($"Path escapes vault \"{name}\": {relativePath}", nameof(relativePath));
-        return full;
-    }
 }

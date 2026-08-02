@@ -28,8 +28,7 @@ Runs before any build work begins.
 Design runs ahead of the code it governs and lands in its own documents under `docs/design/`, split into logical areas rather than accumulated in one. The specs stay the requirement; a design doc says how this build meets it. A design that lands as code is a design nobody reviewed.
 
 - [ ] Design the core access layer, resolved-path type first - every later choice depends on whether an out-of-scope path is representable
-  - Input: the type is designed from the spec, not over the retained surface - `ResolvePath` and `ResolveVault` are deleted rather than built on (`Decisions.md`). Containment cases derive from the containment guarantee, not from the retained surface's own cases
-  - Input: the scope primitives with live callers - `NormalizeScopeSegments`, `IsPathInScope`, and the read-floor union in `IsPathInReadScope` - are called, not reimplemented, and the layer does not reapply the union itself
+  - Input: the retained scope primitives are called, not reimplemented. `NormalizeScopeSegments` and `IsPathInScope` have live callers; `IsPathInReadScope` has none yet and is not leftover - it is the read path's own entry point, and the layer routes reads through it rather than applying the always-readable union itself
 - [ ] Design the frontmatter surface - the block grammar and facet split, the operation vocabulary, outcome-based authority classification, the validator, and the registry's loading and failure behaviour. Ahead of the tool vocabulary, because `edit`'s argument surface is a projection of the operation vocabulary and its advertised schema is generated from the declaration
 - [ ] Design the tool vocabulary as one surface: argument shapes, return tiers, error vocabulary, the preview convention, the write-class envelope. The largest single task here, and its own phase
 - [ ] Design the front-end projection - one tool declaration, two front-ends, and what each may vary
@@ -41,7 +40,6 @@ Design runs ahead of the code it governs and lands in its own documents under `d
 - [ ] Scaffold the projects - `VaultCli`, `VaultShared.Tests`, `VaultCli.Tests` - before any new code is written, so `VaultShared`'s two hard boundaries (no web framework, no `Microsoft.PowerShell.SDK`) are compile-enforced from the first file rather than checked at the end
 - [ ] Migrate the retained shared code into `VaultShared` - the scope primitives, vault resolution, the op-class registry, the grant model, and the compiled-tool surface. Moves, not redesigns; a behaviour change on the way is a separate proposal
 - [ ] Build the core access layer
-  - Delete `VaultAccess.ResolvePath` and `ResolveVault`, and `VaultAccessTests.ResolvePath_ContainmentCases` with its case data. The two incidental uses in `PathPolicyTests` build their paths another way
 - [ ] Build the frontmatter surface - the substrate's single write path and the registry's loader, asserted by the conformance suite against a synthetic declaration
   - Retained `PathPolicy` refuses `mutation_requires` and `rule` at load today. Both are accepted and carried here, an approved change to retained code: the write path consults policy beside the authority assertion, and move and delete consult it at their own validate phases
   - Build the failure behaviour with the load, not after it. A missing or unparseable declaration fails closed on frontmatter writes, leaves reads, move and delete untouched, keeps `edit` advertised with its variant branches simply absent, and surfaces through health state. Nothing on the happy path forces any of it

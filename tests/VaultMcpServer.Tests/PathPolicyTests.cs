@@ -329,7 +329,7 @@ public sealed class PathPolicyFixtureTests(TestVaultFixture fixture) : IClassFix
     [Fact]
     public void TheSeededGuidesResolveToRealFilesUnderTheFixtureVault()
     {
-        Assert.True(File.Exists(fixture.Vault.ResolvePath(null, Guide)));
-        Assert.True(File.Exists(fixture.Vault.ResolvePath("scratch", Guide)));
+        Assert.True(File.Exists(Path.Combine(fixture.Config.Resolve(null).Root, Guide)));
+        Assert.True(File.Exists(Path.Combine(fixture.Config.Resolve("scratch").Root, Guide)));
     }
 }

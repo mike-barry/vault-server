@@ -16,7 +16,6 @@ public sealed class TestVaultFixture : IDisposable
 
     public string TempRoot { get; }
     public VaultConfig Config { get; }
-    public VaultAccess Vault { get; }
 
     public TestVaultFixture()
     {
@@ -46,7 +45,6 @@ public sealed class TestVaultFixture : IDisposable
         if (healthState.IsFatallyDegraded)
             throw new InvalidOperationException(
                 "TestVaultFixture's vaults.json failed to load: " + string.Join("; ", healthState.Problems.Select(p => p.Detail)));
-        Vault = new VaultAccess(Config);
     }
 
     public void Dispose()

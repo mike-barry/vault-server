@@ -2,24 +2,8 @@ using VaultMcpServer.Vault;
 
 namespace VaultMcpServer.Tests;
 
-public sealed class VaultAccessTests(TestVaultFixture fixture) : IClassFixture<TestVaultFixture>
+public sealed class VaultAccessTests
 {
-    [Theory]
-    [MemberData(nameof(PathCases))]
-    public void ResolvePath_ContainmentCases(string name, string path, bool valid)
-    {
-        if (valid)
-        {
-            var full = fixture.Vault.ResolvePath(null, path);
-            Assert.True(Path.IsPathRooted(full), $"{name}: expected an absolute path, got {full}");
-        }
-        else
-        {
-            var ex = Record.Exception(() => fixture.Vault.ResolvePath(null, path));
-            Assert.True(ex is ArgumentException, $"{name}: expected ArgumentException, got {ex?.GetType().Name ?? "no exception"}");
-        }
-    }
-
     [Theory]
     [MemberData(nameof(ScopeCases))]
     public void IsPathInScope_ContainmentCases(string name, string vault, string path, IReadOnlyDictionary<string, VaultScope> scopeRoots, Outcome expected)
@@ -74,18 +58,6 @@ public sealed class VaultAccessTests(TestVaultFixture fixture) : IClassFixture<T
         Assert.Throws<InvalidOperationException>(
             () => VaultAccess.ResolveVaultScopeRoots("test", Scopes(("primary", Rooted("Projects")))));
     }
-
-    public static TheoryData<string, string, bool> PathCases => new()
-    {
-        { "simple relative path", "Inbox/Note-Loose-Thought.md", true },
-        { "backslash separators", @"Inbox\Note-Loose-Thought.md", true },
-        { "dot-dot that stays inside the vault", "Projects/../Test-Vault.md", true },
-        { "nonexistent relative path still resolves", "Not/Yet/Written.md", true },
-        { "rooted path rejected", "C:/Windows/win.ini", false },
-        { "single dot-dot escape rejected", "../outside.md", false },
-        { "nested dot-dot escape rejected", "Projects/../../outside.md", false },
-        { "whitespace-only path rejected", "   ", false },
-    };
 
     public static TheoryData<string, string, string, IReadOnlyDictionary<string, VaultScope>, Outcome> ScopeCases => new()
     {

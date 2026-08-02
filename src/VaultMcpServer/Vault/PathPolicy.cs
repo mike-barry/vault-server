@@ -14,16 +14,16 @@ namespace VaultMcpServer.Vault;
 /// every grant's effective read scope in this vault, so an agent under any grant reaches the
 /// material it is instructed to obey - the guide docs - without that grant widening anywhere
 /// else. See <see cref="EffectiveReadScope"/>.</item>
-/// <item><b><c>mutation_requires</c></b> - an op class that mutating the target requires. Built
-/// by the rewrite; <b>refused at load here</b> rather than parsed and ignored. Config naming an
-/// authority that nothing enforces is a lie that reads as working, which is worse than a
-/// refusal telling the operator it is not implemented yet.</item>
+/// <item><b><c>mutation_requires</c></b> - an op class that mutating the target requires. Not
+/// implemented here, and <b>refused at load</b> rather than parsed and ignored: config naming an
+/// authority that nothing enforces is a lie that reads as working, which is worse than a refusal
+/// telling the operator so.</item>
 /// </list>
 ///
 /// A <c>rule</c> target is refused for the same reason. <c>always_readable</c> is path-only -
 /// it is unioned into scope roots and those are folder prefixes, so "every folder note is
 /// readable" is not expressible as one - which leaves <c>mutation_requires</c> as the only
-/// modifier a rule could carry. Until that lands, a rule target could never say anything.
+/// modifier a rule could carry, so a rule target carries nothing this class can act on.
 ///
 /// Why the floor is a modifier here rather than its own configuration: a path that instructs
 /// agents is special in both directions for one reason, and stating that once per path keeps the
@@ -94,7 +94,7 @@ public sealed class PathPolicy
 
     /// <summary>
     /// Validates one entry and returns its <c>always_readable</c> target, or null when the entry
-    /// is well-formed but carries no modifier this build implements. Throws
+    /// is well-formed but carries no modifier this class implements. Throws
     /// <see cref="InvalidDataException"/> on anything malformed.
     /// </summary>
     private static string? ParseEntry(JsonElement entry, string vaultName, string configPath)
@@ -125,7 +125,7 @@ public sealed class PathPolicy
                     };
                     break;
 
-                // Specified, not yet built. Refused rather than ignored - see the class remarks.
+                // Specified but not implemented here. Refused rather than ignored - see the class remarks.
                 case "rule":
                 case "mutation_requires":
                     throw new InvalidDataException(
