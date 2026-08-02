@@ -14,7 +14,7 @@ public sealed record DegradedProblem(string Detail, string? SubjectPath = null);
 /// tools/ file watcher) - the server's alternative to hard-stopping on bad config. A
 /// config loader calls <see cref="RecordFatal"/> or
 /// <see cref="RecordDegraded"/> rather than throwing, and returns an inert/empty instance, so the process
-/// always starts; the MCP front-end's bearer middleware consults <see cref="IsFatallyDegraded"/>
+/// always starts; <see cref="Auth.BearerGrantMiddleware"/> consults <see cref="IsFatallyDegraded"/>
 /// to short-circuit every request with 503 while any fatal problem is outstanding.
 ///
 /// Two backing collections, matching the two lifetimes a problem can have:

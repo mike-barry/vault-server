@@ -45,7 +45,7 @@ public sealed record GrantFileContents(
 /// </summary>
 public static class GrantFileLoader
 {
-    /// <param name="healthState">
+    /// <param name="sink">
     /// Whole-file failures (missing file, unparseable JSON, a non-object root, an empty grant
     /// table) are recorded here as a <see cref="ProblemSeverity.Fatal"/> problem instead of being
     /// thrown; the caller always gets back a usable (if empty) row list. A row-level validation
@@ -57,20 +57,20 @@ public static class GrantFileLoader
     /// (<see cref="GrantStore.Load"/>) supplies it from its <see cref="TimeProvider"/> so tests can
     /// control it without depending on real elapsed wall-clock time.
     /// </param>
-    public static GrantFileContents Load(string path, OpClassRegistry opClassRegistry, VaultConfig vaultConfig, IConfigProblemSink healthState, DateTimeOffset now)
+    public static GrantFileContents Load(string path, OpClassRegistry opClassRegistry, VaultConfig vaultConfig, IConfigProblemSink sink, DateTimeOffset now)
     {
         try
         {
-            return LoadCore(path, opClassRegistry, vaultConfig, healthState, now);
+            return LoadCore(path, opClassRegistry, vaultConfig, sink, now);
         }
         catch (Exception ex) when (ex is FileNotFoundException or InvalidDataException or JsonException)
         {
-            healthState.RecordFatal("GrantStore", ex.Message);
+            sink.RecordFatal("GrantStore", ex.Message);
             return GrantFileContents.Empty;
         }
     }
 
-    private static GrantFileContents LoadCore(string path, OpClassRegistry opClassRegistry, VaultConfig vaultConfig, IConfigProblemSink healthState, DateTimeOffset now)
+    private static GrantFileContents LoadCore(string path, OpClassRegistry opClassRegistry, VaultConfig vaultConfig, IConfigProblemSink sink, DateTimeOffset now)
     {
         if (!File.Exists(path))
             throw new FileNotFoundException($"Grants config not found: {path}", path);
@@ -99,7 +99,7 @@ public static class GrantFileLoader
             }
             catch (InvalidDataException ex)
             {
-                healthState.RecordDegraded("GrantStore", $"Grant row skipped - {ex.Message}");
+                sink.RecordDegraded("GrantStore", $"Grant row skipped - {ex.Message}");
             }
         }
 
@@ -115,7 +115,7 @@ public static class GrantFileLoader
         // logs" signal. Named grants count as loaded content: a file of only named grants is
         // usable via the localhost selector's default binding.
         if (rows.Count == 0 && namedGrants.Count == 0)
-            throw new InvalidDataException($"{path}: every grant row was skipped as invalid - see the per-row Degraded problems recorded above.");
+            throw new InvalidDataException($"{path}: every grant row was skipped as invalid - see the per-row Degraded sink recorded above.");
 
         return new GrantFileContents(rows, namedGrants);
     }

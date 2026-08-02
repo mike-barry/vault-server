@@ -127,14 +127,14 @@ public sealed class GrantStore
     /// <summary>
     /// Convenience factory: parses and validates grants.json via <see cref="GrantFileLoader.Load"/>
     /// and wraps the resulting rows in a store. Whole-file failures are recorded on
-    /// <paramref name="healthState"/> and yield an empty (inert) store rather than throwing - see
+    /// <paramref name="sink"/> and yield an empty (inert) store rather than throwing - see
     /// <see cref="GrantFileLoader"/> for the whole-file-Fatal / per-row-Degraded split. Callers that
     /// already hold parsed rows can bypass this and use the constructor.
     /// </summary>
-    public static GrantStore Load(string path, OpClassRegistry opClassRegistry, VaultConfig vaultConfig, IConfigProblemSink healthState, TimeProvider? timeProvider = null, LocalhostAuthOptions? localhostOptions = null)
+    public static GrantStore Load(string path, OpClassRegistry opClassRegistry, VaultConfig vaultConfig, IConfigProblemSink sink, TimeProvider? timeProvider = null, LocalhostAuthOptions? localhostOptions = null)
     {
         var resolvedTimeProvider = timeProvider ?? TimeProvider.System;
-        var contents = GrantFileLoader.Load(path, opClassRegistry, vaultConfig, healthState, resolvedTimeProvider.GetUtcNow());
+        var contents = GrantFileLoader.Load(path, opClassRegistry, vaultConfig, sink, resolvedTimeProvider.GetUtcNow());
         return new GrantStore(contents.TokenRows, resolvedTimeProvider, contents.NamedGrants, localhostOptions);
     }
 

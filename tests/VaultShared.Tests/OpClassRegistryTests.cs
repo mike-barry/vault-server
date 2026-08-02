@@ -45,57 +45,57 @@ public sealed class OpClassRegistryTests : IDisposable
     [Fact]
     public void Load_MissingFileThrows()
     {
-        var healthState = new RecordingProblemSink();
-        var registry = OpClassRegistry.Load(Path.Combine(_tempDir, "absent.json"), healthState);
+        var sink = new RecordingProblemSink();
+        var registry = OpClassRegistry.Load(Path.Combine(_tempDir, "absent.json"), sink);
 
-        AssertFatalAndEmpty(healthState, registry);
+        AssertFatalAndEmpty(sink, registry);
     }
 
     [Fact]
     public void Load_NonArrayRootThrows()
     {
-        var healthState = new RecordingProblemSink();
-        var registry = OpClassRegistry.Load(WriteRegistry("""{ "name": "Read" }"""), healthState);
+        var sink = new RecordingProblemSink();
+        var registry = OpClassRegistry.Load(WriteRegistry("""{ "name": "Read" }"""), sink);
 
-        AssertFatalAndEmpty(healthState, registry);
+        AssertFatalAndEmpty(sink, registry);
     }
 
     [Fact]
     public void Load_EmptyArrayThrows()
     {
-        var healthState = new RecordingProblemSink();
-        var registry = OpClassRegistry.Load(WriteRegistry("[]"), healthState);
+        var sink = new RecordingProblemSink();
+        var registry = OpClassRegistry.Load(WriteRegistry("[]"), sink);
 
-        AssertFatalAndEmpty(healthState, registry);
+        AssertFatalAndEmpty(sink, registry);
     }
 
     [Fact]
     public void Load_RowMissingNameThrows()
     {
-        var healthState = new RecordingProblemSink();
-        var registry = OpClassRegistry.Load(WriteRegistry("""[ { "description": "no name" } ]"""), healthState);
+        var sink = new RecordingProblemSink();
+        var registry = OpClassRegistry.Load(WriteRegistry("""[ { "description": "no name" } ]"""), sink);
 
-        AssertFatalAndEmpty(healthState, registry);
+        AssertFatalAndEmpty(sink, registry);
     }
 
     [Fact]
     public void Load_DuplicateNameThrows()
     {
         var json = """[ { "name": "Read" }, { "name": "read" } ]""";
-        var healthState = new RecordingProblemSink();
-        var registry = OpClassRegistry.Load(WriteRegistry(json), healthState);
+        var sink = new RecordingProblemSink();
+        var registry = OpClassRegistry.Load(WriteRegistry(json), sink);
 
-        AssertFatalAndEmpty(healthState, registry);
+        AssertFatalAndEmpty(sink, registry);
     }
 
     /// <summary>Shared assertion for every whole-file-failure case above: op-classes.json
     /// stays all-or-nothing (there is no per-row skip for it), so a whole-file failure
     /// records a single Fatal problem from source "OpClassRegistry" and returns a registry
     /// with no valid op-classes at all - never a partial one.</summary>
-    private static void AssertFatalAndEmpty(RecordingProblemSink healthState, OpClassRegistry registry)
+    private static void AssertFatalAndEmpty(RecordingProblemSink sink, OpClassRegistry registry)
     {
-        Assert.True(healthState.IsFatallyDegraded);
-        var problem = Assert.Single(healthState.Problems);
+        Assert.True(sink.IsFatallyDegraded);
+        var problem = Assert.Single(sink.Problems);
         Assert.Equal(ProblemSeverity.Fatal, problem.Severity);
         Assert.Equal("OpClassRegistry", problem.Source);
         Assert.NotEmpty(problem.Detail);

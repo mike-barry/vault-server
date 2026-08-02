@@ -56,11 +56,11 @@ public sealed class PathPolicy
     /// about its own layout, worth saying once, and a root matching nothing widens nothing. With
     /// no resolvable root there is nowhere to look, and the vault's own skip already reports that.
     /// </param>
-    public static PathPolicy Parse(JsonElement policy, string vaultName, string vaultRoot, string configPath, IConfigProblemSink healthState)
+    public static PathPolicy Parse(JsonElement policy, string vaultName, string vaultRoot, string configPath, IConfigProblemSink sink)
     {
         if (policy.ValueKind != JsonValueKind.Array)
         {
-            healthState.RecordDegraded("VaultConfig", $"{configPath}: vault \"{vaultName}\" has a \"path_policy\" that is not an array - the whole policy is ignored.");
+            sink.RecordDegraded("VaultConfig", $"{configPath}: vault \"{vaultName}\" has a \"path_policy\" that is not an array - the whole policy is ignored.");
             return None;
         }
 
@@ -78,7 +78,7 @@ public sealed class PathPolicy
                     {
                         var full = Path.GetFullPath(Path.Combine(vaultRoot, root));
                         if (!Directory.Exists(full) && !File.Exists(full))
-                            healthState.RecordDegraded(
+                            sink.RecordDegraded(
                                 "VaultConfig",
                                 $"{configPath}: vault \"{vaultName}\" declares \"{root}\" always_readable, but it does not exist ({full}) - it stays in effect and matches nothing.");
                     }
@@ -86,7 +86,7 @@ public sealed class PathPolicy
             }
             catch (InvalidDataException ex)
             {
-                healthState.RecordDegraded("VaultConfig", $"Path policy entry dropped - {ex.Message}");
+                sink.RecordDegraded("VaultConfig", $"Path policy entry dropped - {ex.Message}");
             }
         }
 

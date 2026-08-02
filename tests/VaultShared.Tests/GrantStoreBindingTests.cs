@@ -65,7 +65,7 @@ public sealed class GrantStoreBindingTests(TestVaultFixture fixture) : IClassFix
     [Fact]
     public void Load_DuplicateIdAcrossTokenAndNamedGrant_SkipsSecond()
     {
-        var healthState = new RecordingProblemSink();
+        var sink = new RecordingProblemSink();
         var path = Path.Combine(_tempDir, "grants.json");
         File.WriteAllText(path, """
             {
@@ -73,10 +73,10 @@ public sealed class GrantStoreBindingTests(TestVaultFixture fixture) : IClassFix
               "admin": { "named": true, "id": "admin", "opClasses": ["*"], "vaults": ["*"], "ttl": "*", "scopeRoots": { "*": ["*"] } }
             }
             """);
-        var store = GrantStore.Load(path, OpClasses, _vaultConfig, healthState);
+        var store = GrantStore.Load(path, OpClasses, _vaultConfig, sink);
 
         // The second "admin" (the named grant) is the duplicate and is skipped; the token row wins.
-        Assert.Single(healthState.Problems, p => p.Severity == ProblemSeverity.Degraded);
+        Assert.Single(sink.Problems, p => p.Severity == ProblemSeverity.Degraded);
         Assert.NotNull(store.Authenticate("some-token"));
         Assert.False(store.TryGetNamedGrant("admin", out _));
     }

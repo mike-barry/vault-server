@@ -21,7 +21,7 @@ public sealed class PathPolicyTests : IDisposable
     /// <summary>Writes a vaults.json for one vault rooted at a fresh temp directory, creating
     /// <paramref name="contents"/> inside it (".md" entries become files, everything else a
     /// directory) and giving it <paramref name="policyJson"/> as its path_policy.</summary>
-    private VaultConfig Load(RecordingProblemSink healthState, string? policyJson, params string[] contents)
+    private VaultConfig Load(RecordingProblemSink sink, string? policyJson, params string[] contents)
     {
         var root = Path.Combine(_tempDir, "test");
         Directory.CreateDirectory(root);
@@ -44,11 +44,11 @@ public sealed class PathPolicyTests : IDisposable
         File.WriteAllText(configPath, $$"""
             { "default_vault": "test", "vaults": { "test": { "path": {{JsonSerializer.Serialize(root)}}{{policy}} } } }
             """);
-        return VaultConfig.Load(configPath, healthState);
+        return VaultConfig.Load(configPath, sink);
     }
 
-    private static string[] Problems(RecordingProblemSink healthState) =>
-        healthState.Problems.Select(p => p.Detail).ToArray();
+    private static string[] Problems(RecordingProblemSink sink) =>
+        sink.Problems.Select(p => p.Detail).ToArray();
 
     private static VaultScope Rooted(params string[] roots) =>
         VaultScope.Of(roots.ToHashSet(StringComparer.OrdinalIgnoreCase));
@@ -58,23 +58,23 @@ public sealed class PathPolicyTests : IDisposable
     [Fact]
     public void Load_CanonicalizesTargetAndReportsNothingWhenItExists()
     {
-        var healthState = new RecordingProblemSink();
+        var sink = new RecordingProblemSink();
 
-        var config = Load(healthState, """[ { "path": "Resources\\Vault\\.\\Guides", "always_readable": true } ]""", Guides);
+        var config = Load(sink, """[ { "path": "Resources\\Vault\\.\\Guides", "always_readable": true } ]""", Guides);
 
         Assert.Equal<string[]>([Guides], [.. config.PathPolicyFor("test").AlwaysReadableRoots]);
-        Assert.Empty(Problems(healthState));
+        Assert.Empty(Problems(sink));
     }
 
     [Fact]
     public void Load_NoPolicyDeclaredIsNoFloor()
     {
-        var healthState = new RecordingProblemSink();
+        var sink = new RecordingProblemSink();
 
-        var config = Load(healthState, policyJson: null);
+        var config = Load(sink, policyJson: null);
 
         Assert.Same(PathPolicy.None, config.PathPolicyFor("test"));
-        Assert.Empty(Problems(healthState));
+        Assert.Empty(Problems(sink));
     }
 
     [Theory]
@@ -88,13 +88,13 @@ public sealed class PathPolicyTests : IDisposable
     [InlineData("\"Areas\"", "not an object")]
     public void Load_MalformedEntryIsDroppedAndReported(string entryJson, string why)
     {
-        var healthState = new RecordingProblemSink();
+        var sink = new RecordingProblemSink();
 
-        var config = Load(healthState, $$"""[ {{entryJson}}, { "path": "{{Guides}}", "always_readable": true } ]""", Guides);
+        var config = Load(sink, $$"""[ {{entryJson}}, { "path": "{{Guides}}", "always_readable": true } ]""", Guides);
 
         // The rest of the policy survives the bad entry, and the vault still loads.
         Assert.Equal<string[]>([Guides], [.. config.PathPolicyFor("test").AlwaysReadableRoots]);
-        var problem = Assert.Single(Problems(healthState));
+        var problem = Assert.Single(Problems(sink));
         Assert.True(problem.Contains("dropped"), $"{why}: expected a drop to be reported, got: {problem}");
     }
 
@@ -105,34 +105,34 @@ public sealed class PathPolicyTests : IDisposable
     {
         // Silently ignoring these would let config claim a path is protected while nothing
         // enforces it - a lie that reads as working.
-        var healthState = new RecordingProblemSink();
+        var sink = new RecordingProblemSink();
 
-        var config = Load(healthState, $$"""[ { "path": "Areas", "{{key}}": "agentic:write" } ]""");
+        var config = Load(sink, $$"""[ { "path": "Areas", "{{key}}": "agentic:write" } ]""");
 
         Assert.Same(PathPolicy.None, config.PathPolicyFor("test"));
-        Assert.Contains(Problems(healthState), p => p.Contains(key) && p.Contains("not implemented yet"));
+        Assert.Contains(Problems(sink), p => p.Contains(key) && p.Contains("not implemented yet"));
     }
 
     [Fact]
     public void Load_DeclaredTargetMissingFromDiskIsReportedButKept()
     {
-        var healthState = new RecordingProblemSink();
+        var sink = new RecordingProblemSink();
 
-        var config = Load(healthState, $$"""[ { "path": "{{Guides}}", "always_readable": true } ]""");
+        var config = Load(sink, $$"""[ { "path": "{{Guides}}", "always_readable": true } ]""");
 
         Assert.Equal<string[]>([Guides], [.. config.PathPolicyFor("test").AlwaysReadableRoots]);
-        Assert.Contains(Problems(healthState), p => p.Contains("does not exist"));
+        Assert.Contains(Problems(sink), p => p.Contains("does not exist"));
     }
 
     [Fact]
     public void Load_FileTargetIsValid()
     {
-        var healthState = new RecordingProblemSink();
+        var sink = new RecordingProblemSink();
 
-        var config = Load(healthState, """[ { "path": "Vault-Manifest.md", "always_readable": true } ]""", "Vault-Manifest.md");
+        var config = Load(sink, """[ { "path": "Vault-Manifest.md", "always_readable": true } ]""", "Vault-Manifest.md");
 
         Assert.Equal<string[]>(["Vault-Manifest.md"], [.. config.PathPolicyFor("test").AlwaysReadableRoots]);
-        Assert.Empty(Problems(healthState));
+        Assert.Empty(Problems(sink));
     }
 
     [Fact]
@@ -140,7 +140,7 @@ public sealed class PathPolicyTests : IDisposable
     {
         // The property the flat, every-vault shape could not have: a vault that keeps no such
         // material declares none, and nothing is checked against it or reported for it.
-        var healthState = new RecordingProblemSink();
+        var sink = new RecordingProblemSink();
         var withGuides = Path.Combine(_tempDir, "primary");
         var without = Path.Combine(_tempDir, "scratch");
         Directory.CreateDirectory(Path.Combine(withGuides, "Resources", "Vault", "Guides"));
@@ -156,11 +156,11 @@ public sealed class PathPolicyTests : IDisposable
             }
             """);
 
-        var config = VaultConfig.Load(configPath, healthState);
+        var config = VaultConfig.Load(configPath, sink);
 
         Assert.Equal<string[]>([Guides], [.. config.PathPolicyFor("primary").AlwaysReadableRoots]);
         Assert.Same(PathPolicy.None, config.PathPolicyFor("scratch"));
-        Assert.Empty(Problems(healthState));
+        Assert.Empty(Problems(sink));
     }
 
     // ---- Vault entry shape ----
@@ -168,15 +168,15 @@ public sealed class PathPolicyTests : IDisposable
     [Fact]
     public void Load_BareStringVaultEntryIsFatal()
     {
-        var healthState = new RecordingProblemSink();
+        var sink = new RecordingProblemSink();
         var configPath = Path.Combine(_tempDir, "vaults.json");
         File.WriteAllText(configPath, $$"""{ "default_vault": "test", "vaults": { "test": {{JsonSerializer.Serialize(_tempDir)}} } }""");
 
-        var config = VaultConfig.Load(configPath, healthState);
+        var config = VaultConfig.Load(configPath, sink);
 
-        Assert.True(healthState.IsFatallyDegraded);
+        Assert.True(sink.IsFatallyDegraded);
         Assert.Empty(config.Vaults);
-        Assert.Contains(Problems(healthState), p => p.Contains("must be an object"));
+        Assert.Contains(Problems(sink), p => p.Contains("must be an object"));
     }
 
     [Theory]
@@ -187,17 +187,17 @@ public sealed class PathPolicyTests : IDisposable
         // Unrecognized at the vault level rather than dropped: unlike a path_policy entry there
         // is no rest-of-the-list to preserve, and a vault carrying a key nobody reads is a
         // configuration someone believes is in effect.
-        var healthState = new RecordingProblemSink();
+        var sink = new RecordingProblemSink();
         var configPath = Path.Combine(_tempDir, "vaults.json");
         File.WriteAllText(configPath, $$"""
             { "default_vault": "test", "vaults": { "test": { "path": {{JsonSerializer.Serialize(_tempDir)}}, "{{key}}": "x" } } }
             """);
 
-        var config = VaultConfig.Load(configPath, healthState);
+        var config = VaultConfig.Load(configPath, sink);
 
-        Assert.True(healthState.IsFatallyDegraded);
+        Assert.True(sink.IsFatallyDegraded);
         Assert.Empty(config.Vaults);
-        Assert.Contains(Problems(healthState), p => p.Contains(expectedFragment));
+        Assert.Contains(Problems(sink), p => p.Contains(expectedFragment));
     }
 
     // ---- The union ----
@@ -294,10 +294,10 @@ public sealed class PathPolicyFixtureTests(TestVaultFixture fixture) : IClassFix
     /// reports nothing - which is only true if that vault really carries the folder.</summary>
     private static PathPolicy GuidesPolicy(VaultConfig config, string vault)
     {
-        var healthState = new RecordingProblemSink();
+        var sink = new RecordingProblemSink();
         using var doc = JsonDocument.Parse($$"""[ { "path": "{{Guides}}", "always_readable": true } ]""");
-        var policy = PathPolicy.Parse(doc.RootElement, vault, config.Resolve(vault).Root, "vaults.json", healthState);
-        Assert.Empty(healthState.Problems);
+        var policy = PathPolicy.Parse(doc.RootElement, vault, config.Resolve(vault).Root, "vaults.json", sink);
+        Assert.Empty(sink.Problems);
         return policy;
     }
 

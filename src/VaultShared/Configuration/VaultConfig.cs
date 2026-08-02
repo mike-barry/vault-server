@@ -60,32 +60,31 @@ public sealed class VaultConfig
     /// unparseable, or structurally invalid.</summary>
     private static VaultConfig Empty => new() { Vaults = NoVaults, DefaultVault = string.Empty };
 
-    /// <param name="healthState">
+    /// <param name="sink">
     /// Whole-file failures (missing file, bad JSON, missing/empty "default_vault", empty or
     /// invalid "vaults") are recorded here as a <see cref="ProblemSeverity.Fatal"/> problem
     /// instead of being thrown - the caller always gets back a usable (if empty) instance.
     /// A configured vault entry whose root directory does not exist is recorded as a
     /// <see cref="ProblemSeverity.Degraded"/> per-entry skip instead (see
     /// <see cref="SkippedVaults"/>) and does not fail the file. Required, deliberately with
-    /// no default: a defaulted throwaway instance would let a future production call site
-    /// compile while silently discarding recorded failures - exactly the failure class this
-    /// health-state redesign exists to eliminate. Callers that only exercise the success
+    /// no default: a defaulted throwaway instance would let a production call site compile
+    /// while silently discarding recorded failures. Callers that only exercise the success
     /// path (tests) pass a fresh local instance.
     /// </param>
-    public static VaultConfig Load(string path, IConfigProblemSink healthState)
+    public static VaultConfig Load(string path, IConfigProblemSink sink)
     {
         try
         {
-            return LoadCore(path, healthState);
+            return LoadCore(path, sink);
         }
         catch (Exception ex) when (ex is FileNotFoundException or InvalidDataException or JsonException)
         {
-            healthState.RecordFatal("VaultConfig", ex.Message);
+            sink.RecordFatal("VaultConfig", ex.Message);
             return Empty;
         }
     }
 
-    private static VaultConfig LoadCore(string path, IConfigProblemSink healthState)
+    private static VaultConfig LoadCore(string path, IConfigProblemSink sink)
     {
         if (!File.Exists(path))
             throw new FileNotFoundException($"Vault config not found: {path}", path);
@@ -128,12 +127,12 @@ public sealed class VaultConfig
                 // other vault keeps working. Still a configured vault - see SkippedVaults.
                 var reason = $"root directory does not exist: {fullRoot}";
                 skipped[entry.Name] = reason;
-                healthState.RecordDegraded("VaultConfig", $"{path}: vault \"{entry.Name}\" skipped - {reason}.");
+                sink.RecordDegraded("VaultConfig", $"{path}: vault \"{entry.Name}\" skipped - {reason}.");
                 continue;
             }
 
             var policy = entry.Value.TryGetProperty("path_policy", out var policyProp)
-                ? PathPolicy.Parse(policyProp, entry.Name, fullRoot, path, healthState)
+                ? PathPolicy.Parse(policyProp, entry.Name, fullRoot, path, sink)
                 : PathPolicy.None;
             vaults[entry.Name] = new VaultEntry(fullRoot, policy);
         }

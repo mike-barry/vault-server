@@ -38,9 +38,9 @@ public sealed class GrantStoreTests(TestVaultFixture fixture) : IClassFixture<Te
     private (GrantStore Store, RecordingProblemSink HealthState) LoadRows(params string[] rows)
     {
         var json = "{\n" + string.Join(",\n", rows) + "\n}";
-        var healthState = new RecordingProblemSink();
-        var store = GrantStore.Load(WriteGrants(json), OpClasses, _vaultConfig, healthState);
-        return (store, healthState);
+        var sink = new RecordingProblemSink();
+        var store = GrantStore.Load(WriteGrants(json), OpClasses, _vaultConfig, sink);
+        return (store, sink);
     }
 
     [Fact]
@@ -81,10 +81,10 @@ public sealed class GrantStoreTests(TestVaultFixture fixture) : IClassFixture<Te
     [Fact]
     public void Load_MissingFileIsFatal()
     {
-        var healthState = new RecordingProblemSink();
-        var store = GrantStore.Load(Path.Combine(_tempDir, "absent.json"), OpClasses, _vaultConfig, healthState: healthState);
+        var sink = new RecordingProblemSink();
+        var store = GrantStore.Load(Path.Combine(_tempDir, "absent.json"), OpClasses, _vaultConfig, sink: sink);
 
-        AssertFatalAndEmpty(healthState, store);
+        AssertFatalAndEmpty(sink, store);
     }
 
     [Fact]
@@ -92,10 +92,10 @@ public sealed class GrantStoreTests(TestVaultFixture fixture) : IClassFixture<Te
     {
         // Zero configured rows is a structurally-empty grant table - still whole-file Fatal,
         // unlike a table whose rows were individually skipped.
-        var healthState = new RecordingProblemSink();
-        var store = GrantStore.Load(WriteGrants("{}"), OpClasses, _vaultConfig, healthState: healthState);
+        var sink = new RecordingProblemSink();
+        var store = GrantStore.Load(WriteGrants("{}"), OpClasses, _vaultConfig, sink: sink);
 
-        AssertFatalAndEmpty(healthState, store);
+        AssertFatalAndEmpty(sink, store);
     }
 
     [Fact]
@@ -107,14 +107,14 @@ public sealed class GrantStoreTests(TestVaultFixture fixture) : IClassFixture<Te
         // authenticate against it - so it now also records a Fatal problem, same as the
         // structurally-empty-file case, instead of leaving the server merely Degraded with
         // callers silently getting plain 401s.
-        var (store, healthState) = LoadRows(
+        var (store, sink) = LoadRows(
             """ "token-a": { "id": "a", "opClasses": ["Nope"], "vaults": ["test"], "ttl": "*", "scopeRoots": { "test": ["*"] } } """,
             """ "token-b": { "id": "b", "opClasses": ["content:read"], "vaults": ["gone"], "ttl": "*", "scopeRoots": { "gone": ["*"] } } """);
 
-        Assert.True(healthState.IsFatallyDegraded);
-        Assert.Equal(3, healthState.Problems.Count);
-        Assert.Equal(2, healthState.Problems.Count(p => p.Severity == ProblemSeverity.Degraded));
-        var fatal = Assert.Single(healthState.Problems, p => p.Severity == ProblemSeverity.Fatal);
+        Assert.True(sink.IsFatallyDegraded);
+        Assert.Equal(3, sink.Problems.Count);
+        Assert.Equal(2, sink.Problems.Count(p => p.Severity == ProblemSeverity.Degraded));
+        var fatal = Assert.Single(sink.Problems, p => p.Severity == ProblemSeverity.Fatal);
         Assert.Equal("GrantStore", fatal.Source);
         Assert.Null(store.Authenticate("token-a"));
         Assert.Null(store.Authenticate("token-b"));
@@ -123,12 +123,12 @@ public sealed class GrantStoreTests(TestVaultFixture fixture) : IClassFixture<Te
     [Fact]
     public void Load_DuplicateId_SkipsSecondRowKeepsFirst()
     {
-        var (store, healthState) = LoadRows(
+        var (store, sink) = LoadRows(
             """ "token-a": { "id": "admin", "opClasses": ["content:read"], "vaults": ["test"], "ttl": "*", "scopeRoots": { "test": ["*"] } } """,
             """ "token-b": { "id": "admin", "opClasses": ["content:read"], "vaults": ["test"], "ttl": "*", "scopeRoots": { "test": ["*"] } } """,
             GoodRow);
 
-        AssertSingleRowSkipped(healthState, store);
+        AssertSingleRowSkipped(sink, store);
         Assert.NotNull(store.Authenticate("token-a"));
         Assert.Null(store.Authenticate("token-b"));
     }
@@ -136,31 +136,31 @@ public sealed class GrantStoreTests(TestVaultFixture fixture) : IClassFixture<Te
     [Fact]
     public void Load_UnknownOpClass_SkipsRow()
     {
-        var (store, healthState) = LoadRows(
+        var (store, sink) = LoadRows(
             """ "token-a": { "id": "admin", "opClasses": ["Delete"], "vaults": ["test"], "ttl": "*", "scopeRoots": { "test": ["*"] } } """,
             GoodRow);
 
-        AssertSingleRowSkipped(healthState, store, expectedDetailFragment: "unknown opClass");
+        AssertSingleRowSkipped(sink, store, expectedDetailFragment: "unknown opClass");
     }
 
     [Fact]
     public void Load_EmptyOpClasses_SkipsRow()
     {
-        var (store, healthState) = LoadRows(
+        var (store, sink) = LoadRows(
             """ "token-a": { "id": "admin", "opClasses": [], "vaults": ["test"], "ttl": "*", "scopeRoots": { "test": ["*"] } } """,
             GoodRow);
 
-        AssertSingleRowSkipped(healthState, store);
+        AssertSingleRowSkipped(sink, store);
     }
 
     [Fact]
     public void Load_EmptyVaults_SkipsRow()
     {
-        var (store, healthState) = LoadRows(
+        var (store, sink) = LoadRows(
             """ "token-a": { "id": "admin", "opClasses": ["content:read"], "vaults": [], "ttl": "*", "scopeRoots": {} } """,
             GoodRow);
 
-        AssertSingleRowSkipped(healthState, store);
+        AssertSingleRowSkipped(sink, store);
     }
 
     [Fact]
@@ -168,11 +168,11 @@ public sealed class GrantStoreTests(TestVaultFixture fixture) : IClassFixture<Te
     {
         // The new check this batch adds: a row naming a vault absent from the configured
         // vault set (e.g. after a vault rename) skips rather than loading silently inert.
-        var (store, healthState) = LoadRows(
+        var (store, sink) = LoadRows(
             """ "token-a": { "id": "admin", "opClasses": ["content:read"], "vaults": ["renamed-away"], "ttl": "*", "scopeRoots": { "renamed-away": ["*"] } } """,
             GoodRow);
 
-        AssertSingleRowSkipped(healthState, store, expectedDetailFragment: "unknown vault \"renamed-away\"");
+        AssertSingleRowSkipped(sink, store, expectedDetailFragment: "unknown vault \"renamed-away\"");
     }
 
     [Fact]
@@ -185,10 +185,10 @@ public sealed class GrantStoreTests(TestVaultFixture fixture) : IClassFixture<Te
         var config = LoadConfigWithBrokenVault();
 
         var json = """{ "token-a": { "id": "admin", "opClasses": ["content:read"], "vaults": ["broken"], "ttl": "*", "scopeRoots": { "broken": ["*"] } } }""";
-        var healthState = new RecordingProblemSink();
-        var store = GrantStore.Load(WriteGrants(json), OpClasses, config, healthState);
+        var sink = new RecordingProblemSink();
+        var store = GrantStore.Load(WriteGrants(json), OpClasses, config, sink);
 
-        Assert.DoesNotContain(healthState.Problems, p => p.Source == "GrantStore");
+        Assert.DoesNotContain(sink.Problems, p => p.Source == "GrantStore");
         var grant = store.Authenticate("token-a");
         Assert.NotNull(grant);
         Assert.True(grant.CanAccessVault("broken"));
@@ -219,11 +219,11 @@ public sealed class GrantStoreTests(TestVaultFixture fixture) : IClassFixture<Te
     [Fact]
     public void Load_MissingId_SkipsRow()
     {
-        var (store, healthState) = LoadRows(
+        var (store, sink) = LoadRows(
             """ "token-a": { "opClasses": ["content:read"], "vaults": ["test"], "ttl": "*", "scopeRoots": { "test": ["*"] } } """,
             GoodRow);
 
-        AssertSingleRowSkipped(healthState, store);
+        AssertSingleRowSkipped(sink, store);
     }
 
     [Fact]
@@ -265,41 +265,41 @@ public sealed class GrantStoreTests(TestVaultFixture fixture) : IClassFixture<Te
     [Fact]
     public void Load_MissingTtl_SkipsRow()
     {
-        var (store, healthState) = LoadRows(
+        var (store, sink) = LoadRows(
             """ "token-a": { "id": "admin", "opClasses": ["content:read"], "vaults": ["test"], "scopeRoots": { "test": ["*"] } } """,
             GoodRow);
 
-        AssertSingleRowSkipped(healthState, store, expectedDetailFragment: "ttl");
+        AssertSingleRowSkipped(sink, store, expectedDetailFragment: "ttl");
     }
 
     [Fact]
     public void Load_InvalidTtlString_SkipsRow()
     {
-        var (store, healthState) = LoadRows(
+        var (store, sink) = LoadRows(
             """ "token-a": { "id": "admin", "opClasses": ["content:read"], "vaults": ["test"], "ttl": "forever", "scopeRoots": { "test": ["*"] } } """,
             GoodRow);
 
-        AssertSingleRowSkipped(healthState, store, expectedDetailFragment: "ttl");
+        AssertSingleRowSkipped(sink, store, expectedDetailFragment: "ttl");
     }
 
     [Fact]
     public void Load_FractionalTtl_SkipsRow()
     {
-        var (store, healthState) = LoadRows(
+        var (store, sink) = LoadRows(
             """ "token-a": { "id": "admin", "opClasses": ["content:read"], "vaults": ["test"], "ttl": 5.5, "scopeRoots": { "test": ["*"] } } """,
             GoodRow);
 
-        AssertSingleRowSkipped(healthState, store, expectedDetailFragment: "ttl");
+        AssertSingleRowSkipped(sink, store, expectedDetailFragment: "ttl");
     }
 
     [Fact]
     public void Load_NonPositiveTtl_SkipsRow()
     {
-        var (store, healthState) = LoadRows(
+        var (store, sink) = LoadRows(
             """ "token-a": { "id": "admin", "opClasses": ["content:read"], "vaults": ["test"], "ttl": 0, "scopeRoots": { "test": ["*"] } } """,
             GoodRow);
 
-        AssertSingleRowSkipped(healthState, store, expectedDetailFragment: "ttl");
+        AssertSingleRowSkipped(sink, store, expectedDetailFragment: "ttl");
     }
 
     [Fact]
@@ -395,21 +395,21 @@ public sealed class GrantStoreTests(TestVaultFixture fixture) : IClassFixture<Te
     [Fact]
     public void Load_MissingScopeRootsField_SkipsRow()
     {
-        var (store, healthState) = LoadRows(
+        var (store, sink) = LoadRows(
             """ "token-a": { "id": "admin", "opClasses": ["content:read"], "vaults": ["test"], "ttl": "*" } """,
             GoodRow);
 
-        AssertSingleRowSkipped(healthState, store, expectedDetailFragment: "scopeRoots");
+        AssertSingleRowSkipped(sink, store, expectedDetailFragment: "scopeRoots");
     }
 
     [Fact]
     public void Load_ScopeRootsMissingEntryForAVaultInVaults_SkipsRow()
     {
-        var (store, healthState) = LoadRows(
+        var (store, sink) = LoadRows(
             """ "token-a": { "id": "admin", "opClasses": ["content:read"], "vaults": ["test", "scratch"], "ttl": "*", "scopeRoots": { "test": ["*"] } } """,
             GoodRow);
 
-        AssertSingleRowSkipped(healthState, store, expectedDetailFragment: "scopeRoots");
+        AssertSingleRowSkipped(sink, store, expectedDetailFragment: "scopeRoots");
     }
 
     [Fact]
@@ -430,21 +430,21 @@ public sealed class GrantStoreTests(TestVaultFixture fixture) : IClassFixture<Te
     [Fact]
     public void Load_ScopeRootsWildcardKeyMixedWithExplicitVaultEntry_SkipsRow()
     {
-        var (store, healthState) = LoadRows(
+        var (store, sink) = LoadRows(
             """ "token-a": { "id": "admin", "opClasses": ["content:read"], "vaults": ["test"], "ttl": "*", "scopeRoots": { "*": ["*"], "test": ["*"] } } """,
             GoodRow);
 
-        AssertSingleRowSkipped(healthState, store, expectedDetailFragment: "scopeRoots");
+        AssertSingleRowSkipped(sink, store, expectedDetailFragment: "scopeRoots");
     }
 
     [Fact]
     public void Load_ScopeRootsWildcardKeyWithNonWildcardValue_SkipsRow()
     {
-        var (store, healthState) = LoadRows(
+        var (store, sink) = LoadRows(
             """ "token-a": { "id": "admin", "opClasses": ["content:read"], "vaults": ["test"], "ttl": "*", "scopeRoots": { "*": ["Projects/Widget"] } } """,
             GoodRow);
 
-        AssertSingleRowSkipped(healthState, store, expectedDetailFragment: "scopeRoots");
+        AssertSingleRowSkipped(sink, store, expectedDetailFragment: "scopeRoots");
     }
 
     [Fact]
@@ -466,11 +466,11 @@ public sealed class GrantStoreTests(TestVaultFixture fixture) : IClassFixture<Te
         // The empty list is the one spelling a mistake produces on its own - a dropped entry, a
         // list filtered to nothing - so it is rejected rather than read as whole-vault access.
         // Losing content from a grant must never widen it.
-        var (store, healthState) = LoadRows(
+        var (store, sink) = LoadRows(
             """ "token-a": { "id": "admin", "opClasses": ["content:read"], "vaults": ["test"], "ttl": "*", "scopeRoots": { "test": [] } } """,
             GoodRow);
 
-        AssertSingleRowSkipped(healthState, store, expectedDetailFragment: "scopeRoots");
+        AssertSingleRowSkipped(sink, store, expectedDetailFragment: "scopeRoots");
     }
 
     [Fact]
@@ -505,61 +505,61 @@ public sealed class GrantStoreTests(TestVaultFixture fixture) : IClassFixture<Te
     [Fact]
     public void Load_ScopeRootsRootedEntry_SkipsRow()
     {
-        var (store, healthState) = LoadRows(
+        var (store, sink) = LoadRows(
             """ "token-a": { "id": "admin", "opClasses": ["content:read"], "vaults": ["test"], "ttl": "*", "scopeRoots": { "test": ["C:/Windows"] } } """,
             GoodRow);
 
-        AssertSingleRowSkipped(healthState, store, expectedDetailFragment: "scopeRoots");
+        AssertSingleRowSkipped(sink, store, expectedDetailFragment: "scopeRoots");
     }
 
     [Fact]
     public void Load_ScopeRootsEscapingEntry_SkipsRow()
     {
-        var (store, healthState) = LoadRows(
+        var (store, sink) = LoadRows(
             """ "token-a": { "id": "admin", "opClasses": ["content:read"], "vaults": ["test"], "ttl": "*", "scopeRoots": { "test": ["../outside"] } } """,
             GoodRow);
 
-        AssertSingleRowSkipped(healthState, store, expectedDetailFragment: "scopeRoots");
+        AssertSingleRowSkipped(sink, store, expectedDetailFragment: "scopeRoots");
     }
 
     [Fact]
     public void Load_ScopeRootsEmptyEntry_SkipsRow()
     {
-        var (store, healthState) = LoadRows(
+        var (store, sink) = LoadRows(
             """ "token-a": { "id": "admin", "opClasses": ["content:read"], "vaults": ["test"], "ttl": "*", "scopeRoots": { "test": [""] } } """,
             GoodRow);
 
-        AssertSingleRowSkipped(healthState, store, expectedDetailFragment: "scopeRoots");
+        AssertSingleRowSkipped(sink, store, expectedDetailFragment: "scopeRoots");
     }
 
     [Fact]
     public void Load_ScopeRootsNotAnObject_SkipsRow()
     {
-        var (store, healthState) = LoadRows(
+        var (store, sink) = LoadRows(
             """ "token-a": { "id": "admin", "opClasses": ["content:read"], "vaults": ["test"], "ttl": "*", "scopeRoots": ["Projects/Widget"] } """,
             GoodRow);
 
-        AssertSingleRowSkipped(healthState, store, expectedDetailFragment: "scopeRoots");
+        AssertSingleRowSkipped(sink, store, expectedDetailFragment: "scopeRoots");
     }
 
     [Fact]
     public void Load_ScopeRootsVaultEntryNotAnArray_SkipsRow()
     {
-        var (store, healthState) = LoadRows(
+        var (store, sink) = LoadRows(
             """ "token-a": { "id": "admin", "opClasses": ["content:read"], "vaults": ["test"], "ttl": "*", "scopeRoots": { "test": "Projects/Widget" } } """,
             GoodRow);
 
-        AssertSingleRowSkipped(healthState, store, expectedDetailFragment: "scopeRoots");
+        AssertSingleRowSkipped(sink, store, expectedDetailFragment: "scopeRoots");
     }
 
     [Fact]
     public void Load_ScopeRootsVaultNotInGrantsVaults_SkipsRow()
     {
-        var (store, healthState) = LoadRows(
+        var (store, sink) = LoadRows(
             """ "token-a": { "id": "admin", "opClasses": ["content:read"], "vaults": ["test"], "ttl": "*", "scopeRoots": { "scratch": ["Projects/Widget"] } } """,
             GoodRow);
 
-        AssertSingleRowSkipped(healthState, store, expectedDetailFragment: "scopeRoots");
+        AssertSingleRowSkipped(sink, store, expectedDetailFragment: "scopeRoots");
     }
 
     [Fact]
@@ -661,10 +661,10 @@ public sealed class GrantStoreTests(TestVaultFixture fixture) : IClassFixture<Te
     /// and returns an inert store nobody can authenticate against. Per-row validation
     /// failures no longer land here - they skip just their row; see
     /// <see cref="AssertSingleRowSkipped"/>.</summary>
-    private static void AssertFatalAndEmpty(RecordingProblemSink healthState, GrantStore store)
+    private static void AssertFatalAndEmpty(RecordingProblemSink sink, GrantStore store)
     {
-        Assert.True(healthState.IsFatallyDegraded);
-        var problem = Assert.Single(healthState.Problems);
+        Assert.True(sink.IsFatallyDegraded);
+        var problem = Assert.Single(sink.Problems);
         Assert.Equal(ProblemSeverity.Fatal, problem.Severity);
         Assert.Equal("GrantStore", problem.Source);
         Assert.NotEmpty(problem.Detail);
@@ -676,10 +676,10 @@ public sealed class GrantStoreTests(TestVaultFixture fixture) : IClassFixture<Te
     /// <summary>Shared assertion for every row-level skip case: exactly one Degraded problem
     /// from source "GrantStore" (never Fatal - the server stays fully operational), the bad
     /// "token-a" row does not authenticate, and the known-good row loaded normally.</summary>
-    private static void AssertSingleRowSkipped(RecordingProblemSink healthState, GrantStore store, string? expectedDetailFragment = null)
+    private static void AssertSingleRowSkipped(RecordingProblemSink sink, GrantStore store, string? expectedDetailFragment = null)
     {
-        Assert.False(healthState.IsFatallyDegraded);
-        var problem = Assert.Single(healthState.Problems);
+        Assert.False(sink.IsFatallyDegraded);
+        var problem = Assert.Single(sink.Problems);
         Assert.Equal(ProblemSeverity.Degraded, problem.Severity);
         Assert.Equal("GrantStore", problem.Source);
         Assert.NotEmpty(problem.Detail);

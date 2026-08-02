@@ -35,15 +35,15 @@ public sealed class TestVaultFixture : IDisposable
             default_vault = "test",
             vaults = new { test = new { path = test }, scratch = new { path = scratch } },
         }));
-        // Load no longer throws on failure - it records into the health state and returns
-        // an inert config. This fixture's config is always expected to be valid, so surface
-        // any recorded problem loudly here rather than letting an empty VaultConfig produce
-        // confusing downstream test failures.
-        var healthState = new RecordingProblemSink();
-        Config = VaultConfig.Load(configPath, healthState);
-        if (healthState.IsFatallyDegraded)
+        // Load records failures into the sink and returns an inert config rather than throwing.
+        // This fixture's config is always expected to be valid, so surface any recorded problem
+        // loudly here rather than letting an empty VaultConfig produce confusing downstream test
+        // failures.
+        var sink = new RecordingProblemSink();
+        Config = VaultConfig.Load(configPath, sink);
+        if (sink.IsFatallyDegraded)
             throw new InvalidOperationException(
-                "TestVaultFixture's vaults.json failed to load: " + string.Join("; ", healthState.Problems.Select(p => p.Detail)));
+                "TestVaultFixture's vaults.json failed to load: " + string.Join("; ", sink.Problems.Select(p => p.Detail)));
     }
 
     public void Dispose()
