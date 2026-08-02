@@ -20,7 +20,7 @@ This is a trust boundary. Every protection in this layer derives from the regist
 
 **The runtime reads the declaration and never writes it.** No operation on either front-end edits it; edits are made by an operator with an editor. That is what keeps the agent-facing surface from redefining what counts as protected.
 
-**The format is JSON, with comments and trailing commas tolerated on read**, matching the other configuration files the host loads. Comments serve the operator and are not preserved through a read, which the read-only rule makes moot. Where a rationale must reach a display surface, a declaration entry may carry an explicit note field.
+**The format is JSON, with comments and trailing commas tolerated on read.** Comments serve the operator and are not preserved through a read, which the read-only rule makes moot. Where a rationale must reach a display surface, a declaration entry may carry an explicit note field.
 
 ## What A Key Declaration Expresses
 
