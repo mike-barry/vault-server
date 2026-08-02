@@ -719,10 +719,6 @@ public sealed class GrantStoreTests(TestVaultFixture fixture) : IClassFixture<Te
         return byVault.ToDictionary(kv => kv.Key, kv => VaultScope.Of(kv.Value));
     }
 
-    /// <summary>A per-vault map where every named vault is unscoped - the whole-vault case.</summary>
-    private static Dictionary<string, VaultScope> UnscopedFor(params string[] vaults) =>
-        vaults.ToDictionary(v => v, _ => VaultScope.Unscoped, StringComparer.OrdinalIgnoreCase);
-
     /// <summary>Asserts a vault's scope is confined to exactly <paramref name="expected"/>.</summary>
     private static void AssertRoots(IEnumerable<string> expected, VaultScope actual) =>
         Assert.Equal(

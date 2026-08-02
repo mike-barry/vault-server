@@ -154,23 +154,27 @@ public sealed class BearerGrantMiddlewareTests : IClassFixture<BearerGrantMiddle
         Assert.NotEqual(HttpStatusCode.Forbidden, response.StatusCode);
     }
 
+    /// <summary>
+    /// The gate runs on the body peek, before the dispatcher resolves a name to a tool, so the
+    /// tool named here does not have to exist - and deliberately does not, since a real name
+    /// would suggest the refusal depended on one.
+    /// </summary>
     [Fact]
     public async Task ToolCallNamingOutOfScopeVault_Returns403()
     {
         using var client = _fixture.CreateClient();
         client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", Fixture.ReadOnlyToken);
-        var body = """{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"rename_note","arguments":{"vault":"not-configured","from":"a","to":"b"}}}""";
+        var body = """{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"some_tool","arguments":{"vault":"not-configured","from":"a","to":"b"}}}""";
         using var response = await client.PostAsync("/mcp", JsonBody(body));
 
         Assert.Equal(HttpStatusCode.Forbidden, response.StatusCode);
     }
 
     /// <summary>
-    /// The vault-scope peek must match the "vault" argument property case-insensitively:
-    /// script-tool schemas expose parameter names verbatim from their PowerShell param()
-    /// blocks, which spell it "vault", but the binder accepts any casing, so a client
-    /// sending "Vault" must still hit the informative 403 gate rather than falling through
-    /// to the vaguer op-class/path-scope denial one layer down.
+    /// The vault-scope peek must match the "vault" argument property case-insensitively. A tool's
+    /// advertised schema spells it "vault" by the snake_case wire rule, but binders accept any
+    /// casing, so a client sending "Vault" must still hit the informative 403 gate rather than
+    /// falling through to the vaguer op-class/path-scope denial one layer down.
     /// </summary>
     [Theory]
     [InlineData("vault")]
@@ -179,18 +183,24 @@ public sealed class BearerGrantMiddlewareTests : IClassFixture<BearerGrantMiddle
     {
         using var client = _fixture.CreateClient();
         client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", Fixture.ReadOnlyToken);
-        var body = """{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"move","arguments":{"VAULT_PROPERTY":"not-configured","source":"a","dest":"b"}}}""".Replace("VAULT_PROPERTY", vaultPropertyName);
+        var body = """{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"some_tool","arguments":{"VAULT_PROPERTY":"not-configured","source":"a","dest":"b"}}}""".Replace("VAULT_PROPERTY", vaultPropertyName);
         using var response = await client.PostAsync("/mcp", JsonBody(body));
 
         Assert.Equal(HttpStatusCode.Forbidden, response.StatusCode);
     }
 
-    [Fact]
+    /// <summary>
+    /// The gate's admitting side. Unlike the refusals above, this one needs a tool that exists:
+    /// with none, the dispatcher answers "unknown tool" as a 200 tool error, so not-401/not-403
+    /// holds for any name at all and the assertion cannot tell an admitted call from a missing
+    /// tool. Restore it against the first compiled tool that takes a vault argument.
+    /// </summary>
+    [Fact(Skip = "Needs a compiled tool taking a vault argument; with none, this passes for any tool name.")]
     public async Task ToolCallNamingInScopeVault_IsNotRejectedByTheGate()
     {
         using var client = _fixture.CreateClient();
         client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", Fixture.ReadOnlyToken);
-        var body = """{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"read","arguments":{"vault":"personal","path":"a.md"}}}""";
+        var body = """{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"some_tool","arguments":{"vault":"personal","path":"a.md"}}}""";
         using var response = await client.PostAsync("/mcp", JsonBody(body));
 
         Assert.NotEqual(HttpStatusCode.Unauthorized, response.StatusCode);

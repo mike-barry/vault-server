@@ -59,7 +59,7 @@ public sealed class HealthCheckToolTests(TestVaultFixture fixture) : IClassFixtu
     }
 
     [Fact]
-    public async Task InvokeAsync_ReportsConfiguredAndSkippedVaults()
+    public async Task InvokeAsync_ReportsConfiguredVaults()
     {
         var healthState = new ServerHealthState();
         var tool = new HealthCheckTool(healthState, _vaultConfig);

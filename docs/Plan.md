@@ -58,6 +58,8 @@ Design runs ahead of the code it governs and lands in its own documents under `d
 - [ ] Build `read`, `glob`, and `grep`
   - Restore the skipped read probe in `e2e-smoke.ps1`, written against `read`'s own argument surface rather than the deleted script's. The two vault-gate probes beside it still pass, since that gate fires on the body peek before dispatch
 - [ ] Build `edit` over the frontmatter surface
+  - Test fixture capability is parked here waiting for the first mutating tool, and reads as dead until then: `ProgramHostFixtureBase.AssertMutationSandboxed` and its `CopyDirectory`, `TestVaultCleanGuard`, and the `vaultMcpVaultsJsonPath` parameter of `ConfigureEnvironment`. One trap in restoring them - `AssertMutationSandboxed` asserts on `VAULT_MCP_VAULTS_JSON`, which no fixture sets any more, so it throws until a fixture passes that parameter
+  - Restore the skipped `ToolCallNamingInScopeVault_IsNotRejectedByTheGate` once a compiled tool takes a vault argument. It asserts the gate's admitting side, which cannot be told from a missing tool while none exists
   - `BearerGrantMiddleware` logs every call's full arguments verbatim to an unrotated file. Harmless for the read tools; `edit` and `create` carry note bodies and frontmatter operations, so every write's content would land in `logs/`. Propose the middleware change before the first write tool ships, not after
 - [ ] Verify the read-class scope floor end to end. This is the earliest point both halves can be proved: the check needs a write refused as well as a read admitted, so it waits for the first mutating tool rather than the first read. The floor is retained code with unit coverage and no end-to-end proof: `test-vault` declares `Resources/Vault/Guides` `always_readable` in `vaults.json`, so a grant scoped to `Projects/Widget` alone must read and glob both guide docs, must be refused writing either, and must reach nothing else outside its roots. A failure here is the floor's, not the tool's - it means an operation reached the scope check on a path that should have been unioned in, or a write path consulted the floor when it must not
 - [ ] Build wikilink maintenance as one shared area - repair on relocation, pinning on creation, the census on removal - over the layer's single grammar and ranking rule. Ahead of the three tools that consume it, so it is not an artifact of whichever was built first
@@ -65,6 +67,8 @@ Design runs ahead of the code it governs and lands in its own documents under `d
 - [ ] Build the MCP front-end as a projection of the tool declarations
 - [ ] Build the CLI front-end from the same declarations
 - [ ] Audit test coverage against the specs, then commit the suite
+  - Known gaps going in: `NormalizeScopeSegments` has no direct test and is reached only through `IsPathInScope`; `health_check`'s reporting of skipped vaults is unasserted, the fixture having none; and the non-loopback path is covered at unit level only, the host-level `RemoteIpHeader` override existing but unused by any test
+  - The committed fixture has no duplicate basenames, so `Spec-Obsidian-Link-Behavior.md`'s ranking rule cannot be exercised against it. `TestVaultFixture` injects `A/Dupe.md`, `B/Dupe.md` and a dot-directory into its temp copy, which is where those cases live and is why they read as unused
 
 Tests are built with the functionality they cover and split into files by logical area. Coverage derives from the specs and there is nothing else to derive it from.
 
