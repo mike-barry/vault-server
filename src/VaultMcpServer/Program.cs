@@ -1,9 +1,10 @@
 using Microsoft.AspNetCore.Http;
 using VaultMcpServer.Auth;
-using VaultMcpServer.Health;
+using VaultShared.Auth;
+using VaultShared.Health;
 using VaultMcpServer.Logging;
 using VaultMcpServer.Tools;
-using VaultMcpServer.Vault;
+using VaultShared.Configuration;
 
 var builder = WebApplication.CreateBuilder(args);
 

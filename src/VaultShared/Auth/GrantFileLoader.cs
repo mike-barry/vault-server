@@ -1,8 +1,9 @@
 using System.Text.Json;
-using VaultMcpServer.Health;
-using VaultMcpServer.Vault;
+using VaultShared.Health;
+using VaultShared.Configuration;
+using VaultShared.Scope;
 
-namespace VaultMcpServer.Auth;
+namespace VaultShared.Auth;
 
 /// <summary>
 /// The parsed contents of grants.json: the token-keyed authenticatable rows plus the token-less
@@ -27,7 +28,7 @@ public sealed record GrantFileContents(
 /// rebind and default-binding targets. Everything here is startup-only: it runs once when the
 /// host loads config and never again. Split out of <see cref="GrantStore"/> so the runtime store
 /// (authentication, minting, expiry, elevation binding) stays free of the JSON parser and its
-/// dependency on <see cref="Vault.VaultAccess"/> for scope-root canonicalization - the two have
+/// dependency on <see cref="VaultAccess"/> for scope-root canonicalization - the two have
 /// no shared state and entirely different lifetimes.
 ///
 /// A row is a <em>named grant</em> when it carries <c>"named": true</c> - it has no token (its
@@ -260,7 +261,7 @@ public static class GrantFileLoader
     /// scoping a vault the grant can't access at all is nonsensical and almost certainly a typo
     /// or stale config, so the row skips rather than silently doing nothing. A present,
     /// non-wildcard entry must canonicalize as a folder-prefix root (see
-    /// <see cref="Vault.VaultAccess.NormalizeScopeSegments"/>) - rooted, escaping, or empty
+    /// <see cref="VaultAccess.NormalizeScopeSegments"/>) - rooted, escaping, or empty
     /// entries skip the row, the same rigor as an unknown opClass.
     /// </summary>
     private static IReadOnlyDictionary<string, VaultScope> ReadScopeRoots(JsonElement grant, string path, string id, IReadOnlySet<string> vaults)

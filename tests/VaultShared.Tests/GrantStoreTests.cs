@@ -1,8 +1,9 @@
-using VaultMcpServer.Auth;
-using VaultMcpServer.Health;
-using VaultMcpServer.Vault;
+using VaultShared.Auth;
+using VaultShared.Health;
+using VaultShared.Configuration;
+using VaultShared.Scope;
 
-namespace VaultMcpServer.Tests;
+namespace VaultShared.Tests;
 
 public sealed class GrantStoreTests(TestVaultFixture fixture) : IClassFixture<TestVaultFixture>, IDisposable
 {

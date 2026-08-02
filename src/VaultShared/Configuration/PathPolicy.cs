@@ -1,7 +1,8 @@
 using System.Text.Json;
-using VaultMcpServer.Health;
+using VaultShared.Health;
+using VaultShared.Scope;
 
-namespace VaultMcpServer.Vault;
+namespace VaultShared.Configuration;
 
 /// <summary>
 /// One vault's path policy: modifiers attached to targets within that vault, declared in its

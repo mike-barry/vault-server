@@ -1,8 +1,9 @@
 using System.Text.Json;
-using VaultMcpServer.Health;
-using VaultMcpServer.Vault;
+using VaultShared.Health;
+using VaultShared.Configuration;
+using VaultShared.Scope;
 
-namespace VaultMcpServer.Tests;
+namespace VaultShared.Tests;
 
 /// <summary>
 /// A vault's path policy: what survives load validation, what it reports, and the read-scope

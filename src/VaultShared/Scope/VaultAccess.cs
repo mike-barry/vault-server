@@ -1,4 +1,6 @@
-namespace VaultMcpServer.Vault;
+using VaultShared.Configuration;
+
+namespace VaultShared.Scope;
 
 /// <summary>
 /// The grant-scope primitives. Pure string containment - nothing here opens a file.
@@ -9,7 +11,7 @@ namespace VaultMcpServer.Vault;
 public sealed class VaultAccess
 {
     /// <summary>
-    /// Resolves a grant's per-vault <see cref="Auth.Grant.ScopeRoots"/> map down to the flat,
+    /// Resolves a grant's per-vault <see cref="VaultShared.Auth.Grant.ScopeRoots"/> map down to the flat,
     /// already-vault-scoped root list for one specific <paramref name="vault"/> - the shape
     /// <see cref="IsPathInScope"/>, and every other scope-checking caller in this class,
     /// expects. This is where "a scope root configured for one
@@ -17,9 +19,9 @@ public sealed class VaultAccess
     /// entry keyed to <paramref name="vault"/> is ever consulted.
     ///
     /// A map with no entry for <paramref name="vault"/> throws. Every real
-    /// <see cref="Auth.Grant"/> (whether file-loaded via <see cref="Auth.GrantStore.Load"/> or
-    /// minted via <see cref="Auth.GrantStore.Mint"/>) is guaranteed to carry a
-    /// <see cref="Auth.Grant.ScopeRoots"/> entry for every vault it can access, so a missing key
+    /// <see cref="VaultShared.Auth.Grant"/> (whether file-loaded via <see cref="VaultShared.Auth.GrantStore.Load"/> or
+    /// minted via <see cref="VaultShared.Auth.GrantStore.Mint"/>) is guaranteed to carry a
+    /// <see cref="VaultShared.Auth.Grant.ScopeRoots"/> entry for every vault it can access, so a missing key
     /// means that invariant was violated upstream. There is no absent-scope case to answer:
     /// the parameter is required, and no argument to this method denotes "no restriction" - a
     /// caller that means the whole vault passes a map holding <see cref="VaultScope.Unscoped"/>.
@@ -40,7 +42,7 @@ public sealed class VaultAccess
     /// <summary>
     /// Splits a folder-prefix scope root or candidate vault-relative path into normalized,
     /// case-preserved segments - resolving "." and ".." and rejecting rooted paths, root
-    /// escapes, and empty/whitespace input. Shared by <see cref="Auth.GrantStore.Load"/> (to
+    /// escapes, and empty/whitespace input. Shared by <see cref="VaultShared.Auth.GrantStore.Load"/> (to
     /// validate/canonicalize a grant's configured <c>scopeRoots</c> at load time) and
     /// <see cref="IsPathInScope"/> (to test a path against them at request time). Throws
     /// <see cref="ArgumentException"/> for anything that cannot be normalized to a well-formed

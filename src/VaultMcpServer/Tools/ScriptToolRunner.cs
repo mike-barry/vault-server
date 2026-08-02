@@ -1,6 +1,7 @@
 using System.Collections;
 using System.Management.Automation;
 using System.Management.Automation.Runspaces;
+using VaultShared.Scope;
 
 namespace VaultMcpServer.Tools;
 
@@ -127,7 +128,7 @@ public sealed class ScriptToolRunner : IDisposable
     /// degrades open, mirroring how an unscoped scope-roots map degrades. An empty (non-null) set is
     /// distinct: injected as an empty array, an empty key ring DENIES every asserted class.
     /// </param>
-    public async Task<ScriptToolExecution> InvokeAsync(string scriptPath, IReadOnlyDictionary<string, object?> parameters, CancellationToken cancellationToken, IReadOnlyDictionary<string, Vault.VaultScope>? scopeRoots = null, IReadOnlySet<string>? opClasses = null)
+    public async Task<ScriptToolExecution> InvokeAsync(string scriptPath, IReadOnlyDictionary<string, object?> parameters, CancellationToken cancellationToken, IReadOnlyDictionary<string, VaultScope>? scopeRoots = null, IReadOnlySet<string>? opClasses = null)
     {
         using var ps = PowerShell.Create();
         ps.RunspacePool = _pool;
@@ -144,7 +145,7 @@ public sealed class ScriptToolRunner : IDisposable
         if (scopeRoots is not null)
         {
             foreach (var (vault, scope) in scopeRoots)
-                scopeRootsTable[vault] = scope is Vault.VaultScope.RootedScope rooted ? rooted.Roots.ToArray() : [];
+                scopeRootsTable[vault] = scope is VaultScope.RootedScope rooted ? rooted.Roots.ToArray() : [];
         }
 
         // Preserve the null-vs-empty distinction a script depends on: a null set binds the

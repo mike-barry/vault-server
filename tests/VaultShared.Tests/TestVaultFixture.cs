@@ -1,8 +1,8 @@
 using System.Text.Json;
-using VaultMcpServer.Health;
-using VaultMcpServer.Vault;
+using VaultShared.Health;
+using VaultShared.Configuration;
 
-namespace VaultMcpServer.Tests;
+namespace VaultShared.Tests;
 
 /// <summary>
 /// Copies the committed test-vault fixture into a temp directory twice - "test" (the

@@ -1,7 +1,7 @@
 using System.Text.Json;
-using VaultMcpServer.Health;
+using VaultShared.Health;
 
-namespace VaultMcpServer.Vault;
+namespace VaultShared.Configuration;
 
 /// <summary>
 /// The vault name-to-root-path map, loaded from vaults.json at startup.
@@ -25,7 +25,7 @@ public sealed class VaultConfig
 
     /// <summary>
     /// One resolvable vault: its existing, fully-qualified root path and its
-    /// <see cref="Vault.PathPolicy"/>. <c>vaults.json</c> is the one enumeration of vaults, so a
+    /// <see cref="PathPolicy"/>. <c>vaults.json</c> is the one enumeration of vaults, so a
     /// vault's own facts live on its entry rather than in a second file keyed by vault name -
     /// two such files drift, and a vault renamed in one and not the other loses the policy
     /// someone believes it has.
@@ -166,7 +166,7 @@ public sealed class VaultConfig
     }
 
     /// <summary>
-    /// The <see cref="Vault.PathPolicy"/> declared for <paramref name="vault"/>, or
+    /// The <see cref="PathPolicy"/> declared for <paramref name="vault"/>, or
     /// <see cref="PathPolicy.None"/> when the vault declares none or is not resolvable. Never
     /// null, so a read caller can union the floor in unconditionally.
     /// </summary>

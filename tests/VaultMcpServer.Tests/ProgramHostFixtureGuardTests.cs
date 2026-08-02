@@ -1,3 +1,5 @@
+using VaultShared.Tests;
+
 namespace VaultMcpServer.Tests;
 
 /// <summary>

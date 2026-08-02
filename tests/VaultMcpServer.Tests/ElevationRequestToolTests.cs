@@ -2,9 +2,12 @@ using System.Text.Json;
 using Microsoft.AspNetCore.Http;
 using ModelContextProtocol.Protocol;
 using VaultMcpServer.Auth;
-using VaultMcpServer.Health;
+using VaultShared.Auth;
+using VaultShared.Health;
 using VaultMcpServer.Tools;
-using VaultMcpServer.Vault;
+using VaultShared.Configuration;
+using VaultShared.Scope;
+using VaultShared.Tests;
 
 namespace VaultMcpServer.Tests;
 

@@ -4,7 +4,10 @@ using System.Text.Json;
 using Microsoft.AspNetCore.Http;
 using ModelContextProtocol.Protocol;
 using VaultMcpServer.Auth;
-using VaultMcpServer.Vault;
+using VaultShared.Auth;
+using VaultShared.Configuration;
+using VaultShared.Scope;
+using VaultShared.Tools;
 
 namespace VaultMcpServer.Tools;
 

@@ -1,8 +1,8 @@
-namespace VaultMcpServer.Auth;
+namespace VaultShared.Auth;
 
 /// <summary>
 /// A grants.json row: an identity plus the op classes and vaults it may operate against.
-/// Op-class names are validated against <see cref="VaultMcpServer.Vault.OpClassRegistry"/>
+/// Op-class names are validated against <see cref="VaultShared.Configuration.OpClassRegistry"/>
 /// at load time (see <see cref="GrantStore"/>), not constrained by the C# type here.
 /// </summary>
 /// <param name="ExpiresAtUtc">
@@ -12,7 +12,7 @@ namespace VaultMcpServer.Auth;
 /// <param name="ScopeRoots">
 /// Per-vault path scope, distinct from <paramref name="Vaults"/> - path scope restricts *within*
 /// a vault the grant already has <see cref="Vaults"/> access to. Keyed by vault name
-/// (case-insensitive); each value is a <see cref="VaultMcpServer.Vault.VaultScope"/>, which is
+/// (case-insensitive); each value is a <see cref="VaultShared.Scope.VaultScope"/>, which is
 /// either unscoped or a non-empty set of folder-prefix roots (vault-relative, forward-slash,
 /// canonicalized at load time). Also the shape used for grants minted at runtime by
 /// <see cref="GrantStore.Mint"/>.
@@ -26,7 +26,7 @@ namespace VaultMcpServer.Auth;
 /// and <see cref="GrantStore.Mint"/> enforces the same coverage at runtime. There is no
 /// "missing key" or "missing map" state to interpret.
 ///
-/// Whole-vault access is <see cref="VaultMcpServer.Vault.VaultScope.Unscoped"/> and nothing else:
+/// Whole-vault access is <see cref="VaultShared.Scope.VaultScope.Unscoped"/> and nothing else:
 /// the configuration spells it <c>["*"]</c>, and the whole-grant wildcard <c>{ "*": ["*"] }</c>
 /// expands to one such entry per vault, mirroring how <c>vaults: ["*"]</c> itself expands. An
 /// empty root set is neither representable in the model nor accepted by the loader, so no caller
@@ -34,16 +34,16 @@ namespace VaultMcpServer.Auth;
 ///
 /// An empty/blank scope-root string is not a valid element of a root set; it is treated as
 /// malformed input, not as a "matches everything" sentinel - see
-/// <see cref="VaultMcpServer.Vault.VaultAccess.NormalizeScopeSegments"/>.
+/// <see cref="VaultShared.Scope.VaultAccess.NormalizeScopeSegments"/>.
 /// Resolve a vault's scope via
-/// <see cref="VaultMcpServer.Vault.VaultAccess.ResolveVaultScopeRoots"/> before checking with
-/// <see cref="VaultMcpServer.Vault.VaultAccess.IsPathInScope"/> - that resolution step throws
+/// <see cref="VaultShared.Scope.VaultAccess.ResolveVaultScopeRoots"/> before checking with
+/// <see cref="VaultShared.Scope.VaultAccess.IsPathInScope"/> - that resolution step throws
 /// rather than falling back to "unscoped" if a queried vault has no entry, since that should be
 /// structurally unreachable for any grant built through <see cref="GrantStore.Load"/> or
 /// <see cref="GrantStore.Mint"/>. There is no way to ask it for a scope without supplying a map,
 /// so no call can arrive carrying no authority at all.
 /// </param>
-public sealed record Grant(string Id, IReadOnlySet<string> OpClasses, IReadOnlySet<string> Vaults, DateTimeOffset? ExpiresAtUtc, IReadOnlyDictionary<string, VaultMcpServer.Vault.VaultScope> ScopeRoots)
+public sealed record Grant(string Id, IReadOnlySet<string> OpClasses, IReadOnlySet<string> Vaults, DateTimeOffset? ExpiresAtUtc, IReadOnlyDictionary<string, VaultShared.Scope.VaultScope> ScopeRoots)
 {
     /// <summary>
     /// Whether a session bound to this grant may request an elevation rebind (see

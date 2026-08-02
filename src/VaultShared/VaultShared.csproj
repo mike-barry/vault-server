@@ -6,4 +6,11 @@
     <Nullable>enable</Nullable>
   </PropertyGroup>
 
+  <ItemGroup>
+    <!-- ILogger only, for the health state's runtime log hook. Abstractions carries no logging
+         implementation, no DI container and no host, so it clears the layer's hosting boundary. The
+         web SDK supplied this implicitly while the code lived in VaultMcpServer. -->
+    <PackageReference Include="Microsoft.Extensions.Logging.Abstractions" Version="10.0.10" />
+  </ItemGroup>
+
 </Project>

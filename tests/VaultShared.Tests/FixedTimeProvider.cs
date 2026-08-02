@@ -1,4 +1,4 @@
-namespace VaultMcpServer.Tests;
+namespace VaultShared.Tests;
 
 /// <summary>
 /// A <see cref="TimeProvider"/> pinned to a settable instant, used to control the "now" a
@@ -8,7 +8,7 @@ namespace VaultMcpServer.Tests;
 /// only need a fixed load-time instant can construct-and-forget; tests that need to observe a
 /// grant transition to expired can mutate <see cref="Now"/> afterward.
 /// </summary>
-internal sealed class FixedTimeProvider(DateTimeOffset now) : TimeProvider
+public sealed class FixedTimeProvider(DateTimeOffset now) : TimeProvider
 {
     public DateTimeOffset Now { get; set; } = now;
 

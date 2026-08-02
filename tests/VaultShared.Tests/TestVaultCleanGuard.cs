@@ -1,6 +1,6 @@
 using System.Diagnostics;
 
-namespace VaultMcpServer.Tests;
+namespace VaultShared.Tests;
 
 /// <summary>
 /// Detection half of the test-isolation guard pair covering the "two env vars" gotcha
@@ -16,7 +16,7 @@ namespace VaultMcpServer.Tests;
 /// `test-vault/`, so porcelain output there can only mean a real escape, never noise from
 /// concurrent edits to other files.
 /// </summary>
-internal static class TestVaultCleanGuard
+public static class TestVaultCleanGuard
 {
     public static void AssertCommittedFixtureUntouched()
     {

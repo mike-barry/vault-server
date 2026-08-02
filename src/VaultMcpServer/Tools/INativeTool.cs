@@ -1,6 +1,6 @@
 using System.Text.Json;
 using ModelContextProtocol.Protocol;
-using VaultMcpServer.Auth;
+using VaultShared.Auth;
 
 namespace VaultMcpServer.Tools;
 
@@ -26,7 +26,7 @@ public interface INativeTool
     string Description { get; }
 
     /// <summary>Op-class name this tool requires. Unlike a <see cref="ScriptTool"/>'s, it is not
-    /// canonicalized against <see cref="VaultMcpServer.Vault.OpClassRegistry"/> at load - nothing
+    /// canonicalized against <see cref="VaultShared.Configuration.OpClassRegistry"/> at load - nothing
     /// reads it but <c>grant.Allows</c>, so a name the registry does not define fails no check and
     /// simply never matches.</summary>
     string OpClass { get; }

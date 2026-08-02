@@ -2,8 +2,10 @@ using System.ComponentModel;
 using System.Linq;
 using System.Text.Json;
 using ModelContextProtocol.Protocol;
-using VaultMcpServer.Auth;
-using VaultMcpServer.Vault;
+using VaultShared.Auth;
+using VaultShared.Configuration;
+using VaultShared.Scope;
+using VaultShared.Tools;
 
 namespace VaultMcpServer.Tools;
 

@@ -1,6 +1,7 @@
 using System.Collections.Concurrent;
+using Microsoft.Extensions.Logging;
 
-namespace VaultMcpServer.Health;
+namespace VaultShared.Health;
 
 /// <summary>How serious a recorded <see cref="HealthProblem"/> is.</summary>
 public enum ProblemSeverity
@@ -24,7 +25,7 @@ public enum ProblemSeverity
 /// human-readable detail message safe to put in a log line. <paramref name="SubjectPath"/> is
 /// the optional file this problem is about (e.g. the tool script that failed to load) - carried
 /// as structured data so consumers that need the path (the broken-tool listing in
-/// <see cref="Tools.ScriptToolDispatcher"/>) read it directly instead of parsing it back out of
+/// the MCP front-end's script-tool dispatcher) read it directly instead of parsing it back out of
 /// <paramref name="Detail"/>.</summary>
 public sealed record HealthProblem(ProblemSeverity Severity, string Source, string Detail, DateTimeOffset RecordedAtUtc, string? SubjectPath = null);
 
@@ -37,7 +38,7 @@ public sealed record DegradedProblem(string Detail, string? SubjectPath = null);
 /// tools/ file watcher) - the server's alternative to hard-stopping on bad config. A
 /// config loader calls <see cref="RecordFatal"/> or
 /// <see cref="RecordDegraded"/> rather than throwing, and returns an inert/empty instance, so the process
-/// always starts; <see cref="BearerGrantMiddleware"/> consults <see cref="IsFatallyDegraded"/>
+/// always starts; the MCP front-end's bearer middleware consults <see cref="IsFatallyDegraded"/>
 /// to short-circuit every request with 503 while any fatal problem is outstanding.
 ///
 /// Two backing collections, matching the two lifetimes a problem can have:

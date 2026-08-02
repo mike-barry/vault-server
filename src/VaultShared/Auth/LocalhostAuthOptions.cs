@@ -1,4 +1,4 @@
-namespace VaultMcpServer.Auth;
+namespace VaultShared.Auth;
 
 /// <summary>
 /// The localhost auth policy <see cref="GrantStore.ResolveLocalhostGrant"/> applies when a

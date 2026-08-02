@@ -2,8 +2,10 @@ using System.Net;
 using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.Logging.Abstractions;
 using VaultMcpServer.Auth;
-using VaultMcpServer.Health;
-using VaultMcpServer.Vault;
+using VaultShared.Auth;
+using VaultShared.Health;
+using VaultShared.Configuration;
+using VaultShared.Tests;
 
 namespace VaultMcpServer.Tests;
 

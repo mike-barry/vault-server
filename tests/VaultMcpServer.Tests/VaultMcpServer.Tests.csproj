@@ -17,6 +17,10 @@
 
   <ItemGroup>
     <ProjectReference Include="..\..\src\VaultMcpServer\VaultMcpServer.csproj" />
+    <!-- The shared suite owns the fixtures both suites use - TestVaultFixture, TestVaultCleanGuard,
+         FixedTimeProvider, OpClass - so there is one copy of each, and the dependency between the
+         two suites runs the same direction as the one between the projects they cover. -->
+    <ProjectReference Include="..\VaultShared.Tests\VaultShared.Tests.csproj" />
   </ItemGroup>
 
   <ItemGroup>

@@ -106,7 +106,7 @@ public sealed record ScriptToolParameter(
 /// <summary>
 /// An MCP tool backed by a PowerShell script: name and description from comment-based
 /// help, parameters from the param() block, op class from the ".NOTES" help section - a
-/// name validated against <see cref="VaultMcpServer.Vault.OpClassRegistry"/> by
+/// name validated against <see cref="VaultShared.Configuration.OpClassRegistry"/> by
 /// <see cref="ScriptToolLoader"/>, which derives these.
 /// </summary>
 public sealed record ScriptTool(string Name, string Description, string OpClass, string ScriptPath, IReadOnlyList<ScriptToolParameter> Parameters)

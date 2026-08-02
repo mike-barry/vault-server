@@ -1,8 +1,9 @@
-using VaultMcpServer.Auth;
-using VaultMcpServer.Health;
-using VaultMcpServer.Vault;
+using VaultShared.Auth;
+using VaultShared.Health;
+using VaultShared.Configuration;
+using VaultShared.Scope;
 
-namespace VaultMcpServer.Tests;
+namespace VaultShared.Tests;
 
 /// <summary>
 /// Unit coverage for the Batch A auth changes on <see cref="GrantStore"/>: token-less named

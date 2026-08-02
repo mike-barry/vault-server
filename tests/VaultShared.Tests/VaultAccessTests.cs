@@ -1,6 +1,6 @@
-using VaultMcpServer.Vault;
+using VaultShared.Scope;
 
-namespace VaultMcpServer.Tests;
+namespace VaultShared.Tests;
 
 public sealed class VaultAccessTests
 {

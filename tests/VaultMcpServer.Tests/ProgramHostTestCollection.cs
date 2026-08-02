@@ -1,3 +1,4 @@
+
 namespace VaultMcpServer.Tests;
 
 /// <summary>

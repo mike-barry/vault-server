@@ -1,4 +1,4 @@
-namespace VaultMcpServer.Auth;
+namespace VaultShared.Auth;
 
 /// <summary>
 /// The context an <see cref="IElevationApprover"/> reviews: who is asking, what they hold now,

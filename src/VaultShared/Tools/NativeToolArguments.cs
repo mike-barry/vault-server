@@ -4,10 +4,10 @@ using System.Text.Json.Nodes;
 using System.Text.Json.Schema;
 using System.Text.Json.Serialization.Metadata;
 
-namespace VaultMcpServer.Tools;
+namespace VaultShared.Tools;
 
 /// <summary>
-/// The single argument contract for <see cref="INativeTool"/> implementations: one C# record per
+/// The single argument contract for a compiled tool: one C# record per
 /// tool is both the deserialization target and the source of the advertised <c>inputSchema</c>,
 /// derived by <c>System.Text.Json.Schema</c>'s <c>JsonSchemaExporter</c> from the same
 /// <see cref="JsonTypeInfo"/> contract that drives binding. A hand-authored
@@ -70,7 +70,7 @@ public static class NativeToolArguments
     /// Binds the dispatcher's raw argument map onto <typeparamref name="T"/>. Throws
     /// <see cref="JsonException"/> for anything that does not fit the advertised shape - which is not
     /// a <c>{code, message, data?}</c> error, so every caller must catch it at the tool boundary and
-    /// re-raise it through <see cref="ToolError"/> as <c>invalid_argument</c>.
+    /// re-raise it through the shared error envelope as <c>invalid_argument</c>.
     ///
     /// A member the caller omitted arrives as <c>null</c> rather than throwing: the schema's
     /// <c>required</c> list advertises the requirement, and the tool's own refusal - which names the

@@ -1,7 +1,8 @@
 using System.Net;
 using System.Text;
 using System.Text.Json;
-using VaultMcpServer.Health;
+using VaultShared.Auth;
+using VaultShared.Health;
 
 namespace VaultMcpServer.Auth;
 

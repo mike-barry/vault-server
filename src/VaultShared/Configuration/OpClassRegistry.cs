@@ -1,7 +1,7 @@
 using System.Text.Json;
-using VaultMcpServer.Health;
+using VaultShared.Health;
 
-namespace VaultMcpServer.Vault;
+namespace VaultShared.Configuration;
 
 /// <summary>
 /// The set of valid op-class names, loaded from op-classes.json at startup - a committed,

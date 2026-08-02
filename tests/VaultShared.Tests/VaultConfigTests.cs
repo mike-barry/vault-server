@@ -1,7 +1,7 @@
-using VaultMcpServer.Health;
-using VaultMcpServer.Vault;
+using VaultShared.Health;
+using VaultShared.Configuration;
 
-namespace VaultMcpServer.Tests;
+namespace VaultShared.Tests;
 
 public sealed class VaultConfigTests(TestVaultFixture fixture) : IClassFixture<TestVaultFixture>
 {

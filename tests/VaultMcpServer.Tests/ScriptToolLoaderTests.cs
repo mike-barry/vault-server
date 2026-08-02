@@ -1,7 +1,8 @@
 using System.Text.Json;
-using VaultMcpServer.Health;
+using VaultShared.Health;
 using VaultMcpServer.Tools;
-using VaultMcpServer.Vault;
+using VaultShared.Configuration;
+using VaultShared.Tests;
 
 namespace VaultMcpServer.Tests;
 

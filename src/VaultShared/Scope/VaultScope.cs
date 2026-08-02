@@ -1,4 +1,4 @@
-namespace VaultMcpServer.Vault;
+namespace VaultShared.Scope;
 
 /// <summary>
 /// One vault's path scope under a grant: either unscoped (the whole vault) or a non-empty set of

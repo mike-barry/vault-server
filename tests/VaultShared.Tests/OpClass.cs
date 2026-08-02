@@ -1,4 +1,4 @@
-namespace VaultMcpServer.Tests;
+namespace VaultShared.Tests;
 
 /// <summary>
 /// Typo-safe constants for the two built-in op-class names, used by tests to build grants and
@@ -8,7 +8,7 @@ namespace VaultMcpServer.Tests;
 /// op class as a string literal. If a future native tool needs a compile-time Read/Write
 /// constant, promote this back into the main assembly.
 /// </summary>
-internal static class OpClass
+public static class OpClass
 {
     public const string Read = "content:read";
     public const string Write = "content:write";

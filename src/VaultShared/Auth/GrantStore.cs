@@ -1,10 +1,11 @@
 using System.Collections.Concurrent;
 using System.Security.Cryptography;
 using System.Text;
-using VaultMcpServer.Health;
-using VaultMcpServer.Vault;
+using VaultShared.Health;
+using VaultShared.Configuration;
+using VaultShared.Scope;
 
-namespace VaultMcpServer.Auth;
+namespace VaultShared.Auth;
 
 /// <summary>Why a presented bearer token failed <see cref="GrantStore.Authenticate"/>.</summary>
 public enum AuthFailureReason
@@ -85,7 +86,7 @@ public sealed class GrantStore
         new HashSet<string>(StringComparer.OrdinalIgnoreCase),
         new HashSet<string>(StringComparer.OrdinalIgnoreCase),
         ExpiresAtUtc: null,
-        new Dictionary<string, Vault.VaultScope>(StringComparer.OrdinalIgnoreCase))
+        new Dictionary<string, VaultScope>(StringComparer.OrdinalIgnoreCase))
     { CanRequestElevation = true };
 
     /// <summary>
@@ -113,7 +114,7 @@ public sealed class GrantStore
     }
 
     /// <summary>An inert store with no grants - nobody can authenticate against it, the
-    /// same "deny by default" posture <see cref="Auth.BearerGrantMiddleware"/> already
+    /// same "deny by default" posture the MCP front-end's bearer middleware already
     /// applies to an unrecognized token. Used both as the return value of a failed
     /// <see cref="Load"/> and directly by <c>Program.cs</c> to skip a real grants.json
     /// parse entirely when an upstream <see cref="OpClassRegistry"/>/<see cref="VaultConfig"/>
@@ -240,7 +241,7 @@ public sealed class GrantStore
     /// request. Op classes/vaults/scope roots are treated as already-validated concrete sets, same
     /// contract as <see cref="Mint"/>.
     /// </summary>
-    public Grant RebindToMintedGrant(string tokenHashKey, string id, IReadOnlySet<string> opClasses, IReadOnlySet<string> vaults, IReadOnlyDictionary<string, Vault.VaultScope> scopeRoots, DateTimeOffset expiresAt)
+    public Grant RebindToMintedGrant(string tokenHashKey, string id, IReadOnlySet<string> opClasses, IReadOnlySet<string> vaults, IReadOnlyDictionary<string, VaultScope> scopeRoots, DateTimeOffset expiresAt)
     {
         var grant = new Grant(id, opClasses, vaults, expiresAt, scopeRoots);
         _grantsById[id] = grant;
@@ -298,7 +299,7 @@ public sealed class GrantStore
     /// concrete sets, and it is also where the attenuation-only minting decision's TTL cap
     /// (see <c>MintTokenTool</c>) is applied. <paramref name="scopeRoots"/> is the per-vault shape
     /// stored directly on <see cref="Grant.ScopeRoots"/> - required, and required to have an entry
-    /// for every vault in <paramref name="vaults"/> (<see cref="Vault.VaultScope.Unscoped"/> for a
+    /// for every vault in <paramref name="vaults"/> (<see cref="VaultScope.Unscoped"/> for a
     /// vault means full access within it - the same "explicit, never implicit" convention
     /// <c>GrantFileLoader</c> enforces for file-loaded grants). Checked defensively below rather
     /// than merely trusted, so a future caller that forgets to populate every vault's entry fails
@@ -317,7 +318,7 @@ public sealed class GrantStore
     /// down to it instead of rejecting the mint outright - the returned <c>TtlCapped</c> flag tells
     /// the caller (<c>MintTokenTool</c>) this happened so it can report the effective expiry.
     /// </param>
-    public (string Token, DateTimeOffset ExpiresAtUtc, bool TtlCapped) Mint(string id, IReadOnlySet<string> opClasses, IReadOnlySet<string> vaults, IReadOnlyDictionary<string, Vault.VaultScope> scopeRoots, int ttlMinutes, DateTimeOffset? maxExpiresAtUtc = null)
+    public (string Token, DateTimeOffset ExpiresAtUtc, bool TtlCapped) Mint(string id, IReadOnlySet<string> opClasses, IReadOnlySet<string> vaults, IReadOnlyDictionary<string, VaultScope> scopeRoots, int ttlMinutes, DateTimeOffset? maxExpiresAtUtc = null)
     {
         if (string.IsNullOrWhiteSpace(id))
             throw new ArgumentException("Minted grant id must not be empty.", nameof(id));

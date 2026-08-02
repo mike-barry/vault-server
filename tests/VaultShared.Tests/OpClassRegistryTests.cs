@@ -1,7 +1,7 @@
-using VaultMcpServer.Health;
-using VaultMcpServer.Vault;
+using VaultShared.Health;
+using VaultShared.Configuration;
 
-namespace VaultMcpServer.Tests;
+namespace VaultShared.Tests;
 
 /// <summary>
 /// Load/parse coverage for <see cref="OpClassRegistry"/>, which is backed by
