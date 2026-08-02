@@ -4,74 +4,105 @@
 
 - [[Spec-Vault-Access-Design.md#Load-Bearing Semantics]] - out-of-scope paths
   unrepresentable rather than checked, met by §The Ladder Of Proofs and the single
-  producer in §Producing An Admitted Path.
+  producer in §Producing An Admitted Path; containment decided textually, met by
+  §Paths And Vaults; a search that cannot read a file failing the search, met by
+  §Enumeration And Search; ranking that does not search, met by §Wikilinks.
 - [[Spec-Vault-Access-Design.md#Guarantees To Callers]] - containment and
   vault-relative terms, met by §Paths And Vaults; filtering silent and gating loud,
-  met by the two entry points in §Producing An Admitted Path.
+  met by the two entry points in §Producing An Admitted Path; no parent created on
+  the way past and read-failure classification, met by §Reading, Writing, Moving.
+- [[Spec-Vault-Access-Design.md#The Mutex Lock Name]] - the derivation, met by
+  §The Lock's Identity. Acquiring is not here.
 - [[Spec-Auth-Requirements.md#What The Layer Must Do]] - every path-touching
   operation through the scope check and read-class operations through the read
   check, met by §The Ladder Of Proofs; authority handed in and never ambient, met
-  by §Producing An Admitted Path; refusal without an oracle, met by §Refusals.
-- [[Spec-Auth-Requirements.md#What The Layer May Assume]] - scope never subtracts
-  and a malformed element fails the whole check, both properties of the retained
-  primitives §The Ladder Of Proofs builds on.
-- [[Spec-Access-Layer-Capabilities.md#Enumeration]] - the operand of a whole-vault
-  pass, met by the vault being a type rather than a path (§Paths And Vaults).
-- [[Spec-Access-Layer-Capabilities.md#Name Validation]] - checked on the one new
-  segment rather than at construction, met by §What A Path Does Not Assert.
-- [[Spec-Tool-Capabilities.md#Wikilink Maintenance]] - the pass that scope does not
-  bound, met by §The Unscoped Rewrite.
+  by §Producing An Admitted Path; refusal without an oracle, met by §Refusals; the
+  mid-operation key assertion, met by §Producing An Admitted Path.
+- [[Spec-Access-Layer-Capabilities.md#Vault Resolution]] - the canonical name and
+  the two structurally distinguishable failures, met by §Paths And Vaults.
+- [[Spec-Access-Layer-Capabilities.md#Enumeration]] and
+  [[Spec-Access-Layer-Capabilities.md#Content Search]] - both surfaces, the glob,
+  the dot switch, and the four outcomes, met by §Enumeration And Search.
+- [[Spec-Access-Layer-Capabilities.md#Reading]],
+  [[Spec-Access-Layer-Capabilities.md#Writing]],
+  [[Spec-Access-Layer-Capabilities.md#Moving]] and
+  [[Spec-Access-Layer-Capabilities.md#Name Validation]] - met by §Reading, Writing,
+  Moving.
+- [[Spec-Access-Layer-Capabilities.md#Wikilink Grammar And Resolution]] and
+  [[Spec-Obsidian-Link-Behavior.md]] - recognition, the two ranges, and the one
+  comparator, met by §Wikilinks.
+- [[Spec-Tool-Capabilities.md#Wikilink Maintenance]] - the pass scope does not
+  bound, met by §The Unscoped Link Pass.
 
 Not answered here, deliberately:
 
-- [[Spec-Vault-Access-Design.md#The Mutex Lock Name]] - the derivation lands in the
-  layer so `VaultWatcher` takes it as code, but acquiring is the shared execute
-  path's: [[Design-Tool-Vocabulary.md]].
+- [[Spec-Access-Layer-Capabilities.md#The Mutex Lock]] - acquiring, holding, and
+  crash recovery are the shared execute path's: [[Design-Tool-Vocabulary.md]].
 - [[Spec-Frontmatter-Substrate.md]] - the substrate is
-  [[Design-Frontmatter-Surface.md]]; this document supplies only the paths it reads
-  and writes through.
-- Who constructs the layer's per-call access object, and the error vocabulary a
-  refusal is rendered into: [[Design-Tool-Vocabulary.md]].
+  [[Design-Frontmatter-Surface.md]]; this document supplies the paths it reads and
+  writes through.
+- [[Spec-Tool-Capabilities.md#The Error Vocabulary]] - a refusal's codes and
+  rendering: [[Design-Tool-Vocabulary.md]]. This document fixes what a refusal
+  distinguishes, not what it is called on the wire.
+- Who constructs the per-call access object, and when:
+  [[Design-Tool-Vocabulary.md]].
 
 ## Paths And Vaults
 
-A vault and a path within it are different types. Vault resolution produces the
-first; only the first can produce the second.
+A vault and a path within it are different types. Resolution produces the first;
+only the first can produce the second.
 
 ```csharp
-public sealed record Vault(string Name, string Root, PathPolicy Policy);
+public sealed record Vault(string Name, string Root, PathPolicy Policy)
+{
+    public static VaultResolution Resolve(VaultConfig config, string? name);
+}
+
+public abstract record VaultResolution
+{
+    public sealed record Resolved(Vault Vault)                  : VaultResolution;
+    public sealed record Unknown(string Name)                   : VaultResolution;
+    public sealed record Unavailable(string Name, string Reason) : VaultResolution;
+}
 
 public sealed record VaultPath { public Vault Vault { get; } /* relative segments */ }
 ```
 
+Resolution is total and answers rather than throwing, and its three cases come
+from configuration state - `Vaults` versus `SkippedVaults` - so an unknown vault
+and a broken one are told apart structurally rather than by message text
+([[Spec-Access-Layer-Capabilities.md#Vault Resolution]]). `Name` on a resolved
+vault is the configuration's spelling, never the caller's.
+
+Resolution lives here rather than on `VaultConfig` because its product is the
+layer's type: configuration holds which vaults exist, and the layer decides what a
+usable vault is.
+
 `Vault` is what a whole-vault operation takes as its operand - enumeration, the
-file census, content search, and the lock's identity. The vault root is therefore
-never a path, and the retained grammar's refusal to normalize one
-(`ScopePath.Normalize`) needs no carve-out. Nothing named `""` is readable, and a
-glob under a scope that admits nothing else still runs, because its operand is the
-vault rather than a path the scope must admit
-([[Spec-Auth-Requirements.md#What The Layer Must Do]], filter silently and gate
-loudly).
+census, search, and the lock's identity. The vault root is therefore never a path,
+and the retained grammar's refusal to normalize one (`ScopePath.Normalize`) needs
+no carve-out. Nothing named `""` is readable, and a glob under a scope that admits
+nothing else still runs, because its operand is the vault rather than a path the
+scope must admit.
 
-`VaultPath` is proof of containment and of nothing else: inside this vault,
-well-formed, and vault-relative with one separator convention. It is what the
-layer's own enumeration hands out, and it carries its vault so an operation taking
-two paths can require them to agree.
+`VaultPath` is proof of containment and nothing else: inside this vault,
+well-formed, vault-relative with one separator convention. It is what the layer's
+own enumeration hands out, and it carries its vault so an operation taking two
+paths can require them to agree.
 
-Case is where a path is two questions at once. Equality is case-insensitive,
-matching scope semantics, because two spellings name one file. Move needs the
-other question - a case-only rename names a destination that already exists
-([[Spec-Access-Layer-Capabilities.md#Moving]]) - and asks for an ordinal
-comparison explicitly, so the carve-out is visible at its one call site instead of
+Case is two questions at once. Equality is case-insensitive, matching scope
+semantics, because two spellings name one file. Move needs the other question - a
+case-only rename names a destination that already exists - and asks for an ordinal
+comparison explicitly, so the carve-out is visible at its one call site rather than
 being a default nobody sees.
 
 ## The Ladder Of Proofs
 
 The specs describe three strengths of admitted, not one. A grant scoped to
 `Projects/Widget` in a vault declaring `Resources/Vault/Guides` always-readable may
-read that guide and must not write it; and the wikilink pass touches notes it may
-do neither to. One type cannot carry all of that, so admission is in the type
-rather than in a check.
+read that guide and must not write it; the wikilink pass touches notes it may do
+neither to. One type cannot carry that, so admission is in the type rather than in
+a check.
 
 ```csharp
 public sealed record ReadPath  { public VaultPath Path { get; } }
@@ -79,30 +110,35 @@ public sealed record WritePath { public VaultPath Path { get; } public ReadPath 
 ```
 
 A `WritePath` widens to a `ReadPath`, since anything writable is readable. Nothing
-narrows the other way. Every primitive states its own authority in its signature -
-`read` takes a `ReadPath`, `write`, `create`, directory creation and both ends of a
-move take a `WritePath` - so the read floor's asymmetry is not a rule to remember.
-There is no expression that hands a floor-readable path to a write.
+narrows the other way. Every primitive states its authority in its signature -
+`read` takes a `ReadPath`; writing, creation, directory creation and both ends of a
+move take a `WritePath` - so the floor's asymmetry is not a rule to remember. No
+expression hands a floor-readable path to a write.
 
 ## Producing An Admitted Path
 
-One type produces the admitted pair, and holding a scope is the whole of what it
-is:
+One type produces the admitted pair, and holding the caller's authority is the
+whole of what it is:
 
 ```csharp
-public sealed class VaultAccess          // a vault, plus the caller's scope in it
+public sealed class VaultAccess              // a resolved vault, plus the caller's grant
 {
     public Vault Vault { get; }
     public PathResolution<ReadPath>  ForRead(string relativePath);
     public PathResolution<WritePath> ForWrite(string relativePath);
     public bool Admits(VaultPath candidate);
+    public void AssertKey(string opClass);   // mid-operation, once the outcome is known
 }
 ```
 
-Constructed per call from a vault and the grant's scope in it
-(`Grant.ScopeIn`), which is what makes authority handed in rather than ambient:
-the parameter is an object a caller must already hold, and no public surface takes
-a scope as an argument.
+Constructed per call from a `Vault` and the caller's `Grant`, which is what makes
+authority handed in rather than ambient: the parameter is an object the caller must
+already hold, and no public surface takes a scope. It takes the grant rather than a
+bare scope because the layer owes two things to authority, not one - path admission
+from `Grant.ScopeIn`, and the mid-operation key assertion
+([[Spec-Auth-Requirements.md#What The Layer Must Do]]) from the same grant's op
+classes. A key is asserted where the required authority depends on what the work
+turned out to touch; the floor for what was *requested* is checked above the layer.
 
 The effective read scope - the grant's roots unioned with the vault's
 always-readable roots - is computed once here rather than per candidate, so a
@@ -110,7 +146,7 @@ whole-vault enumeration filters against one scope instead of rebuilding the unio
 for every path it considers.
 
 `ForRead` and `ForWrite` are the loud path: a caller named this path, and the
-answer is admitted or refused. `Admits` is the quiet path, used to filter paths the
+answer is admitted or refused. `Admits` is the quiet path, filtering paths the
 layer itself produced. They are separate members rather than one with a flag,
 because the quiet one cannot construct a refusal and so cannot leak one.
 
@@ -122,95 +158,184 @@ outside the operand perimeter (a dot-directory segment, which no caller may name
 whatever its scope), and out of scope.
 
 A refusal carries the caller's own coordinates and nothing else - never whether the
-target exists, never the grant's roots, and never the subset that failed a check.
+target exists, never the grant's roots, never the subset that failed a check.
 
-The perimeter is a property of the caller-named path, not of containment. The file
-census reports what a removal destroys, including files under a nested `.git`
-([[Spec-Access-Layer-Capabilities.md#Enumeration]]), so those paths are
-representable as `VaultPath`. They are simply not nameable as operands.
+The perimeter is a property of the caller-named path, not of containment. The
+census reports what a removal destroys, including files under a nested `.git`, so
+those paths are representable as `VaultPath`. They are simply not nameable.
 
-## The Unscoped Rewrite
+## Enumeration And Search
 
-Wikilink maintenance is the one pass scope does not bound, and it must rewrite
-notes the grant cannot otherwise touch. Rather than a hole in the ladder, the layer
-offers exactly one mutation that takes a `VaultPath`: substitution over the byte
-ranges the wikilink grammar reports. It cannot write content, create, or delete.
+Both surfaces and all three search granularities are operations on `VaultAccess`,
+so their results are filtered against the effective read scope by construction
+rather than by each caller remembering to. Note enumeration answers markdown only;
+the census answers every file. Both take an optional glob and a switch admitting
+dot entries, which is off by default.
 
-That is the shape the pass already needs - a consumer replaces a target by writing
-over its range and never re-emits the note
-([[Spec-Access-Layer-Capabilities.md#Wikilink Grammar And Resolution]]) - and it
-means the scope exception is one auditable primitive with a name. A later consumer
-needing more than a substitution needs a new primitive and its own argument for
-one, rather than reaching for the general write.
+**Glob matching happens in the layer, over vault-relative paths, not in the
+engine.** The requirement is `**`, case-insensitive, matched against the
+vault-relative path, and the engine's own glob does not have those semantics on
+every platform. Matching after enumeration keeps both surfaces, both front-ends,
+and every platform agreeing on what a pattern means, which is the point of the
+requirement that matching belong to the layer at all.
+
+The engine is invoked once per call and its output is read to completion before the
+operation answers. Streaming would let a caller consume results from a search that
+is about to fail, and a search that cannot read a file must fail whole
+([[Spec-Vault-Access-Design.md#Load-Bearing Semantics]]) - which is only decidable
+once the engine has finished and its error stream has been read.
+
+Four outcomes, distinguishable at the call site: a result that may be empty, a
+malformed pattern as a caller error, an unreadable file as a whole-search failure,
+and anything else the engine reported as an operational failure carrying its text.
+Empty is never a failure and a malformed pattern is never operational, because
+collapsing either is unrecoverable above the layer.
+
+The layer reports these to its caller and writes nothing to health state. A failing
+call is a call's failure; a layer that could degrade the server from inside one
+would give a single caller's bad pattern server-wide visibility.
+
+## Reading, Writing, Moving
+
+**Reading classifies from the failure.** "Nothing there to read" and "there and
+something went wrong" come from the failure the filesystem raised, never from a
+separate existence probe, and the classification is part of the read rather than
+something a caller may redo. Every enumerate-then-read pass in the system depends
+on one definition of nothing-to-read.
+
+**Two write forms, and the creating one refuses an existing target as part of the
+write.** The refusal is the filesystem's, from an atomic create, not a check the
+layer performs first - a check-then-write leaves a window in which the editor or a
+person creates the file and the write destroys it. That refusal is distinguishable
+from every other write failure.
+
+**Directory creation is its own primitive**, so materializing a path is a
+deliberate call rather than a side effect of writing. It creates one folder under
+an existing parent.
+
+**Nothing creates a parent on the way past.** Writing, creating a folder, and a
+move destination all fail under a missing parent, naming what was missing in
+vault-relative terms - which the path type can render, since it holds segments and
+its vault.
+
+**Encoding and terminators are stated once, at the composing seam**: UTF-8 with no
+byte-order mark, LF. Nothing detects what was there and nothing preserves another
+convention.
+
+**Move is the one primitive taking two paths**, both `WritePath`, both required to
+carry the same `Vault`. An occupied destination is an error, compared against the
+resolved source ordinally so a case-only rename is not mistaken for a collision;
+the outcome says the move was case-only, so a later git pickup can stage it.
+
+**The name grammar is one type, applied to the single segment a call brings into
+existence** - a creation target, a folder, or a move destination. It is not applied
+at path construction, so everything already on disk stays reachable.
+
+## Wikilinks
+
+Two pure pieces, neither of which touches a filesystem.
+
+**Recognition** runs over a note's whole text, frontmatter included, and reports
+each occurrence as two byte ranges - the whole link, and the target inside it. A
+consumer rewrites a target by writing over its range, so it never parses, re-emits,
+or splits the note. One definition serves every consumer, because a link one
+consumer sees and another misses is a rewrite that silently misses a link.
+
+**Ranking** is a comparator over a candidate set and the linking note's path,
+ordering candidates by nearest relative path with deterministic tie-breaking. It
+takes the candidates it is given, finds nothing itself, and is the whole of what
+[[Spec-Obsidian-Link-Behavior.md]] fixes - so the observed rule sits in one
+comparator that can be changed in a line or two when the editor's behaviour is
+re-measured.
+
+## The Unscoped Link Pass
+
+Wikilink maintenance is the one pass scope does not bound: it must reach notes the
+grant can neither read nor write. Rather than a hole in the ladder, the layer
+offers one operation over merely-contained paths - it walks every note in the
+vault, hands each note's link occurrences to its caller, and applies the
+substitutions the caller returns.
+
+The exception is therefore to *link text*, not to content. No note body crosses the
+boundary: a caller sees occurrences and offers replacement targets, and every
+consumer the specs name - repair on move, bystander pinning on create, the census
+on delete, and link linting - needs exactly that and no more. A consumer needing
+more than a substitution needs a new primitive and its own argument for one, rather
+than reaching for the general write.
 
 ## What A Path Does Not Assert
 
-Two things a path is never proof of, both of which a caller would otherwise assume.
+**Existence.** Containment is textual and touches no filesystem, so a path to
+something that does not exist resolves normally - `create` needs exactly that. No
+member offers an existence answer, because one would invite the check-then-act
+pattern the specs forbid for both creation and reading.
 
-**Existence.** Containment is textual and touches no filesystem
-([[Spec-Vault-Access-Design.md#Load-Bearing Semantics]]), so a path to something
-that does not exist resolves normally - `create` needs exactly that. No member
-offers an existence answer, because one would invite the check-then-act pattern the
-specs forbid for both creation and reading.
+**A conforming name.** Names already on disk are not checked, so a note predating
+the grammar stays readable, searchable, and movable from.
 
-**A conforming name.** Names already on disk are not checked
-([[Spec-Access-Layer-Capabilities.md#Name Validation]]), so a note that predates
-the grammar stays readable, searchable, and movable from. The grammar applies to
-the single segment a call brings into existence, at the operation that brings it.
+**Whether it is a file or a folder.** Deciding that textually is wrong and deciding
+it from disk is forbidden, so each operation states what it expects and fails on
+the other.
 
-A path also does not say whether it names a file or a folder. Deciding that
-textually is wrong and deciding it from disk is forbidden, so each operation states
-what it expects and fails on the other.
+## The Lock's Identity
+
+The derivation of the lock name from the vault root
+([[Spec-Vault-Access-Design.md#The Mutex Lock Name]]) is a property of `Vault`,
+which already holds the canonicalized root the hash is taken over. It sits in the
+layer, not the tool layer, because `VaultWatcher` is not a front-end and must take
+the derivation as code rather than re-implement the convention. Nothing in the
+layer acquires the lock.
 
 ## Still Open
 
 **Temporary scaffolding, removed before sign-off.** Not an inventory: it is what
 was known to be open when this was written, it makes no claim to be complete, and
-working any one of these is expected to turn up others. Anything here either
-becomes design above or stops mattering.
+working any one of these is expected to turn up others.
 
-- Vault resolution's answer - the three-case result replacing the two same-typed
-  exceptions in `VaultConfig.Resolve`, and where configuration state becomes it.
-- Enumeration's two surfaces, where glob matching happens, and how the dot switch
-  is expressed.
-- Search - three granularities as separate capabilities, the four distinguishable
-  outcomes, and where the engine's own failures surface.
-- Read-failure classification.
-- Write, create, and directory creation - the atomicity of the creating form, how a
-  missing parent is named, and where encoding and line terminators are stated once.
-- Move - occupancy against the resolved source, and reporting a case-only rename.
-- Name validation's home.
-- Wikilink grammar and the single ranking comparator, including where the empirical
-  bare-link rule sits so it stays changeable in a line or two.
-- The mid-operation capability key assertion, given authority is handed in.
+- Removal. [[Spec-Access-Layer-Capabilities.md]] states its capability list is
+  complete and names no removal primitive, while [[Spec-Tool-Capabilities.md]]
+  specifies destruction and the design spec puts all vault I/O in the layer. Raised
+  with the operator rather than inferred from the tool's behaviour.
 
 ## What This Closes
 
-- **What denotes the vault root.** The specs require the root as the operand of
-  whole-vault enumeration, and the retained grammar refuses to normalize a path
-  that resolves to it. The root is not a path: vault resolution produces a `Vault`,
-  whole-vault operations take one, and no path denotes it.
+- **What denotes the vault root.** The root is not a path: resolution produces a
+  `Vault`, whole-vault operations take one, and no path denotes it.
   Rejected: a path with no segments, which would be one value admitted under every
-  scope and so an exception inside the property the build most depends on.
-- **How many proofs of admission there are.** The read floor makes read-class
-  admission strictly wider than write-class. Admission is carried by two types over
-  a contained path, with widening from write to read only, so a primitive's
-  authority is its signature.
+  scope, and so an exception inside the property the build most depends on.
+- **How many proofs of admission there are.** Two types over a contained path, with
+  widening from write to read only, so a primitive's authority is its signature.
   Rejected: one admitted type carrying its class as data, which turns the floor
   asymmetry back into a check every write primitive must remember.
-- **Where the scope lives.** One per-call type holds a vault and the caller's scope
-  in it, and is the only producer of an admitted path. No public surface accepts a
-  scope as an argument.
-- **How the unscoped wikilink pass stays inside the ladder.** The layer offers one
-  mutation over a merely-contained path: substitution over the byte ranges the
-  wikilink grammar reports. Everything else that mutates requires write admission.
+- **What the per-call object holds.** The caller's grant, not a bare scope: the
+  layer owes authority both path admission and the mid-operation key assertion, and
+  taking the grant means neither is reconstructed from parts.
+- **Where vault resolution lives, and what it answers.** In the layer, as the only
+  producer of `Vault`, answering a three-case result whose cases come from
+  configuration state.
+  Rejected: keeping it on `VaultConfig` behind two same-typed exceptions, which is
+  the fragile form the capability spec names.
 - **Loud and quiet resolution are different members.** Naming a path answers with a
   refusal; filtering a layer-produced path answers with a boolean and cannot
-  construct one. The disclosure rule is then a property of which member exists
-  rather than of how carefully each caller handles a result.
+  construct one. Disclosure is then a property of which member exists rather than
+  of how carefully each caller handles a result.
 - **Where the operand perimeter sits.** Dot-directory paths are representable and
-  not nameable: the census must report them, and no caller may name one. The
-  refusal belongs to caller-named resolution rather than to containment.
-- **What the path type does not assert.** Neither existence nor a conforming name,
-  and not whether it is a file or a folder. Each is checked by the operation that
-  needs it, at the point it needs it.
+  not nameable: the census must report them, and no caller may name one.
+- **Where glob matching happens.** In the layer over vault-relative paths, not
+  delegated to the engine, so the pattern means one thing on every surface and
+  platform.
+- **Engine output is read to completion before answering.** A search that cannot
+  read a file must fail whole, which is not decidable until the error stream has
+  been read; streaming would hand a caller results from a search about to fail.
+- **The layer writes nothing to health state.** An operational failure is returned
+  to its caller. A layer that could degrade the server from inside a call would
+  give one caller's failure server-wide visibility.
+- **How the unscoped wikilink pass stays inside the ladder.** One operation over
+  merely-contained paths, exchanging link occurrences and substitutions. No note
+  body crosses the boundary, so the exception is to link text rather than to
+  content.
+- **What the path type does not assert.** Neither existence, nor a conforming name,
+  nor whether it names a file or a folder. Each is checked by the operation that
+  needs it, where it needs it.
+- **Where the lock name derivation sits.** On `Vault`, in the layer, because the
+  watcher must take it as code and is not a front-end.
