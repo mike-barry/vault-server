@@ -110,7 +110,7 @@ public static class PathPolicyParser
 
         try
         {
-            return string.Join('/', VaultAccess.NormalizeScopeSegments(path));
+            return string.Join('/', ScopePath.Normalize(path));
         }
         catch (ArgumentException ex)
         {

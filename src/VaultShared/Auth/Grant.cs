@@ -37,7 +37,7 @@ namespace VaultShared.Auth;
 ///
 /// An empty/blank scope-root string is not a valid element of a root set; it is treated as
 /// malformed input, not as a "matches everything" sentinel - see
-/// <see cref="VaultAccess.NormalizeScopeSegments"/>.
+/// <see cref="ScopePath.Normalize"/>.
 /// </param>
 public sealed record Grant(string Id, IReadOnlySet<string> OpClasses, IReadOnlySet<string> Vaults, DateTimeOffset? ExpiresAtUtc, IReadOnlyDictionary<string, VaultScope> ScopeRoots)
 {

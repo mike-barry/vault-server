@@ -70,7 +70,7 @@ Every place the specs leave a choice, with the choice made. One entry each: the 
 ```markdown
 - **What denotes the vault root.** The specs require the root to be an operand
   for whole-vault enumeration and the always-readable union, and the retained
-  `NormalizeScopeSegments` throws on it. A resolved path with no segments is the
+  `ScopePath.Normalize` throws on it. A resolved path with no segments is the
   root; resolution handles that case before calling the primitive.
 - **Whether resolution throws or answers.** The specs say the two vault-resolution
   failures must be distinguishable structurally, and say nothing about the form.

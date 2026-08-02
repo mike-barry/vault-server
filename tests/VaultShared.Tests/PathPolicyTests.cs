@@ -234,9 +234,9 @@ public sealed class PathPolicyTests : IDisposable
         var policy = Load(new RecordingProblemSink(), $$"""[ { "path": "{{Guides}}", "always_readable": true } ]""", Guides).PathPolicyFor("test");
         var scope = Rooted("Projects/Widget");
 
-        Assert.True(VaultAccess.IsPathInReadScope($"{Guides}/Vault-Guide.md", scope, policy));
-        Assert.True(VaultAccess.IsPathInReadScope("Projects/Widget/Widget.md", scope, policy));
-        Assert.False(VaultAccess.IsPathInReadScope("Projects/Other/Other.md", scope, policy));
+        Assert.True(policy.IsPathInReadScope($"{Guides}/Vault-Guide.md", scope));
+        Assert.True(policy.IsPathInReadScope("Projects/Widget/Widget.md", scope));
+        Assert.False(policy.IsPathInReadScope("Projects/Other/Other.md", scope));
     }
 
     [Fact]
@@ -244,13 +244,13 @@ public sealed class PathPolicyTests : IDisposable
     {
         var policy = Load(new RecordingProblemSink(), $$"""[ { "path": "{{Guides}}", "always_readable": true } ]""", Guides).PathPolicyFor("test");
 
-        Assert.False(VaultAccess.IsPathInReadScope("Resources/Vault/Guides-Old/Vault-Guide.md", Rooted("Projects/Widget"), policy));
+        Assert.False(policy.IsPathInReadScope("Resources/Vault/Guides-Old/Vault-Guide.md", Rooted("Projects/Widget")));
     }
 
     [Fact]
-    public void IsPathInReadScope_WithNoPolicyIsExactlyIsPathInScope()
+    public void IsPathInReadScope_WithNoPolicyIsExactlyTheScopeCheck()
     {
-        Assert.False(VaultAccess.IsPathInReadScope($"{Guides}/Vault-Guide.md", Rooted("Projects/Widget"), PathPolicy.None));
+        Assert.False(PathPolicy.None.IsPathInReadScope($"{Guides}/Vault-Guide.md", Rooted("Projects/Widget")));
     }
 
     /// <summary>
@@ -258,9 +258,9 @@ public sealed class PathPolicyTests : IDisposable
     /// every agent reads the material it is instructed to obey, and none of them can author it.
     /// </summary>
     [Fact]
-    public void IsPathInScope_TheWritePathDoesNotSeeTheFloor()
+    public void Admits_TheWritePathDoesNotSeeTheFloor()
     {
-        Assert.False(VaultAccess.IsPathInScope($"{Guides}/Vault-Guide.md", Rooted("Projects/Widget")));
+        Assert.False(Rooted("Projects/Widget").Admits($"{Guides}/Vault-Guide.md"));
     }
 
     /// <summary>
@@ -273,7 +273,7 @@ public sealed class PathPolicyTests : IDisposable
     {
         var policy = Load(new RecordingProblemSink(), $$"""[ { "path": "{{Guides}}", "always_readable": true } ]""", Guides).PathPolicyFor("test");
 
-        Assert.True(VaultAccess.IsPathInReadScope($"{Guides}/Document-Conventions.md", Rooted("Projects/Widget/Inbox"), policy));
+        Assert.True(policy.IsPathInReadScope($"{Guides}/Document-Conventions.md", Rooted("Projects/Widget/Inbox")));
     }
 }
 
@@ -313,17 +313,17 @@ public sealed class PathPolicyFixtureTests(TestVaultFixture fixture) : IClassFix
     {
         var policy = GuidesPolicy(fixture.Config, "test");
 
-        Assert.True(VaultAccess.IsPathInReadScope(Guide, Narrow, policy));
-        Assert.True(VaultAccess.IsPathInReadScope($"{Guides}/Document-Conventions.md", Narrow, policy));
-        Assert.True(VaultAccess.IsPathInReadScope("Projects/Widget/Widget.md", Narrow, policy));
-        Assert.False(VaultAccess.IsPathInReadScope("Resources/Gizmo-Reference.md", Narrow, policy));
-        Assert.False(VaultAccess.IsPathInReadScope("Inbox/Note-Loose-Thought.md", Narrow, policy));
+        Assert.True(policy.IsPathInReadScope(Guide, Narrow));
+        Assert.True(policy.IsPathInReadScope($"{Guides}/Document-Conventions.md", Narrow));
+        Assert.True(policy.IsPathInReadScope("Projects/Widget/Widget.md", Narrow));
+        Assert.False(policy.IsPathInReadScope("Resources/Gizmo-Reference.md", Narrow));
+        Assert.False(policy.IsPathInReadScope("Inbox/Note-Loose-Thought.md", Narrow));
     }
 
     [Fact]
     public void ANarrowGrantCannotWriteTheSeededGuides()
     {
-        Assert.False(VaultAccess.IsPathInScope(Guide, Narrow));
+        Assert.False(Narrow.Admits(Guide));
     }
 
     [Fact]

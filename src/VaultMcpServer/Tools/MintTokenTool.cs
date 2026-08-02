@@ -194,7 +194,7 @@ public sealed class MintTokenTool(GrantStore grantStore, OpClassRegistry opClass
                     $"is scoped there to {FormatSet(callerRoots)}.",
                     new { argument = "scope_roots", vault = vaultName });
 
-            var outOfScope = requestedRooted.Roots.Where(r => !VaultAccess.IsPathInScope(r, callerScope)).ToList();
+            var outOfScope = requestedRooted.Roots.Where(r => !callerScope.Admits(r)).ToList();
             if (outOfScope.Count > 0)
                 throw new MintArgumentException(
                     "out_of_scope",
@@ -272,7 +272,7 @@ public sealed class MintTokenTool(GrantStore grantStore, OpClassRegistry opClass
     /// entry with no subtree (e.g. <c>"primary"</c>, no <c>/</c>) means "no restriction within this
     /// vault", which is <see cref="VaultScope.Unscoped"/> for that vault key - never an
     /// empty-string element and never an empty root set. Each subtree remainder is canonicalized via
-    /// <see cref="VaultAccess.NormalizeScopeSegments"/> (the same validation
+    /// <see cref="ScopePath.Normalize"/> (the same validation
     /// <see cref="Auth.GrantStore.Load"/> applies to a file-loaded grant's scopeRoots), so a
     /// rooted, escaping, or empty remainder is rejected here as a mint argument error rather than
     /// producing a malformed scope root that fails closed later on an unrelated call. If the same
@@ -299,7 +299,7 @@ public sealed class MintTokenTool(GrantStore grantStore, OpClassRegistry opClass
             }
 
             // A subtree remainder must be canonicalized the same way GrantStore.Load canonicalizes
-            // a file-loaded grant's scopeRoots (VaultAccess.NormalizeScopeSegments), so a minted
+            // a file-loaded grant's scopeRoots (ScopePath.Normalize), so a minted
             // grant can never carry a rooted ("primary//x"), escaping ("primary/../x"), or empty
             // ("primary/") scope root - which would otherwise fail closed downstream with a
             // confusing error on some later, unrelated tool call. An entry with no subtree, or one
@@ -309,7 +309,7 @@ public sealed class MintTokenTool(GrantStore grantStore, OpClassRegistry opClass
                 string canonical;
                 try
                 {
-                    canonical = string.Join('/', VaultAccess.NormalizeScopeSegments(parts[1]));
+                    canonical = string.Join('/', ScopePath.Normalize(parts[1]));
                 }
                 catch (ArgumentException ex)
                 {

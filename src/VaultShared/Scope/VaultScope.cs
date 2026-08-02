@@ -38,6 +38,31 @@ public abstract record VaultScope
         return new RootedScope(set);
     }
 
+    /// <summary>
+    /// True if <paramref name="relativePath"/> falls under this scope - folder-prefix containment
+    /// matched by path segment, not raw string prefix, so a root of "Projects/Foo" does not match
+    /// "Projects/Foo-Other/...". An unscoped scope admits every path, which is a case of the type
+    /// rather than a property of the root count.
+    ///
+    /// Every root (and the path itself) is normalized via <see cref="ScopePath.Normalize"/>
+    /// before any match is attempted - eagerly, so one malformed root makes the whole check throw
+    /// regardless of whether a different root would have matched. This is the "an unscopeable
+    /// query errors; it does not silently degrade" rule applied at the containment-check level: a
+    /// grant whose configured scope can't be fully resolved is treated as broken, not partially
+    /// trusted.
+    /// </summary>
+    public bool Admits(string relativePath)
+    {
+        if (this is not RootedScope rooted)
+            return true;
+
+        var pathSegments = ScopePath.Normalize(relativePath);
+        var rootSegmentsList = rooted.Roots.Select(ScopePath.Normalize).ToList();
+        return rootSegmentsList.Any(rootSegments =>
+            rootSegments.Length <= pathSegments.Length &&
+            !rootSegments.Where((s, i) => !string.Equals(s, pathSegments[i], StringComparison.OrdinalIgnoreCase)).Any());
+    }
+
     /// <summary>The whole-vault case.</summary>
     public sealed record UnscopedScope : VaultScope;
 
