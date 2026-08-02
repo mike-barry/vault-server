@@ -49,10 +49,10 @@ public sealed class VaultAccessTests
     }
 
     [Fact]
-    public void ResolveVaultScopeRoots_NonNullMapMissingVaultKeyThrows()
+    public void ResolveVaultScopeRoots_MapMissingVaultKeyThrows()
     {
         // Every real Grant.ScopeRoots is guaranteed to have an entry for every vault it can
-        // reach (enforced by GrantStore.Load and GrantStore.Mint), so a non-null map missing
+        // reach (enforced by GrantStore.Load and GrantStore.Mint), so a map missing
         // the queried vault's key means that invariant was violated upstream - it must fail
         // loudly rather than silently falling back to full access.
         Assert.Throws<InvalidOperationException>(

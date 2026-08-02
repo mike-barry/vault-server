@@ -37,14 +37,11 @@ namespace VaultMcpServer.Auth;
 /// <see cref="VaultMcpServer.Vault.VaultAccess.NormalizeScopeSegments"/>.
 /// Resolve a vault's scope via
 /// <see cref="VaultMcpServer.Vault.VaultAccess.ResolveVaultScopeRoots"/> before checking with
-/// <see cref="VaultMcpServer.Vault.VaultAccess.IsPathInScope"/> - given this map, that resolution
-/// step now throws rather than falling back to "unscoped" if a queried vault has no entry, since
-/// that should be structurally unreachable for any grant built through <see cref="GrantStore.Load"/>
-/// or <see cref="GrantStore.Mint"/>. (Passing a <c>null</c> map to
-/// <see cref="VaultMcpServer.Vault.VaultAccess.ResolveVaultScopeRoots"/> is a separate,
-/// still-supported case - it means "no grant/scope map was supplied to this call at all", used
-/// by <see cref="VaultMcpServer.Vault.VaultAccess"/>'s own optional <c>scopeRoots</c> parameters,
-/// not something a real <see cref="Grant"/> ever produces.)
+/// <see cref="VaultMcpServer.Vault.VaultAccess.IsPathInScope"/> - that resolution step throws
+/// rather than falling back to "unscoped" if a queried vault has no entry, since that should be
+/// structurally unreachable for any grant built through <see cref="GrantStore.Load"/> or
+/// <see cref="GrantStore.Mint"/>. There is no way to ask it for a scope without supplying a map,
+/// so no call can arrive carrying no authority at all.
 /// </param>
 public sealed record Grant(string Id, IReadOnlySet<string> OpClasses, IReadOnlySet<string> Vaults, DateTimeOffset? ExpiresAtUtc, IReadOnlyDictionary<string, VaultMcpServer.Vault.VaultScope> ScopeRoots)
 {

@@ -16,22 +16,16 @@ public sealed class VaultAccess
     /// vault must not leak into another vault the same grant can access" is enforced: only the
     /// entry keyed to <paramref name="vault"/> is ever consulted.
     ///
-    /// <paramref name="scopeRootsByVault"/> being <c>null</c> means no scope map was supplied to
-    /// this call at all (e.g. a caller with no grant context, such as a test calling this class
-    /// directly) - returns <see cref="VaultScope.Unscoped"/>. This is distinct from a
-    /// <em>non-null</em> map having no entry for <paramref name="vault"/>, which is a
-    /// defensive-throw case: every real <see cref="Auth.Grant"/> (whether file-loaded
-    /// via <see cref="Auth.GrantStore.Load"/> or minted via <see cref="Auth.GrantStore.Mint"/>)
-    /// is guaranteed to have a <see cref="Auth.Grant.ScopeRoots"/> entry for every vault it can
-    /// access, so a non-null map missing the queried vault's key means that invariant was
-    /// violated somewhere upstream - it must fail loudly rather than silently falling back to
-    /// full access.
+    /// A map with no entry for <paramref name="vault"/> throws. Every real
+    /// <see cref="Auth.Grant"/> (whether file-loaded via <see cref="Auth.GrantStore.Load"/> or
+    /// minted via <see cref="Auth.GrantStore.Mint"/>) is guaranteed to carry a
+    /// <see cref="Auth.Grant.ScopeRoots"/> entry for every vault it can access, so a missing key
+    /// means that invariant was violated upstream. There is no absent-scope case to answer:
+    /// the parameter is required, and no argument to this method denotes "no restriction" - a
+    /// caller that means the whole vault passes a map holding <see cref="VaultScope.Unscoped"/>.
     /// </summary>
-    public static VaultScope ResolveVaultScopeRoots(string vault, IReadOnlyDictionary<string, VaultScope>? scopeRootsByVault)
+    public static VaultScope ResolveVaultScopeRoots(string vault, IReadOnlyDictionary<string, VaultScope> scopeRootsByVault)
     {
-        if (scopeRootsByVault is null)
-            return VaultScope.Unscoped;
-
         foreach (var (key, scope) in scopeRootsByVault)
         {
             if (string.Equals(key, vault, StringComparison.OrdinalIgnoreCase))
@@ -39,7 +33,7 @@ public sealed class VaultAccess
         }
 
         throw new InvalidOperationException(
-            $"Grant configuration invariant violated: vault \"{vault}\" has no scope entry in a non-null scope map. " +
+            $"Grant configuration invariant violated: vault \"{vault}\" has no scope entry in the supplied scope map. " +
             "Every vault a grant can access must have an explicit entry - this should be impossible for any grant built through GrantStore.Load or GrantStore.Mint.");
     }
 

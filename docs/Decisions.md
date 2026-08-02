@@ -37,3 +37,13 @@ Rejected: escalating the conflict as a possible defect in the specs or the brief
 The two that closed it. The op-class floor is checked in `ScriptToolDispatcher`, in the MCP front-end, while `Spec-Vault-Access-Design.md:What The Layer Owns` puts it in the shared execute path that also takes the mutex lock - so a CLI built from the retained shape would ship with neither. And the vault-membership check cannot reach a compiled tool: the native branch returns before it, and its predicate is typed on `ScriptTool`. Every tool this build adds is compiled, so the check the brief lists as retained and correct would cover none of them.
 
 Both are approved changes to retained code rather than escalations.
+
+## The scope resolver has no absent-scope case
+
+2026-08-02, prework.
+
+Rejected: leaving the null-map branch in `ResolveVaultScopeRoots` alone. It became unreachable when `ResolvePath` and `ResolveVault` were deleted, so keeping it cost nothing and touched no retained code - the safe-looking option. It lost on what it was rather than what it did. An argument meaning "no authority was supplied" answering `Unscoped` is a fail-open default, sitting in the check every path-touching operation routes through. `Spec-Auth-Requirements.md:What The Layer May Assume` fails closed on a missing scope definition, and `Spec-Frontmatter-Substrate.md:Write Authority Classification` says no authority context at all is not a valid state.
+
+The parameter is now required, so the shape cannot be reached by a caller who forgot rather than decided. A caller meaning the whole vault passes a map holding `VaultScope.Unscoped` - the same discipline `VaultScope` already applies to the empty root set.
+
+Answers `Spec-Auth-Requirements.md:What The Layer Must Do`.
