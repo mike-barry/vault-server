@@ -90,23 +90,15 @@ The order matters, and it is not arbitrary.
 3. **The tool layer** over the access layer, with the transport-neutral result and error representation.
 4. **The two front-ends**, which should be thin enough to be uninteresting by the time they are written. A tool is declared once and projected into both; neither front-end carries per-tool code.
 
-The specs state what must be true, not how to build it, so the early architectural work makes those calls. Each one is recorded as it lands, in `docs/Decisions.md`.
+The specs state what must be true, not how to build it, so the early architectural work makes those calls. Each one is recorded as it lands, in the design document for its area.
 
 ## Working Files
 
-Two files in `docs/` are written during the build rather than read from it. They have opposite lifetimes: one accumulates permanently, the other is worked down to empty.
+Two things are written during the build rather than read from it.
 
-**`docs/Decisions.md`** is permanent, and holds the architectural decisions this build makes, one entry each, newest last:
+**`docs/design/`** holds the design, split into documents by area. The specs state what must be true; a design document states what shape this build takes to meet it, at a level a reviewer can reject before the code exists. `docs/design/README.md` is the convention all of them follow - the required sections, the level, the size limit, and where the boundary sits against the escalation channel below. Read it before writing or revising one. A design document is not done until the operator has reviewed it and signed off.
 
-```
-## <The decision, as a claim>
-
-Date, and the phase it landed in.
-What was rejected, and why it lost.
-Which spec section it answers, where one applies.
-```
-
-Record a decision when a fork closes - something was rejected. A choice with no alternative is a design fact and belongs in the code and its comments, not here. Nothing outside this repo is watching the build, so an unrecorded decision is one nobody can review.
+Architectural decisions land there too, in a document's `What This Closes` section, rather than in a log of their own. The reasoning is that a central decision log is written to and never read, and says less than the design document and the commit message already say between them. A decision with a code site belongs in a comment at that site.
 
 **`docs/Questions.md`** is the escalation channel, and it is two-way. Its normal state is empty.
 
@@ -123,7 +115,7 @@ What the build would do under each plausible reading, and what it costs to be wr
 Answer: filled in by the responder, naming the spec file amended.
 ```
 
-**Clear the entry once it is consumed.** When the answer has been read, the specs have been updated, and the code reflects it, delete the entry. It has no further job: the amended spec is the requirement, the code is the implementation, and a decision worth keeping goes to `docs/Decisions.md`. Leaving answered questions to accumulate turns the file into a second source of truth that quietly competes with the specs, and makes the open ones harder to find among them. The exchange stays in git history either way.
+**Clear the entry once it is consumed.** When the answer has been read, the specs have been updated, and the code reflects it, delete the entry. It has no further job: the amended spec is the requirement, the code is the implementation, and a decision worth keeping goes to the design document for its area. Leaving answered questions to accumulate turns the file into a second source of truth that quietly competes with the specs, and makes the open ones harder to find among them. The exchange stays in git history either way.
 
 ## Testing
 

@@ -7,7 +7,6 @@ Work the operator has agreed should be done, but which does not block the build.
 - **Only the operator adds an entry.** An agent that finds something belonging here says so and proposes it; it does not write to this file on its own. That rule is what keeps the file a list of agreed work rather than a place to shed anything inconvenient.
 - **The bar is that it is genuinely worth doing and genuinely not blocking.** Something that blocks a build step is a step in `Plan.md`. Something the specs cannot answer is an escalation in `Questions.md`. Something nobody has agreed to is not recorded anywhere.
 - **An entry says what is wrong now, not just what to change.** The cost of leaving it is what lets the operator schedule it against everything else.
-- **Clear an entry when its work lands.** If the fix closed a fork worth reviewing, it earns a `Decisions.md` entry; otherwise it just goes. Git history keeps the record either way.
 
 Entry shape:
 
