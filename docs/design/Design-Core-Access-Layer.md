@@ -87,7 +87,7 @@ Resolution answers; it does not throw. Three refusals are distinguishable, becau
 
 A refusal carries the caller's own coordinates and nothing else - never whether the target exists, never the grant's roots, never the subset that failed a check.
 
-The perimeter is a property of the caller-named path, not of containment. The census reports what a removal destroys, including files under a nested `.git`, so those paths are representable as `VaultPath`. They are simply not nameable.
+The perimeter is a property of the caller-named path, not of containment. A destruction census asks for dot entries so that the guard refusing on a nested `.git` has something to find, and so that the dot entries a removal really does destroy are reported to the caller. Those paths are therefore representable as `VaultPath`, and simply not nameable.
 
 ## Enumeration And Search
 
