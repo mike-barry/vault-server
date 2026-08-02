@@ -27,10 +27,10 @@ namespace VaultMcpServer.Auth;
 /// "missing key" or "missing map" state to interpret.
 ///
 /// Whole-vault access is <see cref="VaultMcpServer.Vault.VaultScope.Unscoped"/> and nothing else:
-/// the configuration spellings <c>[]</c> and <c>["*"]</c> both parse to it at load, and the
-/// whole-grant wildcard <c>{ "*": ["*"] }</c> expands to one such entry per vault, mirroring how
-/// <c>vaults: ["*"]</c> itself expands. An empty root set is not a representable value, so no
-/// caller can produce whole-vault authority by accident.
+/// the configuration spells it <c>["*"]</c>, and the whole-grant wildcard <c>{ "*": ["*"] }</c>
+/// expands to one such entry per vault, mirroring how <c>vaults: ["*"]</c> itself expands. An
+/// empty root set is neither representable in the model nor accepted by the loader, so no caller
+/// can produce whole-vault authority by accident at either layer.
 ///
 /// An empty/blank scope-root string is not a valid element of a root set; it is treated as
 /// malformed input, not as a "matches everything" sentinel - see

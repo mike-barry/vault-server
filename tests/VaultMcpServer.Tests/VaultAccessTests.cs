@@ -24,11 +24,12 @@ public sealed class VaultAccessTests(TestVaultFixture fixture) : IClassFixture<T
     [MemberData(nameof(ScopeCases))]
     public void IsPathInScope_SharedCases(string name, string vault, string path, Dictionary<string, List<string>> scopeRoots, string outcome)
     {
-        // The case files spell whole-vault access as an empty root list, which is the config
-        // format rather than the model: it maps to the explicit unscoped case here.
+        // The case files spell whole-vault access the way the config format does - ["*"] and
+        // nothing else - which maps to the explicit unscoped case here. An empty list is not a
+        // second spelling of it at either layer, so no case carries one.
         var scopeRootsByVault = scopeRoots.ToDictionary(
             kv => kv.Key,
-            VaultScope (kv) => kv.Value.Count == 0
+            VaultScope (kv) => kv.Value is ["*"]
                 ? VaultScope.Unscoped
                 : VaultScope.Of(kv.Value.ToHashSet(StringComparer.OrdinalIgnoreCase)),
             StringComparer.OrdinalIgnoreCase);

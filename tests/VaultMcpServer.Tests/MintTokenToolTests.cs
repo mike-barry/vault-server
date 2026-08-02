@@ -25,7 +25,7 @@ public sealed class MintTokenToolTests(TestVaultFixture fixture) : IClassFixture
     {
         var path = Path.Combine(_tempDir, "grants.json");
         File.WriteAllText(path, """
-            { "admin-token": { "id": "admin", "opClasses": ["content:read", "content:write", "grants:manage"], "vaults": ["test", "scratch"], "ttl": "*", "scopeRoots": { "test": [], "scratch": [] } } }
+            { "admin-token": { "id": "admin", "opClasses": ["content:read", "content:write", "grants:manage"], "vaults": ["test", "scratch"], "ttl": "*", "scopeRoots": { "test": ["*"], "scratch": ["*"] } } }
             """);
         return GrantStore.Load(path, OpClasses, _vaultConfig, new ServerHealthState());
     }
@@ -214,7 +214,7 @@ public sealed class MintTokenToolTests(TestVaultFixture fixture) : IClassFixture
     public async Task InvokeAsync_OpClassNotHeldByCaller_IsRejectedNamingTheDimension()
     {
         var store = MakeStore("""
-            { "scoped-token": { "id": "scoped", "opClasses": ["content:read", "grants:manage"], "vaults": ["test"], "ttl": "*", "scopeRoots": { "test": [] } } }
+            { "scoped-token": { "id": "scoped", "opClasses": ["content:read", "grants:manage"], "vaults": ["test"], "ttl": "*", "scopeRoots": { "test": ["*"] } } }
             """);
         var tool = new MintTokenTool(store, OpClasses, _vaultConfig);
         var callerGrant = store.Authenticate("scoped-token")!;
@@ -245,7 +245,7 @@ public sealed class MintTokenToolTests(TestVaultFixture fixture) : IClassFixture
     public async Task InvokeAsync_ManageGrantsIsAllowedIffTheCallerHoldsIt_NoSpecialCase()
     {
         var store = MakeStore("""
-            { "scoped-token": { "id": "scoped", "opClasses": ["content:read", "grants:manage"], "vaults": ["test"], "ttl": "*", "scopeRoots": { "test": [] } } }
+            { "scoped-token": { "id": "scoped", "opClasses": ["content:read", "grants:manage"], "vaults": ["test"], "ttl": "*", "scopeRoots": { "test": ["*"] } } }
             """);
         var tool = new MintTokenTool(store, OpClasses, _vaultConfig);
         var callerGrant = store.Authenticate("scoped-token")!;
@@ -262,7 +262,7 @@ public sealed class MintTokenToolTests(TestVaultFixture fixture) : IClassFixture
     public async Task InvokeAsync_VaultNotHeldByCaller_IsRejectedNamingTheDimension()
     {
         var store = MakeStore("""
-            { "scoped-token": { "id": "scoped", "opClasses": ["content:read"], "vaults": ["test"], "ttl": "*", "scopeRoots": { "test": [] } } }
+            { "scoped-token": { "id": "scoped", "opClasses": ["content:read"], "vaults": ["test"], "ttl": "*", "scopeRoots": { "test": ["*"] } } }
             """);
         var tool = new MintTokenTool(store, OpClasses, _vaultConfig);
         var callerGrant = store.Authenticate("scoped-token")!;
@@ -335,7 +335,7 @@ public sealed class MintTokenToolTests(TestVaultFixture fixture) : IClassFixture
     public async Task InvokeAsync_UnscopedVaultCaller_PermitsAnyRequestedRoot()
     {
         var store = MakeStore("""
-            { "admin-token": { "id": "admin", "opClasses": ["content:read"], "vaults": ["test"], "ttl": "*", "scopeRoots": { "test": [] } } }
+            { "admin-token": { "id": "admin", "opClasses": ["content:read"], "vaults": ["test"], "ttl": "*", "scopeRoots": { "test": ["*"] } } }
             """);
         var tool = new MintTokenTool(store, OpClasses, _vaultConfig);
         var callerGrant = store.Authenticate("admin-token")!;
@@ -354,7 +354,7 @@ public sealed class MintTokenToolTests(TestVaultFixture fixture) : IClassFixture
         var now = DateTimeOffset.UtcNow;
         var timeProvider = new FixedTimeProvider(now);
         var store = MakeStore("""
-            { "scoped-token": { "id": "scoped", "opClasses": ["content:read"], "vaults": ["test"], "ttl": 60, "scopeRoots": { "test": [] } } }
+            { "scoped-token": { "id": "scoped", "opClasses": ["content:read"], "vaults": ["test"], "ttl": 60, "scopeRoots": { "test": ["*"] } } }
             """, timeProvider);
         var tool = new MintTokenTool(store, OpClasses, _vaultConfig);
         var callerGrant = store.Authenticate("scoped-token")!;
@@ -378,7 +378,7 @@ public sealed class MintTokenToolTests(TestVaultFixture fixture) : IClassFixture
         var timeProvider = new FixedTimeProvider(now);
         // The caller's own grant expires in 5 minutes.
         var store = MakeStore("""
-            { "scoped-token": { "id": "scoped", "opClasses": ["content:read"], "vaults": ["test"], "ttl": 5, "scopeRoots": { "test": [] } } }
+            { "scoped-token": { "id": "scoped", "opClasses": ["content:read"], "vaults": ["test"], "ttl": 5, "scopeRoots": { "test": ["*"] } } }
             """, timeProvider);
         var tool = new MintTokenTool(store, OpClasses, _vaultConfig);
         var callerGrant = store.Authenticate("scoped-token")!;

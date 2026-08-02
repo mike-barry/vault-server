@@ -127,7 +127,7 @@ public sealed class LocalhostAuthDispatchTests : IClassFixture<LocalhostAuthDisp
             File.WriteAllText(grantsPath, JsonSerializer.Serialize(new Dictionary<string, object>
             {
                 ["admin"] = new { named = true, id = "admin", opClasses = new[] { "*" }, vaults = new[] { "*" }, ttl = "*", scopeRoots = new Dictionary<string, string[]> { ["*"] = new[] { "*" } } },
-                ["a-real-readonly-token"] = new { id = "read-only", opClasses = new[] { "content:read" }, vaults = new[] { "personal" }, ttl = "*", scopeRoots = new Dictionary<string, string[]> { ["personal"] = Array.Empty<string>() } },
+                ["a-real-readonly-token"] = new { id = "read-only", opClasses = new[] { "content:read" }, vaults = new[] { "personal" }, ttl = "*", scopeRoots = new Dictionary<string, string[]> { ["personal"] = new[] { "*" } } },
             }));
 
             var toolsDir = Path.Combine(TempDir, "tools");

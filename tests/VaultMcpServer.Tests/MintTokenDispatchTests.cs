@@ -209,7 +209,7 @@ public sealed class MintTokenDispatchTests : IClassFixture<MintTokenDispatchTest
                 // never constrains what these dispatch tests can mint - matching the real dev
                 // default binding, which is likewise unscoped/infinite.
                 [AdminToken] = new { id = "admin", opClasses = new[] { "*" }, vaults = new[] { "*" }, ttl = "*", scopeRoots = new Dictionary<string, string[]> { ["*"] = new[] { "*" } } },
-                [ReadOnlyToken] = new { id = "read-only", opClasses = new[] { "content:read" }, vaults = new[] { "personal" }, ttl = "*", scopeRoots = new Dictionary<string, string[]> { ["personal"] = Array.Empty<string>() } },
+                [ReadOnlyToken] = new { id = "read-only", opClasses = new[] { "content:read" }, vaults = new[] { "personal" }, ttl = "*", scopeRoots = new Dictionary<string, string[]> { ["personal"] = new[] { "*" } } },
             }));
 
             var toolsDir = Path.Combine(TempDir, "tools");

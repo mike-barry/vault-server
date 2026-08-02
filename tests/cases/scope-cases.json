@@ -1,5 +1,5 @@
 [
-  { "name": "unscoped grant allows anything", "vault": "primary", "path": "Areas/Personal/Health.md", "scopeRoots": { "primary": [] }, "outcome": "inScope" },
+  { "name": "unscoped grant allows anything", "vault": "primary", "path": "Areas/Personal/Health.md", "scopeRoots": { "primary": ["*"] }, "outcome": "inScope" },
   { "name": "path directly under a single-segment root", "vault": "primary", "path": "Projects/Widget/Widget.md", "scopeRoots": { "primary": ["Projects"] }, "outcome": "inScope" },
   { "name": "path directly under a multi-segment root", "vault": "primary", "path": "Projects/Vault-MCP-Server/Corpus/Server-Structure.md", "scopeRoots": { "primary": ["Projects/Vault-MCP-Server"] }, "outcome": "inScope" },
   { "name": "path equal to the root plus one segment", "vault": "primary", "path": "Projects/Vault-MCP-Server/Tasks.md", "scopeRoots": { "primary": ["Projects/Vault-MCP-Server"] }, "outcome": "inScope" },
@@ -15,7 +15,7 @@
   { "name": "rooted root path is unscopeable", "vault": "primary", "path": "Projects/Widget/Widget.md", "scopeRoots": { "primary": ["C:/Windows"] }, "outcome": "invalid" },
   { "name": "empty-string root is unscopeable", "vault": "primary", "path": "Projects/Widget/Widget.md", "scopeRoots": { "primary": [""] }, "outcome": "invalid" },
   { "name": "one malformed root among otherwise-matching roots still errors", "vault": "primary", "path": "Projects/Widget/Widget.md", "scopeRoots": { "primary": ["Projects/Widget", "../outside"] }, "outcome": "invalid" },
-  { "name": "an explicit empty scope entry for a vault means fully unscoped, even though another vault has a scope root configured", "vault": "test", "path": "Areas/Personal/Health.md", "scopeRoots": { "primary": ["Projects"], "test": [] }, "outcome": "inScope" },
+  { "name": "an explicit whole-vault entry for a vault means fully unscoped, even though another vault has a scope root configured", "vault": "test", "path": "Areas/Personal/Health.md", "scopeRoots": { "primary": ["Projects"], "test": ["*"] }, "outcome": "inScope" },
   { "name": "a scope root configured for one vault still restricts that same vault directly", "vault": "primary", "path": "Areas/Personal/Health.md", "scopeRoots": { "primary": ["Projects"] }, "outcome": "outOfScope" },
   { "name": "a scope root configured for one vault does not leak into a second vault's own (different) scope root", "vault": "test", "path": "Projects/Widget/Widget.md", "scopeRoots": { "primary": ["Projects/Widget"], "test": ["Areas/Homelab"] }, "outcome": "outOfScope" }
 ]

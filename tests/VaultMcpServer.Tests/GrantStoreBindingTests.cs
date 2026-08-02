@@ -32,8 +32,8 @@ public sealed class GrantStoreBindingTests(TestVaultFixture fixture) : IClassFix
     // A token-keyed opt-in caller row plus a token-less named "elevated" grant with broader access.
     private const string CallerAndNamedTarget = """
         {
-          "caller-token": { "id": "caller", "opClasses": ["content:read"], "vaults": ["test"], "ttl": "*", "scopeRoots": { "test": [] }, "canRequestElevation": true },
-          "elevated": { "named": true, "id": "elevated", "opClasses": ["content:read", "content:write"], "vaults": ["test", "scratch"], "ttl": "*", "scopeRoots": { "test": [], "scratch": [] } }
+          "caller-token": { "id": "caller", "opClasses": ["content:read"], "vaults": ["test"], "ttl": "*", "scopeRoots": { "test": ["*"] }, "canRequestElevation": true },
+          "elevated": { "named": true, "id": "elevated", "opClasses": ["content:read", "content:write"], "vaults": ["test", "scratch"], "ttl": "*", "scopeRoots": { "test": ["*"], "scratch": ["*"] } }
         }
         """;
 
@@ -68,7 +68,7 @@ public sealed class GrantStoreBindingTests(TestVaultFixture fixture) : IClassFix
         var path = Path.Combine(_tempDir, "grants.json");
         File.WriteAllText(path, """
             {
-              "some-token": { "id": "admin", "opClasses": ["content:read"], "vaults": ["test"], "ttl": "*", "scopeRoots": { "test": [] } },
+              "some-token": { "id": "admin", "opClasses": ["content:read"], "vaults": ["test"], "ttl": "*", "scopeRoots": { "test": ["*"] } },
               "admin": { "named": true, "id": "admin", "opClasses": ["*"], "vaults": ["*"], "ttl": "*", "scopeRoots": { "*": ["*"] } }
             }
             """);
@@ -86,7 +86,7 @@ public sealed class GrantStoreBindingTests(TestVaultFixture fixture) : IClassFix
         var store = Load(CallerAndNamedTarget);
         Assert.True(store.Authenticate("caller-token")!.CanRequestElevation);
 
-        var noFlag = Load("""{ "t": { "id": "plain", "opClasses": ["content:read"], "vaults": ["test"], "ttl": "*", "scopeRoots": { "test": [] } } }""");
+        var noFlag = Load("""{ "t": { "id": "plain", "opClasses": ["content:read"], "vaults": ["test"], "ttl": "*", "scopeRoots": { "test": ["*"] } } }""");
         Assert.False(noFlag.Authenticate("t")!.CanRequestElevation);
     }
 

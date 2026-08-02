@@ -180,8 +180,8 @@ public sealed class VaultMembershipDispatchTests : IClassFixture<VaultMembership
             var grantsPath = Path.Combine(TempDir, "grants.json");
             File.WriteAllText(grantsPath, JsonSerializer.Serialize(new Dictionary<string, object>
             {
-                [BroadToken] = new { id = "membership-broad", opClasses = new[] { "content:read" }, vaults = new[] { "personal", "test" }, ttl = "*", scopeRoots = new Dictionary<string, string[]> { ["personal"] = Array.Empty<string>(), ["test"] = Array.Empty<string>() } },
-                [PersonalOnlyToken] = new { id = "membership-personal-only", opClasses = new[] { "content:read" }, vaults = new[] { "personal" }, ttl = "*", scopeRoots = new Dictionary<string, string[]> { ["personal"] = Array.Empty<string>() } },
+                [BroadToken] = new { id = "membership-broad", opClasses = new[] { "content:read" }, vaults = new[] { "personal", "test" }, ttl = "*", scopeRoots = new Dictionary<string, string[]> { ["personal"] = new[] { "*" }, ["test"] = new[] { "*" } } },
+                [PersonalOnlyToken] = new { id = "membership-personal-only", opClasses = new[] { "content:read" }, vaults = new[] { "personal" }, ttl = "*", scopeRoots = new Dictionary<string, string[]> { ["personal"] = new[] { "*" } } },
             }));
 
             var toolsDir = Path.Combine(TempDir, "tools");

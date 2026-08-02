@@ -12,7 +12,7 @@
     "opClasses": ["content:read"],
     "vaults": ["primary", "test"],
     "ttl": "*",
-    "scopeRoots": { "primary": [], "test": [] }
+    "scopeRoots": { "primary": ["*"], "test": ["*"] }
   },
   "REPLACE-WITH-A-LONG-RANDOM-SCOPED-TOKEN": {
     "id": "scoped-example",
@@ -27,6 +27,6 @@
     "opClasses": ["content:read"],
     "vaults": ["primary", "test"],
     "ttl": "*",
-    "scopeRoots": { "primary": ["Area"], "test": [] }
+    "scopeRoots": { "primary": ["Area"], "test": ["*"] }
   }
 }

@@ -43,7 +43,7 @@ public sealed class BearerGrantMiddlewareTests : IClassFixture<BearerGrantMiddle
         try
         {
             var grantsPath = Path.Combine(tempDir, "grants.json");
-            File.WriteAllText(grantsPath, """{ "expiring-token": { "id": "short-lived", "opClasses": ["content:read"], "vaults": ["test"], "ttl": 1, "scopeRoots": { "test": [] } } }""");
+            File.WriteAllText(grantsPath, """{ "expiring-token": { "id": "short-lived", "opClasses": ["content:read"], "vaults": ["test"], "ttl": 1, "scopeRoots": { "test": ["*"] } } }""");
 
             var timeProvider = new FixedTimeProvider(DateTimeOffset.UtcNow);
             var grantStore = GrantStore.Load(grantsPath, opClassRegistry, _vaultFixture.Config, new ServerHealthState(), timeProvider);
@@ -218,8 +218,8 @@ public sealed class BearerGrantMiddlewareTests : IClassFixture<BearerGrantMiddle
             var grantsPath = Path.Combine(TempDir, "grants.json");
             File.WriteAllText(grantsPath, JsonSerializer.Serialize(new Dictionary<string, object>
             {
-                [AdminToken] = new { id = "admin", opClasses = new[] { "content:read", "content:write" }, vaults = new[] { "personal" }, ttl = "*", scopeRoots = new Dictionary<string, string[]> { ["personal"] = Array.Empty<string>() } },
-                [ReadOnlyToken] = new { id = "read-only", opClasses = new[] { "content:read" }, vaults = new[] { "personal" }, ttl = "*", scopeRoots = new Dictionary<string, string[]> { ["personal"] = Array.Empty<string>() } },
+                [AdminToken] = new { id = "admin", opClasses = new[] { "content:read", "content:write" }, vaults = new[] { "personal" }, ttl = "*", scopeRoots = new Dictionary<string, string[]> { ["personal"] = new[] { "*" } } },
+                [ReadOnlyToken] = new { id = "read-only", opClasses = new[] { "content:read" }, vaults = new[] { "personal" }, ttl = "*", scopeRoots = new Dictionary<string, string[]> { ["personal"] = new[] { "*" } } },
             }));
 
             ConfigureEnvironment(vaultsPath, grantsPath);

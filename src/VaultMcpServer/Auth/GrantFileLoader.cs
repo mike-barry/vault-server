@@ -245,9 +245,9 @@ public static class GrantFileLoader
     /// in <paramref name="vaults"/> - the same treatment <c>ttl</c> gets from <see cref="ReadTtl"/>:
     /// scope must be explicit, so a vault can never silently end up with full access just
     /// because someone forgot to add a <c>scopeRoots</c> entry for it. A vault key's value being
-    /// empty or exactly <c>["*"]</c> means that vault is explicitly unscoped, and both spellings
-    /// parse to <see cref="VaultScope.Unscoped"/> - the file format keeps the empty-list spelling,
-    /// the model does not.
+    /// exactly <c>["*"]</c> means that vault is explicitly unscoped; an <em>empty</em> list is a
+    /// row-level error rather than a second spelling of it, for the reason given at the check
+    /// itself - the broadest scope must not be the value a mistake produces.
     ///
     /// The whole-grant wildcard <c>{ "*": ["*"] }</c> - mirroring the <c>"*"</c> convention
     /// already used by <c>opClasses</c>/<c>vaults</c>/<c>ttl</c> - means "every vault in
@@ -309,9 +309,15 @@ public static class GrantFileLoader
                 raw.Add(value);
             }
 
-            // Both whole-vault spellings - ["*"] and the empty list - land on the same explicit
-            // case, so the sentinel never leaves this parser.
-            if (raw.Count == 0 || IsWildcard(raw))
+            // An empty list is rejected, not read as whole-vault access. It is the one spelling a
+            // mistake produces on its own - a dropped entry, a list filtered to nothing, a
+            // half-finished edit - and reading it as the broadest possible scope makes the widest
+            // grant the accident's default. Whole-vault access is ["*"] and nothing else: it
+            // cannot be arrived at by losing something.
+            if (raw.Count == 0)
+                throw new InvalidDataException($"{path}: grant \"{id}\" has an empty \"scopeRoots\" list for vault \"{vaultName}\" - write [\"*\"] for whole-vault access, which is the only spelling of it.");
+
+            if (IsWildcard(raw))
             {
                 result[vaultName] = VaultScope.Unscoped;
                 continue;

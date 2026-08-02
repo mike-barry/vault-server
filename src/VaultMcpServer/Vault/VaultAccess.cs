@@ -117,6 +117,25 @@ public sealed class VaultAccess(VaultConfig config)
             !rootSegments.Where((s, i) => !string.Equals(s, pathSegments[i], StringComparison.OrdinalIgnoreCase)).Any());
     }
 
+    /// <summary>
+    /// The read-class counterpart of <see cref="IsPathInScope"/>: true if
+    /// <paramref name="relativePath"/> falls under <paramref name="scope"/> <em>or</em> under the
+    /// configured read floor in <paramref name="sharedReadRoots"/>.
+    ///
+    /// The floor is unioned into the scope rather than checked beside it, so this stays one
+    /// containment test against one <see cref="VaultScope"/> - there is no second admitting rule
+    /// for a caller to reason about, and enumeration over the same effective scope needs no
+    /// special case. Pass <see cref="SharedReadRoots.None"/> where no floor applies; the union is
+    /// then the identity and this is exactly <see cref="IsPathInScope"/>.
+    ///
+    /// <b>Read-class callers only.</b> Every write-class path - and every authority decision,
+    /// including mint's attenuation check - stays on <see cref="IsPathInScope"/> against the
+    /// grant's own scope. A grant that can read the shared roots must not thereby be able to
+    /// write them, nor to mint a token rooted at them.
+    /// </summary>
+    public static bool IsPathInReadScope(string relativePath, VaultScope scope, SharedReadRoots sharedReadRoots) =>
+        IsPathInScope(relativePath, sharedReadRoots.EffectiveReadScope(scope));
+
     public (string Name, string Root) ResolveVault(string? vault) => config.Resolve(vault);
 
     /// <summary>

@@ -12,9 +12,10 @@ namespace VaultMcpServer.Vault;
 /// check. Here the check has nowhere to fail: a caller holding a <see cref="VaultScope"/> holds
 /// one of two meanings, both of them deliberate.
 ///
-/// The configuration surface is unchanged - a grant file may still spell whole-vault access as
-/// <c>[]</c> or <c>["*"]</c> - but both parse to <see cref="Unscoped"/> at load, so the sentinel
-/// exists only in the file format and never in the model.
+/// The configuration surface says the same thing: whole-vault access is spelled <c>["*"]</c>, and
+/// an empty list is a load-time error rather than a second spelling of it. The sentinel is gone
+/// from the file format as well as the model, so there is no layer at which losing an entry
+/// widens a grant.
 /// </summary>
 public abstract record VaultScope
 {

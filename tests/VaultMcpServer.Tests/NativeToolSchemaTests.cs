@@ -221,7 +221,7 @@ public sealed class NativeToolSchemaTests(TestVaultFixture fixture) : IClassFixt
         var dir = Directory.CreateTempSubdirectory("vault-mcp-native-schema-tests-").FullName;
         var path = Path.Combine(dir, "grants.json");
         File.WriteAllText(path, """
-            { "admin-token": { "id": "admin", "opClasses": ["content:read", "grants:manage"], "vaults": ["test"], "ttl": "*", "scopeRoots": { "test": [] } } }
+            { "admin-token": { "id": "admin", "opClasses": ["content:read", "grants:manage"], "vaults": ["test"], "ttl": "*", "scopeRoots": { "test": ["*"] } } }
             """);
         return GrantStore.Load(path, OpClasses, fixture.Config, new ServerHealthState());
     }
