@@ -42,14 +42,9 @@ The body is the design. Everything else on this page constrains what belongs in 
 A coverage map from spec section to the section of this document that meets it. One line each, and the line says **where**, never **what**. A design document that restates a requirement has added nothing, and a second copy of a requirement is a copy that will disagree with the first.
 
 ```markdown
-- [[Spec-Vault-Access-Design.md#Load-Bearing Semantics]] - the unrepresentability
-  property, met by the resolved-path type's single construction seam
-  ([[#Resolved Paths]]).
-- [[Spec-Access-Layer-Capabilities.md#Content Search]] - the four distinguishable
-  outcomes, met by [[#Search Results]].
-- [[Spec-Access-Layer-Capabilities.md#The Mutex Lock]] - only the two consequences
-  that bind the layer: no primitive acquires, and the hold is single-threaded.
-  The lock itself is [[Design-Tool-Vocabulary.md]].
+- [[Spec-Vault-Access-Design.md#Load-Bearing Semantics]] - the unrepresentability property, met by the resolved-path type's single construction seam ([[#Resolved Paths]]).
+- [[Spec-Access-Layer-Capabilities.md#Content Search]] - the four distinguishable outcomes, met by [[#Search Results]].
+- [[Spec-Access-Layer-Capabilities.md#The Mutex Lock]] - only the two consequences that bind the layer: no primitive acquires, and the hold is single-threaded. The lock itself is [[Design-Tool-Vocabulary.md]].
 ```
 
 Close the section with what the area might be expected to cover and does not, naming the document that does:
@@ -57,8 +52,7 @@ Close the section with what the area might be expected to cover and does not, na
 ```markdown
 Not answered here, deliberately:
 
-- [[Spec-Tool-Capabilities.md#Wikilink Maintenance]] - the grammar is here, what
-  repair and the census do with it is [[Design-Tool-Vocabulary.md]].
+- [[Spec-Tool-Capabilities.md#Wikilink Maintenance]] - the grammar is here, what repair and the census do with it is [[Design-Tool-Vocabulary.md]].
 ```
 
 Write this section first. It fixes the document's scope before the body is written, and it is what the operator reads against the bundle to ask whether anything the area owns is missing.
@@ -68,15 +62,8 @@ Write this section first. It fixes the document's scope before the body is writt
 Every place the specs leave a choice, with the choice made. One entry each: the open point, then the rule.
 
 ```markdown
-- **What denotes the vault root.** The specs require the root to be an operand
-  for whole-vault enumeration and the always-readable union, and the retained
-  `ScopePath.Normalize` throws on it. A resolved path with no segments is the
-  root; resolution handles that case before calling the primitive.
-- **Whether resolution throws or answers.** The specs say the two vault-resolution
-  failures must be distinguishable structurally, and say nothing about the form.
-  Resolution is total and answers a three-case result.
-  Rejected: a throwing form, which puts the distinction in an exception type and
-  leaves a caller free to not handle it.
+- **What denotes the vault root.** The specs require the root to be an operand for whole-vault enumeration and the always-readable union, and the retained `ScopePath.Normalize` throws on it. A resolved path with no segments is the root; resolution handles that case before calling the primitive.
+- **Whether resolution throws or answers.** The specs say the two vault-resolution failures must be distinguishable structurally, and say nothing about the form. Resolution is total and answers a three-case result. Rejected: a throwing form, which puts the distinction in an exception type and leaves a caller free to not handle it.
 ```
 
 The rejection clause is optional and most entries do not carry one. Add it only where the rejected option is attractive enough that someone would try it, and keep it to a sentence or two - the entry states an outcome, it does not argue a case. Where nothing was rejected, the entry is the rule alone.
@@ -115,7 +102,7 @@ Allowed where the shape is the design and prose would be longer than the code. A
 
 ## Size
 
-A document holds no more than 200 lines of prose. Code blocks and `What This Answers` do not count, since they do not cost the same to read.
+A document holds no more than 2,500 words of prose. Code blocks and `What This Answers` do not count, since they do not cost the same to read. Words rather than lines, because a paragraph is one line here and its length says nothing about how much there is to read.
 
 A document that runs over has usually restated requirements or dropped to member-level detail, and both look like a size problem without being one. Check those first. Where the length is real, the area divides along a seam the design itself has, and each half keeps the full document shape. Naming is by suffix so the set still sorts together: `Design-Tool-Vocabulary-Arguments.md`, `Design-Tool-Vocabulary-Results.md`. The split point is a design decision and goes to the operator rather than being made in the document.
 
@@ -142,6 +129,7 @@ Where the code and the document disagree, the disagreement is a defect. Fix it i
 
 ## Prose
 
+- One line per paragraph, and per list item. Hard wrapping is for code: a wrapped paragraph turns an edited sentence into a diff of every line after it, and hides which sentence actually changed. The rest of the repo's documents already read this way.
 - Present tense, declarative. No history, no "we chose", no hedging.
 - The reader gets the meaning on one pass. A sentence needing a second pass gets split.
 - No throat-clearing and no ornament. If it is a list, it is a list.
