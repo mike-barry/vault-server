@@ -71,8 +71,8 @@ public sealed class ScriptToolRunner : IDisposable
             [string] $VaultMcpRipgrepPath
         )
         # Runspaces are pooled and reused, and $env: changes are process-wide, so a value a
-        # previous tool script left in VAULT_MCP_VAULTS_JSON (which the VaultAccess module reads
-        # to locate vaults.json) would otherwise persist into this call and could redirect it at
+        # previous tool script left in VAULT_MCP_VAULTS_JSON (which is how a script locates
+        # vaults.json) would otherwise persist into this call and could redirect it at
         # an attacker-chosen config. Re-assert the host's startup value before every invocation:
         # set it back to the intended path, or clear it when the host started without one (the
         # production default, where the module falls back to its own repo-relative vaults.json).
@@ -110,13 +110,10 @@ public sealed class ScriptToolRunner : IDisposable
     /// <c>ScriptToolLoader</c>), so a client-controllable "ScopeRoots" argument would let a
     /// caller override its own grant's scope. Instead this is injected as a global-scope
     /// runspace variable (<c>VaultMcpScopeRoots</c>) by <see cref="WrapperScript"/>, invisible
-    /// to the script's own parameter surface, as a hashtable keyed by vault name (mirroring
-    /// the dictionary shape one-for-one so the PowerShell side's <c>Resolve-VaultScopeRoots</c>
-    /// can pick out the entry for whichever vault a chokepoint call is actually targeting). The
-    /// VaultAccess module's chokepoint functions default their own <c>-ScopeRoots</c>
-    /// parameter to this variable's value when the caller (a tool script) doesn't pass one
-    /// explicitly, so path-scope enforcement applies without every tool script needing to
-    /// plumb it through by hand.
+    /// to the script's own parameter surface, as a hashtable keyed by vault name so a script can
+    /// pick out the entry for whichever vault its call is targeting. Injecting it out of reach of
+    /// the parameter surface is what this side guarantees; enforcing the roots against the paths
+    /// a script touches is the script's own.
     /// </param>
     /// <param name="opClasses">
     /// The calling grant's op-class set (see <see cref="Auth.Grant.OpClasses"/>), injected into the
@@ -150,10 +147,10 @@ public sealed class ScriptToolRunner : IDisposable
                 scopeRootsTable[vault] = scope is Vault.VaultScope.RootedScope rooted ? rooted.Roots.ToArray() : [];
         }
 
-        // Preserve the null-vs-empty distinction the PowerShell side depends on: a null set binds
-        // the wrapper's [string[]] param to $null (Assert-VaultOpClass degrades open, no injected
-        // context), while an empty set binds an empty array (an injected but empty key ring that
-        // denies every asserted class). ToArray() on an empty set yields an empty array, not null.
+        // Preserve the null-vs-empty distinction a script depends on: a null set binds the
+        // wrapper's [string[]] param to $null (no injected context at all), while an empty set
+        // binds an empty array (an injected but empty key ring that denies every asserted class).
+        // ToArray() on an empty set yields an empty array, not null.
         var opClassesArray = opClasses?.ToArray();
 
         ps.AddScript(WrapperScript)

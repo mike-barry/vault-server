@@ -4,12 +4,10 @@ using VaultMcpServer.Tools;
 namespace VaultMcpServer.Tests;
 
 /// <summary>
-/// Pins the C# error helper's wire form against its PowerShell counterpart,
-/// <c>New-VaultToolError</c> (<c>powershell/VaultAccess/Public/ToolResult.ps1</c>), which builds an
-/// <c>[ordered]</c> <c>code</c>/<c>message</c>/<c>data</c> map and emits it with
-/// <c>ConvertTo-Json -Compress</c>. The invariant: a caller cannot tell which layer refused, so the
-/// two serializations must not drift - no whitespace, same field names, same order, and <c>data</c>
-/// absent rather than null when there is none.
+/// Pins the error helper's wire form: no whitespace, <c>code</c> then <c>message</c> then
+/// <c>data</c>, and <c>data</c> absent rather than null when there is none. The invariant it
+/// protects is that a caller cannot tell which layer refused, so a refusal the dispatcher makes
+/// and one a tool produces for itself must serialize identically.
 /// </summary>
 public sealed class ToolErrorTests
 {

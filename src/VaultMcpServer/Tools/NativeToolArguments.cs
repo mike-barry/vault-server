@@ -33,7 +33,7 @@ public static class NativeToolArguments
     ///
     /// <b><see cref="JsonNamingPolicy.SnakeCaseLower"/> is pinned, not incidental.</b> The wire
     /// vocabulary is <c>snake_case</c> (<c>scope_roots</c>, <c>op_class</c>, <c>session_context</c>) -
-    /// the same rule the PowerShell tools' <c>param()</c> blocks follow. Dropping the policy renames
+    /// the same rule a script tool's <c>param()</c> block follows. Dropping the policy renames
     /// every multi-word argument to <c>camelCase</c> on <em>both</em> sides at once: the schema and
     /// the binder stay consistent with each other while every existing caller breaks. That is the one
     /// way this layer can regress the wire contract with nothing failing, which is why

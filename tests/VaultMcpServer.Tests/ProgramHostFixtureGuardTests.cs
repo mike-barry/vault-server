@@ -5,8 +5,8 @@ namespace VaultMcpServer.Tests;
 /// (<see cref="ProgramHostFixtureBase.AssertMutationSandboxed"/>, via the extracted
 /// <see cref="ProgramHostFixtureBase.AssertUnderTempDir"/> helper): demonstrates the guard
 /// actually throws when a resolved config path points outside the fixture's temp sandbox -
-/// exactly the handoff misfire described in Vault-MCP-Server/Corpus/Testing.md's "two env
-/// vars" gotcha - rather than only ever exercising the (trivially passing) happy path.
+/// exactly the "two env vars" handoff misfire - rather than only ever exercising the
+/// (trivially passing) happy path.
 /// </summary>
 public sealed class ProgramHostFixtureGuardTests
 {

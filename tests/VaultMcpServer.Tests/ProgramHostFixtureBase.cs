@@ -120,10 +120,10 @@ public abstract class ProgramHostFixtureBase : WebApplicationFactory<Program>
 
     /// <summary>
     /// Prevention half of the test-isolation guard pair (detection half is
-    /// <see cref="TestVaultCleanGuard"/>, run from <see cref="Dispose"/> below). Targets the
-    /// exact observed failure mode from Vault-MCP-Server/Corpus/Testing.md's "two env vars"
-    /// gotcha: a mutating dispatch test relies entirely on the host's resolved
-    /// <c>VaultsConfigPath</c> and the PowerShell module's <c>$env:VAULT_MCP_VAULTS_JSON</c>
+    /// <see cref="TestVaultCleanGuard"/>, run from <see cref="Dispose"/> below). Targets a
+    /// specific observed failure mode, the "two env vars" gotcha: a mutating dispatch test
+    /// relies entirely on the host's resolved
+    /// <c>VaultsConfigPath</c> and the script runspace's <c>$env:VAULT_MCP_VAULTS_JSON</c>
     /// both pointing under this fixture's temp directory, and when that handoff misfires, the
     /// tool operates on the repo's real, committed <c>vaults.json</c> instead. Call this
     /// immediately before invoking a mutating tool call, so a misfire fails fast with a clear

@@ -5,7 +5,7 @@ namespace VaultMcpServer.Auth;
 /// presented bearer token does not authenticate to any real grant row, minted grant, or active
 /// elevation binding. The server is localhost-only today (Kestrel binds <c>localhost:5111</c>),
 /// so this fallback never errors: a token that resolves to nothing degrades to a harmless floor
-/// rather than a 401 - see the design in <c>Plan-Grant-Tool-Trust-Model</c>.
+/// rather than a 401.
 ///
 /// Two configuration surfaces:
 /// <list type="bullet">

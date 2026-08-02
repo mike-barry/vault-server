@@ -108,7 +108,7 @@ public sealed class ScriptToolDispatcher(ScriptToolRegistry registry, NativeTool
             var nativeArguments = context.Params?.Arguments?.ToDictionary(kv => kv.Key, kv => kv.Value)
                 ?? new Dictionary<string, JsonElement>();
             // Returned unchanged, success or failure: a native tool builds its own refusals through
-            // ToolError, the same way a script tool throws New-VaultToolError text, so re-shaping here
+            // ToolError, the same way a script tool throws that same error text, so re-shaping here
             // would overwrite the tool's chosen code with a dispatcher-chosen one.
             return await nativeTool.InvokeAsync(nativeArguments, nativeGrant, cancellationToken);
         }
@@ -176,7 +176,7 @@ public sealed class ScriptToolDispatcher(ScriptToolRegistry registry, NativeTool
         var arguments = ConvertArguments(tool, context.Params?.Arguments);
         var execution = await runner.InvokeAsync(tool.ScriptPath, arguments, cancellationToken, grant.ScopeRoots, grant.OpClasses);
         // A script's own error text is surfaced verbatim, never re-wrapped: a tool script that threw
-        // a New-VaultToolError already carries the {code, message, data?} shape, and re-shaping here
+        // a refusal already carries the {code, message, data?} shape, and re-shaping here
         // would either double-encode it or overwrite its code with a dispatcher-chosen one.
         return execution.HadErrors
             ? ErrorResult(execution.ErrorText)

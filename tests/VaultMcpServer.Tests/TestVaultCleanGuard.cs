@@ -3,9 +3,8 @@ using System.Diagnostics;
 namespace VaultMcpServer.Tests;
 
 /// <summary>
-/// Detection half of the test-isolation guard pair described in
-/// Vault-MCP-Server/Corpus/Testing.md's "two env vars" gotcha (prevention half lives in
-/// <see cref="ProgramHostFixtureBase.AssertMutationSandboxed"/>). Every fixture that copies
+/// Detection half of the test-isolation guard pair covering the "two env vars" gotcha
+/// (prevention half lives in <see cref="ProgramHostFixtureBase.AssertMutationSandboxed"/>). Every fixture that copies
 /// the committed <c>test-vault/</c> into a temp directory calls
 /// <see cref="AssertCommittedFixtureUntouched"/> on dispose, after its own temp-dir cleanup, to
 /// catch any escape prevention didn't anticipate - content changes, renames, and additions in

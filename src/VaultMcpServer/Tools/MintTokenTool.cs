@@ -70,10 +70,10 @@ public sealed record MintTokenArguments(
 /// shape for the folder-prefix containment check. A whole-vault entry (no subtree) produces an
 /// <em>empty</em> set for that vault key, not an empty-string element - an empty/blank
 /// scope-root string is malformed input on that branch, not a "matches everything" sentinel.
-/// That containment check is wired up end to end for minted grants: <see cref="ScriptToolDispatcher.CallToolAsync"/>
-/// passes <see cref="Grant.ScopeRoots"/> into <c>ScriptToolRunner</c>, which injects it into the
-/// tool runspace as the <c>VaultMcpScopeRoots</c> global, and the PowerShell
-/// <c>VaultAccess</c> chokepoint functions enforce it against every path they touch.
+/// That map reaches a script tool: <see cref="ScriptToolDispatcher.CallToolAsync"/> passes
+/// <see cref="Grant.ScopeRoots"/> into <c>ScriptToolRunner</c>, which injects it into the tool
+/// runspace as the <c>VaultMcpScopeRoots</c> global. Delivering it there is the whole of what this
+/// side does; enforcing it against the paths a script touches is the script's own.
 /// </summary>
 public sealed class MintTokenTool(GrantStore grantStore, OpClassRegistry opClassRegistry, VaultConfig vaultConfig) : INativeTool
 {
