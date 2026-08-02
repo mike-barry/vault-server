@@ -1,8 +1,8 @@
 # Spec Frontmatter Registry
 
-Forward specification for the declaration the tooling is authorized by: which frontmatter keys it recognizes, what their values must look like, what authority writing each requires, and which paths it may reach at all. Its companion, [[Spec-Frontmatter-Substrate]], owns how a block is parsed, mutated, and emitted. The two meet at the single write path, which runs this layer's whole-block validation, its per-operation validation, and its path refusal.
+Forward specification for the declaration the tooling is authorized by: which frontmatter keys it recognizes, what their values must look like, what authority writing each requires, and which paths it may reach at all. Its companion, [Spec-Frontmatter-Substrate](Spec-Frontmatter-Substrate.md), owns how a block is parsed, mutated, and emitted. The two meet at the single write path, which runs this layer's whole-block validation, its per-operation validation, and its path refusal.
 
-The declaration is one file with several sections, and each consumer takes the sections that bind it. The key, namespace, and entry-schema sections bind every frontmatter writer; the path policy binds the markdown tool set ([[Spec-Tool-Capabilities]]), and a future non-markdown surface takes its own. One file because every protection derives from it and they share a trust tier, a lifecycle, and a load cascade.
+The declaration is one file with several sections, and each consumer takes the sections that bind it. The key, namespace, and entry-schema sections bind every frontmatter writer; the path policy binds the markdown tool set ([Spec-Tool-Capabilities](Spec-Tool-Capabilities.md)), and a future non-markdown surface takes its own. One file because every protection derives from it and they share a trust tier, a lifecycle, and a load cascade.
 
 ## The Declaration
 
@@ -10,7 +10,7 @@ The declaration is one file with several sections, and each consumer takes the s
 
 **It is a positive allowlist and it fails closed.** An unrecognized key is a refusal, never something implicitly classified as safe. Write authority follows from declared membership, never from a pattern match against a key's name.
 
-Declaring the known set rather than describing the suspicious one closes a structural loop. A scheme deciding protection by inspecting a key's name must parse before it can classify, so anything the parse mishandles is classified unprotected - the check depends on what it polices. An allowlist has no such loop: an undeclared key is refused before its shape matters.
+An allowlist avoids a circular dependency. A scheme that decided protection by inspecting a key's name would have to parse the key before it could classify it, so anything the parse got wrong would come out unprotected - the check would depend on the thing it is checking. An allowlist refuses an undeclared key before its shape matters at all.
 
 ## Where The Declaration Lives
 
@@ -42,8 +42,8 @@ A variant declares:
 - **Its selector.** A **scalar** variant is a plain value satisfying a value constraint, with no fields. Otherwise the variant is a mapping selected by **the presence of a named discriminating field**. Two variants may not share a discriminating field, and a mapping matching none of them is a refusal.
 - **Its fields**, each required or optional, each with a value constraint.
 - **Mutually exclusive groups** - a set of fields of which exactly one must be present, checked in both directions.
-- **Its identity** - the field, or the exclusive group, whose value addresses the entry. Everything in [[Spec-Frontmatter-Substrate]] that addresses an entry by target value resolves to this: duplicate detection, idempotent adds, removals, and positional anchors.
-- **How its identity compares** - case-sensitively or not. Declared per variant because the correct answer differs within one list. An identity denoting something the wikilink namespace and the filesystem both resolve case-insensitively must compare that way, or a scan and an operation disagree about whether an entry is present. An identity that is a human's prose compares exactly.
+- **Its identity** - the field, or the exclusive group, whose value addresses the entry. Everything in [Spec-Frontmatter-Substrate](Spec-Frontmatter-Substrate.md) that addresses an entry by target value resolves to this: duplicate detection, idempotent adds, removals, and positional anchors.
+- **How its identity compares** - case-sensitively or not, declared per variant because the right answer differs within a single list. An identity that names a file or a wikilink compares case-insensitively, matching how the filesystem and the editor resolve it; otherwise a scan and an operation disagree about whether an entry is already there. An identity that is a line of human prose compares exactly.
 - **Whether the variant is removable wholesale** - whether a removal may name the variant with no target and clear every matching entry. Right for tooling-owned entries, wrong for user-authored ones.
 
 **An entry schema does not declare where an entry goes.** Ordering conventions belong to the tool composing the write. This layer appends absent an anchor and honors one when given.
@@ -52,17 +52,17 @@ A variant declares:
 
 **Authority is named as an op class**, in the same vocabulary the grant model uses - so there is no second enumeration of protection levels to keep in step, and nothing to translate between them.
 
-**The requirement is additive, and the effective requirement is a union** of the declared requirements of every key a write changes, together with any contributed by a matching namespace. Because union is monotone, "a namespace escalates but never clears" is a property of the operation rather than a rule to remember.
+**Requirements add up.** What a write requires is the union of what every key it changes declares, plus anything a matching namespace adds. Because it is a union, a namespace can only raise the requirement, never lower one already there - that falls out of the operation rather than being a rule anyone has to apply.
 
 **A new protection class is data** - a line in this file and a line in the op-class configuration.
 
-**Whole-block validation asserts the required authority on a newly supplied tree before it is serialized**, ahead of and independent of the outcome diff in [[Spec-Frontmatter-Substrate]]. Not redundant: the outcome diff remains the authority on what actually changed, while this is the registry's statement that a key requiring elevation was supplied at all.
+**Whole-block validation asserts the required authority on a newly supplied tree before it is serialized**, ahead of and independent of the outcome diff in [Spec-Frontmatter-Substrate](Spec-Frontmatter-Substrate.md). Not redundant: the outcome diff remains the authority on what actually changed, while this is the registry's statement that a key requiring elevation was supplied at all.
 
 ## Protected Namespaces
 
 The declaration carries a second section: namespace prefixes, each naming the authority that keys under it require.
 
-Namespaces exist because the key map cannot answer for keys it does not contain, and such keys occur - the edit extent below passes an undeclared key already in a note through untouched. Without a namespace rule a change to such a key would carry no requirement, and the outcome diff would classify a write to the agentic layer as needing nothing.
+Namespaces exist because the key map says nothing about keys it does not list, and such keys do occur: an edit leaves an undeclared key already in a note untouched, so it stays. Without a namespace rule, changing one of those would require no authority at all, and a write to the agentic layer would come out needing nothing.
 
 **A namespace match can only add to the required authority.** Nothing is classified as needing no authority by *failing* to match: a negative match is not evidence, and treating it as evidence reopens the loop above.
 
@@ -92,16 +92,11 @@ The asymmetry is load-bearing. Every path by which a key can *enter* the vault i
 
 ## Path Policy
 
-The declaration carries a set of path entries. Which paths is data; what this spec fixes is the matching, the dispositions, and how they compose.
+The declaration carries a set of path entries. Which paths is data; what this spec fixes is the matching, what an entry does, and how entries compose.
 
-**Each entry is a target plus exactly one disposition.** A target is either a **path**, matched as a whole-segment prefix - so a file entry matches that file and a directory entry matches everything beneath it, with no exact-versus-prefix distinction to state or to get wrong - or a named **structural rule** from a closed set, currently only the folder note: a note whose basename matches its parent folder. A structural rule is computed rather than enumerated, so the rule itself is code while the declaration decides whether it applies and at what price. Dispositions are:
+**No path under a dot-directory is reachable** - not an operand, not enumerated, and no entry admits one. The tooling's content lives outside them. This is the whole of what the policy excludes; narrowing further is the grant's scope roots.
 
-- **Excluded** - the path is not an operand and is not enumerated.
-- **Requires an authority** - the path is reachable, and mutating it contributes that op class to the required authority.
-
-**Dot-directories are excluded by default**, and only an entry admits one. The default fails closed: a match adds restriction, never removes it, so a path nobody thought about is refused rather than reached.
-
-**Specificity decides reachability; authority unions.** An entry admitting a subdirectory of an excluded parent is not a contradiction, and no entry can clear an authority another contributed.
+**An entry attaches an authority to a target.** Mutating the target contributes that op class to the required authority, and contributions union - no entry can clear one another contributed. A target is one of two things. A **path**, matched as a whole-segment prefix, so a file entry matches that file and a directory entry matches everything beneath it. Or a **named structural rule** from a closed set - currently only the folder note, a note whose basename matches its parent folder. The rule is code; the declaration decides whether it applies and at what price.
 
 Matching rules, each closing an evasion:
 
@@ -111,15 +106,15 @@ Matching rules, each closing an evasion:
 
 **Exclusion is a distinct refusal from an authorization denial.** A denial means *your grant does not reach this*, remedied by elevation. Exclusion means *the tooling does not own this file*, which no grant changes. Collapsing them sends a caller to widen a grant that cannot help.
 
-### The Authority Disposition
+### Instruction Artifacts
 
-**Some files exist to instruct agents, and their bodies are that instruction rather than prose** - the root manifest, folder notes, and the shared guides. The outcome diff cannot see it: a body-only write to one of these changes the agentic layer while touching no declared key, which is why [[Spec-Frontmatter-Substrate]]'s guarantee that a body-only write never requires elevated authority holds for every note *except* those this section names.
+**Some files exist to instruct agents, and their bodies are that instruction rather than prose** - the root manifest, folder notes, and the shared guides. The outcome diff cannot see it: a body-only write to one of these changes the agentic layer while touching no declared key, which is why [Spec-Frontmatter-Substrate](Spec-Frontmatter-Substrate.md)'s guarantee that a body-only write never requires elevated authority holds for every note *except* those this section names.
 
-The requirement is declared membership of a path set, exactly as key-level authority is declared membership of a key set, and it unions with what the outcome diff produces. It contributes unconditionally where a file is created, mutated, or removed, and on a relocation only where artifact status changes at either endpoint - not where a file is merely read, and not where one is incidentally rewritten to preserve reference integrity.
+The requirement is declared membership of a path set, exactly as key-level authority is declared membership of a key set, and it unions with what the outcome diff produces. Creating, editing, or removing an artifact always requires the declared class. Relocating one always requires it for a path entry, and requires it for a structural rule only when artifact status changes. Reading an artifact requires nothing, and neither does rewriting one incidentally to keep its wikilinks valid.
 
 **The check lives on the single write path**, beside the authority assertion, because every write routes there; creating and editing both consult it, **including a body-only edit**. Tools that remove or relocate consult the same entries at their own validate phase, since neither routes through a frontmatter write.
 
-**A sweeping tool applies the policy to its writing passes alone.** A tool acting on one named file must not fail silently; a tool sweeping a set must not abort on a file the caller never singled out, and passes that *report* keep their coverage.
+**A sweeping tool applies the policy to its writing passes only**; its reporting passes keep full coverage. A tool acting on one named file fails loudly when the policy refuses it. A tool sweeping a set skips such a file instead, since the caller never named it individually and one refusal should not end the run.
 
 ## Loading And Failure
 
@@ -127,11 +122,13 @@ The requirement is declared membership of a path set, exactly as key-level autho
 
 **There is no hot reload.** A batch of operations spanning one would be validated against two registries.
 
-**The declaration is validated at load, not at first use.** What must be caught there: an unknown constraint kind, a character class whose bounds cross, an enumeration with no members, a shape and constraint that contradict each other, a block-list key naming a schema that does not exist, a schema whose identity or exclusive group names a field the variant does not declare, two variants of one schema sharing a discriminating field, a path entry naming neither a path nor a known structural rule, naming both, or carrying neither disposition, and an op class the op-class configuration does not define. That last is a cross-file check, precedented by grants already validated against the op-class registry at load, so the registry joins the same load cascade and degradation behavior.
+**The declaration is validated at load, not at first use.** What must be caught there: an unknown constraint kind, a character class whose bounds cross, an enumeration with no members, a shape and constraint that contradict each other, a block-list key naming a schema that does not exist, a schema whose identity or exclusive group names a field the variant does not declare, two variants of one schema sharing a discriminating field, a path entry naming neither a path nor a known structural rule, naming both, or naming no authority, and an op class the op-class configuration does not define. That last is a cross-file check, precedented by grants already validated against the op-class registry at load, so the registry joins the same load cascade and degradation behavior.
 
 **A key declaring no additional authority, whose name falls under a namespace that does, requires the namespace's authority.** The union produces that outcome regardless; it is stated so a key entry is not read as an override.
 
-**A missing or unparseable declaration fails closed on writes and stays open on reads.** Every frontmatter write refuses; readers are unaffected. There is no fallback to a built-in default set - a silent fallback is how a failed load becomes a vault with nothing protected. The failure surfaces through the host's health state rather than by crashing, so the condition is visible rather than inferred from refusals.
+**A missing or unparseable declaration fails closed on every mutation and stays open on reads.** Frontmatter writes refuse. So do removal and relocation: both read this file for artifact authority at their own validate phase, and without it they cannot tell whether a target is protected. Reads are unaffected - nothing a read depends on comes from this file, since the dot-directory rule above is fixed rather than declared. There is no fallback to a built-in default set; a silent fallback is how a failed load becomes a vault with nothing protected. The failure surfaces through the host's health state rather than by crashing, so the condition is visible rather than inferred from refusals.
+
+**Advertisement does not change with the failure.** `edit` stays listed with its ordinary argument surface; the schema's variant branches are generated from the declaration and are simply absent without it. Frontmatter operations refuse at the write path, where every other refusal already lives. Advertising was never permission ([Spec-Frontmatter-Substrate: How The Vocabulary Reaches Callers](Spec-Frontmatter-Substrate.md#how-the-vocabulary-reaches-callers)).
 
 ## An Illustrative Declaration
 
@@ -217,9 +214,9 @@ Shape only. The keys, namespaces, and paths below are a vault's data, not part o
   },
 
   "path_policy": [
-    { "path": ".claude/guides",    "requires": "agentic:write" },
-    { "path": "Vault-Manifest.md", "requires": "agentic:write" },
-    { "rule": "folder_note",       "requires": "agentic:write" }
+    { "path": "Resources/Vault/Guides", "requires": "agentic:write" },
+    { "path": "Vault-Manifest.md",      "requires": "agentic:write" },
+    { "rule": "folder_note",            "requires": "agentic:write" }
   ]
 }
 ```

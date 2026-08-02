@@ -1,6 +1,6 @@
 # Obsidian Link Behavior
 
-How Obsidian resolves and maintains `[[wikilinks]]` when multiple files share a basename, established empirically (2026-07-23, Obsidian with *New link format = shortest path when possible* and *Automatically update internal links = on*). This model is the behavioral reference the vault server's `move` tool mirrors.
+How Obsidian resolves and maintains `[[wikilinks]]` when multiple files share a basename, established empirically (2026-07-23, Obsidian with *New link format = shortest path when possible* and *Automatically update internal links = on*). This model is the behavioral reference the `move` tool mirrors.
 
 ## Resolution Rule
 
@@ -18,4 +18,4 @@ The autocomplete suggestion popup for a duplicated basename ranks its candidates
 
 ## Coexistence
 
-An external tool rewriting links while Obsidian is open is safe: Obsidian re-indexes the result cleanly and performs no competing edits (verified with the vault server's `move` tool).
+An external tool rewriting links while Obsidian is open is safe: Obsidian re-indexes the result cleanly and performs no competing edits.
