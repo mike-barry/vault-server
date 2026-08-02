@@ -86,9 +86,8 @@ public static class GrantFileLoader
         {
             totalEntries++;
             // Row-level skip-and-report: any InvalidDataException from this row's validation
-            // (the same checks that used to fail the whole file) records a Degraded problem
-            // and moves on to the next row. Only the pre-loop structural checks above stay
-            // whole-file Fatal.
+            // records a Degraded problem and moves on to the next row. Only the pre-loop
+            // structural checks above stay whole-file Fatal.
             try
             {
                 var grant = LoadRow(entry, path, opClassRegistry, vaultConfig, seenIds, now);

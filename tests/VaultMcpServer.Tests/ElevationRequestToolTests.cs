@@ -293,7 +293,7 @@ public sealed class ElevationRequestToolTests(TestVaultFixture fixture) : IClass
             caller, CancellationToken.None);
 
         Assert.True(IsError(result));
-        // Same classification Resolve-VaultToolRoot makes PowerShell-side. Discloses nothing new: the
+        // Classified by which config map holds the name. Discloses nothing new: the
         // configured vault set is already public to any grant through health_check.
         Assert.Equal("unknown_vault", Code(result));
         Assert.Equal("no-such-vault", Data(result)!["vault"]);

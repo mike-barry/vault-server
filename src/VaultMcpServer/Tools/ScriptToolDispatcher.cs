@@ -185,7 +185,7 @@ public sealed class ScriptToolDispatcher(ScriptToolRegistry registry, NativeTool
 
     /// <summary>
     /// The dispatcher's op-class (floor) denial. Uses the same <c>insufficient_capability</c> code
-    /// as the in-script key assertion (<c>Assert-VaultOpClass</c>), because it is the same condition
+    /// as an in-script key assertion, because it is the same condition
     /// at a different layer - a caller retrying after elevation must not have to know whether the
     /// floor or a key refused. <c>data</c> names the required class (a property of the tool, and the
     /// class an elevation request would ask for) but never the classes the grant actually holds.

@@ -435,8 +435,8 @@ public sealed class MintTokenToolTests(TestVaultFixture fixture) : IClassFixture
             CancellationToken.None);
 
         Assert.True(result.IsError);
-        // The same code Resolve-VaultToolRoot raises PowerShell-side for a name in no configured
-        // map, so a caller routes an unknown vault identically whichever tier saw it.
+        // The code for a name in no configured map, so a caller routes an unknown vault
+        // identically whichever tier saw it.
         Assert.Equal("unknown_vault", ErrorCode(result));
         var data = ErrorData(result)!;
         Assert.Equal("no-such-vault", data["vault"]);

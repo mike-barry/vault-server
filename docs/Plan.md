@@ -21,7 +21,7 @@ Runs before any build work begins.
 - [x] Carry the spec bundle in - seven specs into `docs/spec/`, the brief in `docs/` - vault frontmatter stripped and cross-references rewritten as file links
 - [x] Verify from inside this repo that the knowledge vault is unreachable - no MCP registration, no additional-directory grant, no path out
 - [x] Flush out this plan with the operator before any build work begins. What is below is a seed: the phases, their order, what each produces, and where a phase ends are settled together rather than assumed. Bring proposals rather than questions
-- [ ] Sweep the retained code before design reads it - comments instructing an agent to mirror the deleted PowerShell implementation, citations to documents this repo cannot reach, rationale that is no longer true, and test cases whose subject was the deleted tooling. Rewrite to keep the reasoning and drop the pointer; no behaviour changes, no renaming, no restructuring. Dead code is listed rather than removed, since some of it is spec-named
+- [x] Sweep the retained code before design reads it - comments instructing an agent to mirror the deleted PowerShell implementation, citations to documents this repo cannot reach, rationale that is no longer true, and test cases whose subject was the deleted tooling. Rewrite to keep the reasoning and drop the pointer; no behaviour changes, no renaming, no restructuring. Dead code is listed rather than removed, since some of it is spec-named
 
 ## Design
 

@@ -27,7 +27,7 @@ public sealed class ScriptToolRunner : IDisposable
     // The ripgrep executable path the host resolved at startup (from the RipgrepPath appsetting) -
     // re-asserted into VAULT_MCP_RG_PATH ahead of every invocation for the same
     // sequential-reuse reason as the vaults.json path above. Null when the host started without
-    // one, in which case the wrapper clears the var and Resolve-VaultRgPath falls back to PATH.
+    // one, in which case the wrapper clears the var and a script falls back to rg on PATH.
     private readonly string? _ripgrepPath;
 
     public ScriptToolRunner(string? vaultsJsonPath = null, string? ripgrepPath = null)
@@ -84,7 +84,7 @@ public sealed class ScriptToolRunner : IDisposable
         if ($VaultMcpVaultsJsonPath) { $env:VAULT_MCP_VAULTS_JSON = $VaultMcpVaultsJsonPath }
         elseif (Test-Path -LiteralPath Env:\VAULT_MCP_VAULTS_JSON) { Remove-Item -LiteralPath Env:\VAULT_MCP_VAULTS_JSON }
         # Same sequential-reuse re-assertion for the ripgrep path (RipgrepPath appsetting ->
-        # VAULT_MCP_RG_PATH, read by Resolve-VaultRgPath): set the host's startup value, or clear
+        # VAULT_MCP_RG_PATH, read by a script to locate ripgrep): set the host's startup value, or clear
         # it so resolution falls back to PATH, so a prior tool's mutation cannot redirect a later
         # call at an attacker-chosen binary.
         if ($VaultMcpRipgrepPath) { $env:VAULT_MCP_RG_PATH = $VaultMcpRipgrepPath }
@@ -92,12 +92,12 @@ public sealed class ScriptToolRunner : IDisposable
         Set-Variable -Name VaultMcpScopeRoots -Value $VaultMcpScopeRoots -Scope Global
         # Mirror of the scope-roots injection above for the calling grant's op-class set: the
         # runspace-global VaultMcpOpClasses is the in-script authorization floor's "key ring"
-        # that Assert-VaultOpClass reads to gate an elevated operation (a tool declaring a floor
+        # that a script reads to gate an elevated operation (a tool declaring a floor
         # op-class can still require a higher class mid-script). Injected as a global rather than
         # a script parameter for the same invariant as the scope roots - a tool's param() block
         # is its verbatim MCP input schema, so a client-controllable "OpClasses" argument would
         # let a caller forge its own grant's classes. A null/absent global (standalone pwsh -File,
-        # no host) makes Assert-VaultOpClass degrade open exactly as unscoped scope roots do.
+        # no host) makes an in-script assertion degrade open exactly as unscoped scope roots do.
         Set-Variable -Name VaultMcpOpClasses -Value $VaultMcpOpClasses -Scope Global
         & $VaultMcpScriptPath @VaultMcpParameters
         """;
@@ -118,12 +118,12 @@ public sealed class ScriptToolRunner : IDisposable
     /// <param name="opClasses">
     /// The calling grant's op-class set (see <see cref="Auth.Grant.OpClasses"/>), injected into the
     /// runspace as the <c>VaultMcpOpClasses</c> global (see <see cref="WrapperScript"/>) so a tool
-    /// script's <c>Assert-VaultOpClass</c> calls can gate an elevated in-script operation against the
+    /// script can gate an elevated in-script operation against the
     /// same authority the dispatcher's floor check (<c>grant.Allows(tool.OpClass)</c>) used to admit
     /// the call. Not a script parameter, for the same reason as <paramref name="scopeRoots"/>: a
     /// tool's own <c>param()</c> block is its verbatim MCP input schema, so a client-controllable
     /// argument would let a caller forge its grant's classes. Null (the default) leaves the global
-    /// unset - a standalone <c>pwsh -File</c> run has no injected context, so <c>Assert-VaultOpClass</c>
+    /// unset - a standalone <c>pwsh -File</c> run has no injected context, so an in-script assertion
     /// degrades open, mirroring how an unscoped scope-roots map degrades. An empty (non-null) set is
     /// distinct: injected as an empty array, an empty key ring DENIES every asserted class.
     /// </param>

@@ -34,9 +34,9 @@ public sealed record DegradedProblem(string Detail, string? SubjectPath = null);
 
 /// <summary>
 /// Process-wide record of config problems found at startup and by runtime re-scans (the
-/// tools/ file watcher) - the server's replacement for hard-stopping on bad config. A
-/// config loader that would previously have thrown now calls <see cref="RecordFatal"/> or
-/// <see cref="RecordDegraded"/> instead and returns an inert/empty instance, so the process
+/// tools/ file watcher) - the server's alternative to hard-stopping on bad config. A
+/// config loader calls <see cref="RecordFatal"/> or
+/// <see cref="RecordDegraded"/> rather than throwing, and returns an inert/empty instance, so the process
 /// always starts; <see cref="BearerGrantMiddleware"/> consults <see cref="IsFatallyDegraded"/>
 /// to short-circuit every request with 503 while any fatal problem is outstanding.
 ///
@@ -115,8 +115,7 @@ public sealed class ServerHealthState(TimeProvider? timeProvider = null)
 
     /// <summary>Records a whole-file failure. <paramref name="source"/> identifies the
     /// subsystem (e.g. "VaultConfig", "OpClassRegistry", "GrantStore"); <paramref name="detail"/>
-    /// is the human-readable message - typically the same message the old thrown exception
-    /// carried.</summary>
+    /// is the human-readable message describing what failed.</summary>
     public void RecordFatal(string source, string detail)
     {
         _problems.Enqueue(new HealthProblem(ProblemSeverity.Fatal, source, detail, _timeProvider.GetUtcNow()));

@@ -54,8 +54,8 @@ public sealed record ElevationRequestArguments(
 /// code for a transient throttle - coding it as capability or argument would route a
 /// retryable condition into a non-retryable branch); <c>invalid_argument</c>
 /// for malformed or contradictory target arguments; <c>not_found</c> for a named target that is not a
-/// configured grant; <c>unknown_vault</c>/<c>vault_unavailable</c> for a scoped target's vault, the
-/// same classification <c>Resolve-VaultToolRoot</c> makes PowerShell-side.
+/// configured grant; <c>unknown_vault</c>/<c>vault_unavailable</c> for a scoped target's vault,
+/// classified by which config map holds the name.
 ///
 /// This tool is op-class exempt, so an unauthenticated caller on the minimum-access floor reaches
 /// every one of those paths. <c>data</c> therefore carries only what the caller itself supplied (the
@@ -257,7 +257,7 @@ public sealed class ElevationRequestTool(
         {
             var parts = root.Split('/', 2);
             var vaultName = parts[0];
-            // Classified by which config map holds the name, matching Resolve-VaultToolRoot's split.
+            // Classified by which config map holds the name, never by message text.
             if (vaultConfig.SkippedVaults.ContainsKey(vaultName))
                 throw new ElevationArgumentException(
                     "vault_unavailable",

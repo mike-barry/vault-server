@@ -147,7 +147,7 @@ public sealed class MintTokenTool(GrantStore grantStore, OpClassRegistry opClass
     ///
     /// A request exceeding the caller's authority is refused rather than intersected down, so these are
     /// authority denials, not malformed arguments: <c>insufficient_capability</c> for the op-class
-    /// dimension (the same code the dispatcher's floor check and the in-script <c>Assert-VaultOpClass</c>
+    /// dimension (the same code the dispatcher's floor check and an in-script
     /// key assertion use - one condition, three layers) and <c>out_of_scope</c> for the vault and
     /// scope-root dimensions (the same code the dispatcher's vault-membership denial uses). Coding these
     /// <c>invalid_argument</c> would tell a caller to fix the request when the fix is elevation.
@@ -245,8 +245,8 @@ public sealed class MintTokenTool(GrantStore grantStore, OpClassRegistry opClass
             // A vault skipped at config load (root missing on disk) is configured but not
             // mintable-against: minting is an operation targeting the vault now, unlike a
             // grants.json row, which stays valid while the vault is broken.
-            // The same two vault-resolution codes Resolve-VaultToolRoot raises PowerShell-side, and
-            // classified the same way - by which config map holds the name, not by message text.
+            // The two vault-resolution codes, classified by which config map holds the name
+            // rather than by message text.
             if (vaultConfig.SkippedVaults.ContainsKey(vaultName))
                 throw new MintArgumentException(
                     "vault_unavailable",

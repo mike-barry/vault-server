@@ -4,8 +4,8 @@ using VaultMcpServer.Vault;
 namespace VaultMcpServer.Tests;
 
 /// <summary>
-/// Load/parse coverage for <see cref="OpClassRegistry"/> - the op-classes.json-backed
-/// replacement for the old hardcoded enum. Same fail-fast rigor (and the same
+/// Load/parse coverage for <see cref="OpClassRegistry"/>, which is backed by
+/// op-classes.json. Same fail-fast rigor (and the same
 /// temp-dir-per-test pattern) as <see cref="GrantStoreTests"/>/<see cref="VaultConfigTests"/>,
 /// since GrantStore and ScriptToolLoader both validate op-class names against this registry.
 /// </summary>

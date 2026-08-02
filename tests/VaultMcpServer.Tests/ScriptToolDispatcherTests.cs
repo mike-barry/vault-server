@@ -113,7 +113,7 @@ public sealed class ScriptToolDispatcherTests : IClassFixture<ScriptToolDispatch
         Assert.True(result.GetProperty("isError").GetBoolean());
 
         // The floor denial carries the shared {code, message, data?} shape - the same code the
-        // in-script key assertion (Assert-VaultOpClass) throws, so one branch covers both layers.
+        // in-script key assertion throws, so one branch covers both layers.
         var errorText = result.GetProperty("content").EnumerateArray().First().GetProperty("text").GetString()!;
         using var error = JsonDocument.Parse(errorText);
         Assert.Equal("insufficient_capability", error.RootElement.GetProperty("code").GetString());
