@@ -92,6 +92,16 @@ Move is a layer primitive: the one mutating operation touching two paths, both r
 
 **Case-only renames are allowed**, where the new spelling satisfies the name grammar ("Name Validation"). Git does not see the change under the platform's default case handling, and the layer cannot fix that: repository operations are outside it ("Where The Boundary Sits"). The move therefore reports that it was case-only, so a later git pickup can stage the rename and propagate the new spelling.
 
+## Removal
+
+Remove one entry: a file, or a folder with nothing in it.
+
+**The layer removes what it is named and never walks a tree.** A removal's plan is built, reported, and validated in full before anything is destroyed, and a failure partway through names exactly what landed and what did not (`Spec-Tool-Capabilities.md:Destruction`, `Spec-Tool-Capabilities.md:Multi-Target Mutation`). Both belong to the caller that holds the plan. A layer that recursed would hold the only record of how far it got, leaving the caller to report a boundary it did not observe - and the census above already produces the file list a removal works from, so nothing is served by deriving it a second time further down.
+
+**A folder with anything in it is not removed, and the refusal comes from the attempt.** Not from an emptiness check the layer runs first: the check and the removal must be one operation for the same reason the creating write refuses an existing target as part of writing, and reading classifies rather than probing.
+
+**A target that is not there is classified, not guessed.** "Nothing there to remove" and "there and something went wrong" are distinguishable, and come from the failure itself. A removal runs against a plan built a moment earlier, so an entry that vanished in between is a different answer from one that could not be removed, and only the caller can decide which of those matters to it.
+
 ## Name Validation
 
 **The layer decides whether a name is acceptable, and nothing above it decides differently.** One grammar, checked on the one segment a call brings into existence - the creation target, or the move destination. Nothing else in the path is checked, because every other segment already exists.

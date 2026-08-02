@@ -10,7 +10,7 @@
 - [[Spec-Vault-Access-Design.md#Guarantees To Callers]] - containment and
   vault-relative terms, met by §Paths And Vaults; filtering silent and gating loud,
   met by the two entry points in §Producing An Admitted Path; no parent created on
-  the way past and read-failure classification, met by §Reading, Writing, Moving.
+  the way past and read-failure classification, met by §The File Primitives.
 - [[Spec-Vault-Access-Design.md#The Mutex Lock Name]] - the derivation, met by
   §The Lock's Identity. Acquiring is not here.
 - [[Spec-Auth-Requirements.md#What The Layer Must Do]] - every path-touching
@@ -25,9 +25,10 @@
   the dot switch, and the four outcomes, met by §Enumeration And Search.
 - [[Spec-Access-Layer-Capabilities.md#Reading]],
   [[Spec-Access-Layer-Capabilities.md#Writing]],
-  [[Spec-Access-Layer-Capabilities.md#Moving]] and
-  [[Spec-Access-Layer-Capabilities.md#Name Validation]] - met by §Reading, Writing,
-  Moving.
+  [[Spec-Access-Layer-Capabilities.md#Moving]],
+  [[Spec-Access-Layer-Capabilities.md#Removal]] and
+  [[Spec-Access-Layer-Capabilities.md#Name Validation]] - met by §The File
+  Primitives.
 - [[Spec-Access-Layer-Capabilities.md#Wikilink Grammar And Resolution]] and
   [[Spec-Obsidian-Link-Behavior.md]] - recognition, the two ranges, and the one
   comparator, met by §Wikilinks.
@@ -195,7 +196,7 @@ The layer reports these to its caller and writes nothing to health state. A fail
 call is a call's failure; a layer that could degrade the server from inside one
 would give a single caller's bad pattern server-wide visibility.
 
-## Reading, Writing, Moving
+## The File Primitives
 
 **Reading classifies from the failure.** "Nothing there to read" and "there and
 something went wrong" come from the failure the filesystem raised, never from a
@@ -226,6 +227,13 @@ convention.
 carry the same `Vault`. An occupied destination is an error, compared against the
 resolved source ordinally so a case-only rename is not mistaken for a collision;
 the outcome says the move was case-only, so a later git pickup can stage it.
+
+**Removal is two operations, not one** - remove a file, remove an empty folder -
+because a path does not say which of those it names (§What A Path Does Not
+Assert) and neither may guess. Both take a `WritePath`, both refuse from the
+attempt rather than from a prior probe, and neither walks a tree: the caller holds
+the validated plan and drives it entry by entry
+([[Spec-Access-Layer-Capabilities.md#Removal]]).
 
 **The name grammar is one type, applied to the single segment a call brings into
 existence** - a creation target, a folder, or a move destination. It is not applied
@@ -291,17 +299,6 @@ layer, not the tool layer, because `VaultWatcher` is not a front-end and must ta
 the derivation as code rather than re-implement the convention. Nothing in the
 layer acquires the lock.
 
-## Still Open
-
-**Temporary scaffolding, removed before sign-off.** Not an inventory: it is what
-was known to be open when this was written, it makes no claim to be complete, and
-working any one of these is expected to turn up others.
-
-- Removal. [[Spec-Access-Layer-Capabilities.md]] states its capability list is
-  complete and names no removal primitive, while [[Spec-Tool-Capabilities.md]]
-  specifies destruction and the design spec puts all vault I/O in the layer. Raised
-  with the operator rather than inferred from the tool's behaviour.
-
 ## What This Closes
 
 - **What denotes the vault root.** The root is not a path: resolution produces a
@@ -341,6 +338,10 @@ working any one of these is expected to turn up others.
   Rejected: a single operation exchanging link occurrences for substitutions, which
   confines the pass to link text but makes every consumer wanting anything else a
   new primitive and a new decision.
+- **Removal is two operations rather than one.** A path does not say whether it
+  names a file or a folder, and a removal that inspected the target to find out
+  would be the probe every other primitive here avoids. The caller states which it
+  means.
 - **What the path type does not assert.** Neither existence, nor a conforming name,
   nor whether it names a file or a folder. Each is checked by the operation that
   needs it, where it needs it.
