@@ -40,7 +40,7 @@ public sealed class BearerGrantMiddlewareTests : IClassFixture<BearerGrantMiddle
     [Fact]
     public async Task ExpiredOrUnknownToken_FloorsToMinimumAccessNot401()
     {
-        var opClassRegistry = OpClassRegistry.Load(Path.Combine(TestVaultFixture.RepoRoot, "op-classes.json"), new ServerHealthState());
+        var opClassRegistry = OpClassRegistryLoader.Load(Path.Combine(TestVaultFixture.RepoRoot, "op-classes.json"), new ServerHealthState());
         var tempDir = Directory.CreateTempSubdirectory("vault-mcp-middleware-ttl-tests-").FullName;
         try
         {
@@ -80,7 +80,7 @@ public sealed class BearerGrantMiddlewareTests : IClassFixture<BearerGrantMiddle
     [Fact]
     public async Task MissingAuthorizationHeader_FloorsToMinimumAccess()
     {
-        var opClassRegistry = OpClassRegistry.Load(Path.Combine(TestVaultFixture.RepoRoot, "op-classes.json"), new ServerHealthState());
+        var opClassRegistry = OpClassRegistryLoader.Load(Path.Combine(TestVaultFixture.RepoRoot, "op-classes.json"), new ServerHealthState());
         var grantStore = GrantStore.Empty();
 
         Grant? grant = null;
@@ -105,7 +105,7 @@ public sealed class BearerGrantMiddlewareTests : IClassFixture<BearerGrantMiddle
     [Fact]
     public async Task FatallyDegraded_ShortCircuitsEveryRequestWith503RegardlessOfToken()
     {
-        var opClassRegistry = OpClassRegistry.Load(Path.Combine(TestVaultFixture.RepoRoot, "op-classes.json"), new ServerHealthState());
+        var opClassRegistry = OpClassRegistryLoader.Load(Path.Combine(TestVaultFixture.RepoRoot, "op-classes.json"), new ServerHealthState());
         var healthState = new ServerHealthState();
         healthState.RecordFatal("VaultConfig", "vaults.json: missing or empty \"default_vault\".");
         var grantStore = GrantStore.Empty();

@@ -7,7 +7,7 @@ namespace VaultShared.Tests;
 
 public sealed class GrantStoreTests(TestVaultFixture fixture) : IClassFixture<TestVaultFixture>, IDisposable
 {
-    private static readonly OpClassRegistry OpClasses = OpClassRegistry.Load(Path.Combine(TestVaultFixture.RepoRoot, "op-classes.json"), new RecordingProblemSink());
+    private static readonly OpClassRegistry OpClasses = OpClassRegistryLoader.Load(Path.Combine(TestVaultFixture.RepoRoot, "op-classes.json"), new RecordingProblemSink());
 
     private readonly string _tempDir = Directory.CreateTempSubdirectory("vault-mcp-grants-tests-").FullName;
     private readonly VaultConfig _vaultConfig = fixture.Config;
@@ -702,7 +702,7 @@ public sealed class GrantStoreTests(TestVaultFixture fixture) : IClassFixture<Te
                 ["broken"] = new { path = Path.Combine(_tempDir, "no-such-vault-root") },
             },
         }));
-        var config = VaultConfig.Load(configPath, new RecordingProblemSink());
+        var config = VaultConfigLoader.Load(configPath, new RecordingProblemSink());
         Assert.Single(config.SkippedVaults);
         return config;
     }

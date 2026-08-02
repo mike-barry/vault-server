@@ -120,8 +120,8 @@ public sealed class CascadeAvoidanceDispatchTests
             string? opClassesPath = null;
             if (vaultsFatal)
             {
-                // Missing "default_vault" - VaultConfig.Load records a whole-file Fatal (see
-                // VaultConfig.LoadCore). op-classes.json is left at Program.cs's own default
+                // Missing "default_vault" - VaultConfigLoader records a whole-file Fatal.
+                // op-classes.json is left at Program.cs's own default
                 // (the real, valid repo file), so this is the only Fatal in the picture.
                 File.WriteAllText(vaultsPath, JsonSerializer.Serialize(new
                 {
@@ -137,8 +137,7 @@ public sealed class CascadeAvoidanceDispatchTests
                     vaults = new Dictionary<string, object>{ ["personal"] = new { path = vaultRoot } },
                 }));
 
-                // Non-array root - OpClassRegistry.Load records a whole-file Fatal (see
-                // OpClassRegistry.LoadCore).
+                // Non-array root - OpClassRegistryLoader records a whole-file Fatal.
                 opClassesPath = Path.Combine(TempDir, "op-classes.json");
                 File.WriteAllText(opClassesPath, """{ "not": "an array" }""");
             }

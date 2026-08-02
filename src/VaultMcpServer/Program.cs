@@ -38,13 +38,13 @@ builder.Services.AddSingleton(healthState);
 var opClassesConfigPath = Path.GetFullPath(Path.Combine(
     builder.Environment.ContentRootPath,
     builder.Configuration["OpClassesConfigPath"] ?? "../../op-classes.json"));
-var opClassRegistry = OpClassRegistry.Load(opClassesConfigPath, healthState);
+var opClassRegistry = OpClassRegistryLoader.Load(opClassesConfigPath, healthState);
 builder.Services.AddSingleton(opClassRegistry);
 
 var vaultsConfigPath = Path.GetFullPath(Path.Combine(
     builder.Environment.ContentRootPath,
     builder.Configuration["VaultsConfigPath"] ?? "../../vaults.json"));
-var vaultConfig = VaultConfig.Load(vaultsConfigPath, healthState);
+var vaultConfig = VaultConfigLoader.Load(vaultsConfigPath, healthState);
 builder.Services.AddSingleton(vaultConfig);
 
 // GrantStore.Load validates each row's opClasses/vaults against opClassRegistry/vaultConfig,

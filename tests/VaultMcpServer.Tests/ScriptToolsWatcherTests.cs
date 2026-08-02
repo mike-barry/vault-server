@@ -41,7 +41,7 @@ public sealed class ScriptToolsWatcherTests : IDisposable, IClassFixture<ScriptT
         Write-Output "hi $Name"
         """;
 
-    private static readonly OpClassRegistry OpClasses = OpClassRegistry.Load(Path.Combine(TestVaultFixture.RepoRoot, "op-classes.json"), new ServerHealthState());
+    private static readonly OpClassRegistry OpClasses = OpClassRegistryLoader.Load(Path.Combine(TestVaultFixture.RepoRoot, "op-classes.json"), new ServerHealthState());
 
     private readonly string _tempDir = Directory.CreateTempSubdirectory("vault-mcp-watcher-tests-").FullName;
     private readonly ScriptToolRunner _runner;

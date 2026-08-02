@@ -40,7 +40,7 @@ public sealed class TestVaultFixture : IDisposable
         // loudly here rather than letting an empty VaultConfig produce confusing downstream test
         // failures.
         var sink = new RecordingProblemSink();
-        Config = VaultConfig.Load(configPath, sink);
+        Config = VaultConfigLoader.Load(configPath, sink);
         if (sink.IsFatallyDegraded)
             throw new InvalidOperationException(
                 "TestVaultFixture's vaults.json failed to load: " + string.Join("; ", sink.Problems.Select(p => p.Detail)));

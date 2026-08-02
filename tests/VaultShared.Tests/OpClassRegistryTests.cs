@@ -33,7 +33,7 @@ public sealed class OpClassRegistryTests : IDisposable
     [Fact]
     public void Load_ValidFile_ExposesEveryName()
     {
-        var registry = OpClassRegistry.Load(WriteRegistry(ThreeClasses), new RecordingProblemSink());
+        var registry = OpClassRegistryLoader.Load(WriteRegistry(ThreeClasses), new RecordingProblemSink());
 
         Assert.Equal(3, registry.Names.Count);
         Assert.True(registry.IsValid("Read"));
@@ -46,7 +46,7 @@ public sealed class OpClassRegistryTests : IDisposable
     public void Load_MissingFileThrows()
     {
         var sink = new RecordingProblemSink();
-        var registry = OpClassRegistry.Load(Path.Combine(_tempDir, "absent.json"), sink);
+        var registry = OpClassRegistryLoader.Load(Path.Combine(_tempDir, "absent.json"), sink);
 
         AssertFatalAndEmpty(sink, registry);
     }
@@ -55,7 +55,7 @@ public sealed class OpClassRegistryTests : IDisposable
     public void Load_NonArrayRootThrows()
     {
         var sink = new RecordingProblemSink();
-        var registry = OpClassRegistry.Load(WriteRegistry("""{ "name": "Read" }"""), sink);
+        var registry = OpClassRegistryLoader.Load(WriteRegistry("""{ "name": "Read" }"""), sink);
 
         AssertFatalAndEmpty(sink, registry);
     }
@@ -64,7 +64,7 @@ public sealed class OpClassRegistryTests : IDisposable
     public void Load_EmptyArrayThrows()
     {
         var sink = new RecordingProblemSink();
-        var registry = OpClassRegistry.Load(WriteRegistry("[]"), sink);
+        var registry = OpClassRegistryLoader.Load(WriteRegistry("[]"), sink);
 
         AssertFatalAndEmpty(sink, registry);
     }
@@ -73,7 +73,7 @@ public sealed class OpClassRegistryTests : IDisposable
     public void Load_RowMissingNameThrows()
     {
         var sink = new RecordingProblemSink();
-        var registry = OpClassRegistry.Load(WriteRegistry("""[ { "description": "no name" } ]"""), sink);
+        var registry = OpClassRegistryLoader.Load(WriteRegistry("""[ { "description": "no name" } ]"""), sink);
 
         AssertFatalAndEmpty(sink, registry);
     }
@@ -83,7 +83,7 @@ public sealed class OpClassRegistryTests : IDisposable
     {
         var json = """[ { "name": "Read" }, { "name": "read" } ]""";
         var sink = new RecordingProblemSink();
-        var registry = OpClassRegistry.Load(WriteRegistry(json), sink);
+        var registry = OpClassRegistryLoader.Load(WriteRegistry(json), sink);
 
         AssertFatalAndEmpty(sink, registry);
     }
@@ -107,7 +107,7 @@ public sealed class OpClassRegistryTests : IDisposable
     [Fact]
     public void Canonicalize_ReturnsRegistryCasingForACaseInsensitiveMatch()
     {
-        var registry = OpClassRegistry.Load(WriteRegistry(ThreeClasses), new RecordingProblemSink());
+        var registry = OpClassRegistryLoader.Load(WriteRegistry(ThreeClasses), new RecordingProblemSink());
 
         Assert.Equal("ManageGrants", registry.Canonicalize("managegrants"));
         Assert.Equal("Read", registry.Canonicalize("READ"));

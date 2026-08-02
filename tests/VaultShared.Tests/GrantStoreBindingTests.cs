@@ -16,7 +16,7 @@ namespace VaultShared.Tests;
 /// </summary>
 public sealed class GrantStoreBindingTests(TestVaultFixture fixture) : IClassFixture<TestVaultFixture>, IDisposable
 {
-    private static readonly OpClassRegistry OpClasses = OpClassRegistry.Load(Path.Combine(TestVaultFixture.RepoRoot, "op-classes.json"), new RecordingProblemSink());
+    private static readonly OpClassRegistry OpClasses = OpClassRegistryLoader.Load(Path.Combine(TestVaultFixture.RepoRoot, "op-classes.json"), new RecordingProblemSink());
 
     private readonly string _tempDir = Directory.CreateTempSubdirectory("vault-mcp-binding-tests-").FullName;
     private readonly VaultConfig _vaultConfig = fixture.Config;

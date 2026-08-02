@@ -215,7 +215,7 @@ public sealed class NativeToolSchemaTests(TestVaultFixture fixture) : IClassFixt
     }
 
     private static readonly OpClassRegistry OpClasses =
-        OpClassRegistry.Load(Path.Combine(TestVaultFixture.RepoRoot, "op-classes.json"), new ServerHealthState());
+        OpClassRegistryLoader.Load(Path.Combine(TestVaultFixture.RepoRoot, "op-classes.json"), new ServerHealthState());
 
     private GrantStore MakeStore()
     {

@@ -27,7 +27,7 @@ public sealed class LoopbackAuthMiddlewareTests : IClassFixture<TestVaultFixture
 
     private readonly TestVaultFixture _vaultFixture;
     private readonly OpClassRegistry _opClassRegistry =
-        OpClassRegistry.Load(Path.Combine(TestVaultFixture.RepoRoot, "op-classes.json"), new ServerHealthState());
+        OpClassRegistryLoader.Load(Path.Combine(TestVaultFixture.RepoRoot, "op-classes.json"), new ServerHealthState());
     private readonly string _tempDir = Directory.CreateTempSubdirectory("vault-mcp-loopback-auth-tests-").FullName;
     private readonly string _grantsPath;
 

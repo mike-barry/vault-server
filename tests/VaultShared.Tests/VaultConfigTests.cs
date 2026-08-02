@@ -48,7 +48,7 @@ public sealed class VaultConfigLoadTests : IDisposable
     public void Load_MissingFileThrows()
     {
         var sink = new RecordingProblemSink();
-        var config = VaultConfig.Load(Path.Combine(_tempDir, "absent.json"), sink);
+        var config = VaultConfigLoader.Load(Path.Combine(_tempDir, "absent.json"), sink);
 
         AssertFatalAndEmpty(sink, config);
     }
@@ -58,7 +58,7 @@ public sealed class VaultConfigLoadTests : IDisposable
     {
         var path = WriteConfig($$"""{ "vaults": { "a": {{JsonVault(_tempDir)}} } }""");
         var sink = new RecordingProblemSink();
-        var config = VaultConfig.Load(path, sink);
+        var config = VaultConfigLoader.Load(path, sink);
 
         AssertFatalAndEmpty(sink, config);
     }
@@ -68,7 +68,7 @@ public sealed class VaultConfigLoadTests : IDisposable
     {
         var path = WriteConfig($$"""{ "default_vault": "b", "vaults": { "a": {{JsonVault(_tempDir)}} } }""");
         var sink = new RecordingProblemSink();
-        var config = VaultConfig.Load(path, sink);
+        var config = VaultConfigLoader.Load(path, sink);
 
         AssertFatalAndEmpty(sink, config);
     }
@@ -78,7 +78,7 @@ public sealed class VaultConfigLoadTests : IDisposable
     {
         var path = WriteConfig("""{ "default_vault": "a", "vaults": {} }""");
         var sink = new RecordingProblemSink();
-        var config = VaultConfig.Load(path, sink);
+        var config = VaultConfigLoader.Load(path, sink);
 
         AssertFatalAndEmpty(sink, config);
     }
@@ -90,7 +90,7 @@ public sealed class VaultConfigLoadTests : IDisposable
         // vault is skipped (with a Degraded record) and the healthy vault keeps working.
         var path = WriteConfig($$"""{ "default_vault": "a", "vaults": { "a": {{JsonVault(_tempDir)}}, "b": {{JsonVault(Path.Combine(_tempDir, "no-such-dir"))}} } }""");
         var sink = new RecordingProblemSink();
-        var config = VaultConfig.Load(path, sink);
+        var config = VaultConfigLoader.Load(path, sink);
 
         Assert.False(sink.IsFatallyDegraded);
         var problem = Assert.Single(sink.Problems);
@@ -111,7 +111,7 @@ public sealed class VaultConfigLoadTests : IDisposable
     public void Resolve_SkippedVaultFailsAsUnavailableDistinctFromUnknown()
     {
         var path = WriteConfig($$"""{ "default_vault": "a", "vaults": { "a": {{JsonVault(_tempDir)}}, "b": {{JsonVault(Path.Combine(_tempDir, "no-such-dir"))}} } }""");
-        var config = VaultConfig.Load(path, new RecordingProblemSink());
+        var config = VaultConfigLoader.Load(path, new RecordingProblemSink());
 
         var unavailable = Assert.Throws<ArgumentException>(() => config.Resolve("b"));
         Assert.Contains("currently unavailable", unavailable.Message);
@@ -129,7 +129,7 @@ public sealed class VaultConfigLoadTests : IDisposable
         // (nothing resolvable, one Degraded per vault) rather than going fatal.
         var path = WriteConfig($$"""{ "default_vault": "a", "vaults": { "a": {{JsonVault(Path.Combine(_tempDir, "gone-a"))}}, "b": {{JsonVault(Path.Combine(_tempDir, "gone-b"))}} } }""");
         var sink = new RecordingProblemSink();
-        var config = VaultConfig.Load(path, sink);
+        var config = VaultConfigLoader.Load(path, sink);
 
         Assert.False(sink.IsFatallyDegraded);
         Assert.Equal(2, sink.Problems.Count);

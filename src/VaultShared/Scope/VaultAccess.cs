@@ -1,4 +1,3 @@
-using VaultShared.Configuration;
 
 namespace VaultShared.Scope;
 

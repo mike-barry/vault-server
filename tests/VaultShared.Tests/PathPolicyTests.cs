@@ -44,7 +44,7 @@ public sealed class PathPolicyTests : IDisposable
         File.WriteAllText(configPath, $$"""
             { "default_vault": "test", "vaults": { "test": { "path": {{JsonSerializer.Serialize(root)}}{{policy}} } } }
             """);
-        return VaultConfig.Load(configPath, sink);
+        return VaultConfigLoader.Load(configPath, sink);
     }
 
     private static string[] Problems(RecordingProblemSink sink) =>
@@ -156,7 +156,7 @@ public sealed class PathPolicyTests : IDisposable
             }
             """);
 
-        var config = VaultConfig.Load(configPath, sink);
+        var config = VaultConfigLoader.Load(configPath, sink);
 
         Assert.Equal<string[]>([Guides], [.. config.PathPolicyFor("primary").AlwaysReadableRoots]);
         Assert.Same(PathPolicy.None, config.PathPolicyFor("scratch"));
@@ -172,7 +172,7 @@ public sealed class PathPolicyTests : IDisposable
         var configPath = Path.Combine(_tempDir, "vaults.json");
         File.WriteAllText(configPath, $$"""{ "default_vault": "test", "vaults": { "test": {{JsonSerializer.Serialize(_tempDir)}} } }""");
 
-        var config = VaultConfig.Load(configPath, sink);
+        var config = VaultConfigLoader.Load(configPath, sink);
 
         Assert.True(sink.IsFatallyDegraded);
         Assert.Empty(config.Vaults);
@@ -193,7 +193,7 @@ public sealed class PathPolicyTests : IDisposable
             { "default_vault": "test", "vaults": { "test": { "path": {{JsonSerializer.Serialize(_tempDir)}}, "{{key}}": "x" } } }
             """);
 
-        var config = VaultConfig.Load(configPath, sink);
+        var config = VaultConfigLoader.Load(configPath, sink);
 
         Assert.True(sink.IsFatallyDegraded);
         Assert.Empty(config.Vaults);
@@ -296,7 +296,7 @@ public sealed class PathPolicyFixtureTests(TestVaultFixture fixture) : IClassFix
     {
         var sink = new RecordingProblemSink();
         using var doc = JsonDocument.Parse($$"""[ { "path": "{{Guides}}", "always_readable": true } ]""");
-        var policy = PathPolicy.Parse(doc.RootElement, vault, config.Resolve(vault).Root, "vaults.json", sink);
+        var policy = PathPolicyParser.Parse(doc.RootElement, vault, config.Resolve(vault).Root, "vaults.json", sink);
         Assert.Empty(sink.Problems);
         return policy;
     }
