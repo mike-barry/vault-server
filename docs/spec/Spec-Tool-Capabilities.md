@@ -1,6 +1,6 @@
 # Tool Capabilities And Semantics
 
-Forward specification for the tool layer: what each tool must accomplish, and which of its behaviors are load-bearing rather than incidental. [Spec-Vault-Access-Design](Spec-Vault-Access-Design.md) fixes the guarantees the layer beneath owes and [Spec-Access-Layer-Capabilities](Spec-Access-Layer-Capabilities.md) states the operations it must offer; this doc states what the tools do with them.
+Forward specification for the tool layer: what each tool must accomplish, and which of its behaviors are load-bearing rather than incidental. `Spec-Vault-Access-Design.md` fixes the guarantees the layer beneath owes and `Spec-Access-Layer-Capabilities.md` states the operations it must offer; this doc states what the tools do with them.
 
 **Capabilities and semantics only.** Argument names, result fields, error codes, and the shape of any envelope are designed in this build. A sentence here that could only be satisfied by one spelling has overreached.
 
@@ -10,12 +10,12 @@ Organized by concern rather than by tool: every hard question in this layer is c
 
 Owned elsewhere:
 
-- Guarantees, fixed constraints, and the front-end boundary: [Spec-Vault-Access-Design](Spec-Vault-Access-Design.md)
-- The operations available to build a tool from: [Spec-Access-Layer-Capabilities](Spec-Access-Layer-Capabilities.md)
-- Frontmatter parsing, mutation, validation, and the single write path: [Spec-Frontmatter-Substrate](Spec-Frontmatter-Substrate.md)
-- The declaration of recognized keys and their required write authorities: [Spec-Frontmatter-Registry](Spec-Frontmatter-Registry.md)
-- The grant, scope, and op-class model: [Spec-Auth-Requirements](Spec-Auth-Requirements.md)
-- The editor's bare-wikilink resolution, which the wikilink work matches rather than defines: [Spec-Obsidian-Link-Behavior](Spec-Obsidian-Link-Behavior.md)
+- Guarantees, fixed constraints, and the front-end boundary: `Spec-Vault-Access-Design.md`
+- The operations available to build a tool from: `Spec-Access-Layer-Capabilities.md`
+- Frontmatter parsing, mutation, validation, and the single write path: `Spec-Frontmatter-Substrate.md`
+- The declaration of recognized keys and their required write authorities: `Spec-Frontmatter-Registry.md`
+- The grant, scope, and op-class model: `Spec-Auth-Requirements.md`
+- The editor's bare-wikilink resolution, which the wikilink work matches rather than defines: `Spec-Obsidian-Link-Behavior.md`
 
 **The dividing line against the access layer: the layer answers the question, the tool decides which question to ask and how the answer comes back.** The layer says which files match a pattern; `glob` chooses which enumeration surface to ask, drops what path policy excludes, and returns the result as a path list. A question that could be answered in either doc belongs to the layer.
 
@@ -59,7 +59,7 @@ Three consequences are load-bearing:
 
 - **A path is unambiguous by definition**, so no tool needs a candidate list, a disambiguation gate, or an ambiguity failure. If the error vocabulary has a code for ambiguity, something is resolving names that should not be.
 - **Discovery-then-act is the intended two-call idiom**, matching what an agent already does with its native tools.
-- **Wikilink syntax survives only as internal machinery** where the wikilink graph is the subject. It is never an operand, and the grammar belongs to the layer ([Spec-Access-Layer-Capabilities: Wikilink Grammar And Resolution](Spec-Access-Layer-Capabilities.md#wikilink-grammar-and-resolution)).
+- **Wikilink syntax survives only as internal machinery** where the wikilink graph is the subject. It is never an operand, and the grammar belongs to the layer (`Spec-Access-Layer-Capabilities.md:Wikilink Grammar And Resolution`).
 
 **The markdown extension is never inferred.** Folders share the operand space, so a name without one is genuinely ambiguous between a note and a folder, and resolving that would reintroduce the ladder. A note-kind operation handed an extensionless path refuses and **names the spelling that would have worked**, so the miss costs one retry rather than a diagnosis.
 
@@ -69,7 +69,7 @@ Three consequences are load-bearing:
 
 **The assertion is absent where it could not change an outcome.** It is required in one case only: where the two kinds take different arguments, so the kind decides which arguments apply. There, an argument that means nothing for the chosen kind is refused rather than ignored.
 
-**The layer validates every new name** ([Spec-Access-Layer-Capabilities: Name Validation](Spec-Access-Layer-Capabilities.md#name-validation)). It owns the grammar and refuses any name outside it. Where a conforming spelling can be derived from what the caller sent, the refusal names it, so the miss costs one retry. Choosing among conforming names is the caller's.
+**The layer validates every new name** (`Spec-Access-Layer-Capabilities.md:Name Validation`). It owns the grammar and refuses any name outside it. Where a conforming spelling can be derived from what the caller sent, the refusal names it, so the miss costs one retry. Choosing among conforming names is the caller's.
 
 ## Result-Count Semantics
 
@@ -77,13 +77,13 @@ Three consequences are load-bearing:
 
 - **A search tool treats any count as a result.** Zero matches is an empty result and never a failure; an existence check must not require a caller to catch. A caller needing exactly one enforces that itself, because only the caller knows it needed one.
 - **A tool operating on an existing target requires exactly one and fails on a miss.** Returning an absent value pushes a check into every caller, where one will forget it.
-- **A tool bringing something into existence inverts that: existence is its failure.** An occupied target is refused rather than overwritten or merged, distinguishably from every other refusal, because the caller's next move is entirely different. Occupancy itself belongs to the layer - both the creating write and the move refuse a target that already exists ([Spec-Access-Layer-Capabilities: Writing](Spec-Access-Layer-Capabilities.md#writing), [Spec-Access-Layer-Capabilities: Moving](Spec-Access-Layer-Capabilities.md#moving)); what the tool owes is reading that answer rather than deciding a second one.
+- **A tool bringing something into existence inverts that: existence is its failure.** An occupied target is refused rather than overwritten or merged, distinguishably from every other refusal, because the caller's next move is entirely different. Occupancy itself belongs to the layer - both the creating write and the move refuse a target that already exists (`Spec-Access-Layer-Capabilities.md:Writing`, `Spec-Access-Layer-Capabilities.md:Moving`); what the tool owes is reading that answer rather than deciding a second one.
 
 ## Path Policy
 
-Two rules decide which paths this tool set may touch. Nothing under a dot-directory is reachable at all - not an operand, not enumerated, and no declaration admits one - and that rule is fixed in code rather than declared ([Spec-Access-Layer-Capabilities: Enumeration](Spec-Access-Layer-Capabilities.md#enumeration)). Every other path is reachable, and a vault's path policy says what mutating it requires. Narrowing further is the grant's scope roots.
+Two rules decide which paths this tool set may touch. Nothing under a dot-directory is reachable at all - not an operand, not enumerated, and no declaration admits one - and that rule is fixed in code rather than declared (`Spec-Access-Layer-Capabilities.md:Enumeration`). Every other path is reachable, and a vault's path policy says what mutating it requires. Narrowing further is the grant's scope roots.
 
-**Path policy is declared per vault, in the host's vault configuration**, because its targets are one vault's layout. An entry attaches modifiers to a target: `mutation_requires` names the op class mutating that target requires, and `always_readable` puts the target in every grant's read scope for that vault ([Spec-Auth-Requirements: What The Layer Must Do](Spec-Auth-Requirements.md#what-the-layer-must-do)).
+**Path policy is declared per vault, in the host's vault configuration**, because its targets are one vault's layout. An entry attaches modifiers to a target: `mutation_requires` names the op class mutating that target requires, and `always_readable` puts the target in every grant's read scope for that vault (`Spec-Auth-Requirements.md:What The Layer Must Do`).
 
 **A target is one of two things.** A **path**, matched as a whole-segment prefix, so a file entry matches that file and a directory entry matches everything beneath it. Or a **named structural rule** from a closed set - currently only the folder note, a note whose basename matches its parent folder. The rule is code; the declaration decides whether it applies and at what price.
 
@@ -109,7 +109,7 @@ Matching rules, each closing an evasion:
 
 ## The Argument Surface
 
-**One declaration per tool, projected into both front-ends** ([Spec-Vault-Access-Design: The Front-End Boundary](Spec-Vault-Access-Design.md#the-front-end-boundary)). The obligation it creates here: **no tool carries front-end-specific argument handling**, because a tool that did would have to know which front-end called it. The advertised schema, the CLI's option surface, and the type arguments bind onto are three renderings of one contract, not three artifacts kept in step.
+**One declaration per tool, projected into both front-ends** (`Spec-Vault-Access-Design.md:The Front-End Boundary`). The obligation it creates here: **no tool carries front-end-specific argument handling**, because a tool that did would have to know which front-end called it. The advertised schema, the CLI's option surface, and the type arguments bind onto are three renderings of one contract, not three artifacts kept in step.
 
 **Advertised is not enforced.** Conditional requiredness, mutual exclusivity between optional arguments, and required forms only a description can carry have no clean expression in a client-facing schema. The requirement is not that the schema express everything but that **the tool remain the sole enforcement point**, so nothing downstream treats schema conformance as permission.
 
@@ -154,14 +154,14 @@ Matching rules, each closing an evasion:
 
 ## The Error Vocabulary
 
-Errors are coded, stable, human-messaged, and oracle-free ([Spec-Vault-Access-Design: Guarantees To Callers](Spec-Vault-Access-Design.md#guarantees-to-callers)); the code set is the build's to define, in one catalogue every tool draws from. What is fixed here is **which distinctions must remain distinguishable at the call site**, each collapse being unrecoverable above the tool:
+Errors are coded, stable, human-messaged, and oracle-free (`Spec-Vault-Access-Design.md:Guarantees To Callers`); the code set is the build's to define, in one catalogue every tool draws from. What is fixed here is **which distinctions must remain distinguishable at the call site**, each collapse being unrecoverable above the tool:
 
 - **A miss versus a failure to read**, taken from the failure itself rather than a separate probe
 - **A grant that does not reach versus tooling that does not own.** One is remedied by elevation, the other by nothing a grant can change
 - **Authorization versus routing.** Where both would fire, the routing answer is more actionable and wins
 - **A caller error versus an engine failure**, in search especially - the pair most easily collapsed into one "search failed"
 - **A transient throttle versus a permanent refusal**, or a retryable condition routes into a branch that never retries
-- **A vault nobody configured versus one configured but unavailable** ([Spec-Access-Layer-Capabilities: Vault Resolution](Spec-Access-Layer-Capabilities.md#vault-resolution))
+- **A vault nobody configured versus one configured but unavailable** (`Spec-Access-Layer-Capabilities.md:Vault Resolution`)
 - **A partial mutation versus a clean refusal**
 
 **One code is carried over: `lock_timeout`.** The mutex lock could not be acquired before the timeout elapsed, and the payload carries that timeout. It is raised where the lock is taken, so no tool catches it and it surfaces unchanged - otherwise every write tool re-derives the same condition by matching message text.
@@ -188,13 +188,13 @@ Errors are coded, stable, human-messaged, and oracle-free ([Spec-Vault-Access-De
 
 ## Authority
 
-The grant model is given ([Spec-Auth-Requirements](Spec-Auth-Requirements.md)). Four dimensions contribute to what a tool call requires, and they union.
+The grant model is given (`Spec-Auth-Requirements.md`). Four dimensions contribute to what a tool call requires, and they union.
 
 **A declared floor**, the least authority any use of the tool requires, checked by the shared execute path before the tool runs. Anything more is asserted inside the tool on the path that needs it, so the requirements add up on their own and no combined token exists. A floor need not be a write class on a tool that can write: an assessment tool with an opt-in fix mode has a read floor and asserts a write key, which is what lets a read-only caller run the assessment.
 
-**Key-level authority, classified by outcome** over what the operation turned out to change. Classification by declared intent classifies by what the caller said they were doing, and every injection path is an operation aimed at something innocuous that mutates the protected layer anyway. The predicate is shared ([Spec-Frontmatter-Substrate: Write Authority Classification](Spec-Frontmatter-Substrate.md#write-authority-classification)) so it cannot drift per tool, and the degenerate cases - composing a new note against no original, removing a note's frontmatter entirely - fall out of it rather than becoming second rules.
+**Key-level authority, classified by outcome** over what the operation turned out to change. Classification by declared intent classifies by what the caller said they were doing, and every injection path is an operation aimed at something innocuous that mutates the protected layer anyway. The predicate is shared (`Spec-Frontmatter-Substrate.md:Write Authority Classification`) so it cannot drift per tool, and the degenerate cases - composing a new note against no original, removing a note's frontmatter entirely - fall out of it rather than becoming second rules.
 
-**Artifact-level authority, declared by path** ([Path Policy](#path-policy)). Some files exist to instruct agents, and their bodies are that instruction rather than prose - the root manifest, folder notes, and the shared guides. For these the key-level diff is not enough, because a body-only write to one changes the agentic layer while touching no key. A `mutation_requires` entry names them and states the authority; the requirement is declared membership of a path set, exactly as key-level authority is declared membership of a key set. This is why [Spec-Frontmatter-Substrate](Spec-Frontmatter-Substrate.md)'s guarantee that a body-only write never requires elevated authority holds for every note *except* those an entry names.
+**Artifact-level authority, declared by path** ("Path Policy"). Some files exist to instruct agents, and their bodies are that instruction rather than prose - the root manifest, folder notes, and the shared guides. For these the key-level diff is not enough, because a body-only write to one changes the agentic layer while touching no key. A `mutation_requires` entry names them and states the authority; the requirement is declared membership of a path set, exactly as key-level authority is declared membership of a key set. This is why `Spec-Frontmatter-Substrate.md`'s guarantee that a body-only write never requires elevated authority holds for every note *except* those an entry names.
 
 **Artifact authority applies to what an operation names and to everything in its target set.** Creating, editing, or removing an artifact always requires the declared class. Relocating one depends on how the artifact was declared:
 
@@ -219,7 +219,7 @@ Three tools touch the wikilink graph, over the layer's single grammar and rankin
 
 For relocation:
 
-- **The rewrite replaces bytes and parses nothing.** It runs over the note's whole text, frontmatter included, using the extents the layer supplies ([Spec-Access-Layer-Capabilities: Wikilink Grammar And Resolution](Spec-Access-Layer-Capabilities.md#wikilink-grammar-and-resolution)). Every byte outside a replaced target survives, so repairing fifty notes changes the wikilink targets in them and nothing else. The name grammar is what makes this safe: a conforming name cannot break out of whatever encloses the wikilink.
+- **The rewrite replaces bytes and parses nothing.** It runs over the note's whole text, frontmatter included, using the extents the layer supplies (`Spec-Access-Layer-Capabilities.md:Wikilink Grammar And Resolution`). Every byte outside a replaced target survives, so repairing fifty notes changes the wikilink targets in them and nothing else. The name grammar is what makes this safe: a conforming name cannot break out of whatever encloses the wikilink.
 - **The pass covers every note in the vault.** Repairing only the notes inside the caller's scope leaves the rest of the vault pointing at nothing. Path policy still applies, so excluded paths are skipped here as everywhere else.
 - **A note whose frontmatter will not parse is still repaired**, since the substitution parses nothing. Notes the frontmatter write path refuses are not holes in the graph.
 - **Both wikilink forms are covered**, the plain one and the embedding one. Only the target portion is rewritten; decorations a wikilink carries survive verbatim.
@@ -248,22 +248,22 @@ For removal:
 
 ## Enumeration Domains
 
-**Which domain a tool enumerates is a semantic choice, not a shared-code convenience.** Discovery is the only tool that returns an enumeration to the caller. Search uses one to select the files it reads. Relocation walks a folder's contents and runs the basename census behind link emission and the wikilink scan. Removal builds a destruction plan and a backlink census. The layer offers two domains ([Spec-Access-Layer-Capabilities: Enumeration](Spec-Access-Layer-Capabilities.md#enumeration)), and a tool asking the wrong one gets a confidently wrong answer.
+**Which domain a tool enumerates is a semantic choice, not a shared-code convenience.** Discovery is the only tool that returns an enumeration to the caller. Search uses one to select the files it reads. Relocation walks a folder's contents and runs the basename census behind link emission and the wikilink scan. Removal builds a destruction plan and a backlink census. The layer offers two domains (`Spec-Access-Layer-Capabilities.md:Enumeration`), and a tool asking the wrong one gets a confidently wrong answer.
 
 - **A tool whose subject is a note** wants note enumeration - discovery, search, the wikilink scan, and the uniqueness census, each of which answers a question about notes.
 - **A tool asking what is about to be destroyed** wants the census, and asks it for dot entries too. A non-markdown or hidden file is still on disk, still destroyed, and still possibly something that must be classified before it goes. Getting this one wrong fails three ways at once, all silent: a folder holding only non-markdown files reads as empty and skips the not-empty guard, the blast radius under-reports, and authority classification runs over an incomplete set.
 
 **Widening the layer's answer to serve one consumer is not the fix.** It changes what discovery returns and what the uniqueness census counts, and that census decides whether a rewritten link is emitted short or qualified. A tool needing a different domain asks for a different domain.
 
-**Three separate questions compose here, and only one is the tool's.** What the layer's surfaces can see is the layer's, and the answer is everything but dot entries unless the caller asks for them ([Spec-Access-Layer-Capabilities: Enumeration](Spec-Access-Layer-Capabilities.md#enumeration)). Which surface a tool asks is the tool's. Which paths this tool set may reach is [Path Policy](#path-policy)'s. Narrowing therefore happens only in the last two, both of which a caller can reason about.
+**Three separate questions compose here, and only one is the tool's.** What the layer's surfaces can see is the layer's, and the answer is everything but dot entries unless the caller asks for them (`Spec-Access-Layer-Capabilities.md:Enumeration`). Which surface a tool asks is the tool's. Which paths this tool set may reach is "Path Policy"'s. Narrowing therefore happens only in the last two, both of which a caller can reason about.
 
 ## Destruction
 
-**Removal takes no destructive authority class of its own.** It is authorized as a mutation like any other. Scope decides the folder that was named, not the files beneath it: a folder in scope has its whole subtree in scope, so a removal never meets a child it cannot reach ([Spec-Auth-Requirements: What The Layer May Assume](Spec-Auth-Requirements.md#what-the-layer-may-assume)).
+**Removal takes no destructive authority class of its own.** It is authorized as a mutation like any other. Scope decides the folder that was named, not the files beneath it: a folder in scope has its whole subtree in scope, so a removal never meets a child it cannot reach (`Spec-Auth-Requirements.md:What The Layer May Assume`).
 
 **Nothing is removed before its plan is reported.** A caller sees the full set a removal destroys, and the refusal that precedes a bulk removal carries that same set. The caller therefore retries against the actual file list rather than against the folder name it first sent.
 
-**The tool makes no claim about what survives removal** ([What Must Not Come Back](#what-must-not-come-back)). It reports what it is about to destroy; what can be restored afterwards is not its assessment to offer.
+**The tool makes no claim about what survives removal** ("What Must Not Come Back"). It reports what it is about to destroy; what can be restored afterwards is not its assessment to offer.
 
 **Three guards on removal.**
 
@@ -291,7 +291,7 @@ Two things about those steps matter. They must be **non-destructive and in the r
 
 ## Naming And Composition
 
-**A name outside the grammar is refused, not warned** ([Spec-Access-Layer-Capabilities: Name Validation](Spec-Access-Layer-Capabilities.md#name-validation)). Anything else about naming - doc-type prefixes, what a note is called - is editorial, has legitimate exceptions, and is enforced nowhere.
+**A name outside the grammar is refused, not warned** (`Spec-Access-Layer-Capabilities.md:Name Validation`). Anything else about naming - doc-type prefixes, what a note is called - is editorial, has legitimate exceptions, and is enforced nowhere.
 
 **No tool computes a name or injects provenance.** The caller decides what something is called and what it records about itself; tools take resolved values.
 

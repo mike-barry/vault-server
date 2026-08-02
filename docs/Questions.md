@@ -19,4 +19,4 @@ Answer: filled in by the responder, naming the spec file amended.
 
 Clear the entry once its answer has been read, the specs amended, and the code updated to match. The amended spec is the requirement; the answer here is a receipt. The exchange stays in git history.
 
-See `Brief-Vault-Access-Build.md`, "Working Files".
+See `Brief-Vault-Access-Build.md:Working Files`.

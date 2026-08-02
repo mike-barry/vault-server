@@ -1,6 +1,6 @@
 # Spec Frontmatter Registry
 
-Forward specification for the declaration the tooling is authorized by: which frontmatter keys it recognizes, what their values must look like, and what authority writing each requires. Its companion, [Spec-Frontmatter-Substrate](Spec-Frontmatter-Substrate.md), owns how a block is parsed, mutated, and emitted. The two meet at the single write path, which runs this layer's whole-block validation and its per-operation validation.
+Forward specification for the declaration the tooling is authorized by: which frontmatter keys it recognizes, what their values must look like, and what authority writing each requires. Its companion, `Spec-Frontmatter-Substrate.md`, owns how a block is parsed, mutated, and emitted. The two meet at the single write path, which runs this layer's whole-block validation and its per-operation validation.
 
 The declaration is one file, and each consumer takes the sections that bind it: the key, namespace, and entry-schema sections bind every frontmatter writer, and a future non-markdown surface takes its own. One file because every key-level protection derives from it and they share a trust tier, a lifecycle, and a load cascade.
 
@@ -42,7 +42,7 @@ A variant declares:
 - **Its selector.** A **scalar** variant is a plain value satisfying a value constraint, with no fields. Otherwise the variant is a mapping selected by **the presence of a named discriminating field**. Two variants may not share a discriminating field, and a mapping matching none of them is a refusal.
 - **Its fields**, each required or optional, each with a value constraint.
 - **Mutually exclusive groups** - a set of fields of which exactly one must be present, checked in both directions.
-- **Its identity** - the field, or the exclusive group, whose value addresses the entry. Everything in [Spec-Frontmatter-Substrate](Spec-Frontmatter-Substrate.md) that addresses an entry by target value resolves to this: duplicate detection, idempotent adds, removals, and positional anchors.
+- **Its identity** - the field, or the exclusive group, whose value addresses the entry. Everything in `Spec-Frontmatter-Substrate.md` that addresses an entry by target value resolves to this: duplicate detection, idempotent adds, removals, and positional anchors.
 - **How its identity compares** - case-sensitively or not, declared per variant because the right answer differs within a single list. An identity that names a file or a wikilink compares case-insensitively, matching how the filesystem and the editor resolve it; otherwise a scan and an operation disagree about whether an entry is already there. An identity that is a line of human prose compares exactly.
 - **Whether the variant is removable wholesale** - whether a removal may name the variant with no target and clear every matching entry. Right for tooling-owned entries, wrong for user-authored ones.
 
@@ -56,7 +56,7 @@ A variant declares:
 
 **A new protection class is data** - a line in this file and a line in the op-class configuration.
 
-**Whole-block validation asserts the required authority on a newly supplied tree before it is serialized**, ahead of and independent of the outcome diff in [Spec-Frontmatter-Substrate](Spec-Frontmatter-Substrate.md). Not redundant: the outcome diff remains the authority on what actually changed, while this is the registry's statement that a key requiring elevation was supplied at all.
+**Whole-block validation asserts the required authority on a newly supplied tree before it is serialized**, ahead of and independent of the outcome diff in `Spec-Frontmatter-Substrate.md`. Not redundant: the outcome diff remains the authority on what actually changed, while this is the registry's statement that a key requiring elevation was supplied at all.
 
 ## Protected Namespaces
 
@@ -102,7 +102,7 @@ The asymmetry is load-bearing. Every path by which a key can *enter* the vault i
 
 **A missing or unparseable declaration fails closed on every frontmatter write and stays open on everything else.** Without it nothing can tell whether a supplied key is declared, so a write cannot be validated. Reads are unaffected, and so are removal and relocation: what prices those is path policy, which is declared elsewhere. There is no fallback to a built-in default set; a silent fallback is how a failed load becomes a vault with nothing protected. The failure surfaces through the host's health state rather than by crashing, so the condition is visible rather than inferred from refusals.
 
-**Advertisement does not change with the failure.** `edit` stays listed with its ordinary argument surface; the schema's variant branches are generated from the declaration and are simply absent without it. Frontmatter operations refuse at the write path, where every other refusal already lives. Advertising was never permission ([Spec-Frontmatter-Substrate: How The Vocabulary Reaches Callers](Spec-Frontmatter-Substrate.md#how-the-vocabulary-reaches-callers)).
+**Advertisement does not change with the failure.** `edit` stays listed with its ordinary argument surface; the schema's variant branches are generated from the declaration and are simply absent without it. Frontmatter operations refuse at the write path, where every other refusal already lives. Advertising was never permission (`Spec-Frontmatter-Substrate.md:How The Vocabulary Reaches Callers`).
 
 ## An Illustrative Declaration
 

@@ -2,7 +2,7 @@
 
 What the rebuilt vault access layer owes the authorization model, and what that model owes it back. **The model itself is retained code and is not specified here** - grants, tokens, bindings, scope primitives, minting, and elevation all survive the rewrite intact, and the source is the authority on how they work. Restating them in a doc would create a second source of truth that drifts, so this doc carries only the obligations across the seam.
 
-The companion [Spec-Vault-Access-Design](Spec-Vault-Access-Design.md) states the guarantees the layer owes its callers.
+The companion `Spec-Vault-Access-Design.md` states the guarantees the layer owes its callers.
 
 ## Not Open For Redesign
 
@@ -25,8 +25,8 @@ These hold because the retained code guarantees them. Where one appears violated
 ## What The Layer Must Do
 
 - **Route every path-touching operation through the retained scope check.** No entry point opts out. This is the layer's own obligation and the one thing the retained code cannot enforce for it.
-- **Route read-class operations through the read-scope check**, whose effective scope is the grant's own roots unioned with the vault's always-readable roots ([Spec-Tool-Capabilities: Path Policy](Spec-Tool-Capabilities.md#path-policy)). The union is the retained check's, not the layer's to apply, and it reaches reads alone - a write is scope-checked against the grant's roots and nothing wider. Enumeration runs over the same effective scope a containment check uses, so an always-readable path needs no case of its own.
-- **Wikilink maintenance is the one exception, and it is not scope-bound.** A move is scope-checked at its source and destination, and a creation at its target. The wikilink pass that follows runs over every note in the vault, because the links it must correct can be anywhere. No scope check runs on that pass, since one would imply a limit that is not there. It carries an authority of its own instead ([Spec-Tool-Capabilities: Authority](Spec-Tool-Capabilities.md#authority)).
+- **Route read-class operations through the read-scope check**, whose effective scope is the grant's own roots unioned with the vault's always-readable roots (`Spec-Tool-Capabilities.md:Path Policy`). The union is the retained check's, not the layer's to apply, and it reaches reads alone - a write is scope-checked against the grant's roots and nothing wider. Enumeration runs over the same effective scope a containment check uses, so an always-readable path needs no case of its own.
+- **Wikilink maintenance is the one exception, and it is not scope-bound.** A move is scope-checked at its source and destination, and a creation at its target. The wikilink pass that follows runs over every note in the vault, because the links it must correct can be anywhere. No scope check runs on that pass, since one would imply a limit that is not there. It carries an authority of its own instead (`Spec-Tool-Capabilities.md:Authority`).
 - **Take authority as a handed-in parameter, never ambient and never caller-settable.** Not readable from a global, an environment value, or a request argument. A caller-supplied scope argument is a forged grant, and the strongest defense is that no such argument exists on any public surface.
 - **Assert mid-operation capability keys where the required authority depends on what the work turned out to touch**, rather than on what was requested. The floor is checked before the operation runs; a key is asserted once the outcome is known.
 - **Refuse without an oracle.** An out-of-scope refusal must not disclose whether the target exists, and a refusal payload carries only the caller's own coordinates - never the grant's classes, vaults, or roots, and never the filtered subset that violated a check, which is the same disclosure paid in instalments.

@@ -14,4 +14,4 @@ What was rejected, and why it lost.
 Which spec section it answers, where one applies.
 ```
 
-See `Brief-Vault-Access-Build.md`, "Working Files".
+See `Brief-Vault-Access-Build.md:Working Files`.

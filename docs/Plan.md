@@ -17,13 +17,13 @@ Its neighbours do different jobs: `Decisions.md` records what was chosen and wha
 
 Runs before any build work begins.
 
-- [x] Carry the spec bundle into `spec/` - the brief and seven specs, vault frontmatter stripped and cross-references rewritten as file links
+- [x] Carry the spec bundle in - seven specs into `docs/spec/`, the brief in `docs/` - vault frontmatter stripped and cross-references rewritten as file links
 - [ ] Flush out this plan with the operator before any build work begins. What is below is a seed: the phases, their order, what each produces, and where a phase ends are settled together rather than assumed. Bring proposals rather than questions
 - [ ] Verify from inside this repo that the knowledge vault is unreachable - no MCP registration, no additional-directory grant, no path out
 
 ## Design
 
-Design runs ahead of the code it governs and lands in its own documents under `design/`, split into logical areas rather than accumulated in one. The specs stay the requirement; a design doc says how this build meets it. A design that lands as code is a design nobody reviewed.
+Design runs ahead of the code it governs and lands in its own documents under `docs/design/`, split into logical areas rather than accumulated in one. The specs stay the requirement; a design doc says how this build meets it. A design that lands as code is a design nobody reviewed.
 
 - [ ] Design the core access layer, resolved-path type first - every later choice depends on whether an out-of-scope path is representable
 - [ ] Design the tool vocabulary as one surface: argument shapes, return tiers, error vocabulary, the preview convention, the write-class envelope. The largest single task here, and its own phase

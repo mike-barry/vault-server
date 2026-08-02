@@ -14,11 +14,11 @@ Not under design, and taken as existing requirements the new layer must satisfy:
 
 This doc is not self-sufficient on facts about the world. It travels with:
 
-- **[Spec-Obsidian-Link-Behavior](Spec-Obsidian-Link-Behavior.md)** - the editor's bare-wikilink resolution, an external behavior to match
-- **[Spec-Frontmatter-Substrate](Spec-Frontmatter-Substrate.md)** and **[Spec-Frontmatter-Registry](Spec-Frontmatter-Registry.md)** - the frontmatter write surface and its authorization layer, not restated here
-- **[Spec-Auth-Requirements](Spec-Auth-Requirements.md)** - the obligations across the seam with the retained authorization code, which is itself read from source rather than specified
-- **[Spec-Access-Layer-Capabilities](Spec-Access-Layer-Capabilities.md)** - the operations the layer must offer, and the requirements attached to each
-- **[Spec-Tool-Capabilities](Spec-Tool-Capabilities.md)** - what each tool must accomplish and which of its behaviors are load-bearing. Capabilities and semantics only: the tool vocabulary itself is designed in this build, not inherited
+- **`Spec-Obsidian-Link-Behavior.md`** - the editor's bare-wikilink resolution, an external behavior to match
+- **`Spec-Frontmatter-Substrate.md`** and **`Spec-Frontmatter-Registry.md`** - the frontmatter write surface and its authorization layer, not restated here
+- **`Spec-Auth-Requirements.md`** - the obligations across the seam with the retained authorization code, which is itself read from source rather than specified
+- **`Spec-Access-Layer-Capabilities.md`** - the operations the layer must offer, and the requirements attached to each
+- **`Spec-Tool-Capabilities.md`** - what each tool must accomplish and which of its behaviors are load-bearing. Capabilities and semantics only: the tool vocabulary itself is designed in this build, not inherited
 
 Where a companion doc describes a mechanism rather than a requirement, take the requirement and discard the mechanism.
 
@@ -32,7 +32,7 @@ The cost: any vault-touching operation a tool needs must live in the layer or be
 
 ## What The Layer Owns
 
-Inside: vault resolution; path resolution and containment; scope enforcement; the grammar for all new names; enumeration and content search; note read, write, move, and directory creation; the mutex lock; frontmatter mutation and validation ([Spec-Frontmatter-Substrate](Spec-Frontmatter-Substrate.md)); wikilink grammar and bare-wikilink resolution; read-failure classification; and the result and error vocabulary tools return through.
+Inside: vault resolution; path resolution and containment; scope enforcement; the grammar for all new names; enumeration and content search; note read, write, move, and directory creation; the mutex lock; frontmatter mutation and validation (`Spec-Frontmatter-Substrate.md`); wikilink grammar and bare-wikilink resolution; read-failure classification; and the result and error vocabulary tools return through.
 
 Outside, deliberately:
 
@@ -60,8 +60,8 @@ The conformance surface. How they are achieved is free.
 - **Containment.** Every path the layer returns or permits an operation on is inside the resolved root. Escaping text is refused, never clamped or normalized into something else
 - **Vault-relative terms.** Emitted paths are vault-relative with one separator convention on every platform, so results can be quoted back into later calls unchanged. Absolute paths never leave the layer
 - **Nothing creates a parent directory on the way past.** Writing a note, creating a folder, and moving to a destination all fail under a missing parent, naming what was missing in vault-relative terms. Materializing a path is always a deliberate call
-- **Scope is enforced at the operation.** Every read, write, move, enumeration, and search consults the restriction before touching anything. No entry point opts out. The one pass that is not scope-bound is the next bullet. This is the layer's own obligation - the containment semantics themselves live in the retained scope primitives, and the rest of the seam is [Spec-Auth-Requirements](Spec-Auth-Requirements.md)
-- **Wikilink repair is the one write scope does not bound.** Moving a note changes what every link to it must say, and creating a note whose basename already exists changes what bare links to that basename resolve to. Either set of links can be anywhere, so the pass runs over every note in the vault. The operation's own paths are scope-checked normally ([Spec-Tool-Capabilities: Authority](Spec-Tool-Capabilities.md#authority))
+- **Scope is enforced at the operation.** Every read, write, move, enumeration, and search consults the restriction before touching anything. No entry point opts out. The one pass that is not scope-bound is the next bullet. This is the layer's own obligation - the containment semantics themselves live in the retained scope primitives, and the rest of the seam is `Spec-Auth-Requirements.md`
+- **Wikilink repair is the one write scope does not bound.** Moving a note changes what every link to it must say, and creating a note whose basename already exists changes what bare links to that basename resolve to. Either set of links can be anywhere, so the pass runs over every note in the vault. The operation's own paths are scope-checked normally (`Spec-Tool-Capabilities.md:Authority`)
 - **The layer owns the grammar for all new names.** A name is checked when something is created or moved to it. Names already on disk are not checked, so every existing file stays readable, searchable, and movable
 - **Filtering is silent; gating is loud.** A list returns the in-scope subset without saying what was withheld; a named out-of-scope path errors. The first leaks nothing, the second is actionable
 - **Only one mutation runs at a time, across processes.** The shared execute path wraps every invocation of a tool that declares it mutates in a mutex lock other processes contend for on the same vault. No tool acquires it, and a tool declaring no mutation never takes one
@@ -74,11 +74,11 @@ The conformance surface. How they are achieved is free.
 Each prevents a specific failure that stays invisible until it happens. None is a style preference.
 
 - **Out-of-scope paths are unrepresentable rather than checked.** Correctness must not depend on every operation remembering to call a check. A resolved-path type that can only be produced by passing resolution and scope, with operations accepting nothing else, makes that true at construction instead. This is the most important property in the build, and it is why no function is named anywhere in these specs: naming one would describe a check to call, which is the weaker design
-- **The lock's identity derives from the vault's location, not its name**, so two configurations naming one directory contend. The exact derivation is fixed ([The Mutex Lock Name](#the-mutex-lock-name)). The watcher shares it as code, never as a convention re-implemented on each side
+- **The lock's identity derives from the vault's location, not its name**, so two configurations naming one directory contend. The exact derivation is fixed ("The Mutex Lock Name"). The watcher shares it as code, never as a convention re-implemented on each side
 - **Containment is decided textually and never touches the filesystem.** Preserve this when calling the retained primitives: it is what makes the check cheap, applicable to every path, and identical for a path that does not exist yet
 - **A search that cannot read a file fails the search.** Skipping it turns a permissions problem into a wrong answer the caller cannot distinguish from a correct one
 - **Frontmatter mutation preserves the body and key order exactly**, and a no-op write produces no diff. Line terminators are the one thing that normalizes. Those are the invariants; the mechanism delivering them is unspecified
-- **Bare-wikilink resolution is observed behavior, not a design choice.** Which file a bare wikilink opens is decided by the editor, and the vault's contents already depend on it. The rule - nearest by relative path from the linking file, ties broken deterministically ([Spec-Obsidian-Link-Behavior](Spec-Obsidian-Link-Behavior.md)) - was measured, not designed, and must sit somewhere it can be changed in a line or two. There is no better rule to work out from first principles; the editor's behavior is the requirement
+- **Bare-wikilink resolution is observed behavior, not a design choice.** Which file a bare wikilink opens is decided by the editor, and the vault's contents already depend on it. The rule - nearest by relative path from the linking file, ties broken deterministically (`Spec-Obsidian-Link-Behavior.md`) - was measured, not designed, and must sit somewhere it can be changed in a line or two. There is no better rule to work out from first principles; the editor's behavior is the requirement
 - **Wikilink resolution ranks, it does not search.** It takes a candidate set and returns them in order. It touches no filesystem and decides nothing about which candidates belong in the set. Because it does only that, the move protection pass and the delete wikilink census can share one comparator rather than each keeping its own
 - **Reading tolerates what writing refuses.** A reporting pass runs over every file in the vault and must survive content it cannot parse; a write must refuse that same content. Both consumers are real, so the two sides differ on purpose - do not make them consistent
 
@@ -86,17 +86,17 @@ Each prevents a specific failure that stays invisible until it happens. None is 
 
 Imposed from outside the code, and not negotiable by the implementation.
 
-- **The vault must stay operable with no server running** - see [The Front-End Boundary](#the-front-end-boundary)
+- **The vault must stay operable with no server running** - see "The Front-End Boundary"
 - **One mutex lock per vault, covering the whole repository.** Granularity is not the build's to choose; nothing narrower is offered
 - **A second process contends for the mutex lock.** The watcher is a peer, not a subordinate
 - **The editor's link semantics are external** - matched, not defined
 - **The vault is a plain directory tree.** No symbolic links, no junctions, no reparse points. The layer assumes this and does nothing to detect or accommodate them
 - **The vault is a git working tree**, and nothing built here reads or writes repository state. What follows from the working tree - a folder that must persist while empty needing a `.gitkeep` - is stated where it applies
 - **Notes are stored with LF line terminators.** Every write that composes content emits them. Nothing detects what was there or preserves another convention
-- **Frontmatter has no official standard, and Markdig's convention is the reference** ([Spec-Frontmatter-Substrate: What A Block Is](Spec-Frontmatter-Substrate.md#what-a-block-is)). Markdig is also the library if markdown itself is ever parsed
-- **The grant, scope, and op-class model is given** ([Spec-Auth-Requirements](Spec-Auth-Requirements.md)). The layer enforces it and does not redesign it
+- **Frontmatter has no official standard, and Markdig's convention is the reference** (`Spec-Frontmatter-Substrate.md:What A Block Is`). Markdig is also the library if markdown itself is ever parsed
+- **The grant, scope, and op-class model is given** (`Spec-Auth-Requirements.md`). The layer enforces it and does not redesign it
 - **Ripgrep is the search and enumeration engine**, rooted at the vault directory - which is what makes emitted paths vault-relative and structurally confined. Its ignore-file behavior is not inherited. Dot entries are the one thing the layer drops on its own by default, and a caller that needs them asks for them explicitly. Every other narrowing happens above the layer in declared policy and scope
-- **YamlDotNet parses and emits frontmatter, at its representation-model layer - the mutable node tree, never its object serializer.** Only the node layer preserves key order and per-node quoting style, which the invariants above require. The choice was settled by measuring the candidate libraries against the real corpus, an experiment this build cannot repeat, so it is not open to reconsideration. It needs two non-default emitter settings, an explicit newline choice, and a small emitter shim, named in [Frontmatter Emitter Settings](#frontmatter-emitter-settings)
+- **YamlDotNet parses and emits frontmatter, at its representation-model layer - the mutable node tree, never its object serializer.** Only the node layer preserves key order and per-node quoting style, which the invariants above require. The choice was settled by measuring the candidate libraries against the real corpus, an experiment this build cannot repeat, so it is not open to reconsideration. It needs two non-default emitter settings, an explicit newline choice, and a small emitter shim, named in "Frontmatter Emitter Settings"
 - **Re-emission guarantees meaning, not bytes.** Key order, body bytes, and every value's content survive a write; formatting may normalize
 
 ## The Mutex Lock Name

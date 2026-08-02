@@ -1,6 +1,6 @@
 # Spec Frontmatter Substrate
 
-Forward specification for the frontmatter write surface: what a block is, how a note splits into frontmatter and body, what a mutation preserves, what operations must be expressible, and what the single write path guarantees. Its companion, [Spec-Frontmatter-Registry](Spec-Frontmatter-Registry.md), owns which keys and paths are allowed through.
+Forward specification for the frontmatter write surface: what a block is, how a note splits into frontmatter and body, what a mutation preserves, what operations must be expressible, and what the single write path guarantees. Its companion, `Spec-Frontmatter-Registry.md`, owns which keys and paths are allowed through.
 
 Several tools write frontmatter and all go through this surface. It is specified separately because a multi-consumer contract buried inside its first consumer is missed by the second.
 
@@ -10,7 +10,7 @@ The surface covers **the per-note, in-memory half of frontmatter correctness**: 
 
 Three things break if the line moves. A tool acting on one named note cannot answer a question about its whole folder, and would have to carry enumeration it never uses. The write path would stop being in-memory, and so stop being cheap enough to run before any disk change. And the surface would end up depending on configuration that belongs to a single consumer.
 
-**No rule here reasons about a note's content from its location.** The path is used for one thing: matching the path policy in [Spec-Tool-Capabilities](Spec-Tool-Capabilities.md#path-policy), which decides which files the tooling may reach and what authority mutating them requires - never what a file should say. Conventions of the form "a file in this position must carry this key" belong to `lint`; adopting one here would enforce an editorial convention underneath every tool that writes.
+**No rule here reasons about a note's content from its location.** The path is used for one thing: matching the path policy in `Spec-Tool-Capabilities.md:Path Policy`, which decides which files the tooling may reach and what authority mutating them requires - never what a file should say. Conventions of the form "a file in this position must carry this key" belong to `lint`; adopting one here would enforce an editorial convention underneath every tool that writes.
 
 ## What A Block Is
 
@@ -38,7 +38,7 @@ The offset lets a consumer put a new body into the original without recomposing 
 
 **A mutation changes the frontmatter tree and nothing else.** Every byte of the body survives verbatim except line terminators.
 
-**Line terminators normalize to LF, with no detection of what was there.** Notes are stored that way ([Spec-Vault-Access-Design: Fixed Constraints](Spec-Vault-Access-Design.md#fixed-constraints)), and the repository normalizes every text file on checkout, so no other convention survives a round trip regardless.
+**Line terminators normalize to LF, with no detection of what was there.** Notes are stored that way (`Spec-Vault-Access-Design.md:Fixed Constraints`), and the repository normalizes every text file on checkout, so no other convention survives a round trip regardless.
 
 **Normalization happens on entry, not on the way out.** The write path compares the block before and after composing final content to detect a body write that disturbed it; normalizing between those reads would trip the guard on terminators alone.
 
@@ -101,7 +101,7 @@ Block-list operations exist because nothing else reaches a block list: a flat sc
 
 ### Removal Semantics Are Declared, Not Fixed
 
-Two properties differ between variants of one list, which is why [Spec-Frontmatter-Registry](Spec-Frontmatter-Registry.md) carries them on the entry schema:
+Two properties differ between variants of one list, which is why `Spec-Frontmatter-Registry.md` carries them on the entry schema:
 
 - **Whether a removal may clear a whole variant.** Entries a human authored are dropped one at a time, named precisely. Entries the tooling owns and rewrites are usefully cleared wholesale.
 - **How an identity compares.** An identity that names a file or a wikilink compares case-insensitively, matching how the filesystem and the editor resolve it; otherwise a scan and an operation disagree about whether an entry is already there. An identity that is a line of human prose compares exactly.
@@ -126,7 +126,7 @@ The vocabulary is advertised as a **machine-readable schema**, one branch per en
 
 A consumer reaching the primitives directly would bypass the authority diff, the fence-introduction guard, the excluded-path refusal, and scalar hygiene. Those are properties of the path, not the primitives.
 
-**One write does not route here: wikilink repair.** It replaces bytes inside a wikilink that already exists, reads no key, and builds no tree ([Spec-Tool-Capabilities: Wikilink Maintenance](Spec-Tool-Capabilities.md#wikilink-maintenance)), so none of the guarantees above have anything to act on. Two other rules keep it safe: the name grammar, and the rule that a substitution stays inside a link's target. Every write that reads or composes frontmatter routes here.
+**One write does not route here: wikilink repair.** It replaces bytes inside a wikilink that already exists, reads no key, and builds no tree (`Spec-Tool-Capabilities.md:Wikilink Maintenance`), so none of the guarantees above have anything to act on. Two other rules keep it safe: the name grammar, and the rule that a substitution stays inside a link's target. Every write that reads or composes frontmatter routes here.
 
 **The registry is received, not reached for.** It arrives as an argument rather than from a global or a container the layer reaches into, so the layer can be exercised against a synthetic vocabulary: a conformance suite declares its own keys, namespaces, and exclusions and asserts the mechanism against them, without asserting anything about the vault's actual vocabulary.
 
@@ -142,12 +142,12 @@ Three call shapes must be supported and covered by test: mutation by operations,
 
 That split is set by the widest consumer. A path that threw on any schema violation would refuse a sweeping fix pass on exactly the notes carrying pre-existing problems. So it returns the violation list and the caller decides: a single-note tool treats a non-empty list as failure, a sweeping tool renders findings.
 
-**On an edit, refusals and violations cover only the keys the operations touched.** A key the declaration does not recognize, sitting elsewhere in the block, is passed through untouched and not reported. Editing one key is never blocked by an unrelated one ([Spec-Frontmatter-Registry: Two Extents, One Closed Perimeter](Spec-Frontmatter-Registry.md#two-extents-one-closed-perimeter)).
+**On an edit, refusals and violations cover only the keys the operations touched.** A key the declaration does not recognize, sitting elsewhere in the block, is passed through untouched and not reported. Editing one key is never blocked by an unrelated one (`Spec-Frontmatter-Registry.md:Two Extents, One Closed Perimeter`).
 
 - **Fence-introduction guard.** After composing final content, the path re-extracts its frontmatter and requires byte-equality with what the operations produced. This covers both directions: a body write *introducing* a fence on a fence-less note, minting a block no operation authored and bypassing validation and the authority assertion; and one destroying or truncating an existing fence.
 - **Parse and fence integrity.** A located block that will not parse, and one parsing to something other than a mapping, are refusals. So is prepending a fresh block to a note whose first line already looks like a fence - an ambiguous shape, worse resolved silently than refused.
 - **Caller-declared frontmatter that does not hold up.** On a supplied block, an unclosed fence and content after the closing fence are refusals rather than readings of a file: the caller declared the text is frontmatter, so text that cannot hold as frontmatter is a caller error.
-- **Path exclusion.** Distinct from an authorization denial, per [Spec-Tool-Capabilities: Path Policy](Spec-Tool-Capabilities.md#path-policy). Enforced here because every write that composes frontmatter routes here.
+- **Path exclusion.** Distinct from an authorization denial, per `Spec-Tool-Capabilities.md:Path Policy`. Enforced here because every write that composes frontmatter routes here.
 - **Scalar hygiene.** Every operation carrying caller text refuses **control characters**, binding entry field values as well as scalar values - terminal escapes are control characters, and the most agent-facing text in the vault lives in block-list entries. It **refuses rather than strips**: silently rewriting a value reports success while changing what was asked for. Newlines and quotes are **not** refused, since the emitter handles both, which keeps hygiene a policy about content rather than an artifact of a format.
 - **Registry refusal.** A key or value failing the registry is refused before anything is emitted.
 - **Shape mismatch.** A flat scalar operation against a field holding a block. Raised here because this path applies the operations and is the only place the corrupting path exists.

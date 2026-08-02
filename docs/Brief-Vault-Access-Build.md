@@ -6,11 +6,11 @@ Read this before anything else in the repo. It says what is being built, which o
 
 One access layer owning all vault I/O, with containment and scope enforced by construction; a tool layer above it with no hosting dependencies and a transport-neutral result and error representation; and two front-ends over that tool layer - an MCP server and a CLI - which render the representation differently and are otherwise indistinguishable to a tool.
 
-`Spec-Vault-Access-Design.md` is the primary spec. Read it whole before writing anything. This brief never restates it, and where the two appear to disagree, the spec wins and the disagreement is a defect in this brief worth reporting and getting instruction on how to reconcile the disagreement.
+`spec/Spec-Vault-Access-Design.md` is the primary spec. Read it whole before writing anything. This brief never restates it, and where the two appear to disagree, the spec wins and the disagreement is a defect in this brief worth reporting and getting instruction on how to reconcile the disagreement.
 
 ## The Bundle
 
-Seven documents. They are files in this repo, and they are the entire specification.
+Seven documents, in `spec/` beside this one. They are files in this repo, and they are the entire specification.
 
 - **`Spec-Vault-Access-Design.md`** - the primary spec: scope, guarantees to callers, load-bearing semantics, and fixed constraints. Read first, read whole.
 - **`Spec-Access-Layer-Capabilities.md`** - what the access layer must offer: vault resolution, enumeration, content search, reading, writing, moving, the mutex lock, and wikilink grammar and resolution.
@@ -52,7 +52,7 @@ The PowerShell access module and the PowerShell tool scripts, along with their t
 Each of these is a decision already made. None is an oversight to correct, and none should be re-derived.
 
 - **This repo has no access to the knowledge vault, by design.** The as-built documentation of the system being replaced is deliberately out of reach, because grounding a redesign in documentation of the old shape is how the old shape survives a rewrite. Do not attempt to reach it.
-- **Gaps escalate rather than resolve locally.** On a question the bundle cannot answer, raise it with the operator and stop that thread. Do not fill it from judgment and carry on. An agreed escalation goes to `spec/Questions.md` per the section below; a question the bundle cannot answer is itself the finding, and the answer returns as an amended spec.
+- **Gaps escalate rather than resolve locally.** On a question the bundle cannot answer, raise it with the operator and stop that thread. Do not fill it from judgment and carry on. An agreed escalation goes to `docs/Questions.md` per the section below; a question the bundle cannot answer is itself the finding, and the answer returns as an amended spec.
 - **The empty tool folder is intentional.** The script-loading framework is retained as a capability with no scripts to load. The folder and its `.gitkeep` stay: the watcher only attaches to a directory that exists, and it decides that once at construction.
 - **The external dependencies are chosen.** Ripgrep for search and enumeration, YamlDotNet for frontmatter, `System.CommandLine` for the CLI's command tree, and CliWrap for invoking ripgrep. Do not evaluate alternatives to any of them. Ripgrep and YamlDotNet are fixed constraints in the design spec and were settled by measurement; the other two are settled build decisions
 - **Junctions, symbolic links, and reparse points are not accommodated.** The layer assumes a plain directory tree and neither detects nor handles them.
@@ -69,7 +69,7 @@ Four projects. `VaultShared`, `VaultMcpServer`, and `VaultWatcher` exist; `Vault
 
 **The line: everything a tool call needs is shared; a front-end project holds only what makes its transport work.** The test is whether the CLI would have to duplicate it.
 
-**Retained code migrating into `VaultShared` is expected, not a refactor to propose.** The scope primitives, vault resolution, the op-class registry, the grant model, and the compiled-tool surface all move. What stays behind is what binds to a transport: HTTP auth middleware, host wiring, MCP registration, and the script-loading framework. These are moves, not redesigns - the code arrives unchanged, and altering its behavior on the way is a separate proposal under [What Is Retained And Readable](#what-is-retained-and-readable).
+**Retained code migrating into `VaultShared` is expected, not a refactor to propose.** The scope primitives, vault resolution, the op-class registry, the grant model, and the compiled-tool surface all move. What stays behind is what binds to a transport: HTTP auth middleware, host wiring, MCP registration, and the script-loading framework. These are moves, not redesigns - the code arrives unchanged, and altering its behavior on the way is a separate proposal under "What Is Retained And Readable".
 
 Two boundaries that hold hard:
 
@@ -79,7 +79,7 @@ Two boundaries that hold hard:
 Two new test projects join the existing `VaultMcpServer.Tests`:
 
 - **`VaultShared.Tests`** - the conformance suite, which asserts the substrate against a synthetic declaration and must not need a web host to run. It also owns the **front-end parity tests**: that one tool declaration projects into both front-ends with the same semantics is a claim about both, so it belongs to neither front-end's own suite.
-- **`VaultCli.Tests`** - the command tree built from the registry, option strings parsed into arguments, the raw-JSON escape hatch, the output flag, and exit codes. Most importantly the fail-closed path: configuration that will not load fails the CLI rather than admitting it unrestricted ([Spec-Auth-Requirements](Spec-Auth-Requirements.md)). An untested fail-closed path is one that quietly becomes fail-open.
+- **`VaultCli.Tests`** - the command tree built from the registry, option strings parsed into arguments, the raw-JSON escape hatch, the output flag, and exit codes. Most importantly the fail-closed path: configuration that will not load fails the CLI rather than admitting it unrestricted (`spec/Spec-Auth-Requirements.md`). An untested fail-closed path is one that quietly becomes fail-open.
 
 ## Build Order
 
@@ -90,13 +90,13 @@ The order matters, and it is not arbitrary.
 3. **The tool layer** over the access layer, with the transport-neutral result and error representation.
 4. **The two front-ends**, which should be thin enough to be uninteresting by the time they are written. A tool is declared once and projected into both; neither front-end carries per-tool code.
 
-The specs state what must be true, not how to build it, so the early architectural work makes those calls. Each one is recorded as it lands, in `spec/Decisions.md`.
+The specs state what must be true, not how to build it, so the early architectural work makes those calls. Each one is recorded as it lands, in `docs/Decisions.md`.
 
 ## Working Files
 
-Two files in `spec/` are written during the build rather than read from it. They have opposite lifetimes: one accumulates permanently, the other is worked down to empty.
+Two files in `docs/` are written during the build rather than read from it. They have opposite lifetimes: one accumulates permanently, the other is worked down to empty.
 
-**`spec/Decisions.md`** is permanent, and holds the architectural decisions this build makes, one entry each, newest last:
+**`docs/Decisions.md`** is permanent, and holds the architectural decisions this build makes, one entry each, newest last:
 
 ```
 ## <The decision, as a claim>
@@ -108,7 +108,7 @@ Which spec section it answers, where one applies.
 
 Record a decision when a fork closes - something was rejected. A choice with no alternative is a design fact and belongs in the code and its comments, not here. Nothing outside this repo is watching the build, so an unrecorded decision is one nobody can review.
 
-**`spec/Questions.md`** is the escalation channel, and it is two-way. Its normal state is empty.
+**`docs/Questions.md`** is the escalation channel, and it is two-way. Its normal state is empty.
 
 **A question reaches this file only after the operator has agreed it should.** Raise the gap in the session first and say what is blocked; the operator decides whether it is a genuine hole in the bundle or something answerable from what is already in the repo. Only an agreed escalation gets written. This file is not a place to park anything uncertain and move on - a question written here stops a thread of work and costs someone a round trip, so the bar is that the build genuinely cannot proceed correctly without an answer.
 
@@ -123,7 +123,7 @@ What the build would do under each plausible reading, and what it costs to be wr
 Answer: filled in by the responder, naming the spec file amended.
 ```
 
-**Clear the entry once it is consumed.** When the answer has been read, the specs have been updated, and the code reflects it, delete the entry. It has no further job: the amended spec is the requirement, the code is the implementation, and a decision worth keeping goes to `spec/Decisions.md`. Leaving answered questions to accumulate turns the file into a second source of truth that quietly competes with the specs, and makes the open ones harder to find among them. The exchange stays in git history either way.
+**Clear the entry once it is consumed.** When the answer has been read, the specs have been updated, and the code reflects it, delete the entry. It has no further job: the amended spec is the requirement, the code is the implementation, and a decision worth keeping goes to `docs/Decisions.md`. Leaving answered questions to accumulate turns the file into a second source of truth that quietly competes with the specs, and makes the open ones harder to find among them. The exchange stays in git history either way.
 
 ## Testing
 
