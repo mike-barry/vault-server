@@ -27,3 +27,13 @@ Rejected: keeping `ResolvePath` and `ResolveVault` as the seam the new resolved-
 `IsPathInReadScope` stays. `Spec-Auth-Requirements.md:What The Layer Must Do` puts the read-floor union on the retained check rather than on the layer, which makes it a spec-named seam rather than leftover.
 
 Answers `Spec-Vault-Access-Design.md:Load-Bearing Semantics`.
+
+## Where retained code and a spec conflict, the spec wins and the retained code moves
+
+2026-08-02, prework.
+
+Rejected: escalating the conflict as a possible defect in the specs or the brief. `Brief-Vault-Access-Build.md` says a retained component that looks wrong should be raised because a misread requirement is the likelier explanation, which reads as a presumption in favour of the retained code. That presumption is right for a component whose subject the specs do not cover, and wrong here: these conflicts were anticipated, and the specs are the specification.
+
+The two that closed it. The op-class floor is checked in `ScriptToolDispatcher`, in the MCP front-end, while `Spec-Vault-Access-Design.md:What The Layer Owns` puts it in the shared execute path that also takes the mutex lock - so a CLI built from the retained shape would ship with neither. And the vault-membership check cannot reach a compiled tool: the native branch returns before it, and its predicate is typed on `ScriptTool`. Every tool this build adds is compiled, so the check the brief lists as retained and correct would cover none of them.
+
+Both are approved changes to retained code rather than escalations.
