@@ -125,7 +125,7 @@ if (-not (Test-Path $dllPath)) {
 }
 
 # Launched through the shared `dotnet` host, the same way `dotnet run` starts it: the
-# project emits no apphost (see the Application Control note in the Dev-Setup corpus doc).
+# project emits no apphost (UseAppHost=false in VaultMcpServer.csproj).
 # The host runs the assembly in-process rather than spawning a child, so the teardown
 # below owns the whole server by killing this one process.
 #

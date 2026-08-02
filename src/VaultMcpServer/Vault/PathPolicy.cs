@@ -10,10 +10,10 @@ namespace VaultMcpServer.Vault;
 ///
 /// Two modifiers are specified. Only the first is implemented here:
 /// <list type="bullet">
-/// <item><b><c>always_readable</c></b> - the read-class scope floor. Its target is unioned into
-/// every grant's effective read scope in this vault, so an agent under any grant reaches the
-/// material it is instructed to obey - the guide docs - without that grant widening anywhere
-/// else. See <see cref="EffectiveReadScope"/>.</item>
+/// <item><b><c>always_readable</c></b> - the read-class scope floor. Its target unions into a
+/// grant's effective read scope for this vault, so an agent under any grant reaches the material
+/// it is instructed to obey without that grant widening anywhere else. See
+/// <see cref="EffectiveReadScope"/>, which is where that union is applied.</item>
 /// <item><b><c>mutation_requires</c></b> - an op class that mutating the target requires. Not
 /// implemented here, and <b>refused at load</b> rather than parsed and ignored: config naming an
 /// authority that nothing enforces is a lie that reads as working, which is worse than a refusal
@@ -156,7 +156,7 @@ public sealed class PathPolicy
     /// <paramref name="grantScope"/>: the union of that scope and the always-readable roots.
     ///
     /// An unscoped grant is returned unchanged - it already reaches everything. With no policy
-    /// this is the identity, so the read path calls it unconditionally rather than branching on
+    /// this is the identity, so a read caller can call it unconditionally rather than branching on
     /// whether a floor exists. It returns a <see cref="VaultScope"/> rather than answering a
     /// containment question, so enumeration runs over the same scope a containment check uses and
     /// needs no special case of its own.

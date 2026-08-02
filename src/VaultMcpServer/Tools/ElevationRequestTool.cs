@@ -227,7 +227,7 @@ public sealed class ElevationRequestTool(
     /// <summary>
     /// Parses the freshly-minted scoped target's <c>scope_roots</c>/<c>op_class</c> into concrete
     /// sets, applying the same shape rules as <see cref="MintTokenTool"/>: vault-prefixed scope
-    /// roots grouped per vault (a whole-vault entry becomes an empty set), each subtree
+    /// roots grouped per vault (a whole-vault entry becomes <see cref="VaultScope.Unscoped"/>), each subtree
     /// canonicalized via <see cref="VaultAccess.NormalizeScopeSegments"/>, and explicit op classes
     /// only (no <c>"*"</c>). Attenuation against the caller's own grant is a separate, later
     /// checklist item and is not enforced here.

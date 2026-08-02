@@ -168,7 +168,7 @@ public sealed class VaultConfig
     /// <summary>
     /// The <see cref="Vault.PathPolicy"/> declared for <paramref name="vault"/>, or
     /// <see cref="PathPolicy.None"/> when the vault declares none or is not resolvable. Never
-    /// null, so a read path can union the floor in unconditionally.
+    /// null, so a read caller can union the floor in unconditionally.
     /// </summary>
     public PathPolicy PathPolicyFor(string? vault)
     {

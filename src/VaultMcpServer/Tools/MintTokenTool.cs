@@ -42,8 +42,8 @@ public sealed record MintTokenArguments(
 /// the dispatcher hands it the resolved grant, including any active elevation binding). Op
 /// classes must be a subset of the caller's own; every vault implied by <c>scope_roots</c> must
 /// be one the caller can access; each requested scope root must fall within one of the caller's
-/// own scope roots for that vault (an empty caller root-set for a vault means the caller is
-/// unscoped there, so anything is permitted); and the minted grant's absolute expiry is capped at
+/// own scope roots for that vault (a caller unscoped in that vault permits anything there); and
+/// the minted grant's absolute expiry is capped at
 /// the caller's own remaining lifetime (an infinite caller imposes no cap) - see
 /// <see cref="GrantStore.Mint"/>'s <c>maxExpiresAtUtc</c> parameter. This uniformly covers
 /// <c>grants:manage</c> too: a minted grant may carry it iff the caller does, no special case.
@@ -67,9 +67,10 @@ public sealed record MintTokenArguments(
 /// (still enforced today by <see cref="Auth.BearerGrantMiddleware"/>'s vault-scope check) is
 /// derived from it, while the remainder of each entry (the part after the leading vault
 /// segment) is grouped per vault into <see cref="Grant.ScopeRoots"/>'s per-vault dictionary
-/// shape for the folder-prefix containment check. A whole-vault entry (no subtree) produces an
-/// <em>empty</em> set for that vault key, not an empty-string element - an empty/blank
-/// scope-root string is malformed input on that branch, not a "matches everything" sentinel.
+/// shape for the folder-prefix containment check. A whole-vault entry (no subtree) produces
+/// <see cref="VaultScope.Unscoped"/> for that vault key, never an empty root set - an empty/blank
+/// scope-root string is malformed input on that branch, and an empty set is unconstructable
+/// by design (<see cref="VaultScope"/>), so neither can become a "matches everything" sentinel.
 /// That map reaches a script tool: <see cref="ScriptToolDispatcher.CallToolAsync"/> passes
 /// <see cref="Grant.ScopeRoots"/> into <c>ScriptToolRunner</c>, which injects it into the tool
 /// runspace as the <c>VaultMcpScopeRoots</c> global. Delivering it there is the whole of what this

@@ -1,7 +1,7 @@
 namespace VaultMcpServer.Vault;
 
 /// <summary>
-/// The vault-access chokepoint, holding the grant-scope primitives.
+/// The grant-scope primitives. Pure string containment - nothing here opens a file.
 /// <see cref="NormalizeScopeSegments"/> canonicalizes a scope root or a candidate path,
 /// <see cref="ResolveVaultScopeRoots"/> narrows a grant's per-vault map to one vault, and
 /// <see cref="IsPathInScope"/> turns that into a containment answer.

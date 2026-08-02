@@ -22,8 +22,8 @@ namespace VaultMcpServer.Auth;
 /// </summary>
 /// <param name="SelectorToken">
 /// The well-known, non-secret selector token that identifies an interactive dev session in the
-/// permissive model. Committed in both repos' client registration (a later batch); not a guarded
-/// credential - localhost auth protects nothing the filesystem doesn't. Defaults to
+/// permissive model. Not a guarded credential - localhost auth protects nothing the filesystem
+/// doesn't. Defaults to
 /// <see cref="DefaultSelectorToken"/>.
 /// </param>
 /// <param name="ExpectedLocalhostToken">

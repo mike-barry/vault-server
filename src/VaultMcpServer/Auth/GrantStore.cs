@@ -139,7 +139,8 @@ public sealed class GrantStore
 
     /// <summary>
     /// Authenticates a presented bearer token, returning the matching grant or null. This is the
-    /// sole authorization decision point, resolving authority in order:
+    /// sole authentication point - every authorization decision (op class, vault membership, scope
+    /// containment) is made downstream against the grant this returns. It resolves authority in order:
     /// <list type="number">
     /// <item>an active elevation binding for this token (the binding table) - consulted here and
     /// lazily reverted on expiry, so a rebind wins over the token's base grant until it lapses;</item>

@@ -20,8 +20,8 @@ public sealed class ScriptToolRunner : IDisposable
     // appsetting) - re-asserted into VAULT_MCP_VAULTS_JSON ahead of every invocation (see
     // WrapperScript) so a value a prior tool script left in that process-wide env var cannot
     // redirect a later one at an attacker-chosen config. Null only when a caller constructs the
-    // runner without a path (unit tests running scripts that don't touch the vault module), in
-    // which case the wrapper clears the var so the VaultAccess module falls back to its own default.
+    // runner without a path (unit tests running scripts that need no vault), in which case the
+    // wrapper clears the var and a script is left to its own default.
     private readonly string? _vaultsJsonPath;
 
     // The ripgrep executable path the host resolved at startup (from the RipgrepPath appsetting) -
@@ -75,7 +75,7 @@ public sealed class ScriptToolRunner : IDisposable
         # vaults.json) would otherwise persist into this call and could redirect it at
         # an attacker-chosen config. Re-assert the host's startup value before every invocation:
         # set it back to the intended path, or clear it when the host started without one (the
-        # production default, where the module falls back to its own repo-relative vaults.json).
+        # production default, where a script falls back to its own repo-relative vaults.json).
         # Either way a prior tool's mutation cannot survive into this call. (Concurrent tools on
         # the pool still share process env state; this closes the sequential-reuse vector, which
         # is the one that persists across calls. Test-Path-guard the removal so clearing an
