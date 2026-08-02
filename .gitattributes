@@ -1,0 +1,7 @@
+# Every text file is LF, in the repository and in the working tree, whatever
+# platform or tool wrote it. Git decides which files are text.
+#
+# Without this, a file written by a tool that translates newlines is committed
+# with the other convention and then diffs whole on its next edit, which buries
+# the actual change and makes the history of that file unreadable.
+* text=auto eol=lf
