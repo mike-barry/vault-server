@@ -39,7 +39,7 @@ Two surfaces, with different consumers and different answers:
 
 Both must exist. The census backs whole-vault passes that must not miss a non-markdown file, where a silent omission is a wrong answer rather than a narrower one; note enumeration backs everything whose subject is a note.
 
-**Both take an optional pattern** matched against the vault-relative path, using standard glob syntax with `**` for recursive descent, compared case-insensitively. With a pattern the surface is a name-and-path search; with no pattern it returns everything in its domain. Matching belongs here rather than to each caller, so a tool searching by name and a tool taking a census agree on what exists instead of holding two notions of it.
+**Both take an optional pattern**, using standard glob syntax with `**` for recursive descent, compared case-insensitively. A pattern containing no separator matches a path's final segment at any depth; a pattern containing one is anchored at the vault root. The anchoring is required rather than incidental: `*.md` meaning every note and `*.md` meaning the root's notes are different answers, and nothing downstream can tell which it got. With a pattern the surface is a name-and-path search; with no pattern it returns everything in its domain. Matching belongs here rather than to each caller, so a tool searching by name and a tool taking a census agree on what exists instead of holding two notions of it.
 
 **No path under a dot-directory is reachable by the tool set** - not an operand, not enumerated, and no declaration admits one. The tooling's content lives outside them. The rule is fixed in code rather than declared, which is why nothing a read depends on comes from a configuration file.
 

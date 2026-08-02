@@ -92,9 +92,9 @@ public sealed record CreateArguments(
     string? Content,                // note only
     bool GitKeep) : IToolArguments; // folder only
 
-public sealed record DeleteArguments(string? Vault, string Path, OperandKind Kind, bool Recursive, bool Commit) : IToolArguments;
+public sealed record DeleteArguments(string? Vault, string Path, OperandKind Kind, bool Recursive, bool Apply) : IToolArguments;
 
-public sealed record MoveArguments(string? Vault, string Path, string Destination, OperandKind? Kind, bool Commit) : IToolArguments;
+public sealed record MoveArguments(string? Vault, string Path, string Destination, OperandKind? Kind, bool Apply) : IToolArguments;
 ```
 
 `Vault` is the only argument that is not an operand or a modifier, and it selects rather than restricts: absent, the configured default vault applies. Scope and held authority appear nowhere, which is what makes the guarantee checkable by reading one record.
@@ -144,13 +144,13 @@ public sealed record CreateResult(
     IReadOnlyList<string> AssertedAuthority);
 
 public sealed record MoveResult(
-    bool Committed, string Path, string? Token, bool CaseOnly,
+    bool Applied, string Path, string? Token, bool CaseOnly,
     IReadOnlyList<string> Moved, IReadOnlyList<LinkRewrite> RepairedLinks,
     IReadOnlyList<LinkRewrite>? PinnedLinks, string? FolderNote,
     IReadOnlyList<string> AssertedAuthority);
 
 public sealed record DeleteResult(
-    bool Committed, IReadOnlyList<string> Removed,
+    bool Applied, IReadOnlyList<string> Removed,
     IReadOnlyList<LinkOccurrence> Backlinks, IReadOnlyList<string> AssertedAuthority);
 
 public sealed record LinkRewrite(string Path, int Line, string From, string To);
@@ -159,7 +159,7 @@ public sealed record LinkOccurrence(string Path, int Line, string Target);
 
 `AssertedAuthority` is on all four and stays when empty: absence would not distinguish an operation that asserted nothing from a tool that never asserts.
 
-`Token` is absent where there is no single note left to describe - a folder creation, a folder move - and `Committed` is absent from `CreateResult` because creation has no gate to report the state of.
+`Token` is absent where there is no single note left to describe - a folder creation, a folder move - and `Applied` is absent from `CreateResult` because creation has no gate to report the state of.
 
 `PinnedLinks` is nullable because absence and emptiness part company: no member means the basename was unique and no pass ran, an empty list means the pass ran and pinned nothing. `Backlinks` is not nullable for the same reason read the other way - a census that ran and found nothing is a finding.
 
@@ -169,9 +169,9 @@ public sealed record LinkOccurrence(string Path, int Line, string Target);
 
 ## The Preview Gate
 
-`Commit` is the one gate, false by default, and only `delete` and `move` carry it. `edit` and `create` have none: `edit`'s blast radius is its own request, and a creation destroys nothing.
+`Apply` is the one gate, false by default, and only `delete` and `move` carry it. `edit` and `create` have none: `edit`'s blast radius is its own request, and a creation destroys nothing.
 
-A plan runs the identical path - the same lock, the same validation, the same refusals - and answers the same record with `Committed: false`. The two differ in that member alone, so a caller can compare a plan against the result of the call it authorized. Every path-valued member names post-mutation paths in both.
+A plan runs the identical path - the same lock, the same validation, the same refusals - and answers the same record with `Applied: false`. The two differ in that member alone, so a caller can compare a plan against the result of the call it authorized. Every path-valued member names post-mutation paths in both.
 
 ## Staleness Tokens
 
@@ -215,7 +215,7 @@ A tool reports the first failure it meets and stops. These are not batch reports
 
 ## The Error Catalogue
 
-One catalogue, drawn from by every tool.
+One catalogue, drawn from by every tool. It is the first pass's set, not a ceiling: a failure the set does not carry earns a new code here, added under the spec's distinctions and the payload rules below. An existing code is never widened to cover a near fit, because that collapses a distinction a caller branches on, and never repurposed, because callers already branch on what it means.
 
 ```
 unknown_vault          A vault nobody configured. Caller error.
@@ -261,14 +261,15 @@ Three rules govern the payloads. **A payload is liftable into a corrected call**
 - **Kind is required on `create` and `delete`, optional on `move`.** The rule is whether the kinds take different arguments; on `move` they do not, and the assertion survives only as a fail-fast.
 - **`edit` takes a body change in two forms, not one.** A wholesale replacement requires a token; a substitution matches exactly once and needs none. Rejected: one form with an optional anchor, which makes the token requirement conditional on a value rather than on a shape.
 - **The content tier is text, and `read` with a token is its one structured member.** Rejected: wrapping every content result in an object for uniformity, which costs tokens on exactly the results a model reads directly.
-- **There is no shared mutation record.** Four per-tool shapes, sharing a member only where every sharer populates it. `AssertedAuthority` is on all four and stays when empty; `Committed` and `Token` are absent where the tool cannot populate them.
+- **There is no shared mutation record.** Four per-tool shapes, sharing a member only where every sharer populates it. `AssertedAuthority` is on all four and stays when empty; `Applied` and `Token` are absent where the tool cannot populate them.
 - **Nullable means the question was never asked.** `PinnedLinks` absent is no pass; empty is a pass that pinned nothing. That distinction is the whole reason the member is nullable rather than defaulted to empty.
 - **Partial-failure vocabulary lives in `partial_mutation`, not in the envelope.** A creation that writes once cannot report a partial state, and giving it the members to do so would be a claim it never makes.
-- **`commit` is the gate, false by default, on `delete` and `move` alone.** A plan differs from its result in that member and nothing else.
+- **`apply` is the gate, false by default, on `delete` and `move` alone.** A plan differs from its result in that member and nothing else. Rejected: `commit`, which names what git does to the working tree these tools write into.
 - **The token is a SHA-256 of the stored bytes, opaque on the wire.** Whole-file whichever part was read, so nothing authorizes a write from a partial read.
 - **A staleness refusal returns no token.** Returning the current one would let a caller retry into content it never read.
 - **A vault-wide pass reports identities and positions, never content.** The bound is on the report rather than on the primitive, because the primitive must reach notes the grant cannot.
 - **Routing beats authorization by phase order**, not by a rule each tool remembers: vault resolution is phase 2 and scope is phase 3.
 - **One table maps `RefusalReason` to a code**, applied where the envelope is rendered. Rejected: each tool catching and re-coding, which reintroduces per-tool reasoning about a refusal it did not raise.
 - **`path_not_found` rather than `not_found`.** The retained dispatcher already spends `not_found` on an unknown tool name, and a caller branching on one code for two unrelated conditions is the collapse the vocabulary exists to prevent.
+- **The catalogue is the first pass's set and extends additively.** A failure it does not carry earns a new code under the spec's distinctions and the payload rules, rather than a widened or repurposed existing one.
 - **Snake_case governs results as well as arguments**, through the same serializer options the binder uses, so nothing translates between a sent name and a returned one.

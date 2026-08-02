@@ -142,7 +142,7 @@ Matching rules, each closing an evasion:
 
 ## The Preview Contract
 
-**Any tool whose mutation has a discoverable blast radius offers a preview, through one gate with one meaning across the layer.** **`delete` and `move` both preview by default**: the routine call reports what the mutation would do, and a second call commits it. The gate is **absent where there is nothing to discover**; a preview that echoes the request back trains callers to skip previews generally. **`create` has no gate**, though a creation can pin wikilinks in notes the caller did not name. It destroys nothing, pinning holds the resolution that already applied, and the result reports what was pinned.
+**Any tool whose mutation has a discoverable blast radius offers a preview, through one gate with one meaning across the layer.** **`delete` and `move` both preview by default**: the routine call reports what the mutation would do, and a second call applies it. The gate is **absent where there is nothing to discover**; a preview that echoes the request back trains callers to skip previews generally. **`create` has no gate**, though a creation can pin wikilinks in notes the caller did not name. It destroys nothing, pinning holds the resolution that already applied, and the result reports what was pinned.
 
 **A plan is a faithful prediction of its own result:**
 

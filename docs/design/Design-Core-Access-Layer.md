@@ -93,11 +93,15 @@ The perimeter is a property of the caller-named path, not of containment. A dest
 
 Both surfaces and all three search granularities are operations on `VaultAccess`, so their results are filtered against the effective read scope by construction rather than by each caller remembering to. Note enumeration answers markdown only; the census answers every file. Both take an optional glob and a switch admitting dot entries, which is off by default.
 
-**Glob matching happens in the layer, over vault-relative paths, not in the engine.** The requirement is `**`, case-insensitive, matched against the vault-relative path, and the engine's own glob does not have those semantics on every platform. Matching after enumeration keeps both surfaces, both front-ends, and every platform agreeing on what a pattern means, which is the point of the requirement that matching belong to the layer at all.
+**The caller's pattern goes to the engine as `--iglob`**, which supplies both `**` and case-insensitivity. The engine is invoked `--hidden --no-ignore`: its hidden-file skipping is not the dot rule - hidden on Windows is a file attribute, which the dot-prefixed directories do not carry - and the census must see ignored files.
+
+**A pattern anchors the way the engine anchors it**: one containing no separator matches a path's final segment at any depth, one containing a separator anchors at the vault root. Stated as a requirement in [[Spec-Access-Layer-Capabilities.md#Enumeration]], because the two answers differ and a caller cannot tell which it got.
+
+**Scope, the dot rule, and note enumeration's markdown restriction are predicates over what the engine returns.** None is expressible as a second `--iglob`: globs union rather than intersect, so a second one widens the answer.
 
 The engine is invoked once per call and its output is read to completion before the operation answers. Streaming would let a caller consume results from a search that is about to fail, and a search that cannot read a file must fail whole ([[Spec-Vault-Access-Design.md#Load-Bearing Semantics]]) - which is only decidable once the engine has finished and its error stream has been read.
 
-Four outcomes, distinguishable at the call site: a result that may be empty, a malformed pattern as a caller error, an unreadable file as a whole-search failure, and anything else the engine reported as an operational failure carrying its text. Empty is never a failure and a malformed pattern is never operational, because collapsing either is unrecoverable above the layer.
+Four outcomes, distinguishable at the call site: a result that may be empty, a malformed pattern as a caller error, an unreadable file as a whole-search failure, and anything else the engine reported as an operational failure carrying its text. Empty is never a failure and a malformed pattern is never operational, because collapsing either is unrecoverable above the layer. Glob and regex both arrive malformed as the engine's refusal, so one classification covers them.
 
 The layer reports these to its caller and writes nothing to health state. A failing call is a call's failure; a layer that could degrade the server from inside one would give a single caller's bad pattern server-wide visibility.
 
@@ -123,7 +127,7 @@ The layer reports these to its caller and writes nothing to health state. A fail
 
 Two pure pieces, neither of which touches a filesystem.
 
-**Recognition** runs over a note's whole text, frontmatter included, and reports each occurrence as two byte ranges - the whole link, and the target inside it. A consumer rewrites a target by writing over its range, so it never parses, re-emits, or splits the note. One definition serves every consumer, because a link one consumer sees and another misses is a rewrite that silently misses a link.
+**Recognition** runs over a note's whole text, frontmatter included, and reports each occurrence as two byte ranges - the whole link, and the target inside it. It takes text and answers occurrences: no path goes in and none comes back. The consumer's enumeration already holds the path, and is what carries it to ranking. A consumer rewrites a target by writing over its range, so it never parses, re-emits, or splits the note. One definition serves every consumer, because a link one consumer sees and another misses is a rewrite that silently misses a link.
 
 **Ranking** is a comparator over a candidate set and the linking note's path, ordering candidates by nearest relative path with deterministic tie-breaking. It takes the candidates it is given, finds nothing itself, and is the whole of what [[Spec-Obsidian-Link-Behavior.md]] fixes - so the observed rule sits in one comparator that can be changed in a line or two when the editor's behaviour is re-measured.
 
@@ -155,7 +159,7 @@ The derivation of the lock name from the vault root ([[Spec-Vault-Access-Design.
 - **Where vault resolution lives, and what it answers.** In the layer, as the only producer of `Vault`, answering a three-case result whose cases come from configuration state. Rejected: keeping it on `VaultConfig` behind two same-typed exceptions, which is the fragile form the capability spec names.
 - **Loud and quiet resolution are different members.** Naming a path answers with a refusal; filtering a layer-produced path answers with a boolean and cannot construct one. Disclosure is then a property of which member exists rather than of how carefully each caller handles a result.
 - **Where the operand perimeter sits.** Dot-directory paths are representable and not nameable: the census must report them, and no caller may name one.
-- **Where glob matching happens.** In the layer over vault-relative paths, not delegated to the engine, so the pattern means one thing on every surface and platform.
+- **Where glob matching happens.** In the engine, as `--iglob`, with the engine's anchoring stated as the requirement. Scope, the dot rule, and the markdown restriction stay in the layer as predicates over the result. Rejected: matching in the layer, which reads the spec's "matching belongs here" as excluding the engine rather than each caller, at the cost of a second definition of the pattern and the engine's pruning.
 - **Engine output is read to completion before answering.** A search that cannot read a file must fail whole, which is not decidable until the error stream has been read; streaming would hand a caller results from a search about to fail.
 - **The layer writes nothing to health state.** An operational failure is returned to its caller. A layer that could degrade the server from inside a call would give one caller's failure server-wide visibility.
 - **How the vault-wide pass sits outside the ladder.** Unscoped enumerate, read and write take merely-contained paths and live on their own object, obtained by an explicitly-named call, so bypassing scope is deliberate and greppable. Rejected: a single operation exchanging link occurrences for substitutions, which confines the pass to link text but makes every consumer wanting anything else a new primitive and a new decision.
