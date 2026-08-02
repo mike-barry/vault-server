@@ -30,6 +30,7 @@ $bogusToken = 'e2e-smoke-bogus-token'
 
 $script:passed = 0
 $script:failed = 0
+$script:skipped = 0
 $script:rpcId = 0
 
 function Check {
@@ -42,6 +43,15 @@ function Check {
         if ($Detail) { Write-Host "        $Detail" -ForegroundColor DarkGray }
         $script:failed++
     }
+}
+
+# A probe whose subject does not exist yet. Reported rather than removed: a deleted probe
+# leaves a full-looking pass count with a hole in it, and this prints the hole on every run.
+function Skip {
+    param([string]$Name, [string]$Reason)
+    Write-Host "  SKIP  $Name" -ForegroundColor Yellow
+    Write-Host "        $Reason" -ForegroundColor DarkGray
+    $script:skipped++
 }
 
 function Test-PortListening {
@@ -151,8 +161,7 @@ try {
     Check 'zero problems (real grants.json parses clean)' ($null -ne $health -and @($health.problems).Count -eq 0) "problems=$(if ($health) { @($health.problems).Count })"
 
     Write-Host 'Probe: read on vault "test" with selector token (selector -> default binding)'
-    $r = Invoke-McpCall -Tool 'read' -Arguments @{ path = 'Resources/Gizmo-Reference.md'; vault = 'test' } -Token $selectorToken
-    Check 'succeeds with content' ($r.StatusCode -eq 200 -and -not $r.IsError -and $r.Text) "status=$($r.StatusCode) isError=$($r.IsError)"
+    Skip 'a read succeeds with content' 'no read tool is built yet - restore this probe with it, against its own argument surface'
 
     # The middleware's vault gate matches the vault argument's property name
     # case-insensitively. The schema now spells it "vault" (param() blocks are snake_case),
@@ -226,5 +235,6 @@ try {
 
 $total = $script:passed + $script:failed
 $color = if ($script:failed -eq 0) { 'Green' } else { 'Red' }
-Write-Host "`n-- Smoke result: $($script:passed)/$total passed --" -ForegroundColor $color
+$skipNote = if ($script:skipped -gt 0) { ", $($script:skipped) skipped" } else { '' }
+Write-Host "`n-- Smoke result: $($script:passed)/$total passed$skipNote --" -ForegroundColor $color
 exit ($script:failed -gt 0 ? 1 : 0)

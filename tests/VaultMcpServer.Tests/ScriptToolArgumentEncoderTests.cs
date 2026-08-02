@@ -25,7 +25,7 @@ public sealed class ScriptToolArgumentEncoderTests
     private static JsonElement Value(string json) => JsonDocument.Parse(json).RootElement.Clone();
 
     [Theory]
-    // A plain non-string type name is the ordinary case - edit's frontmatter_ops.
+    // A plain non-string type name is the ordinary case - a parameter carrying an array of objects.
     [InlineData("""{"type":"array"}""", true)]
     [InlineData("""{"type":"object"}""", true)]
     // A side-car declaring the type the .NET parameter already has asks for nothing.

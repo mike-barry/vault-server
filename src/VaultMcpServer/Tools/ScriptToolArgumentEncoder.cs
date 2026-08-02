@@ -8,8 +8,8 @@ namespace VaultMcpServer.Tools;
 /// hashtable <see cref="ScriptToolRunner"/> hands the script.
 ///
 /// Tool scripts keep <c>[string]</c> parameters even where the contract is an array of objects,
-/// so that <c>pwsh -File tools/edit.ps1 -frontmatter_ops '[{...}]'</c> keeps working unchanged and
-/// the encoding never enters PowerShell at all. The host therefore JSON-encodes a structured
+/// so that a direct <c>pwsh -File</c> invocation passing that argument as a JSON string keeps
+/// working unchanged and the encoding never enters PowerShell at all. The host therefore JSON-encodes a structured
 /// argument on the way in, for exactly the parameters whose side-car schema says they carry one -
 /// see <see cref="ScriptToolParameter.EncodesStructuredArgument"/> for the (derived, never
 /// hand-listed) signal.

@@ -509,7 +509,7 @@ public sealed class ScriptToolDispatcherTests : IClassFixture<ScriptToolDispatch
                 Reports how each of its arguments looked by the time it reached the script.
                 .PARAMETER items
                 A side-car-array parameter that stays [string] in the param() block and parses its
-                own JSON, the way edit's frontmatter_ops does.
+                own JSON.
                 .SCHEMA items
                 {
                   "type": "array",
