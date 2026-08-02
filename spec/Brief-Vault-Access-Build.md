@@ -16,7 +16,7 @@ Seven documents. They are files in this repo, and they are the entire specificat
 - **`Spec-Access-Layer-Capabilities.md`** - what the access layer must offer: vault resolution, enumeration, content search, reading, writing, moving, the mutex lock, and wikilink grammar and resolution.
 - **`Spec-Tool-Capabilities.md`** - what each tool must accomplish and which of its behaviors are load-bearing. The input to the tool-vocabulary design phase, and the heaviest document in the set.
 - **`Spec-Frontmatter-Substrate.md`** - the frontmatter block grammar, the facet split, the preservation invariants, the operation vocabulary, and the single write path. Knows no vault vocabulary at all.
-- **`Spec-Frontmatter-Registry.md`** - the declaration that supplies that vocabulary: recognized keys with shape, value constraint, and required write authority; protected namespaces; entry schemas; and path policy.
+- **`Spec-Frontmatter-Registry.md`** - the declaration that supplies that vocabulary: recognized keys with shape, value constraint, and required write authority; protected namespaces; and entry schemas.
 - **`Spec-Auth-Requirements.md`** - the obligations across the seam with the authorization model. Mostly pointer, because its subject is retained code.
 - **`Spec-Obsidian-Link-Behavior.md`** - how the editor actually resolves links. Empirical, and a requirement: the vault's existing content depends on which file a bare wikilink opens, so wikilink handling matches this rather than deriving a rule of its own.
 

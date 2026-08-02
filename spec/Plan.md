@@ -18,7 +18,6 @@ Its neighbours do different jobs: `Decisions.md` records what was chosen and wha
 Runs before any build work begins.
 
 - [x] Carry the spec bundle into `spec/` - the brief and seven specs, vault frontmatter stripped and cross-references rewritten as file links
-- [ ] Land the remaining grant-model prework: the shared read-root floor, the two-case scope-roots shape, and the maximality rule on rows carrying `*`
 - [ ] Verify from inside this repo that the knowledge vault is unreachable - no MCP registration, no additional-directory grant, no path out
 
 ## Build

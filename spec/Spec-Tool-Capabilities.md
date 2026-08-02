@@ -13,7 +13,7 @@ Owned elsewhere:
 - Guarantees, fixed constraints, and the front-end boundary: [Spec-Vault-Access-Design](Spec-Vault-Access-Design.md)
 - The operations available to build a tool from: [Spec-Access-Layer-Capabilities](Spec-Access-Layer-Capabilities.md)
 - Frontmatter parsing, mutation, validation, and the single write path: [Spec-Frontmatter-Substrate](Spec-Frontmatter-Substrate.md)
-- The declaration of recognized keys, path policy, and required authorities: [Spec-Frontmatter-Registry](Spec-Frontmatter-Registry.md)
+- The declaration of recognized keys and their required write authorities: [Spec-Frontmatter-Registry](Spec-Frontmatter-Registry.md)
 - The grant, scope, and op-class model: [Spec-Auth-Requirements](Spec-Auth-Requirements.md)
 - The editor's bare-wikilink resolution, which the wikilink work matches rather than defines: [Spec-Obsidian-Link-Behavior](Spec-Obsidian-Link-Behavior.md)
 
@@ -81,15 +81,31 @@ Three consequences are load-bearing:
 
 ## Path Policy
 
-Two rules decide which paths this tool set may touch, both stated in [Spec-Frontmatter-Registry: Path Policy](Spec-Frontmatter-Registry.md#path-policy). Nothing under a dot-directory is reachable at all, and that rule is fixed rather than declared. Every other path is reachable, and the declaration says what authority reaching it requires. What binds the tools:
+Two rules decide which paths this tool set may touch. Nothing under a dot-directory is reachable at all - not an operand, not enumerated, and no declaration admits one - and that rule is fixed in code rather than declared ([Spec-Access-Layer-Capabilities: Enumeration](Spec-Access-Layer-Capabilities.md#enumeration)). Every other path is reachable, and a vault's path policy says what mutating it requires. Narrowing further is the grant's scope roots.
 
-**One file does not mean one enforcer.** The tool layer loads the declaration and hands each consumer only the sections that bind it. Path policy is the tool set's; the access layer never reads the file and stays file-general.
+**Path policy is declared per vault, in the host's vault configuration**, because its targets are one vault's layout. An entry attaches modifiers to a target: `mutation_requires` names the op class mutating that target requires, and `always_readable` puts the target in every grant's read scope for that vault ([Spec-Auth-Requirements: What The Layer Must Do](Spec-Auth-Requirements.md#what-the-layer-must-do)).
+
+**A target is one of two things.** A **path**, matched as a whole-segment prefix, so a file entry matches that file and a directory entry matches everything beneath it. Or a **named structural rule** from a closed set - currently only the folder note, a note whose basename matches its parent folder. The rule is code; the declaration decides whether it applies and at what price.
+
+**Mutating a target contributes its `mutation_requires` class to the required authority**, and contributions union - no entry can clear one another contributed.
+
+Matching rules, each closing an evasion:
+
+- **Anchored at the vault root.** A batch run rooted below the vault would hand the matcher relative paths that cannot match, and the policy would silently do nothing on the run touching the most files.
+- **Whole segments**, so a similarly named sibling directory is not caught by accident.
+- **Case-insensitive**, over a path with separators folded and relative navigation resolved away, so a caller cannot reach an excluded file by spelling it differently.
+
+**Exclusion is a distinct refusal from an authorization denial.** A denial means *your grant does not reach this*, remedied by elevation. Exclusion means *the tooling does not own this file*, which no grant changes. Collapsing them sends a caller to widen a grant that cannot help.
+
+**One declaration does not mean one enforcer.** Path policy is the tool set's; the access layer never reads it and stays file-general. Writes consult it on the single write path beside the authority assertion, **including a body-only edit**; tools that remove or relocate consult it at their own validate phase, since neither routes through a frontmatter write.
+
+**A sweeping tool applies the policy to its writing passes only**; its reporting passes keep full coverage. A tool acting on one named file fails loudly when the policy refuses it. A tool sweeping a set skips such a file instead, since the caller never named it individually and one refusal should not end the run.
 
 **Filtering is silent, gating is loud.** Enumeration and search both omit excluded paths without saying so; a named excluded path errors, distinguishably from a miss. The layer's own default already keeps dot entries out of a result; the policy is what refuses one named as an operand, and what binds the one tool that asks the layer for them.
 
 **Policy and scope compose as a conjunction, and scope only narrows.** A grant naming an excluded path still does not reach it. Policy belongs to the tool set rather than to a grant, so it binds both front-ends and neither is a way around it.
 
-**A future non-markdown surface is bound by the same declaration and takes different sections of it**, so its opt-outs are stated in one place rather than being an absence someone has to notice.
+**A future non-markdown surface is bound by the same policy**, so its opt-outs are stated in one place rather than being an absence someone has to notice.
 
 ## The Argument Surface
 
@@ -178,7 +194,7 @@ The grant model is given ([Spec-Auth-Requirements](Spec-Auth-Requirements.md)). 
 
 **Key-level authority, classified by outcome** over what the operation turned out to change. Classification by declared intent classifies by what the caller said they were doing, and every injection path is an operation aimed at something innocuous that mutates the protected layer anyway. The predicate is shared ([Spec-Frontmatter-Substrate: Write Authority Classification](Spec-Frontmatter-Substrate.md#write-authority-classification)) so it cannot drift per tool, and the degenerate cases - composing a new note against no original, removing a note's frontmatter entirely - fall out of it rather than becoming second rules.
 
-**Artifact-level authority, declared by path** ([Path Policy](#path-policy)). Some files exist to instruct agents, and their bodies are that instruction rather than prose - the root manifest, folder notes, and the shared guides. For these the key-level diff is not enough, because a body-only write to one changes the agentic layer while touching no key. The declaration names them and states the authority; the requirement is declared membership of a path set, exactly as key-level authority is declared membership of a key set.
+**Artifact-level authority, declared by path** ([Path Policy](#path-policy)). Some files exist to instruct agents, and their bodies are that instruction rather than prose - the root manifest, folder notes, and the shared guides. For these the key-level diff is not enough, because a body-only write to one changes the agentic layer while touching no key. A `mutation_requires` entry names them and states the authority; the requirement is declared membership of a path set, exactly as key-level authority is declared membership of a key set. This is why [Spec-Frontmatter-Substrate](Spec-Frontmatter-Substrate.md)'s guarantee that a body-only write never requires elevated authority holds for every note *except* those an entry names.
 
 **Artifact authority applies to what an operation names and to everything in its target set.** Creating, editing, or removing an artifact always requires the declared class. Relocating one depends on how the artifact was declared:
 

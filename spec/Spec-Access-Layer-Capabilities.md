@@ -41,7 +41,9 @@ Both must exist. The census backs whole-vault passes that must not miss a non-ma
 
 **Both take an optional pattern** matched against the vault-relative path, using standard glob syntax with `**` for recursive descent, compared case-insensitively. With a pattern the surface is a name-and-path search; with no pattern it returns everything in its domain. Matching belongs here rather than to each caller, so a tool searching by name and a tool taking a census agree on what exists instead of holding two notions of it.
 
-**Dot entries are out by default, and both surfaces take a switch that admits them.** A path with a dot-prefixed segment at any depth is dropped unless the caller asks for it. The default is what keeps a caller off the vault copies that live under `.claude`; the switch is what lets a destruction census see a nested `.git` and report every file a removal takes with it. Content search takes the same default.
+**No path under a dot-directory is reachable by the tool set** - not an operand, not enumerated, and no declaration admits one. The tooling's content lives outside them. The rule is fixed in code rather than declared, which is why nothing a read depends on comes from a configuration file.
+
+**Dot entries are out by default at this layer, and both surfaces take a switch that admits them.** A path with a dot-prefixed segment at any depth is dropped unless the caller asks for it. The default is what keeps a caller off the vault copies that live under `.claude`; the switch is what lets a destruction census see a nested `.git` and report every file a removal takes with it. Content search takes the same default.
 
 **No ignore-file rule.** A gitignored file is still on disk and still destroyed, so honoring `.gitignore` would hide from the census exactly what it exists to report.
 
