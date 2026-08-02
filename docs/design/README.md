@@ -11,7 +11,7 @@ One document per design area, named for the area:
 - `Design-Core-Access-Layer.md` - vault resolution, the resolved-path type, scope enforcement, enumeration, search, the read and write primitives, wikilink grammar and ranking
 - `Design-Frontmatter-Surface.md` - the block grammar and facet split, the operation vocabulary, authority classification, the validator, the registry's loading and failure behaviour
 - `Design-Tool-Vocabulary.md` - argument shapes, result tiers, the error vocabulary, the preview convention, the write-class envelope
-- `Design-Front-End-Projection.md` - one tool declaration, two front-ends, and what each may vary
+- `Design-Front-End-Projection.md` - one tool declaration, two front-ends, and what each may vary; the shared execute path that checks the op-class floor, takes the mutex lock, and constructs the per-call access object
 
 A document is created when its design step is worked, never ahead of it. An empty or speculative file is worse than none.
 

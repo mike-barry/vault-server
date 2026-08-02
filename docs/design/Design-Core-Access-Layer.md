@@ -14,10 +14,10 @@
 
 Not answered here, deliberately:
 
-- [[Spec-Access-Layer-Capabilities.md#The Mutex Lock]] - acquiring, holding, and crash recovery are the shared execute path's: [[Design-Tool-Vocabulary.md]].
+- [[Spec-Access-Layer-Capabilities.md#The Mutex Lock]] - acquiring, holding, and crash recovery are the shared execute path's: [[Design-Front-End-Projection.md]].
 - [[Spec-Frontmatter-Substrate.md]] - the substrate is [[Design-Frontmatter-Surface.md]]; this document supplies the paths it reads and writes through.
 - [[Spec-Tool-Capabilities.md#The Error Vocabulary]] - a refusal's codes and rendering: [[Design-Tool-Vocabulary.md]]. This document fixes what a refusal distinguishes, not what it is called on the wire.
-- Who constructs the per-call access object, and when: [[Design-Tool-Vocabulary.md]].
+- Who constructs the per-call access object, and when: [[Design-Front-End-Projection.md]].
 
 ## Paths And Vaults
 
