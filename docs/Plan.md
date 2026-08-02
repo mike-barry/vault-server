@@ -12,7 +12,7 @@ The working plan for this build, seeded from the planning session that produced 
 - **Propose plan changes rather than making them silently.** The operator is the other holder of this plan; a re-sequencing or a dropped step is a decision they should see.
 - **This plan does not overrule the specs.** If working a step surfaces a contradiction with them, that is an escalation under the rules in `../CLAUDE.md`, not a plan edit. The plan says what to do next; the specs say what is correct.
 
-Its neighbours do different jobs: `Decisions.md` records what was chosen and what lost, `Questions.md` carries what the bundle cannot answer. This file only tracks what is left to do.
+Its neighbours do different jobs: `Decisions.md` records what was chosen and what lost, `Questions.md` carries what the bundle cannot answer, `Sidequests.md` holds agreed work that does not block the build. This file only tracks what is left to do.
 
 ## Prework
 
@@ -49,6 +49,7 @@ Design runs ahead of the code it governs and lands in its own documents under `d
 - [ ] Build `read`, `glob`, and `grep`
   - Restore the skipped read probe in `e2e-smoke.ps1`, written against `read`'s own argument surface rather than the deleted script's. The two vault-gate probes beside it still pass, since that gate fires on the body peek before dispatch
 - [ ] Build `edit` over the frontmatter surface
+  - `BearerGrantMiddleware` logs every call's full arguments verbatim to an unrotated file. Harmless for the read tools; `edit` and `create` carry note bodies and frontmatter operations, so every write's content would land in `logs/`. Propose the middleware change before the first write tool ships, not after
 - [ ] Verify the read-class scope floor end to end. This is the earliest point both halves can be proved: the check needs a write refused as well as a read admitted, so it waits for the first mutating tool rather than the first read. The floor is retained code with unit coverage and no end-to-end proof: `test-vault` declares `Resources/Vault/Guides` `always_readable` in `vaults.json`, so a grant scoped to `Projects/Widget` alone must read and glob both guide docs, must be refused writing either, and must reach nothing else outside its roots. A failure here is the floor's, not the tool's - it means an operation reached the scope check on a path that should have been unioned in, or a write path consulted the floor when it must not
 - [ ] Build wikilink maintenance as one shared area - repair on relocation, pinning on creation, the census on removal - over the layer's single grammar and ranking rule. Ahead of the three tools that consume it, so it is not an artifact of whichever was built first
 - [ ] Build `create`, `move`, and `delete`

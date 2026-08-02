@@ -7,10 +7,23 @@
       "type": "process",
       "args": [
         "build",
-        "${workspaceFolder}/src/VaultMcpServer/VaultMcpServer.csproj",
+        "${workspaceFolder}/VaultMcpServer.slnx",
         "/property:GenerateFullPaths=true",
         "/consoleloggerparameters:NoSummary"
       ],
+      "problemMatcher": "$msCompile"
+    },
+    {
+      "label": "test",
+      "command": "dotnet",
+      "type": "process",
+      "args": [
+        "test",
+        "${workspaceFolder}/VaultMcpServer.slnx",
+        "/property:GenerateFullPaths=true",
+        "/consoleloggerparameters:NoSummary"
+      ],
+      "group": "test",
       "problemMatcher": "$msCompile"
     }
   ]

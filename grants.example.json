@@ -10,23 +10,23 @@
   "REPLACE-WITH-A-LONG-RANDOM-READONLY-TOKEN": {
     "id": "read-only",
     "opClasses": ["content:read"],
-    "vaults": ["primary", "test"],
+    "vaults": ["test"],
     "ttl": "*",
-    "scopeRoots": { "primary": ["*"], "test": ["*"] }
+    "scopeRoots": { "test": ["*"] }
   },
   "REPLACE-WITH-A-LONG-RANDOM-SCOPED-TOKEN": {
     "id": "scoped-example",
     "opClasses": ["content:read"],
-    "vaults": ["primary"],
+    "vaults": ["test"],
     "ttl": "*",
-    "scopeRoots": { "primary": ["Projects/Vault-MCP-Server"] },
+    "scopeRoots": { "test": ["Projects/Widget", "Resources"] },
     "canRequestElevation": true
   },
   "REPLACE-WITH-A-LONG-RANDOM-MULTI-VAULT-SCOPED-TOKEN": {
     "id": "multi-vault-scoped-example",
     "opClasses": ["content:read"],
-    "vaults": ["primary", "test"],
+    "vaults": ["test", "REPLACE-WITH-A-SECOND-VAULT-NAME"],
     "ttl": "*",
-    "scopeRoots": { "primary": ["Area"], "test": ["*"] }
+    "scopeRoots": { "test": ["*"], "REPLACE-WITH-A-SECOND-VAULT-NAME": ["Areas"] }
   }
 }
