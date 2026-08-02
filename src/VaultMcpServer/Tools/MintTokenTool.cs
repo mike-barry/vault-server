@@ -182,7 +182,7 @@ public sealed class MintTokenTool(GrantStore grantStore, OpClassRegistry opClass
         {
             // A caller unscoped in this vault can delegate anything within it, so there is
             // nothing to attenuate against.
-            if (VaultAccess.ResolveVaultScopeRoots(vaultName, grant.ScopeRoots) is not VaultScope.RootedScope callerScope)
+            if (grant.ScopeIn(vaultName) is not VaultScope.RootedScope callerScope)
                 continue;
 
             var callerRoots = callerScope.Roots;

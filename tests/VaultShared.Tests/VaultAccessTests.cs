@@ -1,3 +1,4 @@
+using VaultShared.Auth;
 using VaultShared.Scope;
 
 namespace VaultShared.Tests;
@@ -8,7 +9,7 @@ public sealed class VaultAccessTests
     [MemberData(nameof(ScopeCases))]
     public void IsPathInScope_ContainmentCases(string name, string vault, string path, IReadOnlyDictionary<string, VaultScope> scopeRoots, Outcome expected)
     {
-        var resolved = VaultAccess.ResolveVaultScopeRoots(vault, scopeRoots);
+        var resolved = GrantOver(scopeRoots).ScopeIn(vault);
 
         switch (expected)
         {
@@ -48,17 +49,6 @@ public sealed class VaultAccessTests
         Assert.NotEqual(VaultScope.Unscoped, VaultScope.Of(["Projects"]));
     }
 
-    [Fact]
-    public void ResolveVaultScopeRoots_MapMissingVaultKeyThrows()
-    {
-        // Every real Grant.ScopeRoots is guaranteed to have an entry for every vault it can
-        // reach (enforced by GrantStore.Load and GrantStore.Mint), so a map missing
-        // the queried vault's key means that invariant was violated upstream - it must fail
-        // loudly rather than silently falling back to full access.
-        Assert.Throws<InvalidOperationException>(
-            () => VaultAccess.ResolveVaultScopeRoots("scratch", Scopes(("test", Rooted("Projects")))));
-    }
-
     public static TheoryData<string, string, string, IReadOnlyDictionary<string, VaultScope>, Outcome> ScopeCases => new()
     {
         { "unscoped grant allows anything", "test", "Inbox/Note-Loose-Thought.md", Scopes(("test", VaultScope.Unscoped)), Outcome.InScope },
@@ -83,6 +73,11 @@ public sealed class VaultAccessTests
     };
 
     private static VaultScope Rooted(params string[] roots) => VaultScope.Of(roots.ToHashSet(StringComparer.OrdinalIgnoreCase));
+
+    /// <summary>A grant reaching exactly the vaults <paramref name="scopeRoots"/> covers, which is
+    /// the coverage invariant every real grant carries.</summary>
+    private static Grant GrantOver(IReadOnlyDictionary<string, VaultScope> scopeRoots) =>
+        new("test-grant", new HashSet<string>(), scopeRoots.Keys.ToHashSet(StringComparer.OrdinalIgnoreCase), null, scopeRoots);
 
     private static IReadOnlyDictionary<string, VaultScope> Scopes(params (string Vault, VaultScope Scope)[] entries) =>
         entries.ToDictionary(e => e.Vault, e => e.Scope, StringComparer.OrdinalIgnoreCase);

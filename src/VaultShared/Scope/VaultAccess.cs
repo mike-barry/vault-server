@@ -3,41 +3,11 @@ namespace VaultShared.Scope;
 
 /// <summary>
 /// The grant-scope primitives. Pure string containment - nothing here opens a file.
-/// <see cref="NormalizeScopeSegments"/> canonicalizes a scope root or a candidate path,
-/// <see cref="ResolveVaultScopeRoots"/> narrows a grant's per-vault map to one vault, and
-/// <see cref="IsPathInScope"/> turns that into a containment answer.
+/// <see cref="NormalizeScopeSegments"/> canonicalizes a scope root or a candidate path, and
+/// <see cref="IsPathInScope"/> turns a scope and a path into a containment answer.
 /// </summary>
 public sealed class VaultAccess
 {
-    /// <summary>
-    /// Resolves a grant's per-vault <see cref="VaultShared.Auth.Grant.ScopeRoots"/> map down to the flat,
-    /// already-vault-scoped root list for one specific <paramref name="vault"/> - the shape
-    /// <see cref="IsPathInScope"/>, and every other scope-checking caller in this class,
-    /// expects. This is where "a scope root configured for one
-    /// vault must not leak into another vault the same grant can access" is enforced: only the
-    /// entry keyed to <paramref name="vault"/> is ever consulted.
-    ///
-    /// A map with no entry for <paramref name="vault"/> throws. Every real
-    /// <see cref="VaultShared.Auth.Grant"/> (whether file-loaded via <see cref="VaultShared.Auth.GrantStore.Load"/> or
-    /// minted via <see cref="VaultShared.Auth.GrantStore.Mint"/>) is guaranteed to carry a
-    /// <see cref="VaultShared.Auth.Grant.ScopeRoots"/> entry for every vault it can access, so a missing key
-    /// means that invariant was violated upstream. There is no absent-scope case to answer:
-    /// the parameter is required, and no argument to this method denotes "no restriction" - a
-    /// caller that means the whole vault passes a map holding <see cref="VaultScope.Unscoped"/>.
-    /// </summary>
-    public static VaultScope ResolveVaultScopeRoots(string vault, IReadOnlyDictionary<string, VaultScope> scopeRootsByVault)
-    {
-        foreach (var (key, scope) in scopeRootsByVault)
-        {
-            if (string.Equals(key, vault, StringComparison.OrdinalIgnoreCase))
-                return scope;
-        }
-
-        throw new InvalidOperationException(
-            $"Grant configuration invariant violated: vault \"{vault}\" has no scope entry in the supplied scope map. " +
-            "Every vault a grant can access must have an explicit entry - this should be impossible for any grant built through GrantStore.Load or GrantStore.Mint.");
-    }
-
     /// <summary>
     /// Splits a folder-prefix scope root or candidate vault-relative path into normalized,
     /// case-preserved segments - resolving "." and ".." and rejecting rooted paths, root
@@ -114,9 +84,9 @@ public sealed class VaultAccess
     /// grant's own scope. A grant that can read the always-readable roots must not thereby be
     /// able to write them, nor to mint a token rooted at them.
     ///
-    /// The policy is the vault's own (<see cref="VaultConfig.PathPolicyFor"/>), so a caller must
-    /// pass the one belonging to the vault the path is in - the same discipline
-    /// <see cref="ResolveVaultScopeRoots"/> enforces for scope roots.
+    /// The policy is the vault's own (<see cref="VaultShared.Configuration.VaultConfig.PathPolicyFor"/>),
+    /// so a caller must pass the one belonging to the vault the path is in - the same discipline
+    /// <see cref="VaultShared.Auth.Grant.ScopeIn"/> enforces for scope roots.
     /// </summary>
     public static bool IsPathInReadScope(string relativePath, VaultScope scope, PathPolicy pathPolicy) =>
         IsPathInScope(relativePath, pathPolicy.EffectiveReadScope(scope));
