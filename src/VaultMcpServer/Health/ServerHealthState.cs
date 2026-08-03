@@ -29,8 +29,10 @@ public sealed record DegradedProblem(string Detail, string? SubjectPath = null);
 /// sets are Degraded-only by construction, so they can never influence
 /// <see cref="IsFatallyDegraded"/>.</item>
 /// </list>
-/// <see cref="Problems"/> returns the coherent current picture across both - the view a
-/// later batch renders into the health_check tool response and initialize instructions.
+/// <see cref="Problems"/> returns the coherent current picture across both - the view the
+/// <c>health_check</c> tool renders and the one the <c>initialize</c> instructions summarize.
+/// Those two members are also the whole of <see cref="IHealthState"/>, the seam by which a tool
+/// reports on a process's health without knowing which front-end's process it is.
 ///
 /// Recording can happen at startup (the main thread, before the DI container exists) and
 /// from the tools/ file-watcher thread, so both collections are thread-safe.
@@ -40,7 +42,7 @@ public sealed record DegradedProblem(string Detail, string? SubjectPath = null);
 /// (runtime re-scans) are logged as they are recorded, so nothing depends on a second
 /// flush pass.
 /// </summary>
-public sealed class ServerHealthState(TimeProvider? timeProvider = null) : IConfigProblemSink
+public sealed class ServerHealthState(TimeProvider? timeProvider = null) : IConfigProblemSink, IHealthState
 {
     private readonly TimeProvider _timeProvider = timeProvider ?? TimeProvider.System;
     private readonly ConcurrentQueue<HealthProblem> _problems = new();

@@ -1,0 +1,20 @@
+{
+  // The CLI's own configuration, read from beside vault.exe. Relative paths resolve against this
+  // file's own directory, never the working directory the CLI was run from.
+
+  // The named grant every invocation runs as, unless --grant overrides it. It is an ordinary
+  // token-less row in grants.json carrying "named": true - no id is special-cased in code, so
+  // re-pointing this default is one edit here. Absence fails the invocation: there is no path from a
+  // missing value to authority.
+  "GrantId": "admin",
+
+  // The same three files the server loads, named here so a CLI deployed away from the server can
+  // still find them. These point at the repository root from the build output directory (bin/<config>/<tfm>); a deployed
+  // CLI names them beside itself, which is what an unset setting already defaults to.
+  "OpClassesConfigPath": "../../../../../op-classes.json",
+  "VaultsConfigPath": "../../../../../vaults.json",
+  "GrantsConfigPath": "../../../../../grants.json",
+
+  // Where ripgrep is. Unset means rg as PATH resolves it.
+  "RipgrepPath": ""
+}

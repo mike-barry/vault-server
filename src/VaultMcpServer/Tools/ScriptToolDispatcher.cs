@@ -239,8 +239,9 @@ public sealed class ScriptToolDispatcher(ScriptToolRegistry registry, ToolRegist
     /// results and arguments share one naming policy and nothing translates between a sent name and
     /// a returned one.
     ///
-    /// Three refusal vocabularies converge here, and this is the only site that translates any of
-    /// them: no tool catches a refusal it did not raise.
+    /// Several refusal vocabularies converge on an invocation, and which they are - and what each
+    /// becomes - is <see cref="ToolRefusalEnvelope.Refusal"/>'s, shared with the other front-end so
+    /// the two cannot come to translate different sets. What is MCP's here is only the wrapping.
     /// </summary>
     private static CallToolResult Render(Func<ToolResult> invoke)
     {
@@ -256,17 +257,9 @@ public sealed class ScriptToolDispatcher(ScriptToolRegistry registry, ToolRegist
                 var other => throw new InvalidOperationException($"Unhandled tool result {other.GetType().Name}."),
             };
         }
-        catch (ToolRefusal refusal)
+        catch (Exception exception) when (ToolRefusalEnvelope.Refusal(exception) is { } refusal)
         {
             return ToolError.Result(refusal);
-        }
-        catch (FrontmatterRefusal refusal)
-        {
-            return ToolError.Result(ToolRefusalEnvelope.Translate(refusal));
-        }
-        catch (AuthorityRefusal refusal)
-        {
-            return ToolError.Result(ToolRefusalEnvelope.Translate(refusal));
         }
     }
 

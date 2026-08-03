@@ -450,6 +450,146 @@ try {
     }
 }
 
+# ---------------------------------------------------------------------------
+# The other front-end
+# ---------------------------------------------------------------------------
+# The same declarations, the same execute path, a different transport - so what this section
+# covers is only what differs: a real vault.exe process, the shipped settings file beside it,
+# a grant selected by id rather than presented as a token, the two streams, and the exit codes.
+# It runs after teardown because none of it needs the server; the lock they share is exercised
+# by the dispatch tests, not here.
+#
+# Read-only by the same rule as everything above: the write path is probed through refusals that
+# fire before anything is written.
+
+Write-Host "`nProbe: the CLI front-end"
+
+$cliDir = Join-Path $repoRoot 'src\VaultCli'
+$vaultExe = Join-Path $cliDir 'bin\Release\net10.0\vault.exe'
+$cliSettings = Join-Path $cliDir 'bin\Release\net10.0\vault.settings.json'
+
+if (-not $SkipBuild) {
+    $cliBuild = & dotnet build $cliDir -c Release --nologo 2>&1
+    if ($LASTEXITCODE -ne 0) { Write-Host ($cliBuild -join "`n") }
+}
+
+# One invocation of the real executable, with each stream captured separately - the split is the
+# thing under test as much as the content is.
+function Invoke-Cli {
+    param([Parameter(Mandatory)][string[]]$CliArgs)
+
+    $outFile = New-TemporaryFile
+    $errFile = New-TemporaryFile
+    try {
+        $p = Start-Process -FilePath $vaultExe -ArgumentList $CliArgs -NoNewWindow -Wait -PassThru `
+            -RedirectStandardOutput $outFile -RedirectStandardError $errFile
+        return [pscustomobject]@{
+            Exit = $p.ExitCode
+            Out = (Get-Content -Path $outFile -Raw)
+            Err = (Get-Content -Path $errFile -Raw)
+        }
+    } finally {
+        Remove-Item $outFile, $errFile -Force -ErrorAction SilentlyContinue
+    }
+}
+
+# The refusal envelope, which is the same bytes this refusal takes on the other transport.
+function Get-CliRefusalCode {
+    param($Run)
+    if (-not $Run.Err) { return $null }
+    try { return ($Run.Err | ConvertFrom-Json).code } catch { return $null }
+}
+
+if (-not (Test-Path $vaultExe)) {
+    Skip 'the CLI front-end' "vault.exe not found at $vaultExe"
+} else {
+    $r = Invoke-Cli @('glob', '--pattern', 'Resources/**')
+    Check 'glob answers on standard output, exit 0' ($r.Exit -eq 0 -and $r.Out -like '*Resources/Gizmo-Reference.md*') "exit=$($r.Exit) out=$($r.Out)"
+    Check 'nothing is written to standard error on success' ([string]::IsNullOrEmpty($r.Err)) "err=$($r.Err)"
+
+    $r = Invoke-Cli @('read', '--path', 'Resources/Gizmo-Reference.md')
+    Check 'read answers the note text as it is' ($r.Exit -eq 0 -and $r.Out -like '*Gizmo*') "exit=$($r.Exit)"
+
+    # The health seam: this reports the CLI process's own load cascade, not a server's.
+    $r = Invoke-Cli @('health_check')
+    $cliHealth = if ($r.Out) { try { $r.Out | ConvertFrom-Json } catch { $null } } else { $null }
+    Check 'health_check answers for this process' ($r.Exit -eq 0 -and $null -ne $cliHealth -and $cliHealth.is_fatally_degraded -eq $false) "exit=$($r.Exit) out=$($r.Out)"
+    Check 'zero problems (the same real config the server loaded)' ($null -ne $cliHealth -and @($cliHealth.problems).Count -eq 0) "problems=$(if ($cliHealth) { @($cliHealth.problems).Count })"
+
+    # A content result under --output json is a document too, so a script never has to sniff which
+    # tier answered.
+    $r = Invoke-Cli @('glob', '--pattern', 'Resources/**', '--output', 'json')
+    $globJson = if ($r.Out) { try { $r.Out | ConvertFrom-Json } catch { $null } } else { $null }
+    Check '--output json renders the content tier as a document' ($r.Exit -eq 0 -and $null -ne $globJson -and $globJson.content -like '*Gizmo-Reference.md*') "out=$($r.Out)"
+
+    # The three exit codes, on the real process.
+    $r = Invoke-Cli @('read', '--path', 'No-Such-Note.md')
+    Check 'a tool refusal is exit 1, with the envelope on standard error' (
+        $r.Exit -eq 1 -and (Get-CliRefusalCode $r) -eq 'path_not_found' -and [string]::IsNullOrEmpty($r.Out)
+    ) "exit=$($r.Exit) err=$($r.Err)"
+
+    $r = Invoke-Cli @('read', '--no-such-option', 'x')
+    Check 'a usage error the parser refused is exit 2' ($r.Exit -eq 2) "exit=$($r.Exit) err=$($r.Err)"
+
+    # Fail-closed, against the shipped configuration: a grant id nothing defines fails the
+    # invocation rather than degrading to anything.
+    $r = Invoke-Cli @('--grant', 'e2e-no-such-grant', 'glob', '--pattern', '*')
+    Check 'an unknown grant id fails the invocation' (
+        $r.Exit -eq 1 -and (Get-CliRefusalCode $r) -eq 'dependency_unavailable' -and [string]::IsNullOrEmpty($r.Out)
+    ) "exit=$($r.Exit) err=$($r.Err)"
+
+    # The narrow grant. grants.json is this machine's and gitignored, so a scoped row cannot be
+    # required of it - the settings file in the build output is repointed at a temporary grants.json
+    # for these two probes and restored afterwards, which is the CLI's equivalent of the minted
+    # narrow token the server section uses. Nothing under version control is touched.
+    $narrowGrants = Join-Path ([System.IO.Path]::GetTempPath()) "e2e-cli-grants-$([guid]::NewGuid().ToString('N')).json"
+    $settingsBackup = "$cliSettings.e2e-backup"
+    try {
+        @{
+            'e2e-cli-read' = @{
+                named = $true
+                id = 'e2e-cli-read'
+                opClasses = @('content:read')
+                vaults = @('test')
+                ttl = '*'
+                scopeRoots = @{ test = @('*') }
+            }
+        } | ConvertTo-Json -Depth 6 | Set-Content -Path $narrowGrants -Encoding utf8
+
+        $shipped = Get-Content -Path $cliSettings -Raw
+        Copy-Item $cliSettings $settingsBackup -Force
+        @{
+            GrantId = 'e2e-cli-read'
+            OpClassesConfigPath = (Join-Path $repoRoot 'op-classes.json')
+            VaultsConfigPath = (Join-Path $repoRoot 'vaults.json')
+            GrantsConfigPath = $narrowGrants
+        } | ConvertTo-Json | Set-Content -Path $cliSettings -Encoding utf8
+
+        $r = Invoke-Cli @('glob', '--pattern', 'Resources/**')
+        Check 'a read under the narrow named grant succeeds' ($r.Exit -eq 0 -and $r.Out -like '*Gizmo-Reference.md*') "exit=$($r.Exit) err=$($r.Err)"
+
+        # A write under it is refused at the op-class floor, before anything is bound or opened.
+        $r = Invoke-Cli @('delete', '--path', 'Resources/Gizmo-Reference.md', '--kind', 'note', '--apply')
+        Check 'a write under the narrow named grant refuses authority_required' (
+            $r.Exit -eq 1 -and (Get-CliRefusalCode $r) -eq 'authority_required'
+        ) "exit=$($r.Exit) err=$($r.Err)"
+
+        # And the shipped configuration's own row is what --grant selects: a grant id nothing in
+        # THIS grants.json defines fails, even though the shipped one defines it.
+        $r = Invoke-Cli @('--grant', 'admin', 'glob', '--pattern', '*')
+        Check 'a grant id absent from the configured grants.json fails' (
+            $r.Exit -eq 1 -and (Get-CliRefusalCode $r) -eq 'dependency_unavailable'
+        ) "exit=$($r.Exit) err=$($r.Err)"
+
+        Check 'the shipped settings file was read from beside the executable' ($shipped -like '*GrantId*') 'no GrantId in the shipped settings file'
+    } finally {
+        if (Test-Path $settingsBackup) {
+            Move-Item $settingsBackup $cliSettings -Force
+        }
+        Remove-Item $narrowGrants -Force -ErrorAction SilentlyContinue
+    }
+}
+
 $total = $script:passed + $script:failed
 $color = if ($script:failed -eq 0) { 'Green' } else { 'Red' }
 $skipNote = if ($script:skipped -gt 0) { ", $($script:skipped) skipped" } else { '' }

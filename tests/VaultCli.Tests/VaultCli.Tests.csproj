@@ -16,6 +16,9 @@
 
   <ItemGroup>
     <ProjectReference Include="..\..\src\VaultCli\VaultCli.csproj" />
+    <!-- The front-end parity contract, which belongs to neither front-end's suite: this project
+         asserts the CLI's emission against it, the server's project asserts its own. -->
+    <ProjectReference Include="..\VaultShared.Tests\VaultShared.Tests.csproj" />
   </ItemGroup>
 
   <ItemGroup>

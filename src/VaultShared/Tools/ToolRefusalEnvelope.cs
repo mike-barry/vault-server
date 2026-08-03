@@ -48,6 +48,24 @@ public static class ToolRefusalEnvelope
     public static string Json(ToolRefusal refusal) => Json(refusal.Code, refusal.Message, refusal.Data);
 
     /// <summary>
+    /// The refusal an invocation raised, in this vocabulary, whichever vocabulary it was raised in -
+    /// or null where <paramref name="exception"/> is not a refusal at all and the front-end should
+    /// let it travel.
+    ///
+    /// Both front-ends catch exactly these three, so which three they are is stated here rather than
+    /// in each of their rendering paths: a fourth refusal vocabulary added to one catch and not the
+    /// other would surface as a crash in one front-end and an envelope in the other, for the same
+    /// call.
+    /// </summary>
+    public static ToolRefusal? Refusal(Exception exception) => exception switch
+    {
+        ToolRefusal refusal => refusal,
+        FrontmatterRefusal refusal => Translate(refusal),
+        AuthorityRefusal refusal => Translate(refusal),
+        _ => null,
+    };
+
+    /// <summary>
     /// The single site that maps a <see cref="FrontmatterRefusal"/>'s <see cref="RefusalReason"/>
     /// onto a code from <see cref="ToolCodes"/>. Applied where the envelope is rendered rather than
     /// in any tool's catch, so no tool becomes a translation point reasoning about a refusal it did
