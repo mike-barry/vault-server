@@ -57,8 +57,7 @@ public abstract record VaultScope
             return true;
 
         var pathSegments = ScopePath.Normalize(relativePath);
-        var rootSegmentsList = rooted.Roots.Select(ScopePath.Normalize).ToList();
-        return rootSegmentsList.Any(rootSegments =>
+        return rooted.NormalizedRoots.Any(rootSegments =>
             rootSegments.Length <= pathSegments.Length &&
             !rootSegments.Where((s, i) => !string.Equals(s, pathSegments[i], StringComparison.OrdinalIgnoreCase)).Any());
     }
@@ -75,6 +74,17 @@ public abstract record VaultScope
     /// </summary>
     public sealed record RootedScope(IReadOnlySet<string> Roots) : VaultScope
     {
+        private string[][]? _normalizedRoots;
+
+        /// <summary>
+        /// Every root in normalized segment form, computed once per instance - the roots are
+        /// immutable, and a whole-vault enumeration filters every candidate against the same
+        /// scope. A malformed root makes the computation throw, and the failure repeats on every
+        /// access rather than being cached, so no check that consults this ever answers from a
+        /// partially-resolved scope.
+        /// </summary>
+        internal string[][] NormalizedRoots => _normalizedRoots ??= Roots.Select(ScopePath.Normalize).ToArray();
+
         public bool Equals(RootedScope? other) => other is not null && Roots.SetEquals(other.Roots);
 
         public override int GetHashCode()
