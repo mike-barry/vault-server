@@ -55,7 +55,7 @@ Detection is a bounded fence scan, with no markdown library involved. A note wit
 
 **Key spelling is canonicalized on the way in**, to the tree's existing spelling where the key is present and the declaration's where it is not. Without that one seam, a differently-cased spelling passes a case-insensitive membership test and then lands as a second key beside the first.
 
-**Shape is a query with three answers** - absent, scalar, block - because a value read cannot distinguish them. A sequence or nested mapping is block, and a valueless key is scalar, having no list under it to lose.
+**Shape is a query with three answers** - absent, scalar, block - because a value read cannot distinguish them.
 
 **One type composes content from a tree and a body, and it is the only thing in the build that writes a fence.** It carries the emitter settings, the writer's newline, and the implicit-document decorator from [[Spec-Vault-Access-Design.md#Frontmatter Emitter Settings]], so those four settings have one site rather than one per caller. An empty tree emits no fence, which is how a removal that empties a block drops the fence with it.
 
@@ -108,7 +108,7 @@ public abstract record FrontmatterOperation(string Key)
 }
 ```
 
-An `EntryPayload` is fields and values, or a bare scalar - never rendered block text, so a caller's value enters as a tree node and leaves through the emitter and can never become structure. An `EntryTarget` is an identity value or a named variant to clear wholesale, and the second is refused unless that variant declares itself removable.
+An `EntryPayload` is fields and values, or a bare scalar - never rendered block text, so a caller's value can never come out as structure. An `EntryTarget` is an identity value or a named variant to clear wholesale, and the second is refused unless that variant declares itself removable.
 
 **Operations apply in order against one working tree**, each seeing the previous result, and the outcome records which of them changed anything. `RemoveField` takes the scalar or block path from the field's detected shape, never from the caller.
 
@@ -151,7 +151,7 @@ The phases are fixed, and every refusal precedes every change:
 
 The guard covers both directions at once - a body write minting a block no operation authored, and one destroying a block nobody validated - because both come out as the same inequality.
 
-**Three call shapes run this path with no branch between them.** A mutation by operations diffs against the original; a composed note has no original, so every key present counts as changed; a narrow scalar pass leaves the required union empty and nothing fires. The second and third are outcomes of the same code, not modes.
+**Three call shapes run this path with no branch between them.** Mutation by operations, composition of a new note, and a narrow scalar pass are outcomes of the same code rather than modes: each falls out of the diff and the required union without a case of its own.
 
 **Extent follows the shape rather than a flag**: a supplied block is validated whole because the caller supplied every key, and operations validate the keys they touch because a note is not made unwritable by a key nobody is editing.
 
@@ -172,7 +172,7 @@ public interface IKeyAuthority
 }
 ```
 
-The per-call `VaultAccess` from [[Design-Core-Access-Layer.md]] satisfies it, which is how the mid-operation key assertion the auth spec requires reaches this path without a vault type entering this namespace. An empty required set asserts nothing; an empty op-class set on the grant denies, and no authority context at all is not a representable state.
+The per-call `VaultAccess` from [[Design-Core-Access-Layer.md]] satisfies it, which is how the mid-operation key assertion the auth spec requires reaches this path without a vault type entering this namespace. An empty required set asserts nothing, and no authority context at all is not a representable state.
 
 **The denial names the changed key set, never an operation index.** That set is the call's own coordinates, so it discloses nothing about the caller's authority.
 
@@ -188,13 +188,13 @@ public sealed class FrontmatterRefusal : Exception { public RefusalReason Reason
 
 The reasons are the distinctions the specs require to survive: parse failure, a block that is not a mapping, a fence-introduction or destruction, a supplied block that does not hold up as frontmatter, path exclusion, a control character in caller text, an undeclared key or a failed value constraint, a shape mismatch, an unresolved identity or anchor, an ambiguous identity, and authority denial. What each is called on the wire is [[Design-Tool-Vocabulary.md]]'s.
 
-**A schema violation comes back as data**, because the widest consumer sweeps notes that already carry problems and must not be refused on exactly those.
+**A schema violation comes back as data**, since the widest consumer sweeps notes that already carry problems.
 
 ```csharp
 public sealed record Violation(ViolationRule Rule, string Key, int? EntryPosition, string? Field, string Reasoning);
 ```
 
-`EntryPosition` is 1-based, so a finding correlates with what a human is looking at. `Rule` is an enumeration rather than a message, so a remedy branches on it without reading prose.
+`EntryPosition` is 1-based, and `Rule` is an enumeration rather than a message, so a remedy branches on it without reading prose.
 
 ## The Validator
 
@@ -227,21 +227,22 @@ Absent and unloadable refuse identically and report differently, because an oper
 
 **Every load-time check the registry spec lists runs in the loader**, over the file's shape before the records are built. The cross-file one - an op class the op-class configuration does not define - runs against the loaded `OpClassRegistry` through its membership member, which is why this load joins the same cascade as grants, after it.
 
-**A failed load is recorded Degraded, per vault, through the retained `IConfigProblemSink`.** Fatal would take down a server whose reads, searches, moves and removals are all still correct. The condition is visible in health rather than inferred from refusals, which is the whole reason it is recorded at all.
+**A failed load is recorded Degraded, per vault, through the retained `IConfigProblemSink`.** Fatal would take down a server whose reads, searches, moves and removals are all still correct.
 
-**What a failed load refuses is exactly the frontmatter writes.** Reads, enumeration, search, move and delete are untouched - what prices those is path policy, declared elsewhere. `edit` stays advertised with its ordinary argument surface and its variant branches simply absent, since advertising was never permission. There is no fallback vocabulary, because a silent fallback is how a failed load becomes a vault with nothing protected.
+**What a failed load refuses is exactly the frontmatter writes.** Reads, enumeration, search, move and delete are untouched - what prices those is path policy, declared elsewhere. `edit` stays advertised with its ordinary argument surface and its variant branches simply absent, since advertising was never permission.
 
 ## What This Closes
 
-- **The surface touches no filesystem.** Content in, content out, with the vault-relative path arriving as text. That is what makes a synthetic declaration exercisable with no vault and no host.
+- **The surface touches no filesystem.** Content in, content out, with the vault-relative path arriving as text.
 - **Where the split lives, and that the absent case is a value.** One `NoteSplit` for every consumer, a fence-less note producing a well-formed one. Rejected: an optional block, which puts the same branch in every caller and lets two of them disagree about what a fence-less note is.
 - **The tree is wrapped, not exposed.** Canonical key lookup, shape detection, and tolerant reads sit on the wrapper, so no caller holds a raw YamlDotNet node and no second place decides how a key is matched.
-- **Reserialization is the write path's decision, not the composer's.** The composer is reached only where an operation ran; a body-only write splices at the body offset.
+- **Reserialization is the write path's decision, not the composer's.**
 - **Where the emitter settings live.** On the one composer that writes a fence, so they have a single site.
 - **The declaration loads into records, not into a document.** The rules run against a closed shape, and the file's own shape exists only inside the loader.
 - **Value constraints are a closed hierarchy with a checking member.** Rejected: a predicate table keyed by kind name, which is the same closed set with the reporting - what the constraint wanted - thrown away.
 - **Identity comparison is a `StringComparison` on the variant**, so no site chooses one for itself.
 - **The write path takes the registry, the policy, and the authority as arguments.** Received, never reached for, which is what makes path policy enforceable here without the surface knowing what a vault is.
+- **A failed load has no fallback vocabulary.** Rejected: a built-in default set, which is how a failed load becomes a vault with nothing protected.
 - **Authority reaches this path as a one-member interface** that `VaultAccess` satisfies. Rejected: returning the requirement for a caller to assert, which makes the assertion optional at every call site and the guarantee a convention.
 - **The fence guard is an equality, not a pair of checks.** Comparing the re-split facet covers introduction and destruction at once, so neither depends on somebody having enumerated it.
 - **Hard refusals throw with a reason from a closed enumeration; violations return as data.** Rejected: one result carrying both, which lets a caller read the violation list and never notice the refusal beside it.

@@ -52,7 +52,7 @@ Each implementing type exposes its declaration as a static member, so the flags 
 
 `Arguments` names the record that is both the binding target and the source of the advertised schema ([[Design-Tool-Vocabulary.md#Argument Records]]). It is the only statement of a tool's argument surface, and both front-ends read it rather than restating it.
 
-**`Floor.SelfGated` is the exemption, and it replaces the retained dispatcher's exemption by tool name.** `health_check` and `request_elevation` are gated by something other than an op class - a right of connection, and a per-grant opt-in - and today the dispatcher knows which two by matching their names. Declared, the exemption is a property of the tool rather than a list a third such tool must be added to. A floor is one member with two cases and it is `required`, so a declaration cannot reach the exemption by omission and cannot name a class that is never checked.
+**`Floor.SelfGated` is the exemption, and it replaces the retained dispatcher's exemption by tool name.** `health_check` and `request_elevation` are gated by something other than an op class - a right of connection, and a per-grant opt-in - and today the dispatcher knows which two by matching their names. Declared, the exemption is a property of the tool rather than a list a third such tool must be added to. `required` keeps every declaration stating one, so none reaches the exemption by omission.
 
 `RequiresClientSession` is true on `mint_token` and `request_elevation` alone. Both mutate per-process authority state keyed to a live caller's token, so neither has anything to act on in a process that exits when its one command finishes. The CLI's equivalent is choosing a grant ([[#The CLI's Grant]]).
 
@@ -75,7 +75,7 @@ One type in `VaultShared` wraps every invocation from either front-end. It runs 
 5. **The lock**, where the declaration says the tool mutates.
 6. **The access object.** `VaultAccess` constructed from the resolved vault and the grant.
 
-**These six precede a tool's own five phases** ([[Design-Tool-Vocabulary.md#Failure Ordering]]) rather than interleaving with them. The tool's phase 1 is argument validation and its phase 2 is vault resolution; both are listed there as the tool's ordering guarantee and both happen here, before the tool is entered, which is what makes that guarantee structural rather than a habit each tool keeps. A tool's first own work is phase 3.
+**These six precede a tool's own five phases** ([[Design-Tool-Vocabulary.md#Failure Ordering]]) rather than interleaving with them. That document's first two phases - argument validation and vault resolution - happen here, above every tool, which is what makes its ordering guarantee structural. A tool's first own work is phase 3.
 
 **Authorization precedes argument feedback.** The floor is checked before arguments are bound, so a caller holding no authority over a tool cannot use a malformed call to probe the argument surface of one it may not run. This is the retained dispatcher's ordering, kept.
 
@@ -128,7 +128,7 @@ A tool answers `ToolResult` or raises `ToolRefusal` ([[Design-Tool-Vocabulary.md
 
 **CLI.** A content result prints to stdout as it is. A structured result prints as JSON, because there is no text rendering of a mutation result that is not a second statement of it. A refusal prints the same envelope to stderr.
 
-**Three exit codes.** Zero for success, one for a tool refusal, two for a usage error the parser itself refused. The machine-readable distinction is the `code` in the envelope, which is where the vocabulary already lives; a per-class exit-code taxonomy would be a coarser second copy of the catalogue that cannot represent it and drifts from it.
+**Three exit codes.** Zero for success, one for a tool refusal, two for a usage error the parser itself refused. The machine-readable distinction is the `code` in the envelope, which is where the vocabulary already lives.
 
 **`--output json` renders a content result as an envelope too**, so a script consuming the CLI sees one shape whichever tier answered.
 
@@ -138,7 +138,7 @@ One subcommand per projected declaration, named for the declared tool name, with
 
 Each option is presented in kebab-case with the snake_case spelling registered as an alias, both derived from the one declared name ([[Spec-Tool-Capabilities.md#The Argument Surface]]).
 
-**`--args <json>` binds the argument record directly, bypassing the options.** It is not a convenience: `edit` takes an ordered list of operations with nested anchors and per-variant entry payloads, which no flat option surface expresses, and inventing an encoding for it would be the second statement of an argument contract that the single-declaration rule exists to prevent. It is general rather than `edit`-specific, because a per-tool exception is the per-tool front-end code the boundary forbids. Supplying it alongside option-form arguments is refused.
+**`--args <json>` binds the argument record directly, bypassing the options.** It is not a convenience: `edit` takes an ordered list of operations with nested anchors and per-variant entry payloads, which no flat option surface expresses, and inventing an encoding would be a second statement of the argument contract. It is general rather than `edit`-specific, because a per-tool exception is the per-tool front-end code the boundary forbids. Supplying it alongside option-form arguments is refused.
 
 ## What Moves And What Stays
 
@@ -159,13 +159,13 @@ Proposed changes to retained code, for approval with this document.
 - **The floor is one member with two cases, not a class beside a flag.** A self-gating tool declares `Floor.SelfGated`, so no declaration names an op class that is never checked and no pair of members can disagree. Rejected: a nullable class, which forces the same decision but reads as "no authority needed" at the site where it is written.
 - **A tool declares what it needs, not where it may run.** `RequiresClientSession` states why `mint_token` and `request_elevation` do not reach the CLI; a list of front-end names would state only that they do not, and would need editing by every future front-end. Rejected: making the session a typed dependency so a CLI call cannot be constructed - the stronger form, and it requires two invoke signatures, which is the second tool kind this design just removed.
 - **The session requirement is enforced at the execute path, not by omitting a subcommand.** `--args` reaches a tool by name without the command tree, so a listing filter alone would be cosmetic.
-- **The tool surface is synchronous.** The mutex hold cannot cross a suspension point and a `Mutex` is thread-affine. The cost is borne by the one tool that awaits an approver and takes no lock.
-- **The execute path's steps precede a tool's five phases rather than interleaving.** Argument validation and vault resolution happen above every tool, which is what makes the ordering guarantee structural.
-- **The floor is checked before arguments are bound.** A caller with no authority over a tool cannot probe its argument surface through malformed calls. This is the retained dispatcher's ordering and it costs nothing, since the lock is later than both.
-- **Whether a call targets a vault is a type on the argument record.** `IVaultArguments` widens the membership check to compiled tools with no per-tool opt-in, where the retained predicate is typed on `ScriptTool` and the compiled branch returns first. Rejected: matching a member named `vault`, as the dispatcher does for scripts. It is the only option for a `param()` block and it works today, but a compiled tool spelling the operand differently would escape the check silently - the same gap in a new place.
-- **An inherited lock proceeds and is logged.** There is nothing to replay and nothing to repair, and refusing would wedge the vault on a crash - which is the outcome the recovery signal exists to prevent.
-- **The lock timeout is a constant, not a setting.** It diagnoses liveness, and a tunable timeout is tuned upward until it stops reporting.
-- **The CLI's grant is a setting naming an ordinary row.** No id is special-cased in code, matching the retained localhost default, so the default is re-pointed by one edit rather than by renaming grants.
+- **The tool surface is synchronous.** The mutex hold cannot cross a suspension point and a `Mutex` is thread-affine.
+- **The execute path's steps precede a tool's five phases rather than interleaving.**
+- **The floor is checked before arguments are bound.** The retained dispatcher's ordering, kept, and it costs nothing since the lock is later than both.
+- **Whether a call targets a vault is a type on the argument record.** Rejected: matching a member named `vault`, as the dispatcher does for scripts. It is the only option for a `param()` block, but a compiled tool spelling the operand differently would escape the check silently - the same gap in a new place.
+- **An inherited lock proceeds and is logged.** There is nothing to replay and nothing to repair.
+- **The lock timeout is a constant, not a setting.**
+- **The CLI's grant is a setting naming an ordinary row.** No id is special-cased in code, so a default is re-pointed by one edit rather than by renaming grants.
 - **Absence of a CLI grant setting is a failure, not an unrestricted default.** The unrestricted default is supplied by the shipped configuration. Rejected: treating absence as unrestricted, which is a path from a missing value to full authority.
 - **The CLI does not reuse the localhost grant resolution.** That member is built never to error; the CLI's equivalent condition must.
 - **Elevation at the CLI is the choice of grant.** The retained mechanism rebinds a token in per-process state, which a process that exits after one command cannot carry, and the operator is present to make the choice directly.

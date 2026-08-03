@@ -104,21 +104,21 @@ Both surfaces and all three search granularities are operations on `VaultAccess`
 
 The engine is invoked once per call and its output is read to completion before the operation answers. Streaming would let a caller consume results from a search that is about to fail, and a search that cannot read a file must fail whole ([[Spec-Vault-Access-Design.md#Load-Bearing Semantics]]) - which is only decidable once the engine has finished and its error stream has been read.
 
-Four outcomes, distinguishable at the call site: a result that may be empty, a malformed pattern as a caller error, an unreadable file as a whole-search failure, and anything else the engine reported as an operational failure carrying its text. Empty is never a failure and a malformed pattern is never operational, because collapsing either is unrecoverable above the layer. Glob and regex both arrive malformed as the engine's refusal, so one classification covers them.
+Four outcomes, distinguishable at the call site: a result that may be empty, a malformed pattern as a caller error, an unreadable file as a whole-search failure, and anything else the engine reported as an operational failure carrying its text. Glob and regex both arrive malformed as the engine's refusal, so one classification covers them.
 
 The layer reports these to its caller and writes nothing to health state. A failing call is a call's failure; a layer that could degrade the server from inside one would give a single caller's bad pattern server-wide visibility.
 
 ## The File Primitives
 
-**Reading classifies from the failure.** "Nothing there to read" and "there and something went wrong" come from the failure the filesystem raised, never from a separate existence probe, and the classification is part of the read rather than something a caller may redo. Every enumerate-then-read pass in the system depends on one definition of nothing-to-read.
+**Reading classifies from the failure.** "Nothing there to read" and "there and something went wrong" come from the failure the filesystem raised, never from a separate existence probe, and the classification is part of the read rather than something a caller may redo.
 
-**Two write forms, and the creating one refuses an existing target as part of the write.** The refusal is the filesystem's, from an atomic create, not a check the layer performs first - a check-then-write leaves a window in which the editor or a person creates the file and the write destroys it. That refusal is distinguishable from every other write failure.
+**Two write forms, and the creating one refuses an existing target as part of the write.** The refusal is the filesystem's, from an atomic create, not a check the layer performs first. It is distinguishable from every other write failure.
 
 **Directory creation is its own primitive**, so materializing a path is a deliberate call rather than a side effect of writing. It creates one folder under an existing parent.
 
-**Nothing creates a parent on the way past.** Writing, creating a folder, and a move destination all fail under a missing parent, naming what was missing in vault-relative terms - which the path type can render, since it holds segments and its vault.
+**Nothing creates a parent on the way past.** A missing parent is named in vault-relative terms, which the path type can render since it holds segments and its vault.
 
-**Encoding and terminators are stated once, at the composing seam**: UTF-8 with no byte-order mark, LF. Nothing detects what was there and nothing preserves another convention.
+**Encoding and terminators are stated once, at the composing seam**: UTF-8 with no byte-order mark, LF.
 
 **Move is the one primitive taking two paths**, both `WritePath`, both required to carry the same `Vault`. An occupied destination is an error, compared against the resolved source ordinally so a case-only rename is not mistaken for a collision; the outcome says the move was case-only, so a later git pickup can stage it.
 
@@ -142,7 +142,7 @@ Repair and the census ask this same question, so one piece answers it for both. 
 
 Wikilink maintenance is the one pass scope does not bound: it must reach notes the grant can neither read nor write. Those operations - enumerate every note, read one, write one - take merely-contained paths and sit on their own object, obtained from `VaultAccess` by a call that names what it is.
 
-The separate object is the whole of the mechanism. The operations themselves are ordinary, so a consumer composes what it needs and no new primitive is required each time one wants something slightly different. What the seam buys is that bypassing scope is a deliberate call rather than a method that happens to be within reach on an object a caller already holds, and that every site doing it is one grep away when the question is asked.
+The separate object is the whole of the mechanism. The operations themselves are ordinary, so a consumer composes what it needs rather than asking for a new primitive each time. What the seam buys is that bypassing scope is a deliberate call rather than a method within reach on an object a caller already holds, and that every site doing it is one grep away.
 
 What may be *reported* out of such a pass - how much of an out-of-scope note reaches a result, a preview, or a log - is a constraint on the report rather than on the primitive, and belongs to [[Design-Tool-Vocabulary.md]] with the rest of the result tiers. That is where it binds the consumer the specs actually worry about, a minted grant driving an automated caller.
 
@@ -162,15 +162,15 @@ The derivation of the lock name from the vault root ([[Spec-Vault-Access-Design.
 
 - **What denotes the vault root.** The root is not a path: resolution produces a `Vault`, whole-vault operations take one, and no path denotes it. Rejected: a path with no segments, which would be one value admitted under every scope, and so an exception inside the property the build most depends on.
 - **How many proofs of admission there are.** Two types over a contained path, with widening from write to read only, so a primitive's authority is its signature. Rejected: one admitted type carrying its class as data, which turns the floor asymmetry back into a check every write primitive must remember.
-- **What the per-call object holds.** The caller's grant, not a bare scope: the layer owes authority both path admission and the mid-operation key assertion, and taking the grant means neither is reconstructed from parts.
+- **What the per-call object holds.** The caller's grant, not a bare scope, since the layer owes authority both path admission and the key assertion.
 - **Where vault resolution lives, and what it answers.** In the layer, as the only producer of `Vault`, answering a three-case result whose cases come from configuration state. Rejected: keeping it on `VaultConfig` behind two same-typed exceptions, which is the fragile form the capability spec names.
-- **Loud and quiet resolution are different members.** Naming a path answers with a refusal; filtering a layer-produced path answers with a boolean and cannot construct one. Disclosure is then a property of which member exists rather than of how carefully each caller handles a result.
+- **Loud and quiet resolution are different members.** Disclosure is then a property of which member exists rather than of how carefully each caller handles a result.
 - **Where the operand perimeter sits.** Dot-directory paths are representable and not nameable: the census must report them, and no caller may name one.
 - **Where glob matching happens.** In the engine, as `--iglob`, with the engine's anchoring stated as the requirement. Scope, the dot rule, and the markdown restriction stay in the layer as predicates over the result. Rejected: matching in the layer, which reads the spec's "matching belongs here" as excluding the engine rather than each caller, at the cost of a second definition of the pattern and the engine's pruning.
-- **Engine output is read to completion before answering.** A search that cannot read a file must fail whole, which is not decidable until the error stream has been read; streaming would hand a caller results from a search about to fail.
-- **The layer writes nothing to health state.** An operational failure is returned to its caller. A layer that could degrade the server from inside a call would give one caller's failure server-wide visibility.
-- **How the vault-wide pass sits outside the ladder.** Unscoped enumerate, read and write take merely-contained paths and live on their own object, obtained by an explicitly-named call, so bypassing scope is deliberate and greppable. Rejected: a single operation exchanging link occurrences for substitutions, which confines the pass to link text but makes every consumer wanting anything else a new primitive and a new decision.
-- **Matching is a piece of its own, beside recognition and ranking.** Repair and the census both ask whether a link points at a given path, so one piece answers it. Rejected: folding it into ranking. Ranking is handed its candidates and finds none itself, so absorbing this would change what it is.
-- **Removal is two operations rather than one.** A path does not say whether it names a file or a folder, and a removal that inspected the target to find out would be the probe every other primitive here avoids. The caller states which it means.
+- **Engine output is read to completion before answering.** Whether a search must fail whole is not decidable until the error stream has been read.
+- **The layer writes nothing to health state.** An operational failure is returned to its caller.
+- **How the vault-wide pass sits outside the ladder.** Unscoped enumerate, read and write live on their own object, so bypassing scope is deliberate and greppable. Rejected: a single operation exchanging link occurrences for substitutions, which confines the pass to link text but makes every consumer wanting anything else a new primitive.
+- **Matching is a piece of its own, beside recognition and ranking.** Rejected: folding it into ranking, which is handed its candidates and finds none itself.
+- **Removal is two operations rather than one.** A path does not say which it names, and inspecting the target would be the probe every other primitive avoids.
 - **What the path type does not assert.** Neither existence, nor a conforming name, nor whether it names a file or a folder. Each is checked by the operation that needs it, where it needs it.
 - **Where the lock name derivation sits.** On `Vault`, in the layer, because the watcher must take it as code and is not a front-end.

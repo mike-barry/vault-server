@@ -137,8 +137,6 @@ The content tier is text and nothing else, in the shape an agent already consume
 - `glob` returns newline-joined vault-relative paths, and empty text for no match.
 - `grep` returns `path:line:text` per match, one path per line for the file granularity, and `path:count` for counts. Empty text is the empty result, never a failure.
 
-Both search tools treat any count as a result. Every other tool operates on an existing target and fails on a miss, except `create`, for which existence is the failure.
-
 The structured tier is every mutation, returned as `Data`.
 
 ## The Mutation Envelope
@@ -177,7 +175,7 @@ public sealed record LinkOccurrence(string Path, int Line, string Target);
 
 **No mutation result carries schema violations, and none refuses on them.** Everything a caller can get wrong is already a hard refusal ([[Design-Frontmatter-Surface.md#Refusals And Violations]]), so a violation still standing in the outcome was in the note before the call. The write path returns the list for the sweeping consumer that renders it; these tools are not that consumer.
 
-That tolerance reaches values, never keys. An operation naming a key the declaration does not recognize refuses with `unknown_key`, whether or not the note already carries it, so a key present in a note is never a key a caller may write. What survives is a problem under a declared key the operation touched, such as an entry missing a required field.
+That tolerance reaches values, never keys. An operation naming an undeclared key refuses with `unknown_key` whether or not the note already carries it, so what survives is a problem under a declared key the operation touched.
 
 **Partial-failure vocabulary is in the refusal, not the envelope.** A mutation that fails partway raises `partial_mutation` carrying what landed, what did not, and the ordered recovery steps. Keeping it out of the success shape is what stops a single-write mutation from carrying vocabulary for a state it cannot reach.
 
@@ -185,7 +183,7 @@ That tolerance reaches values, never keys. An operation naming a key the declara
 
 `Apply` is the one gate, false by default, and only `delete` and `move` carry it. `edit` and `create` have none: `edit`'s blast radius is its own request, and a creation destroys nothing.
 
-A plan runs the identical path - the same lock, the same validation, the same refusals - and answers the same record with `Applied: false`. The two differ in that member alone, so a caller can compare a plan against the result of the call it authorized. Every path-valued member names post-mutation paths in both.
+A plan runs the identical path and answers the same record with `Applied: false`, so a caller can compare a plan against the result of the call it authorized.
 
 ## Content Hashes
 
@@ -213,7 +211,7 @@ The three passes reach notes the caller's grant cannot read, so what they report
 
 Each pass asks the domain its question needs: note enumeration for the repair, the pinning census and the backlink scan; the file census, with dot entries admitted, for the destruction plan alone.
 
-**That plan is the operation's footprint, not the caller's perimeter** ([[Spec-Tool-Capabilities.md#The Operand Perimeter]]). A caller cannot name a dot path. A recursive removal still destroys every dot entry under the folder it was given, because what an operation reaches inside its own footprint is not what a caller may name. `.git` is the one exception and refuses the whole removal. No other dot directory is excepted.
+**That plan is the operation's footprint, not the caller's perimeter** ([[Spec-Tool-Capabilities.md#The Operand Perimeter]]). A caller cannot name a dot path, and a recursive removal still destroys every dot entry under the folder it was given. `.git` is the one exception and refuses the whole removal. No other dot directory is excepted.
 
 ## Failure Ordering
 
@@ -233,7 +231,7 @@ A tool reports the first failure it meets and stops. These are not batch reports
 
 ## The Error Catalogue
 
-One catalogue, drawn from by every tool. It is the first pass's set, not a ceiling: a failure the set does not carry earns a new code here, added under the spec's distinctions and the payload rules below. An existing code is never widened to cover a near fit, because that collapses a distinction a caller branches on, and never repurposed, because callers already branch on what it means.
+One catalogue, drawn from by every tool. It is the first pass's set, not a ceiling: a failure the set does not carry earns a new code here, added under the spec's distinctions and the payload rules below. An existing code is never widened to cover a near fit and never repurposed, because callers branch on what a code means.
 
 ```
 unknown_vault          A vault nobody configured. Caller error.
@@ -278,21 +276,21 @@ Three rules govern the payloads. **A payload is liftable into a corrected call**
 
 - **A tool answers with a value and raises a refusal.** Raising is what lets a refusal cross frames unchanged; returning it would make surfacing it correctly a convention every caller keeps.
 - **One record per tool is the binder and the schema source**, through the retained `NativeToolArguments`, so a tool's declared argument names are the names it actually takes and a remedy can be built from them.
-- **Argument validation is a member on the argument record.** Pure, and run before vault resolution, which is what makes the ordering guarantee structural rather than a habit. Rejected: validation inside the tool body, which puts every argument refusal after the lock is taken.
+- **Argument validation is a member on the argument record.** Rejected: validation inside the tool body, which puts every argument refusal after the lock is taken.
 - **`Vault` is an argument; scope and authority are not.** Selection is the caller's, restriction is the grant's.
 - **The source operand is `path` on every tool and the constructed one is `destination`.** The spelling carries the resolve-versus-construct distinction the operand vocabulary draws.
 - **Kind is required on `create` and `delete`, optional on `move`.** The rule is whether the kinds take different arguments; on `move` they do not, and the assertion survives only as a fail-fast.
 - **`edit` takes a body change in two forms, not one.** A wholesale replacement requires a content hash; a substitution matches exactly once and needs none. Rejected: one form with an optional anchor, which makes the hash requirement conditional on a value rather than on a shape.
 - **The content tier is text, and `read` with a content hash is its one structured member.** Rejected: wrapping every content result in an object for uniformity, which costs tokens on exactly the results a model reads directly.
-- **There is no shared mutation record.** Four per-tool shapes, sharing a member only where every sharer populates it. [[Spec-Tool-Capabilities.md#Result Tiers]] asks for exactly that: a tool emits no member it can never populate, so the four shapes match only where the tools themselves do. `AssertedAuthority` is on all four and stays when empty; `Applied` and `ContentHash` are absent where the tool cannot populate them.
-- **A schema violation neither refuses a write nor appears in its result.** Everything a caller can get wrong is already a hard refusal, so a violation left in the outcome is one the note already carried, under a key the operation happened to touch. Refusing on it would make a list unaddable because someone else broke an entry in it, which is the failure the touched-keys extent exists to avoid. Reporting it has no reader until `lint` arrives.
+- **There is no shared mutation record.** Four per-tool shapes, sharing a member only where every sharer populates it, which is what [[Spec-Tool-Capabilities.md#Result Tiers]] asks for.
+- **A schema violation neither refuses a write nor appears in its result.** Refusing would make a list unaddable because someone else broke an entry in it, which is the failure the touched-keys extent exists to avoid. Reporting has no reader until `lint` arrives.
 - **Nullable means the question was never asked.** `PinnedLinks` absent is no pass; empty is a pass that pinned nothing. That distinction is the whole reason the member is nullable rather than defaulted to empty.
 - **Partial-failure vocabulary lives in `partial_mutation`, not in the envelope.** A creation that writes once cannot report a partial state, and giving it the members to do so would be a claim it never makes.
 - **`apply` is the gate, false by default, on `delete` and `move` alone.** A plan differs from its result in that member and nothing else. Rejected: `commit`, which names what git does to the working tree these tools write into.
-- **The staleness guard is a SHA-256 of the stored bytes, named `content_hash` on the wire.** Whole-file whichever part was read, so nothing authorizes a write from a partial read. Rejected: calling it a token, which in this surface names a credential - `mint_token` sits in the same catalogue, and the bearer token carries the grant.
-- **`edit` is the only tool taking a content hash.** A hash describes one file and cannot guard a set, and `delete` and `move` act on sets. Their guard is the preview gate, which shows the caller the plan before a second call authorizes it.
+- **The staleness guard is a SHA-256 of the stored bytes, named `content_hash` on the wire.** Whole-file whichever part was read, so nothing authorizes a write from a partial read. Rejected: calling it a token, which in this surface names a credential - `mint_token` sits in the same catalogue.
+- **`edit` is the only tool taking a content hash.** A hash describes one file and cannot guard the sets `delete` and `move` act on; their guard is the preview gate.
 - **A staleness refusal returns no hash.** Returning the current one would let a caller retry into content it never read.
-- **A sweeping pass runs no exclusion filter.** What a pass can see follows from the enumeration domain it asks for, and note enumeration already drops dot entries. The one pass that admits them is the destruction census, which destroys what it finds rather than skipping it.
+- **A sweeping pass runs no exclusion filter.** What a pass can see follows from the enumeration domain it asks for.
 - **A vault-wide pass reports identities and positions, never content.** The bound is on the report rather than on the primitive, because the primitive must reach notes the grant cannot.
 - **Routing beats authorization by phase order**, not by a rule each tool remembers: vault resolution is phase 2 and scope is phase 3.
 - **Malformed frontmatter splits by whose text it is.** A caller's own supplied block refuses as `invalid_argument` naming the argument; a stored note's block refuses as `frontmatter_unparsable`. The remedies differ - fix what was sent, or fix the note - so one code each. `invalid_argument` therefore also arises from the write path, not from argument validation alone.
