@@ -245,6 +245,7 @@ invalid_value          A value constraint refused, or caller text carried a cont
 shape_mismatch         Scalar written to a block key, or the reverse.
 entry_not_found        An identity or anchor resolved to nothing.
 entry_ambiguous        An identity or anchor resolved to more than one.
+tool_unavailable       The tool needs what this front-end cannot supply. Raised before it runs.
 lock_timeout           The mutex lock was not acquired. Raised at the lock; no tool catches it.   data: {timeout}
 partial_mutation       A multi-target mutation failed partway.                                    data: {applied, not_applied, recovery}
 ```
