@@ -47,10 +47,7 @@ The phase opens with two steps that touch code rather than documents. They are g
 
 - [x] Build the core access layer
 - [x] Build the frontmatter surface - the substrate's single write path and the registry's loader, asserted by the conformance suite against a synthetic declaration
-- [ ] Build the tool infrastructure - the declaration both front-ends project from, the shared execute path that checks the op-class floor and takes the mutex lock, and the transport-neutral result and error representation
-  - Input: the error catalogue needs a code for the operational `Failed` case on a write - the layer's write outcomes distinguish it, and the catalogue is explicitly not a ceiling
-  - The three retained natives serialize camelCase results - `isFatallyDegraded`, `scopeRoots`, `requiredOpClass` - and the design pins one convention in both directions, so they convert to snake_case here with the neutral result they return through. An approved change to retained code, and a breaking one for any existing caller of `health_check`, `mint_token` or `request_elevation`. `NativeToolSchemaTests` pins part of what moves
-  - The floor check moves here out of `ScriptToolDispatcher`, and the vault-membership check is widened to reach compiled tools - today its predicate is typed on `ScriptTool` and the native branch returns before it. Both are approved changes to retained code
+- [x] Build the tool infrastructure - the declaration both front-ends project from, the shared execute path that checks the op-class floor and takes the mutex lock, and the transport-neutral result and error representation
 - [ ] Build `read`, `glob`, and `grep`
   - Input: the content hash is SHA-256 of the stored bytes, taken from the same read that produced the content. `VaultFiles.Read` returns decoded text only, so this step extends the read outcome rather than re-reading - a second read hashes bytes the returned content may no longer describe. Mutating tools return the hash after the write, so the write outcomes grow the same way when `edit` lands
   - Restore the skipped read probe in `e2e-smoke.ps1`, written against `read`'s own argument surface rather than the deleted script's. The two vault-gate probes beside it still pass, since that gate fires on the body peek before dispatch

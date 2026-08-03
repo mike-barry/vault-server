@@ -157,7 +157,7 @@ try {
     $r = Invoke-McpCall -Tool 'health_check' -Token $selectorToken
     Check 'returns HTTP 200, no tool error' ($r.StatusCode -eq 200 -and -not $r.IsError) "status=$($r.StatusCode)"
     $health = if ($r.Text) { $r.Text | ConvertFrom-Json } else { $null }
-    Check 'isFatallyDegraded is false' ($null -ne $health -and $health.isFatallyDegraded -eq $false)
+    Check 'is_fatally_degraded is false' ($null -ne $health -and $health.is_fatally_degraded -eq $false)
     Check 'zero problems (real grants.json parses clean)' ($null -ne $health -and @($health.problems).Count -eq 0) "problems=$(if ($health) { @($health.problems).Count })"
 
     Write-Host 'Probe: read on vault "test" with selector token (selector -> default binding)'

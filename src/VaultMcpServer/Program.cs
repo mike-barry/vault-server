@@ -7,6 +7,7 @@ using VaultMcpServer.Logging;
 using VaultMcpServer.Tools;
 using VaultShared.Configuration;
 using VaultShared.Frontmatter;
+using VaultShared.Tools;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -113,16 +114,15 @@ builder.Services.AddSingleton(scriptToolRunner);
 var httpContextAccessor = new HttpContextAccessor();
 builder.Services.AddSingleton<IHttpContextAccessor>(httpContextAccessor);
 
-// Native tools are compiled implementations (not hot-reloaded from disk like script tools).
+// Declared tools are compiled implementations (not hot-reloaded from disk like script tools).
 // Constructed directly here - like scriptToolRegistry/scriptToolRunner above - because
 // ScriptToolDispatcher needs the registry synchronously, before builder.Build() produces a
 // service provider. Each is also registered as its own singleton instance below so it is
-// resolvable through DI by type, same as GrantStore/VaultConfig/ScriptToolRegistry - a second
-// INativeTool only needs a `new` here plus an entry in this list, no dispatcher change.
+// resolvable through DI by type, same as GrantStore/VaultConfig/ScriptToolRegistry.
 var mintTokenTool = new MintTokenTool(grantStore, opClassRegistry, vaultConfig);
-builder.Services.AddSingleton<INativeTool>(mintTokenTool);
+builder.Services.AddSingleton(mintTokenTool);
 var healthCheckTool = new HealthCheckTool(healthState, vaultConfig);
-builder.Services.AddSingleton<INativeTool>(healthCheckTool);
+builder.Services.AddSingleton(healthCheckTool);
 
 // Elevation: the approval seam is the IElevationApprover interface, and the implementation is
 // chosen here in code, not by config. Auto-deny is the hardcoded default - the honest one, so
@@ -133,13 +133,27 @@ var elevationOptions = new ElevationOptions(
     DefaultTtlMinutes: builder.Configuration.GetValue("Elevation:DefaultTtlMinutes", 15),
     MaxRequestsPerMinute: builder.Configuration.GetValue("Elevation:MaxRequestsPerMinute", 5));
 var elevationRequestTool = new ElevationRequestTool(
-    grantStore, autoDenyApprover, httpContextAccessor, opClassRegistry, vaultConfig, elevationOptions, TimeProvider.System);
-builder.Services.AddSingleton<INativeTool>(elevationRequestTool);
+    grantStore, autoDenyApprover, opClassRegistry, vaultConfig, elevationOptions, TimeProvider.System);
+builder.Services.AddSingleton(elevationRequestTool);
 
-var nativeToolRegistry = new NativeToolRegistry([mintTokenTool, healthCheckTool, elevationRequestTool]);
-builder.Services.AddSingleton(nativeToolRegistry);
+// The registry takes declarations, so a tool with no declaration has nothing to register and a new
+// one is a `new` plus a line here. The order is the order tools/list reports them in.
+var toolRegistry = new ToolRegistry()
+    .Add(MintTokenTool.Declaration, mintTokenTool)
+    .Add(HealthCheckTool.Declaration, healthCheckTool)
+    .Add(ElevationRequestTool.Declaration, elevationRequestTool);
+builder.Services.AddSingleton(toolRegistry);
 
-var scriptToolDispatcher = new ScriptToolDispatcher(scriptToolRegistry, nativeToolRegistry, scriptToolRunner, httpContextAccessor, healthState, vaultConfig);
+// The shared execute path. The inherited-lock signal is a delegate rather than an ILogger because
+// VaultShared carries no logging abstraction; it is bound to the host's logger once one exists.
+ILogger? executionLogger = null;
+var toolExecution = new ToolExecution(
+    vaultConfig,
+    engine: null,
+    onInheritedLock: message => executionLogger?.LogWarning("{Message}", message));
+builder.Services.AddSingleton(toolExecution);
+
+var scriptToolDispatcher = new ScriptToolDispatcher(scriptToolRegistry, toolRegistry, toolExecution, scriptToolRunner, httpContextAccessor, healthState, vaultConfig);
 
 builder.Services
     .AddMcpServer()
@@ -168,6 +182,7 @@ app.UseMiddleware<BearerGrantMiddleware>();
 app.MapMcp("/mcp");
 
 scriptToolDispatcher.AttachLogger(app.Services.GetRequiredService<ILogger<ScriptToolDispatcher>>());
+executionLogger = app.Services.GetRequiredService<ILogger<ToolExecution>>();
 autoDenyApprover.AttachLogger(app.Services.GetRequiredService<ILogger<AutoDenyElevationApprover>>());
 var scriptToolsWatcher = new ScriptToolsWatcher(
     toolsDir, scriptToolRegistry, scriptToolDispatcher, app.Services.GetRequiredService<ILogger<ScriptToolsWatcher>>());

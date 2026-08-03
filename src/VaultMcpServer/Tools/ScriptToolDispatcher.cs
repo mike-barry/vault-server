@@ -8,20 +8,29 @@ using ModelContextProtocol.Server;
 using VaultShared.Auth;
 using VaultMcpServer.Health;
 using VaultShared.Configuration;
+using VaultShared.Frontmatter;
+using VaultShared.Access;
+using VaultShared.Tools;
 using VaultMcpServer.Auth;
 
 namespace VaultMcpServer.Tools;
 
 /// <summary>
-/// Wires the script tool registry into MCP's `tools/list` and `tools/call` - registered
+/// Wires both tool surfaces into MCP's `tools/list` and `tools/call` - registered
 /// via <c>WithListToolsHandler</c>/<c>WithCallToolHandler</c> rather than compiled
-/// `[McpServerTool]` methods, since the tool set is only known by scanning `tools/` at
-/// runtime. Enforces op class here: the bearer middleware (see
-/// <see cref="BearerGrantMiddleware"/>) only authenticates the caller and scopes the
-/// vault; per-tool read/write authorization happens against the grant it attached to
-/// <c>HttpContext.Items</c>. Every denial made here - before any tool script runs - is emitted
-/// through <see cref="ToolError"/> in the same <c>{code, message, data?}</c> shape a tool script's
-/// own error carries, so a caller branches on <c>code</c> whichever layer refused.
+/// `[McpServerTool]` methods, since the script tool set is only known by scanning `tools/` at
+/// runtime.
+///
+/// It routes and renders; it does not authorize. A declared tool goes through
+/// <see cref="ToolExecution"/>, which checks the session, the op-class floor, the arguments, and
+/// vault membership before the tool runs. The script branch has no declaration to carry those
+/// checks, so it keeps its own argument-name and vault-membership handling and calls
+/// <see cref="ToolExecution.FloorRefusal"/> for the floor - one enforcement site for both surfaces.
+///
+/// The bearer middleware (see <see cref="BearerGrantMiddleware"/>) only authenticates the caller and
+/// scopes the vault; the grant it attached to <c>HttpContext.Items</c> is what both branches
+/// authorize against. Every denial reaching a client is the same <c>{code, message, data?}</c> shape
+/// a tool script's own error carries, so a caller branches on <c>code</c> whichever layer refused.
 ///
 /// Also tracks the <see cref="McpServer"/> for every session that has made a request, so
 /// the `tools/` file watcher (<see cref="ScriptToolsWatcher"/>) can push a
@@ -31,7 +40,7 @@ namespace VaultMcpServer.Tools;
 /// that has already finished by the time a refresh happens simply won't receive it, and a
 /// failed send just drops that (dead) session from the tracked set.
 /// </summary>
-public sealed class ScriptToolDispatcher(ScriptToolRegistry registry, NativeToolRegistry nativeRegistry, ScriptToolRunner runner, IHttpContextAccessor httpContextAccessor, ServerHealthState healthState, VaultConfig vaultConfig)
+public sealed class ScriptToolDispatcher(ScriptToolRegistry registry, ToolRegistry toolRegistry, ToolExecution execution, ScriptToolRunner runner, IHttpContextAccessor httpContextAccessor, ServerHealthState healthState, VaultConfig vaultConfig)
 {
     private readonly ConcurrentDictionary<McpServer, byte> _sessions = new();
 
@@ -73,8 +82,8 @@ public sealed class ScriptToolDispatcher(ScriptToolRegistry registry, NativeTool
             .Where(p => p.Source == ScriptToolLoader.HealthSource && p.SubjectPath is not null)
             .Select(p => new Tool { Name = Path.GetFileNameWithoutExtension(p.SubjectPath!), Description = $"BROKEN: {p.Detail}", InputSchema = EmptyObjectSchema });
 
-        var tools = nativeRegistry.Tools
-            .Select(t => new Tool { Name = t.Name, Description = t.Description, InputSchema = t.InputSchema })
+        var tools = toolRegistry.Declarations
+            .Select(d => new Tool { Name = d.Name, Description = d.Description, InputSchema = NativeToolArguments.SchemaFor(d.Arguments) })
             .Concat(registry.Tools.Select(t => new Tool { Name = t.Name, Description = t.Description, InputSchema = t.BuildInputSchema() }))
             .Concat(brokenScriptTools)
             .ToList();
@@ -86,43 +95,32 @@ public sealed class ScriptToolDispatcher(ScriptToolRegistry registry, NativeTool
         TrackSession(context.Server);
         var name = context.Params?.Name ?? "";
 
-        // Native tools are checked first (a small, fixed set); a name collision with a script
-        // tool would be surprising either way, but native wins since it's compiled/reviewed
-        // rather than dropped into tools/ at runtime.
-        var nativeTool = nativeRegistry.Tools.FirstOrDefault(t => t.Name == name);
-        if (nativeTool is not null)
+        // Declared tools are checked first (a small, fixed set); a name collision with a script
+        // tool would be surprising either way, but a declared tool wins since it's compiled and
+        // reviewed rather than dropped into tools/ at runtime.
+        if (toolRegistry.Find(name) is { } registration)
         {
-            var nativeGrant = httpContextAccessor.HttpContext?.Items[BearerGrantMiddleware.GrantItemKey] as Grant;
-            if (nativeGrant is null)
+            var declaredGrant = httpContextAccessor.HttpContext?.Items[BearerGrantMiddleware.GrantItemKey] as Grant;
+            if (declaredGrant is null)
                 return NoGrantError(name);
 
-            // Two native tools are gated by something other than an op class, so they are
-            // special-cased past the usual grant.Allows(tool.OpClass) check by name:
-            // health_check is diagnostics (a right of connection for any authenticated grant),
-            // and request_elevation is gated by the caller's per-grant canRequestElevation opt-in,
-            // enforced inside the tool itself (which returns an informative error when it is not
-            // set). Both declare OpClass "" so they could never satisfy an op-class check anyway.
-            var isOpClassExempt = nativeTool.Name is HealthCheckTool.ToolName or ElevationRequestTool.ToolName;
-            if (!isOpClassExempt && !nativeGrant.Allows(nativeTool.OpClass))
-                return OpClassError(name, nativeTool.OpClass);
-
-            var nativeArguments = context.Params?.Arguments?.ToDictionary(kv => kv.Key, kv => kv.Value)
-                ?? new Dictionary<string, JsonElement>();
-            // Returned unchanged, success or failure: a native tool builds its own refusals through
-            // ToolError, the same way a script tool throws that same error text, so re-shaping here
-            // would overwrite the tool's chosen code with a dispatcher-chosen one.
-            return await nativeTool.InvokeAsync(nativeArguments, nativeGrant, cancellationToken);
+            // Everything a declared tool is gated by - the session, the floor, the arguments, the
+            // vault - is the execute path's, including the two tools gated by something other than
+            // an op class, which declare Floor.SelfGated rather than being matched by name here.
+            return Render(() => execution.Invoke(registration, DeclaredArguments(context), declaredGrant, Session()));
         }
 
         var tool = registry.Tools.FirstOrDefault(t => t.Name == name);
         if (tool is null)
-            return ToolError.Result("not_found", $"Unknown tool: \"{name}\".", new { tool = name });
+            return ToolError.Result(ToolCodes.NotFound, $"Unknown tool: \"{name}\".", new { tool = name });
 
         var grant = httpContextAccessor.HttpContext?.Items[BearerGrantMiddleware.GrantItemKey] as Grant;
         if (grant is null)
             return NoGrantError(name);
-        if (!grant.Allows(tool.OpClass))
-            return OpClassError(name, tool.OpClass);
+        // The same floor check the execute path makes, over the class a script declares in its
+        // .NOTES block. One site decides what a floor denial is, whichever surface the tool came from.
+        if (ToolExecution.FloorRefusal(name, new Floor.Class(tool.OpClass), grant) is { } floorDenial)
+            return ToolError.Result(floorDenial);
 
         // Authoritative vault-membership enforcement, alongside the op-class check above and off
         // the same deserialized arguments the runner will use. The middleware's body-peek (see
@@ -130,15 +128,18 @@ public sealed class ScriptToolDispatcher(ScriptToolRegistry registry, NativeTool
         // that peek is best-effort: it can be skipped by an omitted vault arg (which then resolves
         // to the default vault), a non-first batch element, or a chunked/malformed body it could
         // not parse. Re-checking here - the effective vault is the call's vault argument when
-        // present, else the configured default vault - is the one that cannot be bypassed. Only
-        // tools that take a Vault parameter target a vault; native tools returned above, and a
-        // script tool with no Vault parameter is out of scope of this check.
+        // present, else the configured default vault - is the one that cannot be bypassed.
+        //
+        // This is the script surface's copy of the check the execute path makes on a type. A
+        // param() block offers nothing to mark, so a script's vault operand is still found by
+        // matching the parameter name; a declared tool implements IVaultArguments instead, which
+        // the compiler carries.
         if (ToolTakesVaultParameter(tool))
         {
             var effectiveVault = ResolveEffectiveVault(context.Params?.Arguments);
             if (!grant.CanAccessVault(effectiveVault))
                 return ToolError.Result(
-                    "out_of_scope",
+                    ToolCodes.OutOfScope,
                     $"Grant \"{grant.Id}\" is not scoped to vault \"{effectiveVault}\".",
                     // data carries only the call's own coordinates - the tool, and the vault the
                     // call effectively targeted (which the caller may not have named, so it is the
@@ -166,7 +167,7 @@ public sealed class ScriptToolDispatcher(ScriptToolRegistry registry, NativeTool
         // already coded.
         if (UnadvertisedArgumentName(tool, context.Params?.Arguments) is { } unknownArgument)
             return ToolError.Result(
-                "invalid_argument",
+                ToolCodes.InvalidArgument,
                 $"Tool \"{name}\" has no parameter named \"{unknownArgument}\".",
                 // Same posture as the denials above: data carries only the call's own coordinates -
                 // the tool named and the offending argument name, both of them the caller's own
@@ -175,26 +176,14 @@ public sealed class ScriptToolDispatcher(ScriptToolRegistry registry, NativeTool
                 new { tool = name, param = unknownArgument });
 
         var arguments = ConvertArguments(tool, context.Params?.Arguments);
-        var execution = await runner.InvokeAsync(tool.ScriptPath, arguments, cancellationToken, grant.ScopeRoots, grant.OpClasses);
+        var scriptExecution = await runner.InvokeAsync(tool.ScriptPath, arguments, cancellationToken, grant.ScopeRoots, grant.OpClasses);
         // A script's own error text is surfaced verbatim, never re-wrapped: a tool script that threw
         // a refusal already carries the {code, message, data?} shape, and re-shaping here
         // would either double-encode it or overwrite its code with a dispatcher-chosen one.
-        return execution.HadErrors
-            ? ErrorResult(execution.ErrorText)
-            : new CallToolResult { Content = [new TextContentBlock { Text = execution.OutputText }] };
+        return scriptExecution.HadErrors
+            ? ErrorResult(scriptExecution.ErrorText)
+            : new CallToolResult { Content = [new TextContentBlock { Text = scriptExecution.OutputText }] };
     }
-
-    /// <summary>
-    /// The dispatcher's op-class (floor) denial. Uses the same <c>insufficient_capability</c> code
-    /// as an in-script key assertion, because it is the same condition
-    /// at a different layer - a caller retrying after elevation must not have to know whether the
-    /// floor or a key refused. <c>data</c> names the required class (a property of the tool, and the
-    /// class an elevation request would ask for) but never the classes the grant actually holds.
-    /// </summary>
-    private static CallToolResult OpClassError(string toolName, string opClass) => ToolError.Result(
-        "insufficient_capability",
-        $"Grant does not permit {opClass} operations for tool \"{toolName}\".",
-        new { tool = toolName, requiredOpClass = opClass });
 
     /// <summary>
     /// Defensive branch: no grant on <c>HttpContext.Items</c>, meaning the request did not pass
@@ -204,9 +193,60 @@ public sealed class ScriptToolDispatcher(ScriptToolRegistry registry, NativeTool
     /// "grant lacking the class" to route the failure.
     /// </summary>
     private static CallToolResult NoGrantError(string toolName) => ToolError.Result(
-        "insufficient_capability",
+        ToolCodes.InsufficientCapability,
         $"No grant is attached to this request, so tool \"{toolName}\" cannot be dispatched.",
         new { tool = toolName });
+
+    /// <summary>
+    /// The caller's session, from the principal identity <see cref="BearerGrantMiddleware"/> derived
+    /// for this request. Null only where the middleware did not run, which the declaration's own
+    /// session requirement then turns into <c>tool_unavailable</c>.
+    /// </summary>
+    private ClientSession? Session() =>
+        httpContextAccessor.HttpContext?.Items[BearerGrantMiddleware.PrincipalTokenHashItemKey] is string principalKey
+            ? new ClientSession(principalKey)
+            : null;
+
+    /// <summary>The call's raw argument map, which the execute path binds onto the declared record.</summary>
+    private static IReadOnlyDictionary<string, JsonElement> DeclaredArguments(RequestContext<CallToolRequestParams> context) =>
+        context.Params?.Arguments?.ToDictionary(kv => kv.Key, kv => kv.Value) ?? [];
+
+    /// <summary>
+    /// MCP's rendering of the neutral result and of every refusal that can reach it. A content
+    /// result becomes the text block; a structured result is serialized under the shared options, so
+    /// results and arguments share one naming policy and nothing translates between a sent name and
+    /// a returned one.
+    ///
+    /// Three refusal vocabularies converge here, and this is the only site that translates any of
+    /// them: no tool catches a refusal it did not raise.
+    /// </summary>
+    private static CallToolResult Render(Func<ToolResult> invoke)
+    {
+        try
+        {
+            return invoke() switch
+            {
+                ToolResult.Content content => new CallToolResult { Content = [new TextContentBlock { Text = content.Text }] },
+                ToolResult.Data data => new CallToolResult
+                {
+                    Content = [new TextContentBlock { Text = JsonSerializer.Serialize(data.Value, NativeToolArguments.Options) }],
+                },
+                var other => throw new InvalidOperationException($"Unhandled tool result {other.GetType().Name}."),
+            };
+        }
+        catch (ToolRefusal refusal)
+        {
+            return ToolError.Result(refusal);
+        }
+        catch (FrontmatterRefusal refusal)
+        {
+            return ToolError.Result(ToolRefusalEnvelope.Translate(refusal));
+        }
+        catch (AuthorityRefusal refusal)
+        {
+            return ToolError.Result(ToolRefusalEnvelope.Translate(refusal));
+        }
+    }
 
     /// <summary>Whether <paramref name="tool"/> declares a vault-targeting parameter (see
     /// <see cref="VaultParameterName"/>) - the tools this dispatcher's membership check applies to.</summary>

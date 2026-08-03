@@ -1,9 +1,5 @@
 using System.Collections.Concurrent;
 using System.ComponentModel;
-using System.Text.Json;
-using Microsoft.AspNetCore.Http;
-using ModelContextProtocol.Protocol;
-using VaultMcpServer.Auth;
 using VaultShared.Auth;
 using VaultShared.Configuration;
 using VaultShared.Scope;
@@ -20,8 +16,12 @@ public sealed record ElevationOptions(int DefaultTtlMinutes = 15, int MaxRequest
 /// the tool's advertised <c>inputSchema</c> (see <see cref="NativeToolArguments"/>). Every member is
 /// optional, so nothing is <c>required</c> in the derived schema - the two-form rule (<c>grant</c>
 /// XOR <c>scope_roots</c>+<c>op_class</c>) is a cross-argument constraint JSON Schema's
-/// <c>required</c> cannot state, and stays as <see cref="ElevationRequestTool.ResolveTarget"/>'s own
-/// coded refusal.
+/// <c>required</c> cannot state.
+///
+/// <see cref="Validate"/> is empty, like <see cref="MintTokenArguments"/>'s and for the same reason:
+/// the form-selection rule blames no single argument, so it cannot be expressed as an
+/// <see cref="ArgumentFault"/> without inventing an offender, and every other rule here needs the
+/// registry, the vault configuration, or the caller's own grant.
 /// </summary>
 public sealed record ElevationRequestArguments(
     [property: Description("Id of a named grant to elevate to (e.g. \"admin\"). Provide this OR scope_roots+op_class, not both.")]
@@ -33,125 +33,108 @@ public sealed record ElevationRequestArguments(
     [property: Description("Minutes the elevation lasts before reverting to the base binding. Optional; defaults to the server's configured elevation TTL.")]
     int? Ttl = null,
     [property: Description("Optional free-text context about why elevation is needed, shown to a human approver.")]
-    string? SessionContext = null);
+    string? SessionContext = null) : IToolArguments
+{
+    public ArgumentFault? Validate() => null;
+}
 
 /// <summary>
-/// Native tool (<see cref="INativeTool"/>) that requests a TTL'd elevation rebind of the caller's
-/// token to a different grant - a token-less named grant, or a freshly-minted scoped grant - via
-/// <see cref="GrantStore"/>'s binding table. Mirrors <see cref="MintTokenTool"/>'s shape but is
-/// gated by a per-grant opt-in (<see cref="Grant.CanRequestElevation"/>), not an op class: like
-/// <c>health_check</c> it is special-cased past the dispatcher's op-class check by name, then
-/// enforces the opt-in itself so unauthorized callers get an informative tool error (the
-/// static-tool-listing / informative-denials convention) rather than the tool vanishing.
+/// Requests a TTL'd elevation rebind of the caller's token to a different grant - a token-less named
+/// grant, or a freshly-minted scoped grant - via <see cref="GrantStore"/>'s binding table. Mirrors
+/// <see cref="MintTokenTool"/>'s shape but is gated by a per-grant opt-in
+/// (<see cref="Grant.CanRequestElevation"/>) rather than an op class, which is why its declaration is
+/// <see cref="Floor.SelfGated"/>: the gate is inside this tool, so an unauthorized caller gets an
+/// informative refusal rather than the tool vanishing.
+///
+/// It declares <see cref="ToolDeclaration.RequiresClientSession"/> because it rebinds authority keyed
+/// to a live caller's token; the session's principal key is what the rebind is recorded against.
 ///
 /// Flow: verify the caller may request elevation, rate-limit per principal, resolve the requested
 /// grant, ask the pluggable <see cref="IElevationApprover"/> (shipped as an auto-deny stub), and
 /// on approval rebind with a TTL. On a dev machine the default binding is already admin, so this
 /// is off the daily path; it matters where the default is minimal.
 ///
-/// Every refusal is a coded <see cref="ToolError"/> result in the shared <c>{code, message, data?}</c>
-/// shape, so a caller branches on <c>code</c> whichever tier refused. The codes:
-/// <c>insufficient_capability</c> for both authority denials - the missing <c>canRequestElevation</c>
-/// opt-in and the approver's "no" - deliberately sharing one code so a caller cannot tell "not allowed
-/// to ask" from "asked and refused"; <c>rate_limited</c> for the throttle (the core
-/// code for a transient throttle - coding it as capability or argument would route a
-/// retryable condition into a non-retryable branch); <c>invalid_argument</c>
-/// for malformed or contradictory target arguments; <c>not_found</c> for a named target that is not a
-/// configured grant; <c>unknown_vault</c>/<c>vault_unavailable</c> for a scoped target's vault,
-/// classified by which config map holds the name.
+/// The codes: <c>insufficient_capability</c> for both authority denials - the missing
+/// <c>canRequestElevation</c> opt-in and the approver's "no" - deliberately sharing one code so a
+/// caller cannot tell "not allowed to ask" from "asked and refused"; <c>rate_limited</c> for the
+/// throttle, the code for a transient throttle, since coding it as capability or argument would route
+/// a retryable condition into a branch that never retries; <c>invalid_argument</c> for malformed or
+/// contradictory target arguments; <c>not_found</c> for a named target that is not a configured
+/// grant; <c>unknown_vault</c>/<c>vault_unavailable</c> for a scoped target's vault, classified by
+/// which config map holds the name.
 ///
-/// This tool is op-class exempt, so an unauthenticated caller on the minimum-access floor reaches
-/// every one of those paths. <c>data</c> therefore carries only what the caller itself supplied (the
-/// argument name, its own <c>grant</c> id echo) plus the configured rate limit, and never the caller's
-/// grant id, op classes, vault set, or scope roots.
+/// This tool is self-gated, so a caller on the minimum-access floor reaches every one of those paths.
+/// <c>data</c> therefore carries only what the caller itself supplied (the argument name, its own
+/// <c>grant</c> id echo) plus the configured rate limit, and never the caller's grant id, op classes,
+/// vault set, or scope roots.
+///
+/// <b>The invocation blocks for the approver's answer.</b> The tool surface is synchronous because
+/// the mutex hold cannot cross a suspension point; this tool takes no lock, and the whole cost of
+/// that choice falls here.
 /// </summary>
 public sealed class ElevationRequestTool(
     GrantStore grantStore,
     IElevationApprover approver,
-    IHttpContextAccessor httpContextAccessor,
     OpClassRegistry opClassRegistry,
     VaultConfig vaultConfig,
     ElevationOptions options,
-    TimeProvider timeProvider) : INativeTool
+    TimeProvider timeProvider) : ITool
 {
-    /// <summary>The fixed tool name <see cref="ScriptToolDispatcher"/> matches on to bypass the
-    /// op-class check (this tool is gated by the per-grant opt-in instead).</summary>
     public const string ToolName = "request_elevation";
+
+    public static readonly ToolDeclaration Declaration = new()
+    {
+        Name = ToolName,
+        Description =
+            "Requests a time-limited elevation of the calling session to a different grant - a named " +
+            "grant, or a freshly-minted scoped grant - subject to approval. Requires a grant that opts " +
+            "into elevation. Requests are rate-limited and, in the default configuration, auto-denied.",
+        Arguments = typeof(ElevationRequestArguments),
+        OpClassFloor = new Floor.SelfGated(),
+        RequiresClientSession = true,
+    };
 
     private readonly TimeSpan _rateWindow = TimeSpan.FromMinutes(1);
     private readonly ConcurrentDictionary<string, (DateTimeOffset WindowStart, int Count)> _requestCounts = new();
 
-    public string Name => ToolName;
+    /// <summary>What an approved elevation reports back. The minted or named target, and when it
+    /// reverts.</summary>
+    public sealed record ElevationReport(bool Elevated, string Grant, string FromGrant, int TtlMinutes, DateTimeOffset ExpiresAtUtc);
 
-    public string Description =>
-        "Requests a time-limited elevation of the calling session to a different grant - a named " +
-        "grant, or a freshly-minted scoped grant - subject to approval. Requires a grant that opts " +
-        "into elevation. Requests are rate-limited and, in the default configuration, auto-denied.";
-
-    // Never consulted: the dispatcher special-cases this tool past the grant.Allows(OpClass)
-    // check by name (like health_check), because elevation is gated by the per-grant
-    // canRequestElevation opt-in rather than an op class. Left blank so it can never be mistaken
-    // for an enforced value - an empty string never matches Grant.Allows's op-class set.
-    public string OpClass => "";
-
-    public JsonElement InputSchema { get; } = NativeToolArguments.Schema<ElevationRequestArguments>();
-
-    public async Task<CallToolResult> InvokeAsync(IReadOnlyDictionary<string, JsonElement> arguments, Grant grant, CancellationToken cancellationToken)
+    public ToolResult Invoke(ToolCall call)
     {
-        // Defensive: BearerGrantMiddleware stashes this on every request it lets through, so reaching
-        // here means the middleware did not run. dependency_unavailable rather than a capability or
-        // argument code - nothing about the caller's authority or its arguments would change the
-        // outcome, and the condition is the server's, not the call's.
-        if (httpContextAccessor.HttpContext?.Items[BearerGrantMiddleware.PrincipalTokenHashItemKey] is not string tokenHashKey)
-            return ToolError.Result("dependency_unavailable", "Elevation is unavailable: the request principal could not be identified.");
+        var args = call.ArgumentsAs<ElevationRequestArguments>();
+        var grant = call.Grant;
+        // The declaration requires a session, and the execute path refuses the call before it reaches
+        // here without one.
+        var tokenHashKey = call.Session!.PrincipalKey;
 
         // Deny by default: only a grant that opts in may request elevation (minted grants never
         // do, so an automated subagent cannot self-escalate). The opt-in stands in for an op class
         // on this tool, so the shortfall carries the op-class shortfall's code.
         if (!grant.CanRequestElevation)
-            return ToolError.Result(
-                "insufficient_capability",
+            throw new ToolRefusal(
+                ToolCodes.InsufficientCapability,
                 $"Grant \"{grant.Id}\" is not permitted to request elevation - requires a grant with canRequestElevation enabled.");
 
         // Consumed before the target is resolved, so the throttle also bounds how fast a caller can
         // probe which named grants exist through the not_found below.
         if (!TryConsumeRequestSlot(tokenHashKey))
-            return ToolError.Result(
-                "rate_limited",
+            throw new ToolRefusal(
+                ToolCodes.RateLimited,
                 $"Elevation requests are rate-limited to {options.MaxRequestsPerMinute} per minute for this session - try again shortly.",
                 new { limitPerMinute = options.MaxRequestsPerMinute });
 
-        string requestedGrantId;
-        Grant requestedGrant;
-        bool mintTarget;
-        IReadOnlySet<string> mintOpClasses = new HashSet<string>();
-        IReadOnlySet<string> mintVaults = new HashSet<string>();
-        IReadOnlyDictionary<string, VaultScope> mintScopeRoots = new Dictionary<string, VaultScope>();
-        int ttlMinutes;
-        string? sessionContext;
-        try
-        {
-            var args = NativeToolArguments.Bind<ElevationRequestArguments>(arguments);
-            (requestedGrantId, requestedGrant, mintTarget, mintOpClasses, mintVaults, mintScopeRoots) = ResolveTarget(args);
-            ttlMinutes = ReadTtl(args);
-            sessionContext = args.SessionContext;
-        }
-        catch (ElevationArgumentException ex)
-        {
-            return ToolError.Result(ex.Code, ex.Message, ex.ErrorData);
-        }
-        catch (JsonException ex)
-        {
-            return ShapeRefusal(ex, arguments);
-        }
+        var (requestedGrantId, requestedGrant, mintTarget, mintOpClasses, mintVaults, mintScopeRoots) = ResolveTarget(args);
+        var ttlMinutes = ReadTtl(args);
 
-        var request = new ElevationRequest(grant.Id, grant, requestedGrantId, requestedGrant, ttlMinutes, sessionContext);
-        var decision = await approver.ReviewAsync(request, cancellationToken);
+        var request = new ElevationRequest(grant.Id, grant, requestedGrantId, requestedGrant, ttlMinutes, args.SessionContext);
+        var decision = approver.ReviewAsync(request, CancellationToken.None).GetAwaiter().GetResult();
         // Same code as the opt-in denial above: both mean the caller does not have this authority and
         // neither is fixable by changing the arguments. data stays empty - the approver's reason is
         // human-readable prose in the message, and the minted-target id is server-generated.
         if (!decision.Approved)
-            return ToolError.Result("insufficient_capability", $"Elevation to \"{requestedGrantId}\" denied: {decision.Reason}");
+            throw new ToolRefusal(ToolCodes.InsufficientCapability, $"Elevation to \"{requestedGrantId}\" denied: {decision.Reason}");
 
         var expiresAt = timeProvider.GetUtcNow().AddMinutes(ttlMinutes);
         if (mintTarget)
@@ -159,36 +142,7 @@ public sealed class ElevationRequestTool(
         else
             grantStore.RebindToNamedGrant(tokenHashKey, requestedGrantId, expiresAt);
 
-        var responseJson = JsonSerializer.Serialize(new
-        {
-            elevated = true,
-            grant = requestedGrantId,
-            fromGrant = grant.Id,
-            ttlMinutes,
-            expiresAtUtc = expiresAt,
-        });
-        return new CallToolResult { Content = [new TextContentBlock { Text = responseJson }] };
-    }
-
-    /// <summary>
-    /// Turns a binding <see cref="JsonException"/> - which is not a <c>{code, message, data?}</c>
-    /// error - into this tool's own coded refusal, named after the argument whose shape failed. The
-    /// message table is deliberate rather than derived: <c>ttl</c>'s refusal of a string has to say
-    /// why <c>"*"</c> is not accepted, which no type check could produce.
-    /// </summary>
-    private static CallToolResult ShapeRefusal(JsonException exception, IReadOnlyDictionary<string, JsonElement> arguments)
-    {
-        var argument = NativeToolArguments.OffendingArgument(exception);
-        var message = argument switch
-        {
-            "ttl" when arguments.TryGetValue("ttl", out var ttl) && ttl.ValueKind == JsonValueKind.String =>
-                "\"ttl\" does not accept \"*\" - pass an integer number of minutes, or omit it for the default.",
-            "ttl" => "\"ttl\" must be an integer number of minutes.",
-            "scope_roots" or "op_class" => $"\"{argument}\" must be an array of strings.",
-            not null => $"\"{argument}\" does not match the shape this tool advertises for it.",
-            _ => "The arguments do not match the shape this tool advertises.",
-        };
-        return ToolError.Result("invalid_argument", message, argument is null ? null : new { argument });
+        return new ToolResult.Data(new ElevationReport(true, requestedGrantId, grant.Id, ttlMinutes, expiresAt));
     }
 
     /// <summary>
@@ -204,9 +158,9 @@ public sealed class ElevationRequestTool(
         // No single argument is at fault in either form-selection failure, so neither carries an
         // "argument" datum - the message names the whole rule.
         if (hasNamed && hasScoped)
-            throw new ElevationArgumentException("invalid_argument", "Provide either \"grant\" (a named grant) or \"scope_roots\"+\"op_class\" (a scoped grant), not both.");
+            throw new ToolRefusal(ToolCodes.InvalidArgument, "Provide either \"grant\" (a named grant) or \"scope_roots\"+\"op_class\" (a scoped grant), not both.");
         if (!hasNamed && !hasScoped)
-            throw new ElevationArgumentException("invalid_argument", "Provide a \"grant\" (named grant id) or a \"scope_roots\"+\"op_class\" pair to elevate to.");
+            throw new ToolRefusal(ToolCodes.InvalidArgument, "Provide a \"grant\" (named grant id) or a \"scope_roots\"+\"op_class\" pair to elevate to.");
 
         if (hasNamed)
         {
@@ -214,7 +168,7 @@ public sealed class ElevationRequestTool(
             // not_found preserves the distinction this tool's prose already drew between an
             // unconfigured target and a refused one; data echoes only the id the caller passed.
             if (!grantStore.TryGetNamedGrant(id, out var named))
-                throw new ElevationArgumentException("not_found", $"Unknown named grant \"{id}\" - not a configured elevation target.", new { argument = "grant", grant = id });
+                throw new ToolRefusal(ToolCodes.NotFound, $"Unknown named grant \"{id}\" - not a configured elevation target.", new { argument = "grant", grant = id });
             var empty = (IReadOnlySet<string>)new HashSet<string>();
             return (id, named, false, empty, empty, new Dictionary<string, VaultScope>());
         }
@@ -239,20 +193,20 @@ public sealed class ElevationRequestTool(
     {
         var scopeRoots = RequireNonEmptyEntries(args.ScopeRoots, "scope_roots");
         if (scopeRoots.Count == 0)
-            throw new ElevationArgumentException("invalid_argument", "\"scope_roots\" is required for a scoped elevation target and must contain at least one entry.", new { argument = "scope_roots" });
+            throw new ToolRefusal(ToolCodes.InvalidArgument, "\"scope_roots\" is required for a scoped elevation target and must contain at least one entry.", new { argument = "scope_roots" });
         if (scopeRoots.Any(v => v == "*"))
-            throw new ElevationArgumentException("invalid_argument", "\"scope_roots\" does not accept \"*\" - list explicit folder-prefix roots.", new { argument = "scope_roots" });
+            throw new ToolRefusal(ToolCodes.InvalidArgument, "\"scope_roots\" does not accept \"*\" - list explicit folder-prefix roots.", new { argument = "scope_roots" });
 
         var opClassValues = RequireNonEmptyEntries(args.OpClass, "op_class");
         if (opClassValues.Count == 0)
-            throw new ElevationArgumentException("invalid_argument", "\"op_class\" is required for a scoped elevation target and must contain at least one entry.", new { argument = "op_class" });
+            throw new ToolRefusal(ToolCodes.InvalidArgument, "\"op_class\" is required for a scoped elevation target and must contain at least one entry.", new { argument = "op_class" });
         if (opClassValues.Any(v => v == "*"))
-            throw new ElevationArgumentException("invalid_argument", "\"op_class\" does not accept \"*\" - list explicit op classes.", new { argument = "op_class" });
+            throw new ToolRefusal(ToolCodes.InvalidArgument, "\"op_class\" does not accept \"*\" - list explicit op classes.", new { argument = "op_class" });
 
         var opClasses = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         foreach (var value in opClassValues)
             opClasses.Add(opClassRegistry.Canonicalize(value)
-                ?? throw new ElevationArgumentException("invalid_argument", $"\"op_class\" entry \"{value}\" is not a known op class.", new { argument = "op_class", opClass = value }));
+                ?? throw new ToolRefusal(ToolCodes.InvalidArgument, $"\"op_class\" entry \"{value}\" is not a known op class.", new { argument = "op_class", opClass = value }));
 
         var byVault = new Dictionary<string, HashSet<string>>(StringComparer.OrdinalIgnoreCase);
         var wholeVault = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
@@ -262,13 +216,13 @@ public sealed class ElevationRequestTool(
             var vaultName = parts[0];
             // Classified by which config map holds the name, never by message text.
             if (vaultConfig.SkippedVaults.ContainsKey(vaultName))
-                throw new ElevationArgumentException(
-                    "vault_unavailable",
+                throw new ToolRefusal(
+                    ToolCodes.VaultUnavailable,
                     $"\"scope_roots\" entry \"{root}\" names vault \"{vaultName}\", which is configured but currently unavailable.",
                     new { argument = "scope_roots", scopeRoot = root, vault = vaultName });
             if (!vaultConfig.Vaults.ContainsKey(vaultName))
-                throw new ElevationArgumentException(
-                    "unknown_vault",
+                throw new ToolRefusal(
+                    ToolCodes.UnknownVault,
                     $"\"scope_roots\" entry \"{root}\" names an unknown vault \"{vaultName}\".",
                     new { argument = "scope_roots", scopeRoot = root, vault = vaultName });
 
@@ -283,8 +237,8 @@ public sealed class ElevationRequestTool(
                 }
                 catch (ArgumentException ex)
                 {
-                    throw new ElevationArgumentException(
-                        "invalid_argument",
+                    throw new ToolRefusal(
+                        ToolCodes.InvalidArgument,
                         $"\"scope_roots\" entry \"{root}\" has an invalid subtree \"{parts[1]}\": {ex.Message}",
                         new { argument = "scope_roots", scopeRoot = root });
                 }
@@ -311,7 +265,7 @@ public sealed class ElevationRequestTool(
         if (args.Ttl is not { } minutes)
             return options.DefaultTtlMinutes;
         if (minutes <= 0)
-            throw new ElevationArgumentException("invalid_argument", $"\"ttl\" must be a positive number of minutes, got {minutes}.", new { argument = "ttl" });
+            throw new ToolRefusal(ToolCodes.InvalidArgument, $"\"ttl\" must be a positive number of minutes, got {minutes}.", new { argument = "ttl" });
         return minutes;
     }
 
@@ -323,7 +277,7 @@ public sealed class ElevationRequestTool(
         if (values is null)
             return [];
         if (values.Any(string.IsNullOrEmpty))
-            throw new ElevationArgumentException("invalid_argument", $"\"{name}\" must contain only non-empty strings.", new { argument = name });
+            throw new ToolRefusal(ToolCodes.InvalidArgument, $"\"{name}\" must contain only non-empty strings.", new { argument = name });
         return values;
     }
 
@@ -338,20 +292,5 @@ public sealed class ElevationRequestTool(
             _ => (now, 1),
             (_, existing) => now - existing.WindowStart >= _rateWindow ? (now, 1) : (existing.WindowStart, existing.Count + 1));
         return updated.Count <= options.MaxRequestsPerMinute;
-    }
-
-    /// <summary>
-    /// Internal control-flow exception for a refused elevation request - caught in
-    /// <see cref="InvokeAsync"/> and turned into a coded <see cref="ToolError"/> result, never
-    /// propagated. Carries the <see cref="Code"/> and <see cref="ErrorData"/> alongside the message so
-    /// the refusal keeps the shared <c>{code, message, data?}</c> shape rather than reaching the client
-    /// as prose. <see cref="ErrorData"/> is named apart from <see cref="Exception.Data"/>, which is an
-    /// unrelated <see cref="System.Collections.IDictionary"/> on the base type.
-    /// </summary>
-    private sealed class ElevationArgumentException(string code, string message, object? data = null) : Exception(message)
-    {
-        public string Code { get; } = code;
-
-        public object? ErrorData { get; } = data;
     }
 }

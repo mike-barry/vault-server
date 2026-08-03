@@ -1,6 +1,4 @@
 using System.Text.Json;
-using Microsoft.AspNetCore.Http;
-using ModelContextProtocol.Protocol;
 using VaultMcpServer.Auth;
 using VaultShared.Auth;
 using VaultMcpServer.Health;
@@ -8,6 +6,8 @@ using VaultMcpServer.Tools;
 using VaultShared.Configuration;
 using VaultShared.Scope;
 using VaultShared.Tests;
+using VaultShared.Tools;
+using static VaultMcpServer.Tests.DeclaredToolHarness;
 
 namespace VaultMcpServer.Tests;
 
@@ -46,38 +46,20 @@ public sealed class ElevationRequestToolTests(TestVaultFixture fixture) : IClass
         return GrantStore.Load(path, OpClasses, _vaultConfig, new ServerHealthState(), timeProvider);
     }
 
-    private static IHttpContextAccessor AccessorFor(string token)
-    {
-        var ctx = new DefaultHttpContext();
-        ctx.Items[BearerGrantMiddleware.PrincipalTokenHashItemKey] = GrantStore.HashKey(token);
-        return new HttpContextAccessor { HttpContext = ctx };
-    }
+    /// <summary>The session the execute path would hand in: the principal identity the middleware
+    /// derives for the caller's token.</summary>
+    private static ClientSession SessionFor(string token) => new(GrantStore.HashKey(token));
 
-    private ElevationRequestTool MakeTool(GrantStore store, IElevationApprover approver, IHttpContextAccessor accessor, TimeProvider? timeProvider = null, ElevationOptions? options = null) =>
-        new(store, approver, accessor, OpClasses, _vaultConfig, options ?? new ElevationOptions(), timeProvider ?? TimeProvider.System);
+    private ElevationRequestTool MakeTool(GrantStore store, IElevationApprover approver, TimeProvider? timeProvider = null, ElevationOptions? options = null) =>
+        new(store, approver, OpClasses, _vaultConfig, options ?? new ElevationOptions(), timeProvider ?? TimeProvider.System);
 
-    private static Dictionary<string, JsonElement> Args(object obj) =>
-        JsonSerializer.Deserialize<Dictionary<string, JsonElement>>(JsonSerializer.Serialize(obj))!;
+    private static Outcome Elevate(ElevationRequestTool tool, GrantStore store, string token, object arguments) =>
+        Run(tool, ElevationRequestTool.Declaration, Args(arguments), store.Authenticate(token)!, SessionFor(token));
 
-    private static bool IsError(CallToolResult r) => r.IsError == true;
-    private static string Text(CallToolResult r) => ((TextContentBlock)r.Content[0]).Text;
-
-    /// <summary>The <c>code</c> of a refusal's <c>{code, message, data?}</c> JSON - the field callers
-    /// branch on, so every denial test pins it rather than the prose beside it.</summary>
-    private static string Code(CallToolResult r)
-    {
-        using var doc = JsonDocument.Parse(Text(r));
-        return doc.RootElement.GetProperty("code").GetString()!;
-    }
-
-    /// <summary>A refusal's <c>data</c> object as a name-to-raw-JSON map, or null when it carries none.</summary>
-    private static Dictionary<string, string>? Data(CallToolResult r)
-    {
-        using var doc = JsonDocument.Parse(Text(r));
-        return doc.RootElement.TryGetProperty("data", out var data)
-            ? data.EnumerateObject().ToDictionary(p => p.Name, p => p.Value.ToString())
-            : null;
-    }
+    private static bool IsError(Outcome r) => r.IsError;
+    private static string Text(Outcome r) => r.ErrorText;
+    private static string Code(Outcome r) => r.Code;
+    private static Dictionary<string, string>? Data(Outcome r) => r.Data;
 
     private sealed class FakeApprover(ElevationDecision decision) : IElevationApprover
     {
@@ -90,14 +72,13 @@ public sealed class ElevationRequestToolTests(TestVaultFixture fixture) : IClass
     }
 
     [Fact]
-    public async Task Invoke_GrantWithoutOptIn_IsDeniedBeforeApprover()
+    public void Invoke_GrantWithoutOptIn_IsDeniedBeforeApprover()
     {
         var store = MakeStore();
         var approver = new FakeApprover(ElevationDecision.Approve());
-        var tool = MakeTool(store, approver, AccessorFor("no-elevate-token"));
-        var caller = store.Authenticate("no-elevate-token")!;
+        var tool = MakeTool(store, approver);
 
-        var result = await tool.InvokeAsync(Args(new { grant = "elevated" }), caller, CancellationToken.None);
+        var result = Elevate(tool, store, "no-elevate-token", Args(new { grant = "elevated" }));
 
         Assert.True(IsError(result));
         // The canRequestElevation opt-in stands in for an op class on this tool, so its shortfall
@@ -112,13 +93,12 @@ public sealed class ElevationRequestToolTests(TestVaultFixture fixture) : IClass
     }
 
     [Fact]
-    public async Task Invoke_AutoDenyStub_ReturnsInformativeErrorAndDoesNotRebind()
+    public void Invoke_AutoDenyStub_ReturnsInformativeErrorAndDoesNotRebind()
     {
         var store = MakeStore();
-        var tool = MakeTool(store, new AutoDenyElevationApprover(), AccessorFor(CallerToken));
-        var caller = store.Authenticate(CallerToken)!;
+        var tool = MakeTool(store, new AutoDenyElevationApprover());
 
-        var result = await tool.InvokeAsync(Args(new { grant = "elevated" }), caller, CancellationToken.None);
+        var result = Elevate(tool, store, CallerToken, Args(new { grant = "elevated" }));
 
         Assert.True(IsError(result));
         // Deliberately the same code as the opt-in denial above: a caller cannot distinguish "not
@@ -129,14 +109,13 @@ public sealed class ElevationRequestToolTests(TestVaultFixture fixture) : IClass
     }
 
     [Fact]
-    public async Task Invoke_ApprovedNamedGrant_RebindsTheCallersToken()
+    public void Invoke_ApprovedNamedGrant_RebindsTheCallersToken()
     {
         var store = MakeStore();
         var approver = new FakeApprover(ElevationDecision.Approve());
-        var tool = MakeTool(store, approver, AccessorFor(CallerToken));
-        var caller = store.Authenticate(CallerToken)!;
+        var tool = MakeTool(store, approver);
 
-        var result = await tool.InvokeAsync(Args(new { grant = "elevated", ttl = 10 }), caller, CancellationToken.None);
+        var result = Elevate(tool, store, CallerToken, Args(new { grant = "elevated", ttl = 10 }));
 
         Assert.False(IsError(result));
         Assert.Equal(1, approver.Calls);
@@ -148,14 +127,13 @@ public sealed class ElevationRequestToolTests(TestVaultFixture fixture) : IClass
     }
 
     [Fact]
-    public async Task Invoke_ApprovedNamedGrant_RevertsAfterTtl()
+    public void Invoke_ApprovedNamedGrant_RevertsAfterTtl()
     {
         var timeProvider = new FixedTimeProvider(DateTimeOffset.UtcNow);
         var store = MakeStore(timeProvider);
-        var tool = MakeTool(store, new FakeApprover(ElevationDecision.Approve()), AccessorFor(CallerToken), timeProvider);
-        var caller = store.Authenticate(CallerToken)!;
+        var tool = MakeTool(store, new FakeApprover(ElevationDecision.Approve()), timeProvider);
 
-        await tool.InvokeAsync(Args(new { grant = "elevated", ttl = 5 }), caller, CancellationToken.None);
+        Elevate(tool, store, CallerToken, Args(new { grant = "elevated", ttl = 5 }));
         Assert.Equal("elevated", store.Authenticate(CallerToken)!.Id);
 
         timeProvider.Now = timeProvider.Now.AddMinutes(6);
@@ -163,13 +141,12 @@ public sealed class ElevationRequestToolTests(TestVaultFixture fixture) : IClass
     }
 
     [Fact]
-    public async Task Invoke_UnknownNamedGrant_IsError()
+    public void Invoke_UnknownNamedGrant_IsError()
     {
         var store = MakeStore();
-        var tool = MakeTool(store, new FakeApprover(ElevationDecision.Approve()), AccessorFor(CallerToken));
-        var caller = store.Authenticate(CallerToken)!;
+        var tool = MakeTool(store, new FakeApprover(ElevationDecision.Approve()));
 
-        var result = await tool.InvokeAsync(Args(new { grant = "does-not-exist" }), caller, CancellationToken.None);
+        var result = Elevate(tool, store, CallerToken, Args(new { grant = "does-not-exist" }));
 
         Assert.True(IsError(result));
         // Distinct from the approver's insufficient_capability denial, preserving the distinction this
@@ -181,28 +158,27 @@ public sealed class ElevationRequestToolTests(TestVaultFixture fixture) : IClass
     }
 
     [Fact]
-    public async Task Invoke_RateLimited_AfterMaxRequestsInWindow()
+    public void Invoke_RateLimited_AfterMaxRequestsInWindow()
     {
         var timeProvider = new FixedTimeProvider(DateTimeOffset.UtcNow);
         var store = MakeStore(timeProvider);
         // Auto-deny so nothing rebinds and every attempt is just a "request" counted by the limiter.
-        var tool = MakeTool(store, new AutoDenyElevationApprover(), AccessorFor(CallerToken), timeProvider, new ElevationOptions(MaxRequestsPerMinute: 2));
-        var caller = store.Authenticate(CallerToken)!;
+        var tool = MakeTool(store, new AutoDenyElevationApprover(), timeProvider, new ElevationOptions(MaxRequestsPerMinute: 2));
 
-        var first = await tool.InvokeAsync(Args(new { grant = "elevated" }), caller, CancellationToken.None);
-        var second = await tool.InvokeAsync(Args(new { grant = "elevated" }), caller, CancellationToken.None);
-        var third = await tool.InvokeAsync(Args(new { grant = "elevated" }), caller, CancellationToken.None);
+        var first = Elevate(tool, store, CallerToken, Args(new { grant = "elevated" }));
+        var second = Elevate(tool, store, CallerToken, Args(new { grant = "elevated" }));
+        var third = Elevate(tool, store, CallerToken, Args(new { grant = "elevated" }));
 
         Assert.Equal("insufficient_capability", Code(first));   // auto-deny, but not rate-limited
         Assert.Equal("insufficient_capability", Code(second));
         // rate_limited is the core code for a transient throttle: coding it as a capability or
         // argument failure would route a retryable condition into a branch that never retries.
         Assert.Equal("rate_limited", Code(third));
-        Assert.Equal("2", Data(third)!["limitPerMinute"]);
+        Assert.Equal("2", Data(third)!["limit_per_minute"]);
 
         // The window resets: after it elapses, a request is allowed through to the approver again.
         timeProvider.Now = timeProvider.Now.AddMinutes(2);
-        var afterWindow = await tool.InvokeAsync(Args(new { grant = "elevated" }), caller, CancellationToken.None);
+        var afterWindow = Elevate(tool, store, CallerToken, Args(new { grant = "elevated" }));
         Assert.Equal("insufficient_capability", Code(afterWindow));
     }
 
@@ -215,49 +191,45 @@ public sealed class ElevationRequestToolTests(TestVaultFixture fixture) : IClass
     /// statement order - a refactor that moves resolution ahead of the throttle must fail here.
     /// </summary>
     [Fact]
-    public async Task Invoke_UnknownNamedGrant_ConsumesRateLimitBudget()
+    public void Invoke_UnknownNamedGrant_ConsumesRateLimitBudget()
     {
         var timeProvider = new FixedTimeProvider(DateTimeOffset.UtcNow);
         var store = MakeStore(timeProvider);
-        var tool = MakeTool(store, new AutoDenyElevationApprover(), AccessorFor(CallerToken), timeProvider, new ElevationOptions(MaxRequestsPerMinute: 2));
-        var caller = store.Authenticate(CallerToken)!;
+        var tool = MakeTool(store, new AutoDenyElevationApprover(), timeProvider, new ElevationOptions(MaxRequestsPerMinute: 2));
 
         // Spend the whole window on requests that fail target resolution.
-        var firstProbe = await tool.InvokeAsync(Args(new { grant = "does-not-exist-1" }), caller, CancellationToken.None);
-        var secondProbe = await tool.InvokeAsync(Args(new { grant = "does-not-exist-2" }), caller, CancellationToken.None);
+        var firstProbe = Elevate(tool, store, CallerToken, Args(new { grant = "does-not-exist-1" }));
+        var secondProbe = Elevate(tool, store, CallerToken, Args(new { grant = "does-not-exist-2" }));
         Assert.Equal("not_found", Code(firstProbe));
         Assert.Equal("not_found", Code(secondProbe));
 
         // (a) Those not_found responses consumed the budget: a well-formed request for a target that
         // really exists is now throttled, which is only possible if the throttle ran first.
-        var afterExhaustion = await tool.InvokeAsync(Args(new { grant = "elevated" }), caller, CancellationToken.None);
+        var afterExhaustion = Elevate(tool, store, CallerToken, Args(new { grant = "elevated" }));
         Assert.True(IsError(afterExhaustion));
         Assert.Equal("rate_limited", Code(afterExhaustion));
-        Assert.Equal("2", Data(afterExhaustion)!["limitPerMinute"]);
+        Assert.Equal("2", Data(afterExhaustion)!["limit_per_minute"]);
 
         // (b) And enumeration stops with the budget: a further unknown target answers rate_limited,
         // not not_found, so the probe rate is capped at MaxRequestsPerMinute.
-        var throttledProbe = await tool.InvokeAsync(Args(new { grant = "does-not-exist-3" }), caller, CancellationToken.None);
+        var throttledProbe = Elevate(tool, store, CallerToken, Args(new { grant = "does-not-exist-3" }));
         Assert.Equal("rate_limited", Code(throttledProbe));
         // No target-existence datum leaks past the throttle - only the caller's configured limit.
         Assert.Null(Data(throttledProbe)!.GetValueOrDefault("grant"));
 
         // Once the window rolls over, probing resumes at the same capped rate.
         timeProvider.Now = timeProvider.Now.AddMinutes(2);
-        var afterWindow = await tool.InvokeAsync(Args(new { grant = "does-not-exist-4" }), caller, CancellationToken.None);
+        var afterWindow = Elevate(tool, store, CallerToken, Args(new { grant = "does-not-exist-4" }));
         Assert.Equal("not_found", Code(afterWindow));
     }
 
     [Fact]
-    public async Task Invoke_ApprovedScopedMint_RebindsToAScopedGrant()
+    public void Invoke_ApprovedScopedMint_RebindsToAScopedGrant()
     {
         var store = MakeStore();
-        var tool = MakeTool(store, new FakeApprover(ElevationDecision.Approve()), AccessorFor(CallerToken));
-        var caller = store.Authenticate(CallerToken)!;
+        var tool = MakeTool(store, new FakeApprover(ElevationDecision.Approve()));
 
-        var result = await tool.InvokeAsync(
-            Args(new { scope_roots = new[] { "test/Projects/Foo" }, op_class = new[] { "content:read" }, ttl = 10 }),
-            caller, CancellationToken.None);
+        var result = Elevate(tool, store, CallerToken, Args(new { scope_roots = new[] { "test/Projects/Foo" }, op_class = new[] { "content:read" }, ttl = 10 }));
 
         Assert.False(IsError(result));
         var elevated = store.Authenticate(CallerToken);
@@ -267,15 +239,12 @@ public sealed class ElevationRequestToolTests(TestVaultFixture fixture) : IClass
     }
 
     [Fact]
-    public async Task Invoke_BothNamedAndScopedTarget_IsError()
+    public void Invoke_BothNamedAndScopedTarget_IsError()
     {
         var store = MakeStore();
-        var tool = MakeTool(store, new FakeApprover(ElevationDecision.Approve()), AccessorFor(CallerToken));
-        var caller = store.Authenticate(CallerToken)!;
+        var tool = MakeTool(store, new FakeApprover(ElevationDecision.Approve()));
 
-        var result = await tool.InvokeAsync(
-            Args(new { grant = "elevated", scope_roots = new[] { "test" }, op_class = new[] { "content:read" } }),
-            caller, CancellationToken.None);
+        var result = Elevate(tool, store, CallerToken, Args(new { grant = "elevated", scope_roots = new[] { "test" }, op_class = new[] { "content:read" } }));
 
         Assert.True(IsError(result));
         Assert.Equal("invalid_argument", Code(result));
@@ -285,15 +254,12 @@ public sealed class ElevationRequestToolTests(TestVaultFixture fixture) : IClass
     }
 
     [Fact]
-    public async Task Invoke_ScopedTargetNamingAnUnknownVault_IsUnknownVault()
+    public void Invoke_ScopedTargetNamingAnUnknownVault_IsUnknownVault()
     {
         var store = MakeStore();
-        var tool = MakeTool(store, new FakeApprover(ElevationDecision.Approve()), AccessorFor(CallerToken));
-        var caller = store.Authenticate(CallerToken)!;
+        var tool = MakeTool(store, new FakeApprover(ElevationDecision.Approve()));
 
-        var result = await tool.InvokeAsync(
-            Args(new { scope_roots = new[] { "no-such-vault/Projects" }, op_class = new[] { "content:read" } }),
-            caller, CancellationToken.None);
+        var result = Elevate(tool, store, CallerToken, Args(new { scope_roots = new[] { "no-such-vault/Projects" }, op_class = new[] { "content:read" } }));
 
         Assert.True(IsError(result));
         // Classified by which config map holds the name. Discloses nothing new: the
@@ -303,16 +269,22 @@ public sealed class ElevationRequestToolTests(TestVaultFixture fixture) : IClass
     }
 
     [Fact]
-    public async Task Invoke_UnparseableTtl_IsInvalidArgumentNamingTheArgument()
+    public void Invoke_UnparseableTtl_IsInvalidArgumentNamingTheArgument()
     {
         var store = MakeStore();
-        var tool = MakeTool(store, new FakeApprover(ElevationDecision.Approve()), AccessorFor(CallerToken));
-        var caller = store.Authenticate(CallerToken)!;
+        var registry = new ToolRegistry().Add(
+            ElevationRequestTool.Declaration, MakeTool(store, new FakeApprover(ElevationDecision.Approve())));
 
-        var result = await tool.InvokeAsync(Args(new { grant = "elevated", ttl = "*" }), caller, CancellationToken.None);
+        // A "*" ttl fails binding rather than the tool's own range check, so this drives the execute
+        // path - the single site that turns a binding failure into a coded refusal.
+        var refusal = Assert.Throws<ToolRefusal>(() => new ToolExecution(_vaultConfig).Invoke(
+            registry.Find("request_elevation")!.Value,
+            Args(new { grant = "elevated", ttl = "*" }),
+            store.Authenticate(CallerToken)!,
+            SessionFor(CallerToken)));
 
-        Assert.True(IsError(result));
-        Assert.Equal("invalid_argument", Code(result));
-        Assert.Equal("ttl", Data(result)!["argument"]);
+        Assert.Equal("invalid_argument", refusal.Code);
+        using var envelope = JsonDocument.Parse(ToolRefusalEnvelope.Json(refusal));
+        Assert.Equal("ttl", envelope.RootElement.GetProperty("data").GetProperty("argument").GetString());
     }
 }

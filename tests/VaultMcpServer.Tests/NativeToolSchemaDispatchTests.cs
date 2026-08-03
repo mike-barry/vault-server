@@ -94,8 +94,8 @@ public sealed class NativeToolSchemaDispatchTests(NativeToolSchemaDispatchTests.
         Assert.False(result.TryGetProperty("isError", out var isError) && isError.GetBoolean());
         using var minted = JsonDocument.Parse(ContentText(result));
         Assert.False(string.IsNullOrEmpty(minted.RootElement.GetProperty("token").GetString()));
-        Assert.Equal(5, minted.RootElement.GetProperty("ttlMinutes").GetInt32());
-        Assert.Equal(["personal/Projects/Foo"], minted.RootElement.GetProperty("scopeRoots").EnumerateArray().Select(v => v.GetString()));
+        Assert.Equal(5, minted.RootElement.GetProperty("ttl_minutes").GetInt32());
+        Assert.Equal(["personal/Projects/Foo"], minted.RootElement.GetProperty("scope_roots").EnumerateArray().Select(v => v.GetString()));
     }
 
     /// <summary>
@@ -143,7 +143,7 @@ public sealed class NativeToolSchemaDispatchTests(NativeToolSchemaDispatchTests.
 
         Assert.False(result.TryGetProperty("isError", out var isError) && isError.GetBoolean());
         using var doc = JsonDocument.Parse(ContentText(result));
-        Assert.False(doc.RootElement.GetProperty("isFatallyDegraded").GetBoolean());
+        Assert.False(doc.RootElement.GetProperty("is_fatally_degraded").GetBoolean());
     }
 
     // --- Generic conformance, over whatever the server advertises -------------------------

@@ -1,10 +1,10 @@
 using System.Text.Json;
-using ModelContextProtocol.Protocol;
 using VaultShared.Auth;
 using VaultMcpServer.Health;
 using VaultMcpServer.Tools;
 using VaultShared.Configuration;
 using VaultShared.Tests;
+using VaultShared.Tools;
 
 namespace VaultMcpServer.Tests;
 
@@ -91,19 +91,17 @@ public static class NativeToolSchemas
 }
 
 /// <summary>
-/// Pins what the natives advertise now that <see cref="NativeToolArguments"/> derives it from the
-/// argument record rather than a hand-authored <c>Dictionary&lt;string, object&gt;</c> literal, and
-/// pins the boundary the conversion introduced: a binding failure is not a
-/// <c>{code, message, data?}</c> error until the tool re-raises it as one.
+/// Pins what the three declared tools advertise: <see cref="NativeToolArguments"/> derives it from
+/// the argument record the declaration names, rather than from a hand-authored
+/// <c>Dictionary&lt;string, object&gt;</c> literal, and the derivation may change how the schema is
+/// <em>produced</em> and nothing about what it <em>says</em>.
+///
+/// The binding boundary moved with the conversion: a binding failure is not a
+/// <c>{code, message, data?}</c> error until it is re-raised as one, and the shared execute path is
+/// now the single site that does that, so the cases below drive it rather than a tool.
 /// </summary>
 public sealed class NativeToolSchemaTests(TestVaultFixture fixture) : IClassFixture<TestVaultFixture>
 {
-    // The schema is built in a field initializer from the record's type alone, so a tool object
-    // constructed with no services still advertises the real thing.
-    private static readonly INativeTool Mint = new MintTokenTool(null!, null!, null!);
-    private static readonly INativeTool Health = new HealthCheckTool(null!, null!);
-    private static readonly INativeTool Elevation = new ElevationRequestTool(null!, null!, null!, null!, null!, null!, null!);
-
     public static TheoryData<string, string> Pinned() => new()
     {
         { "mint_token", NativeToolSchemas.MintToken },
@@ -111,12 +109,12 @@ public sealed class NativeToolSchemaTests(TestVaultFixture fixture) : IClassFixt
         { "health_check", NativeToolSchemas.HealthCheck },
     };
 
-    private static JsonElement SchemaOf(string toolName) => toolName switch
+    private static JsonElement SchemaOf(string toolName) => NativeToolArguments.SchemaFor(toolName switch
     {
-        "mint_token" => Mint.InputSchema,
-        "request_elevation" => Elevation.InputSchema,
-        _ => Health.InputSchema,
-    };
+        "mint_token" => MintTokenTool.Declaration.Arguments,
+        "request_elevation" => ElevationRequestTool.Declaration.Arguments,
+        _ => HealthCheckTool.Declaration.Arguments,
+    });
 
     /// <summary>
     /// The whole conversion in one assertion: the derived schema is byte-for-byte what the
@@ -166,9 +164,9 @@ public sealed class NativeToolSchemaTests(TestVaultFixture fixture) : IClassFixt
     private static Dictionary<string, JsonElement> Args(object obj) =>
         JsonSerializer.Deserialize<Dictionary<string, JsonElement>>(JsonSerializer.Serialize(obj))!;
 
-    private static (string Code, string? Argument) Refusal(CallToolResult result)
+    private static (string Code, string? Argument) Refusal(ToolRefusal refusal)
     {
-        using var doc = JsonDocument.Parse(((TextContentBlock)result.Content[0]).Text);
+        using var doc = JsonDocument.Parse(ToolRefusalEnvelope.Json(refusal));
         return (
             doc.RootElement.GetProperty("code").GetString()!,
             doc.RootElement.TryGetProperty("data", out var data) && data.TryGetProperty("argument", out var argument)
@@ -176,42 +174,38 @@ public sealed class NativeToolSchemaTests(TestVaultFixture fixture) : IClassFixt
                 : null);
     }
 
+    private ToolRefusal Refuse(GrantStore store, object arguments)
+    {
+        var registry = new ToolRegistry().Add(MintTokenTool.Declaration, new MintTokenTool(store, OpClasses, fixture.Config));
+        var execution = new ToolExecution(fixture.Config);
+        return Assert.Throws<ToolRefusal>(() => execution.Invoke(
+            registry.Find("mint_token")!.Value, Args(arguments), store.Authenticate("admin-token")!, new ClientSession("principal")));
+    }
+
     /// <summary>
     /// <c>JsonSerializer.Deserialize</c> raises <see cref="JsonException"/>, which is not the
-    /// <c>{code, message, data?}</c> shape every other refusal on this server carries. Each native
-    /// therefore catches it at its own boundary and re-raises it as <c>invalid_argument</c> naming
-    /// the argument - so a caller that sends the wrong type for an argument branches on <c>code</c>
-    /// exactly as it does for a semantic refusal, rather than getting a bare serializer message.
+    /// <c>{code, message, data?}</c> shape every other refusal on this server carries. The execute
+    /// path re-raises it as <c>invalid_argument</c> naming the argument - one site rather than one
+    /// per tool - so a caller that sends the wrong type branches on <c>code</c> exactly as it does
+    /// for a semantic refusal, rather than getting a bare serializer message.
     /// </summary>
     [Fact]
-    public async Task MintToken_ArgumentOfTheWrongType_IsReRaisedAsInvalidArgumentNamingIt()
+    public void MintToken_ArgumentOfTheWrongType_IsReRaisedAsInvalidArgumentNamingIt()
     {
-        var store = MakeStore();
-        var tool = new MintTokenTool(store, OpClasses, fixture.Config);
-        var caller = store.Authenticate("admin-token")!;
-
         // scope_roots is advertised as an array; a bare string never reaches the tool's own checks.
-        var result = await tool.InvokeAsync(
-            Args(new { scope_roots = "test", op_class = new[] { "content:read" } }), caller, CancellationToken.None);
+        var refusal = Refuse(MakeStore(), new { scope_roots = "test", op_class = new[] { "content:read" } });
 
-        Assert.True(result.IsError);
-        Assert.Equal(("invalid_argument", "scope_roots"), Refusal(result));
+        Assert.Equal(("invalid_argument", "scope_roots"), Refusal(refusal));
     }
 
     /// <summary>An element of the wrong type is attributed to the argument, not to <c>$</c>: the
     /// binder reports the path <c>$.op_class[0]</c> and the index is trimmed off.</summary>
     [Fact]
-    public async Task MintToken_ArrayElementOfTheWrongType_IsAttributedToTheArgumentNotTheIndex()
+    public void MintToken_ArrayElementOfTheWrongType_IsAttributedToTheArgumentNotTheIndex()
     {
-        var store = MakeStore();
-        var tool = new MintTokenTool(store, OpClasses, fixture.Config);
-        var caller = store.Authenticate("admin-token")!;
+        var refusal = Refuse(MakeStore(), new { scope_roots = new[] { "test" }, op_class = new object[] { 7 } });
 
-        var result = await tool.InvokeAsync(
-            Args(new { scope_roots = new[] { "test" }, op_class = new object[] { 7 } }), caller, CancellationToken.None);
-
-        Assert.True(result.IsError);
-        Assert.Equal(("invalid_argument", "op_class"), Refusal(result));
+        Assert.Equal(("invalid_argument", "op_class"), Refusal(refusal));
     }
 
     private static readonly OpClassRegistry OpClasses =

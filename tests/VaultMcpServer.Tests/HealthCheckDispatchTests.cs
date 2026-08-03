@@ -79,7 +79,7 @@ public sealed class HealthCheckDispatchTests : IClassFixture<HealthCheckDispatch
         Assert.False(result.TryGetProperty("isError", out var isError) && isError.GetBoolean());
         var content = result.GetProperty("content").EnumerateArray().First().GetProperty("text").GetString()!;
         using var doc = JsonDocument.Parse(content);
-        Assert.False(doc.RootElement.GetProperty("isFatallyDegraded").GetBoolean());
+        Assert.False(doc.RootElement.GetProperty("is_fatally_degraded").GetBoolean());
     }
 
     [Fact]

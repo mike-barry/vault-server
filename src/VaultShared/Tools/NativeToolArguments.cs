@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using System.ComponentModel;
 using System.Text.Json;
 using System.Text.Json.Nodes;
@@ -63,8 +64,23 @@ public static class NativeToolArguments
 
     /// <summary>Derives <typeparamref name="T"/>'s MCP <c>inputSchema</c>. Called once per tool, from a
     /// field initializer - the result is immutable and shared for the process lifetime.</summary>
-    public static JsonElement Schema<T>() =>
-        JsonSerializer.SerializeToElement(Options.GetJsonSchemaAsNode(typeof(T), ExporterOptions));
+    public static JsonElement Schema<T>() => SchemaFor(typeof(T));
+
+    /// <summary>
+    /// The advertised schema for the argument record a <see cref="ToolDeclaration"/> names. Cached
+    /// per type: a declaration carries the type rather than a derived schema, so the projection asks
+    /// for it on every listing and the derivation should happen once.
+    ///
+    /// <see cref="NoArguments"/> answers <see cref="None"/> - the exporter emits
+    /// <c>{"type":"object"}</c> for a record with no members, dropping the <c>properties</c> member
+    /// that has always been on the wire.
+    /// </summary>
+    public static JsonElement SchemaFor(Type arguments) =>
+        arguments == typeof(NoArguments)
+            ? None
+            : Schemas.GetOrAdd(arguments, static type => JsonSerializer.SerializeToElement(Options.GetJsonSchemaAsNode(type, ExporterOptions)));
+
+    private static readonly ConcurrentDictionary<Type, JsonElement> Schemas = new();
 
     /// <summary>
     /// Binds the dispatcher's raw argument map onto <typeparamref name="T"/>. Throws
@@ -83,6 +99,17 @@ public static class NativeToolArguments
         // advertised them under.
         var json = JsonSerializer.SerializeToUtf8Bytes(arguments, Options);
         return JsonSerializer.Deserialize<T>(json, Options)!;
+    }
+
+    /// <summary>
+    /// The same binding, onto the type a <see cref="ToolDeclaration"/> names rather than a compile-time
+    /// one. The shared execute path is generic over every tool and holds the argument record as a
+    /// <see cref="Type"/>, so this is the form it needs.
+    /// </summary>
+    public static IToolArguments Bind(Type arguments, IReadOnlyDictionary<string, JsonElement> values)
+    {
+        var json = JsonSerializer.SerializeToUtf8Bytes(values, Options);
+        return (IToolArguments)JsonSerializer.Deserialize(json, arguments, Options)!;
     }
 
     /// <summary>

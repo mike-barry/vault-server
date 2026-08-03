@@ -159,7 +159,7 @@ public sealed class MintTokenDispatchTests : IClassFixture<MintTokenDispatchTest
 
         Assert.False(result.TryGetProperty("isError", out var isError) && isError.GetBoolean());
         using var minted = JsonDocument.Parse(ContentText(result));
-        Assert.Equal(60, minted.RootElement.GetProperty("ttlMinutes").GetInt32());
+        Assert.Equal(60, minted.RootElement.GetProperty("ttl_minutes").GetInt32());
     }
 
     [Fact]
@@ -181,7 +181,7 @@ public sealed class MintTokenDispatchTests : IClassFixture<MintTokenDispatchTest
         // "test" vault or vice versa) is asserted directly against Grant.ScopeRoots in
         // MintTokenTool's own unit-level coverage; this end-to-end test proves the split
         // survives the full mint_token round trip without cross-vault leakage in the response.
-        var scopeRoots = minted.RootElement.GetProperty("scopeRoots").EnumerateArray().Select(v => v.GetString()).ToList();
+        var scopeRoots = minted.RootElement.GetProperty("scope_roots").EnumerateArray().Select(v => v.GetString()).ToList();
         Assert.Equal(["personal/Projects/Foo", "test/Areas/Bar"], scopeRoots);
     }
 

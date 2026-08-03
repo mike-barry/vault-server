@@ -118,7 +118,9 @@ public sealed class ScriptToolDispatcherTests : IClassFixture<ScriptToolDispatch
         var errorText = result.GetProperty("content").EnumerateArray().First().GetProperty("text").GetString()!;
         using var error = JsonDocument.Parse(errorText);
         Assert.Equal("insufficient_capability", error.RootElement.GetProperty("code").GetString());
-        Assert.Equal("content:write", error.RootElement.GetProperty("data").GetProperty("requiredOpClass").GetString());
+        // snake_case on the wire, in both directions: the payload's names come from the same
+        // serializer options the argument binder uses.
+        Assert.Equal("content:write", error.RootElement.GetProperty("data").GetProperty("required_op_class").GetString());
         Assert.Equal("greet", error.RootElement.GetProperty("data").GetProperty("tool").GetString());
     }
 

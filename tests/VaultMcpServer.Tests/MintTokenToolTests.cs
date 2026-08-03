@@ -5,6 +5,8 @@ using VaultMcpServer.Tools;
 using VaultShared.Configuration;
 using VaultShared.Scope;
 using VaultShared.Tests;
+using VaultShared.Tools;
+using static VaultMcpServer.Tests.DeclaredToolHarness;
 
 namespace VaultMcpServer.Tests;
 
@@ -50,42 +52,20 @@ public sealed class MintTokenToolTests(TestVaultFixture fixture) : IClassFixture
         JsonSerializer.Deserialize<Dictionary<string, JsonElement>>(
             JsonSerializer.Serialize(new { scope_roots = scopeRoots, op_class = opClass, ttl }))!;
 
-    private static string ErrorText(ModelContextProtocol.Protocol.CallToolResult result) =>
-        ((ModelContextProtocol.Protocol.TextContentBlock)result.Content[0]).Text;
-
-    /// <summary>The <c>code</c> of a refusal's <c>{code, message, data?}</c> JSON - the field callers
-    /// branch on, so every denial test pins it rather than the prose beside it.</summary>
-    private static string ErrorCode(ModelContextProtocol.Protocol.CallToolResult result)
-    {
-        using var doc = JsonDocument.Parse(ErrorText(result));
-        return doc.RootElement.GetProperty("code").GetString()!;
-    }
-
-    /// <summary>A refusal's <c>data</c> object, as a name-to-raw-JSON map, or null when the refusal
-    /// carries none.</summary>
-    private static Dictionary<string, string>? ErrorData(ModelContextProtocol.Protocol.CallToolResult result)
-    {
-        using var doc = JsonDocument.Parse(ErrorText(result));
-        return doc.RootElement.TryGetProperty("data", out var data)
-            ? data.EnumerateObject().ToDictionary(p => p.Name, p => p.Value.ToString())
-            : null;
-    }
+    /// <summary>Runs the tool's own body over bound arguments - the execute path's checks are not
+    /// this class's subject, and several cases below use a caller whose grant deliberately lacks the
+    /// tool's own floor.</summary>
+    private Outcome Mint(GrantStore store, IReadOnlyDictionary<string, JsonElement> arguments, string token = "admin-token") =>
+        Run(new MintTokenTool(store, OpClasses, _vaultConfig), MintTokenTool.Declaration, arguments, store.Authenticate(token)!);
 
     [Fact]
-    public async Task InvokeAsync_MultiVaultScopeRoots_ProducesSeparatePerVaultSets()
+    public void Invoke_MultiVaultScopeRoots_ProducesSeparatePerVaultSets()
     {
         var store = MakeStore();
-        var tool = new MintTokenTool(store, OpClasses, _vaultConfig);
-        var callerGrant = store.Authenticate("admin-token")!;
-
-        var result = await tool.InvokeAsync(
-            Arguments(["test/Projects/Foo", "scratch/Areas/Bar"], ["content:read"]),
-            callerGrant,
-            CancellationToken.None);
+        var result = Mint(store, Arguments(["test/Projects/Foo", "scratch/Areas/Bar"], ["content:read"]), "admin-token");
 
         Assert.False(result.IsError == true);
-        var text = ((ModelContextProtocol.Protocol.TextContentBlock)result.Content[0]).Text;
-        using var minted = JsonDocument.Parse(text);
+        using var minted = JsonDocument.Parse(result.Payload);
         var token = minted.RootElement.GetProperty("token").GetString()!;
 
         var mintedGrant = store.Authenticate(token);
@@ -106,20 +86,13 @@ public sealed class MintTokenToolTests(TestVaultFixture fixture) : IClassFixture
     }
 
     [Fact]
-    public async Task InvokeAsync_WholeVaultScopeRoot_ProducesUnscopedForThatVault()
+    public void Invoke_WholeVaultScopeRoot_ProducesUnscopedForThatVault()
     {
         var store = MakeStore();
-        var tool = new MintTokenTool(store, OpClasses, _vaultConfig);
-        var callerGrant = store.Authenticate("admin-token")!;
-
-        var result = await tool.InvokeAsync(
-            Arguments(["test"], ["content:read"]),
-            callerGrant,
-            CancellationToken.None);
+        var result = Mint(store, Arguments(["test"], ["content:read"]), "admin-token");
 
         Assert.False(result.IsError == true);
-        var text = ((ModelContextProtocol.Protocol.TextContentBlock)result.Content[0]).Text;
-        using var minted = JsonDocument.Parse(text);
+        using var minted = JsonDocument.Parse(result.Payload);
         var token = minted.RootElement.GetProperty("token").GetString()!;
 
         var mintedGrant = store.Authenticate(token);
@@ -130,41 +103,28 @@ public sealed class MintTokenToolTests(TestVaultFixture fixture) : IClassFixture
     [Theory]
     [InlineData("test/../escape")]  // ".." escaping past the vault root
     [InlineData("test//rooted")]    // an empty leading segment -> a rooted remainder
-    public async Task InvokeAsync_ScopeRootSubtreeThatCannotBeCanonicalized_IsRejectedAsError(string scopeRoot)
+    public void Invoke_ScopeRootSubtreeThatCannotBeCanonicalized_IsRejectedAsError(string scopeRoot)
     {
         var store = MakeStore();
-        var tool = new MintTokenTool(store, OpClasses, _vaultConfig);
-        var callerGrant = store.Authenticate("admin-token")!;
-
-        var result = await tool.InvokeAsync(
-            Arguments([scopeRoot], ["content:read"]),
-            callerGrant,
-            CancellationToken.None);
+        var result = Mint(store, Arguments([scopeRoot], ["content:read"]), "admin-token");
 
         // Normalized at mint time (matching GrantStore.Load), so a malformed subtree fails the
         // mint call cleanly instead of producing an unusable grant that only fails - confusingly -
         // on some later, unrelated tool call.
         Assert.True(result.IsError);
-        Assert.Equal("invalid_argument", ErrorCode(result));
-        Assert.Contains("invalid subtree", ErrorText(result));
-        Assert.Equal(scopeRoot, ErrorData(result)!["scopeRoot"]);
+        Assert.Equal("invalid_argument", result.Code);
+        Assert.Contains("invalid subtree", result.ErrorText);
+        Assert.Equal(scopeRoot, result.Data!["scope_root"]);
     }
 
     [Fact]
-    public async Task InvokeAsync_ScopeRootSubtreeWithRedundantSegments_IsCanonicalized()
+    public void Invoke_ScopeRootSubtreeWithRedundantSegments_IsCanonicalized()
     {
         var store = MakeStore();
-        var tool = new MintTokenTool(store, OpClasses, _vaultConfig);
-        var callerGrant = store.Authenticate("admin-token")!;
-
-        var result = await tool.InvokeAsync(
-            Arguments(["test/Projects/./Foo"], ["content:read"]),
-            callerGrant,
-            CancellationToken.None);
+        var result = Mint(store, Arguments(["test/Projects/./Foo"], ["content:read"]), "admin-token");
 
         Assert.False(result.IsError == true);
-        var text = ((ModelContextProtocol.Protocol.TextContentBlock)result.Content[0]).Text;
-        using var minted = JsonDocument.Parse(text);
+        using var minted = JsonDocument.Parse(result.Payload);
         var token = minted.RootElement.GetProperty("token").GetString()!;
 
         var mintedGrant = store.Authenticate(token);
@@ -172,20 +132,13 @@ public sealed class MintTokenToolTests(TestVaultFixture fixture) : IClassFixture
     }
 
     [Fact]
-    public async Task InvokeAsync_WholeVaultAndSubtreeForSameVault_WholeVaultWinsProducingUnscoped()
+    public void Invoke_WholeVaultAndSubtreeForSameVault_WholeVaultWinsProducingUnscoped()
     {
         var store = MakeStore();
-        var tool = new MintTokenTool(store, OpClasses, _vaultConfig);
-        var callerGrant = store.Authenticate("admin-token")!;
-
-        var result = await tool.InvokeAsync(
-            Arguments(["test", "test/Projects/Foo"], ["content:read"]),
-            callerGrant,
-            CancellationToken.None);
+        var result = Mint(store, Arguments(["test", "test/Projects/Foo"], ["content:read"]), "admin-token");
 
         Assert.False(result.IsError == true);
-        var text = ((ModelContextProtocol.Protocol.TextContentBlock)result.Content[0]).Text;
-        using var minted = JsonDocument.Parse(text);
+        using var minted = JsonDocument.Parse(result.Payload);
         var token = minted.RootElement.GetProperty("token").GetString()!;
 
         var mintedGrant = store.Authenticate(token);
@@ -196,185 +149,137 @@ public sealed class MintTokenToolTests(TestVaultFixture fixture) : IClassFixture
     // --- Attenuation-only minting ---------------------------------------------------------
 
     [Fact]
-    public async Task InvokeAsync_RequestWithinCallersAuthority_Succeeds()
+    public void Invoke_RequestWithinCallersAuthority_Succeeds()
     {
         var store = MakeStore("""
             { "scoped-token": { "id": "scoped", "opClasses": ["content:read", "grants:manage"], "vaults": ["test"], "ttl": "*", "scopeRoots": { "test": ["Projects"] } } }
             """);
-        var tool = new MintTokenTool(store, OpClasses, _vaultConfig);
-        var callerGrant = store.Authenticate("scoped-token")!;
-
-        var result = await tool.InvokeAsync(
-            Arguments(["test/Projects/Foo"], ["content:read"]),
-            callerGrant,
-            CancellationToken.None);
+        var result = Mint(store, Arguments(["test/Projects/Foo"], ["content:read"]), "scoped-token");
 
         Assert.False(result.IsError == true);
     }
 
     [Fact]
-    public async Task InvokeAsync_OpClassNotHeldByCaller_IsRejectedNamingTheDimension()
+    public void Invoke_OpClassNotHeldByCaller_IsRejectedNamingTheDimension()
     {
         var store = MakeStore("""
             { "scoped-token": { "id": "scoped", "opClasses": ["content:read", "grants:manage"], "vaults": ["test"], "ttl": "*", "scopeRoots": { "test": ["*"] } } }
             """);
-        var tool = new MintTokenTool(store, OpClasses, _vaultConfig);
-        var callerGrant = store.Authenticate("scoped-token")!;
-
-        var result = await tool.InvokeAsync(
-            Arguments(["test"], ["content:write"]),
-            callerGrant,
-            CancellationToken.None);
+        var result = Mint(store, Arguments(["test"], ["content:write"]), "scoped-token");
 
         Assert.True(result.IsError);
         // insufficient_capability, not invalid_argument: minting is attenuation-only, so a request
         // exceeding the caller's authority is refused rather than intersected, and the fix is
         // elevation rather than a different argument.
-        Assert.Equal("insufficient_capability", ErrorCode(result));
-        var text = ErrorText(result);
+        Assert.Equal("insufficient_capability", result.Code);
+        var text = result.ErrorText;
         Assert.Contains("op_class", text);
         Assert.Contains("content:write", text);
         Assert.Contains("scoped", text); // names the caller's own grant id
 
         // No-oracle: data names the refused dimension and nothing computed from the caller's held
         // authority - not the missing subset, not the grant's class set, not its id.
-        var data = ErrorData(result)!;
+        var data = result.Data!;
         Assert.Equal("op_class", data["argument"]);
         Assert.Equal(["argument"], data.Keys.ToArray());
     }
 
     [Fact]
-    public async Task InvokeAsync_ManageGrantsIsAllowedIffTheCallerHoldsIt_NoSpecialCase()
+    public void Invoke_ManageGrantsIsAllowedIffTheCallerHoldsIt_NoSpecialCase()
     {
         var store = MakeStore("""
             { "scoped-token": { "id": "scoped", "opClasses": ["content:read", "grants:manage"], "vaults": ["test"], "ttl": "*", "scopeRoots": { "test": ["*"] } } }
             """);
-        var tool = new MintTokenTool(store, OpClasses, _vaultConfig);
-        var callerGrant = store.Authenticate("scoped-token")!;
-
-        var result = await tool.InvokeAsync(
-            Arguments(["test"], ["content:read", "grants:manage"]),
-            callerGrant,
-            CancellationToken.None);
+        var result = Mint(store, Arguments(["test"], ["content:read", "grants:manage"]), "scoped-token");
 
         Assert.False(result.IsError == true);
     }
 
     [Fact]
-    public async Task InvokeAsync_VaultNotHeldByCaller_IsRejectedNamingTheDimension()
+    public void Invoke_VaultNotHeldByCaller_IsRejectedNamingTheDimension()
     {
         var store = MakeStore("""
             { "scoped-token": { "id": "scoped", "opClasses": ["content:read"], "vaults": ["test"], "ttl": "*", "scopeRoots": { "test": ["*"] } } }
             """);
-        var tool = new MintTokenTool(store, OpClasses, _vaultConfig);
-        var callerGrant = store.Authenticate("scoped-token")!;
-
-        var result = await tool.InvokeAsync(
-            Arguments(["scratch"], ["content:read"]),
-            callerGrant,
-            CancellationToken.None);
+        var result = Mint(store, Arguments(["scratch"], ["content:read"]), "scoped-token");
 
         Assert.True(result.IsError);
         // out_of_scope, the same code the dispatcher's vault-membership denial uses - one code per
         // condition regardless of which layer refused.
-        Assert.Equal("out_of_scope", ErrorCode(result));
-        var text = ErrorText(result);
+        Assert.Equal("out_of_scope", result.Code);
+        var text = result.ErrorText;
         Assert.Contains("scope_roots", text);
         Assert.Contains("scratch", text);
         Assert.Contains("scoped", text);
 
         // The caller's own vault set never reaches data, only the refused dimension.
-        Assert.Equal(["argument"], ErrorData(result)!.Keys.ToArray());
+        Assert.Equal(["argument"], result.Data!.Keys.ToArray());
     }
 
     [Fact]
-    public async Task InvokeAsync_ScopeRootOutsideCallersRoot_IsRejectedNamingTheDimension()
+    public void Invoke_ScopeRootOutsideCallersRoot_IsRejectedNamingTheDimension()
     {
         var store = MakeStore("""
             { "scoped-token": { "id": "scoped", "opClasses": ["content:read"], "vaults": ["test"], "ttl": "*", "scopeRoots": { "test": ["Projects/Foo"] } } }
             """);
-        var tool = new MintTokenTool(store, OpClasses, _vaultConfig);
-        var callerGrant = store.Authenticate("scoped-token")!;
-
-        var result = await tool.InvokeAsync(
-            Arguments(["test/Projects/Bar"], ["content:read"]),
-            callerGrant,
-            CancellationToken.None);
+        var result = Mint(store, Arguments(["test/Projects/Bar"], ["content:read"]), "scoped-token");
 
         Assert.True(result.IsError);
-        Assert.Equal("out_of_scope", ErrorCode(result));
-        var text = ErrorText(result);
+        Assert.Equal("out_of_scope", result.Code);
+        var text = result.ErrorText;
         Assert.Contains("scope_roots", text);
         Assert.Contains("test/Projects/Bar", text);
         Assert.Contains("scoped", text);
 
         // data names the vault the caller itself addressed; the caller's roots for it stay out.
-        var data = ErrorData(result)!;
+        var data = result.Data!;
         Assert.Equal("test", data["vault"]);
         Assert.Equal(["argument", "vault"], data.Keys.Order().ToArray());
     }
 
     [Fact]
-    public async Task InvokeAsync_WholeVaultRequestFromScopedCaller_IsRejected()
+    public void Invoke_WholeVaultRequestFromScopedCaller_IsRejected()
     {
         var store = MakeStore("""
             { "scoped-token": { "id": "scoped", "opClasses": ["content:read"], "vaults": ["test"], "ttl": "*", "scopeRoots": { "test": ["Projects/Foo"] } } }
             """);
-        var tool = new MintTokenTool(store, OpClasses, _vaultConfig);
-        var callerGrant = store.Authenticate("scoped-token")!;
-
-        var result = await tool.InvokeAsync(
-            Arguments(["test"], ["content:read"]),
-            callerGrant,
-            CancellationToken.None);
+        var result = Mint(store, Arguments(["test"], ["content:read"]), "scoped-token");
 
         Assert.True(result.IsError);
-        Assert.Equal("out_of_scope", ErrorCode(result));
-        Assert.Contains("unscoped access", ErrorText(result));
+        Assert.Equal("out_of_scope", result.Code);
+        Assert.Contains("unscoped access", result.ErrorText);
     }
 
     [Fact]
-    public async Task InvokeAsync_UnscopedVaultCaller_PermitsAnyRequestedRoot()
+    public void Invoke_UnscopedVaultCaller_PermitsAnyRequestedRoot()
     {
         var store = MakeStore("""
             { "admin-token": { "id": "admin", "opClasses": ["content:read"], "vaults": ["test"], "ttl": "*", "scopeRoots": { "test": ["*"] } } }
             """);
-        var tool = new MintTokenTool(store, OpClasses, _vaultConfig);
-        var callerGrant = store.Authenticate("admin-token")!;
-
-        var result = await tool.InvokeAsync(
-            Arguments(["test/Anywhere/At/All"], ["content:read"]),
-            callerGrant,
-            CancellationToken.None);
+        var result = Mint(store, Arguments(["test/Anywhere/At/All"], ["content:read"]), "admin-token");
 
         Assert.False(result.IsError == true);
     }
 
     [Fact]
-    public async Task InvokeAsync_TtlWithinCallersRemainingLifetime_MintsTheRequestedTtl()
+    public void Invoke_TtlWithinCallersRemainingLifetime_MintsTheRequestedTtl()
     {
         var now = DateTimeOffset.UtcNow;
         var timeProvider = new FixedTimeProvider(now);
         var store = MakeStore("""
             { "scoped-token": { "id": "scoped", "opClasses": ["content:read"], "vaults": ["test"], "ttl": 60, "scopeRoots": { "test": ["*"] } } }
             """, timeProvider);
-        var tool = new MintTokenTool(store, OpClasses, _vaultConfig);
-        var callerGrant = store.Authenticate("scoped-token")!;
-
-        var result = await tool.InvokeAsync(
-            Arguments(["test"], ["content:read"], 10),
-            callerGrant,
-            CancellationToken.None);
+        var result = Mint(store, Arguments(["test"], ["content:read"], 10), "scoped-token");
 
         Assert.False(result.IsError == true);
-        using var minted = JsonDocument.Parse(ErrorText(result));
-        Assert.False(minted.RootElement.GetProperty("ttlCapped").GetBoolean());
+        using var minted = JsonDocument.Parse(result.Payload);
+        Assert.False(minted.RootElement.GetProperty("ttl_capped").GetBoolean());
         var mintedGrant = store.Authenticate(minted.RootElement.GetProperty("token").GetString()!);
         Assert.Equal(now.AddMinutes(10), mintedGrant!.ExpiresAtUtc);
     }
 
     [Fact]
-    public async Task InvokeAsync_TtlExceedingCallersRemainingLifetime_IsCappedNotRejected()
+    public void Invoke_TtlExceedingCallersRemainingLifetime_IsCappedNotRejected()
     {
         var now = DateTimeOffset.UtcNow;
         var timeProvider = new FixedTimeProvider(now);
@@ -382,20 +287,16 @@ public sealed class MintTokenToolTests(TestVaultFixture fixture) : IClassFixture
         var store = MakeStore("""
             { "scoped-token": { "id": "scoped", "opClasses": ["content:read"], "vaults": ["test"], "ttl": 5, "scopeRoots": { "test": ["*"] } } }
             """, timeProvider);
-        var tool = new MintTokenTool(store, OpClasses, _vaultConfig);
         var callerGrant = store.Authenticate("scoped-token")!;
         Assert.Equal(now.AddMinutes(5), callerGrant.ExpiresAtUtc);
 
         // Requests 60 minutes - far beyond the caller's own remaining 5.
-        var result = await tool.InvokeAsync(
-            Arguments(["test"], ["content:read"], 60),
-            callerGrant,
-            CancellationToken.None);
+        var result = Mint(store, Arguments(["test"], ["content:read"], 60), "scoped-token");
 
         Assert.False(result.IsError == true);
-        using var minted = JsonDocument.Parse(ErrorText(result));
-        Assert.True(minted.RootElement.GetProperty("ttlCapped").GetBoolean());
-        Assert.Equal(60, minted.RootElement.GetProperty("ttlMinutes").GetInt32()); // requested value, reported as-is
+        using var minted = JsonDocument.Parse(result.Payload);
+        Assert.True(minted.RootElement.GetProperty("ttl_capped").GetBoolean());
+        Assert.Equal(60, minted.RootElement.GetProperty("ttl_minutes").GetInt32()); // requested value, reported as-is
 
         var mintedGrant = store.Authenticate(minted.RootElement.GetProperty("token").GetString()!);
         Assert.NotNull(mintedGrant);
@@ -405,97 +306,74 @@ public sealed class MintTokenToolTests(TestVaultFixture fixture) : IClassFixture
     }
 
     [Fact]
-    public async Task InvokeAsync_InfiniteCaller_ImposesNoTtlCap()
+    public void Invoke_InfiniteCaller_ImposesNoTtlCap()
     {
         var store = MakeStore(); // admin-token: ttl "*" (infinite)
-        var tool = new MintTokenTool(store, OpClasses, _vaultConfig);
-        var callerGrant = store.Authenticate("admin-token")!;
-        Assert.Null(callerGrant.ExpiresAtUtc);
+        Assert.Null(store.Authenticate("admin-token")!.ExpiresAtUtc);
 
-        var result = await tool.InvokeAsync(
-            Arguments(["test"], ["content:read"], 1_000_000),
-            callerGrant,
-            CancellationToken.None);
+        var result = Mint(store, Arguments(["test"], ["content:read"], 1_000_000));
 
         Assert.False(result.IsError == true);
-        using var minted = JsonDocument.Parse(ErrorText(result));
-        Assert.False(minted.RootElement.GetProperty("ttlCapped").GetBoolean());
+        using var minted = JsonDocument.Parse(result.Payload);
+        Assert.False(minted.RootElement.GetProperty("ttl_capped").GetBoolean());
     }
 
     // --- Coded argument refusals ----------------------------------------------------------
 
     [Fact]
-    public async Task InvokeAsync_UnknownVaultInScopeRoots_IsUnknownVault()
+    public void Invoke_UnknownVaultInScopeRoots_IsUnknownVault()
     {
         var store = MakeStore();
-        var tool = new MintTokenTool(store, OpClasses, _vaultConfig);
-        var callerGrant = store.Authenticate("admin-token")!;
-
-        var result = await tool.InvokeAsync(
-            Arguments(["no-such-vault/Projects"], ["content:read"]),
-            callerGrant,
-            CancellationToken.None);
+        var result = Mint(store, Arguments(["no-such-vault/Projects"], ["content:read"]), "admin-token");
 
         Assert.True(result.IsError);
         // The code for a name in no configured map, so a caller routes an unknown vault
         // identically whichever tier saw it.
-        Assert.Equal("unknown_vault", ErrorCode(result));
-        var data = ErrorData(result)!;
+        Assert.Equal("unknown_vault", result.Code);
+        var data = result.Data!;
         Assert.Equal("no-such-vault", data["vault"]);
-        Assert.Equal("no-such-vault/Projects", data["scopeRoot"]);
+        Assert.Equal("no-such-vault/Projects", data["scope_root"]);
     }
 
     [Theory]
     [InlineData("scope_roots")]
     [InlineData("op_class")]
-    public async Task InvokeAsync_WildcardArgument_IsInvalidArgumentNamingIt(string argument)
+    public void Invoke_WildcardArgument_IsInvalidArgumentNamingIt(string argument)
     {
         var store = MakeStore();
-        var tool = new MintTokenTool(store, OpClasses, _vaultConfig);
-        var callerGrant = store.Authenticate("admin-token")!;
-
-        var result = await tool.InvokeAsync(
-            Arguments(argument == "scope_roots" ? ["*"] : ["test"], argument == "op_class" ? ["*"] : ["content:read"]),
-            callerGrant,
-            CancellationToken.None);
+        var result = Mint(store, Arguments(argument == "scope_roots" ? ["*"] : ["test"], argument == "op_class" ? ["*"] : ["content:read"]), "admin-token");
 
         Assert.True(result.IsError);
-        Assert.Equal("invalid_argument", ErrorCode(result));
-        Assert.Equal(argument, ErrorData(result)!["argument"]);
+        Assert.Equal("invalid_argument", result.Code);
+        Assert.Equal(argument, result.Data!["argument"]);
     }
 
     [Fact]
-    public async Task InvokeAsync_UnknownOpClassName_IsInvalidArgumentNotACapabilityDenial()
+    public void Invoke_UnknownOpClassName_IsInvalidArgumentNotACapabilityDenial()
     {
         var store = MakeStore();
-        var tool = new MintTokenTool(store, OpClasses, _vaultConfig);
-        var callerGrant = store.Authenticate("admin-token")!;
-
-        var result = await tool.InvokeAsync(
-            Arguments(["test"], ["not:a-class"]),
-            callerGrant,
-            CancellationToken.None);
+        var result = Mint(store, Arguments(["test"], ["not:a-class"]), "admin-token");
 
         Assert.True(result.IsError);
         // No elevation could ever satisfy a name that is not in the registry, so this must not be
         // coded as the capability shortfall the attenuation check raises.
-        Assert.Equal("invalid_argument", ErrorCode(result));
-        Assert.Equal("not:a-class", ErrorData(result)!["opClass"]);
+        Assert.Equal("invalid_argument", result.Code);
+        Assert.Equal("not:a-class", result.Data!["op_class"]);
     }
 
     [Fact]
-    public async Task InvokeAsync_WildcardTtl_IsInvalidArgument()
+    public void Invoke_WildcardTtl_IsInvalidArgument()
     {
         var store = MakeStore();
-        var tool = new MintTokenTool(store, OpClasses, _vaultConfig);
-        var callerGrant = store.Authenticate("admin-token")!;
+        var registry = new ToolRegistry().Add(MintTokenTool.Declaration, new MintTokenTool(store, OpClasses, _vaultConfig));
+        var arguments = Args(new { scope_roots = new[] { "test" }, op_class = new[] { "content:read" }, ttl = "*" });
 
-        var arguments = JsonSerializer.Deserialize<Dictionary<string, JsonElement>>(
-            JsonSerializer.Serialize(new { scope_roots = new[] { "test" }, op_class = new[] { "content:read" }, ttl = "*" }))!;
-        var result = await tool.InvokeAsync(arguments, callerGrant, CancellationToken.None);
+        // A "*" ttl fails binding, not the tool's own range check, so this one drives the execute
+        // path - the single site that turns a binding failure into a coded refusal.
+        var refusal = Assert.Throws<ToolRefusal>(() => new ToolExecution(_vaultConfig).Invoke(
+            registry.Find("mint_token")!.Value, arguments, store.Authenticate("admin-token")!, new ClientSession("principal")));
 
-        Assert.True(result.IsError);
-        Assert.Equal("invalid_argument", ErrorCode(result));
-        Assert.Equal("ttl", ErrorData(result)!["argument"]);
+        Assert.Equal("invalid_argument", refusal.Code);
+        Assert.Equal("ttl", JsonDocument.Parse(ToolRefusalEnvelope.Json(refusal)).RootElement.GetProperty("data").GetProperty("argument").GetString());
     }
 }

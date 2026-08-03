@@ -1,3 +1,4 @@
+using VaultShared.Tools;
 using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.Logging.Abstractions;
 using VaultMcpServer.Health;
@@ -55,7 +56,7 @@ public sealed class ScriptToolsWatcherTests : IDisposable, IClassFixture<ScriptT
         var healthState = new ServerHealthState();
         var registry = new ScriptToolRegistry(toolsDir, OpClasses, healthState);
         var vaultConfig = new VaultConfig { Vaults = new Dictionary<string, VaultConfig.VaultEntry>(), DefaultVault = "" };
-        var dispatcher = new ScriptToolDispatcher(registry, new NativeToolRegistry([]), _runner, new HttpContextAccessor(), healthState, vaultConfig);
+        var dispatcher = new ScriptToolDispatcher(registry, new ToolRegistry(), new ToolExecution(vaultConfig), _runner, new HttpContextAccessor(), healthState, vaultConfig);
         dispatcher.AttachLogger(NullLogger<ScriptToolDispatcher>.Instance);
         return (registry, dispatcher, healthState);
     }
