@@ -19,7 +19,7 @@ namespace VaultMcpServer.Tools;
 /// <see cref="Validate"/> is empty here, and deliberately so: every rule this tool enforces needs
 /// either the op-class registry, the vault configuration, or the caller's own grant, and none of
 /// those is reachable from a pure check. The refusals it raises instead are coded
-/// <c>unknown_vault</c>, <c>out_of_scope</c> and <c>insufficient_capability</c> as often as
+/// <c>unknown_vault</c>, <c>out_of_scope</c> and <c>authority_required</c> as often as
 /// <c>invalid_argument</c>, which an argument fault could not express either.
 /// </summary>
 public sealed record MintTokenArguments(
@@ -57,7 +57,7 @@ public sealed record MintTokenArguments(
 /// remaining lifetime (an infinite caller imposes no cap) - see <see cref="GrantStore.Mint"/>'s
 /// <c>maxExpiresAtUtc</c> parameter. This uniformly covers <c>grants:manage</c> too: a minted grant
 /// may carry it iff the caller does, no special case. A violation raises a coded
-/// <see cref="ToolRefusal"/> - <c>insufficient_capability</c> for the op-class dimension,
+/// <see cref="ToolRefusal"/> - <c>authority_required</c> for the op-class dimension,
 /// <c>out_of_scope</c> for the vault and scope-root dimensions - whose <c>message</c> names the
 /// dimension and the caller's actual bound authority, matching the repo's informative-denial
 /// convention.
@@ -133,7 +133,7 @@ public sealed class MintTokenTool(GrantStore grantStore, OpClassRegistry opClass
     /// needs the store's own "now" to stay consistent with the rest of expiry handling.
     ///
     /// A request exceeding the caller's authority is refused rather than intersected down, so these are
-    /// authority denials, not malformed arguments: <c>insufficient_capability</c> for the op-class
+    /// authority denials, not malformed arguments: <c>authority_required</c> for the op-class
     /// dimension - the same code the shared floor check raises, one condition at two layers - and
     /// <c>out_of_scope</c> for the vault and scope-root dimensions. Coding these
     /// <c>invalid_argument</c> would tell a caller to fix the request when the fix is elevation.
@@ -148,7 +148,7 @@ public sealed class MintTokenTool(GrantStore grantStore, OpClassRegistry opClass
         var missingOpClasses = opClasses.Where(o => !grant.OpClasses.Contains(o)).ToList();
         if (missingOpClasses.Count > 0)
             throw new ToolRefusal(
-                ToolCodes.InsufficientCapability,
+                ToolCodes.AuthorityRequired,
                 $"\"op_class\" requests {FormatSet(missingOpClasses)}, which the caller's own grant \"{grant.Id}\" does not hold " +
                 $"(caller's op classes: {FormatSet(grant.OpClasses)}).",
                 new { argument = "op_class" });
@@ -306,7 +306,7 @@ public sealed class MintTokenTool(GrantStore grantStore, OpClassRegistry opClass
         var opClasses = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         foreach (var value in values)
         {
-            // invalid_argument, not insufficient_capability: the name is not in the registry at all,
+            // invalid_argument, not authority_required: the name is not in the registry at all,
             // so no elevation could ever satisfy it. Whether the caller *holds* a real class is the
             // separate attenuation check.
             var canonical = opClassRegistry.Canonicalize(value)

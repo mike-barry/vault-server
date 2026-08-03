@@ -168,10 +168,10 @@ public sealed class MintTokenToolTests(TestVaultFixture fixture) : IClassFixture
         var result = Mint(store, Arguments(["test"], ["content:write"]), "scoped-token");
 
         Assert.True(result.IsError);
-        // insufficient_capability, not invalid_argument: minting is attenuation-only, so a request
+        // authority_required, not invalid_argument: minting is attenuation-only, so a request
         // exceeding the caller's authority is refused rather than intersected, and the fix is
         // elevation rather than a different argument.
-        Assert.Equal("insufficient_capability", result.Code);
+        Assert.Equal("authority_required", result.Code);
         var text = result.ErrorText;
         Assert.Contains("op_class", text);
         Assert.Contains("content:write", text);

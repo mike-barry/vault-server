@@ -242,7 +242,8 @@ invalid_path           Malformed, escaping, rooted, empty, or missing the markdo
 invalid_name           A new segment outside the name grammar.                                    data: {suggested?}
 path_excluded          A dot-directory segment. The tooling does not own it, and no grant changes that.
 out_of_scope           The grant does not reach it. No payload.
-authority_required     A key, namespace, or artifact class the caller lacks.                      data: {keys | paths}
+authority_required     An authority the caller lacks - the op-class floor, a key,
+                       a namespace, or an artifact class.        data: {tool, required_op_class} | {keys} | {paths}
 path_not_found         The sole target is not there.
 read_failed            There, and the read failed.                                                data: {path}
 already_exists         The target is occupied. Creation and move destinations.

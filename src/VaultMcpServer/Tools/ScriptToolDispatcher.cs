@@ -193,7 +193,7 @@ public sealed class ScriptToolDispatcher(ScriptToolRegistry registry, ToolRegist
     /// "grant lacking the class" to route the failure.
     /// </summary>
     private static CallToolResult NoGrantError(string toolName) => ToolError.Result(
-        ToolCodes.InsufficientCapability,
+        ToolCodes.AuthorityRequired,
         $"No grant is attached to this request, so tool \"{toolName}\" cannot be dispatched.",
         new { tool = toolName });
 

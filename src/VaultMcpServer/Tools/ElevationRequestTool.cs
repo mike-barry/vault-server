@@ -54,7 +54,7 @@ public sealed record ElevationRequestArguments(
 /// on approval rebind with a TTL. On a dev machine the default binding is already admin, so this
 /// is off the daily path; it matters where the default is minimal.
 ///
-/// The codes: <c>insufficient_capability</c> for both authority denials - the missing
+/// The codes: <c>authority_required</c> for both authority denials - the missing
 /// <c>canRequestElevation</c> opt-in and the approver's "no" - deliberately sharing one code so a
 /// caller cannot tell "not allowed to ask" from "asked and refused"; <c>rate_limited</c> for the
 /// throttle, the code for a transient throttle, since coding it as capability or argument would route
@@ -114,7 +114,7 @@ public sealed class ElevationRequestTool(
         // on this tool, so the shortfall carries the op-class shortfall's code.
         if (!grant.CanRequestElevation)
             throw new ToolRefusal(
-                ToolCodes.InsufficientCapability,
+                ToolCodes.AuthorityRequired,
                 $"Grant \"{grant.Id}\" is not permitted to request elevation - requires a grant with canRequestElevation enabled.");
 
         // Consumed before the target is resolved, so the throttle also bounds how fast a caller can
@@ -134,7 +134,7 @@ public sealed class ElevationRequestTool(
         // neither is fixable by changing the arguments. data stays empty - the approver's reason is
         // human-readable prose in the message, and the minted-target id is server-generated.
         if (!decision.Approved)
-            throw new ToolRefusal(ToolCodes.InsufficientCapability, $"Elevation to \"{requestedGrantId}\" denied: {decision.Reason}");
+            throw new ToolRefusal(ToolCodes.AuthorityRequired, $"Elevation to \"{requestedGrantId}\" denied: {decision.Reason}");
 
         var expiresAt = timeProvider.GetUtcNow().AddMinutes(ttlMinutes);
         if (mintTarget)

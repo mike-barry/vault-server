@@ -19,10 +19,10 @@ public sealed class ToolErrorTests
     [Fact]
     public void Json_WithoutData_IsCompactAndOmitsTheDataFieldEntirely()
     {
-        var json = ToolError.Json("insufficient_capability", "Grant does not permit content:write operations.");
+        var json = ToolError.Json("authority_required", "Grant does not permit content:write operations.");
 
         Assert.Equal(
-            """{"code":"insufficient_capability","message":"Grant does not permit content:write operations."}""",
+            """{"code":"authority_required","message":"Grant does not permit content:write operations."}""",
             json);
         using var doc = JsonDocument.Parse(json);
         Assert.False(doc.RootElement.TryGetProperty("data", out _));

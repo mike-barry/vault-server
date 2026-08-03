@@ -134,7 +134,7 @@ public sealed class VaultMembershipDispatchTests : IClassFixture<VaultMembership
         Assert.Equal(HttpStatusCode.OK, status);
         Assert.True(isError, text);
         using var error = JsonDocument.Parse(text);
-        Assert.Equal("insufficient_capability", error.RootElement.GetProperty("code").GetString());
+        Assert.Equal("authority_required", error.RootElement.GetProperty("code").GetString());
     }
 
     [Fact]

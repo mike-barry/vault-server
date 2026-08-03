@@ -56,7 +56,7 @@ public sealed class ToolExecution(VaultConfig vaultConfig, SearchEngine? engine 
             return null;
 
         return new ToolRefusal(
-            ToolCodes.InsufficientCapability,
+            ToolCodes.AuthorityRequired,
             $"Grant does not permit {opClass} operations for tool \"{toolName}\".",
             new { tool = toolName, requiredOpClass = opClass });
     }

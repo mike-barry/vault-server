@@ -96,7 +96,7 @@ public sealed class MintTokenDispatchTests : IClassFixture<MintTokenDispatchTest
         var readCall = """{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"greet","arguments":{"Name":"Mike"}}}""";
         var readResult = await CallToolAsync(_fixture, mintedToken!, readCall);
         Assert.True(readResult.GetProperty("isError").GetBoolean()); // greet is a Write-class tool - proves the mint actually scoped to Read only, not "any" access.
-        Assert.Equal("insufficient_capability", ErrorCode(readResult));
+        Assert.Equal("authority_required", ErrorCode(readResult));
     }
 
     [Fact]
@@ -108,7 +108,7 @@ public sealed class MintTokenDispatchTests : IClassFixture<MintTokenDispatchTest
         Assert.True(result.GetProperty("isError").GetBoolean());
         // The dispatcher's grants:manage floor refuses before the tool runs - same code the tool's own
         // attenuation check raises, so a caller routes both identically.
-        Assert.Equal("insufficient_capability", ErrorCode(result));
+        Assert.Equal("authority_required", ErrorCode(result));
     }
 
     [Fact]

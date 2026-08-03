@@ -97,14 +97,14 @@ public sealed class ToolExecutionTests : IDisposable
     // --- 2. The op-class floor ---------------------------------------------------------------
 
     [Fact]
-    public void FloorNotHeld_IsInsufficientCapabilityNamingTheRequiredClass()
+    public void FloorNotHeld_IsAuthorityRequiredNamingTheRequiredClass()
     {
         var declaration = SyntheticTools.Declaration(floor: new Floor.Class(OpClass.Write));
         var tool = new RecordingTool();
 
         var refusal = Refused(declaration, tool, new { }, SyntheticTools.Grant(OpClass.Read), SyntheticTools.Session);
 
-        Assert.Equal(ToolCodes.InsufficientCapability, refusal.Code);
+        Assert.Equal(ToolCodes.AuthorityRequired, refusal.Code);
         using var envelope = JsonDocument.Parse(ToolRefusalEnvelope.Json(refusal));
         var data = envelope.RootElement.GetProperty("data");
         Assert.Equal(OpClass.Write, data.GetProperty("required_op_class").GetString());
@@ -162,7 +162,7 @@ public sealed class ToolExecutionTests : IDisposable
 
         var refusal = Refused(declaration, new RecordingTool(), new { note = "Widget" }, SyntheticTools.Grant(OpClass.Read), SyntheticTools.Session);
 
-        Assert.Equal(ToolCodes.InsufficientCapability, refusal.Code);
+        Assert.Equal(ToolCodes.AuthorityRequired, refusal.Code);
         Assert.DoesNotContain("note", ToolRefusalEnvelope.Json(refusal), StringComparison.OrdinalIgnoreCase);
     }
 

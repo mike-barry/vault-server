@@ -19,10 +19,10 @@ public sealed class ToolRefusalEnvelopeTests
     [Fact]
     public void Json_WithoutData_IsCompactAndOmitsTheDataFieldEntirely()
     {
-        var json = ToolRefusalEnvelope.Json(ToolCodes.InsufficientCapability, "Grant does not permit content:write operations.");
+        var json = ToolRefusalEnvelope.Json(ToolCodes.AuthorityRequired, "Grant does not permit content:write operations.");
 
         Assert.Equal(
-            """{"code":"insufficient_capability","message":"Grant does not permit content:write operations."}""",
+            """{"code":"authority_required","message":"Grant does not permit content:write operations."}""",
             json);
         using var doc = JsonDocument.Parse(json);
         Assert.False(doc.RootElement.TryGetProperty("data", out _));
@@ -48,7 +48,7 @@ public sealed class ToolRefusalEnvelopeTests
     [Fact]
     public void Json_PayloadNames_AreSnakeCase()
     {
-        var json = ToolRefusalEnvelope.Json(ToolCodes.InsufficientCapability, "Denied.", new { requiredOpClass = "content:write", limitPerMinute = 5 });
+        var json = ToolRefusalEnvelope.Json(ToolCodes.AuthorityRequired, "Denied.", new { requiredOpClass = "content:write", limitPerMinute = 5 });
 
         Assert.Contains("\"required_op_class\":\"content:write\"", json);
         Assert.Contains("\"limit_per_minute\":5", json);

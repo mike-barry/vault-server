@@ -60,25 +60,15 @@ public static class ToolCodes
     public const string OutOfScope = "out_of_scope";
 
     /// <summary>
-    /// A key, namespace, or artifact class the caller lacks. <c>data: {keys | paths}</c>.
+    /// An authority the caller lacks: the op-class floor, a mid-operation key assertion, or an
+    /// artifact class. One code, because the remedy is one - elevate, or present a wider grant -
+    /// and a caller retrying after elevation does not have to know which check refused.
     ///
-    /// The catalogue's code for an authority shortfall. The floor denial the execute path makes
-    /// spends <see cref="InsufficientCapability"/> instead, which is the retained code every
-    /// existing caller already branches on - see that member.
+    /// The payload names the caller's own coordinates for the check that refused, never what the
+    /// grant holds: <c>data: {tool, required_op_class}</c> from the floor, <c>{keys}</c> from a
+    /// key-level denial, <c>{paths}</c> from an artifact-level one.
     /// </summary>
     public const string AuthorityRequired = "authority_required";
-
-    /// <summary>
-    /// The op-class floor denial, carried over from the retained dispatcher. It is the code an
-    /// in-script key assertion also spends, so a caller retrying after elevation does not have to
-    /// know whether the floor or a key refused.
-    ///
-    /// It overlaps <see cref="AuthorityRequired"/>, which is the catalogue's spelling of the same
-    /// condition. Nothing raises <see cref="AuthorityRequired"/> yet; the two are reconciled when
-    /// the first mid-operation key assertion reaches the wire, before either has a second raiser.
-    /// <c>data: {tool, required_op_class}</c>.
-    /// </summary>
-    public const string InsufficientCapability = "insufficient_capability";
 
     // --- Existence and occupancy ----------------------------------------------------------
 

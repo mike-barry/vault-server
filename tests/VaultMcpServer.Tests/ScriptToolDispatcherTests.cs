@@ -117,7 +117,7 @@ public sealed class ScriptToolDispatcherTests : IClassFixture<ScriptToolDispatch
         // in-script key assertion throws, so one branch covers both layers.
         var errorText = result.GetProperty("content").EnumerateArray().First().GetProperty("text").GetString()!;
         using var error = JsonDocument.Parse(errorText);
-        Assert.Equal("insufficient_capability", error.RootElement.GetProperty("code").GetString());
+        Assert.Equal("authority_required", error.RootElement.GetProperty("code").GetString());
         // snake_case on the wire, in both directions: the payload's names come from the same
         // serializer options the argument binder uses.
         Assert.Equal("content:write", error.RootElement.GetProperty("data").GetProperty("required_op_class").GetString());

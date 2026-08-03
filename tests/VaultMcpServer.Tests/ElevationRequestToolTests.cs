@@ -83,7 +83,7 @@ public sealed class ElevationRequestToolTests(TestVaultFixture fixture) : IClass
         Assert.True(IsError(result));
         // The canRequestElevation opt-in stands in for an op class on this tool, so its shortfall
         // carries the op-class shortfall's code.
-        Assert.Equal("insufficient_capability", Code(result));
+        Assert.Equal("authority_required", Code(result));
         Assert.Contains("not permitted to request elevation", Text(result));
         // No-oracle: an op-class-exempt tool reachable from the minimum-access floor must not hand
         // back anything about the grant that called it.
@@ -103,7 +103,7 @@ public sealed class ElevationRequestToolTests(TestVaultFixture fixture) : IClass
         Assert.True(IsError(result));
         // Deliberately the same code as the opt-in denial above: a caller cannot distinguish "not
         // allowed to ask" from "asked and refused".
-        Assert.Equal("insufficient_capability", Code(result));
+        Assert.Equal("authority_required", Code(result));
         Assert.Contains("denied", Text(result));
         Assert.Equal("caller", store.Authenticate(CallerToken)!.Id); // still the base grant, no rebind
     }
@@ -149,7 +149,7 @@ public sealed class ElevationRequestToolTests(TestVaultFixture fixture) : IClass
         var result = Elevate(tool, store, CallerToken, Args(new { grant = "does-not-exist" }));
 
         Assert.True(IsError(result));
-        // Distinct from the approver's insufficient_capability denial, preserving the distinction this
+        // Distinct from the approver's authority_required denial, preserving the distinction this
         // tool's prose already drew. The rate limit is consumed before this check, so the resulting
         // existence probe stays bounded at MaxRequestsPerMinute.
         Assert.Equal("not_found", Code(result));
@@ -169,8 +169,8 @@ public sealed class ElevationRequestToolTests(TestVaultFixture fixture) : IClass
         var second = Elevate(tool, store, CallerToken, Args(new { grant = "elevated" }));
         var third = Elevate(tool, store, CallerToken, Args(new { grant = "elevated" }));
 
-        Assert.Equal("insufficient_capability", Code(first));   // auto-deny, but not rate-limited
-        Assert.Equal("insufficient_capability", Code(second));
+        Assert.Equal("authority_required", Code(first));   // auto-deny, but not rate-limited
+        Assert.Equal("authority_required", Code(second));
         // rate_limited is the core code for a transient throttle: coding it as a capability or
         // argument failure would route a retryable condition into a branch that never retries.
         Assert.Equal("rate_limited", Code(third));
@@ -179,12 +179,12 @@ public sealed class ElevationRequestToolTests(TestVaultFixture fixture) : IClass
         // The window resets: after it elapses, a request is allowed through to the approver again.
         timeProvider.Now = timeProvider.Now.AddMinutes(2);
         var afterWindow = Elevate(tool, store, CallerToken, Args(new { grant = "elevated" }));
-        Assert.Equal("insufficient_capability", Code(afterWindow));
+        Assert.Equal("authority_required", Code(afterWindow));
     }
 
     /// <summary>
     /// Pins the invariant that licenses keeping <c>not_found</c> distinct from
-    /// <c>insufficient_capability</c>: the per-principal throttle is consumed <b>before</b> the
+    /// <c>authority_required</c>: the per-principal throttle is consumed <b>before</b> the
     /// requested target is resolved, so a mistyped/unknown grant id still spends rate-limit budget.
     /// Without this ordering the <c>not_found</c> code would be an unthrottled oracle for
     /// enumerating which named grants are configured. This is a security property, not an incidental

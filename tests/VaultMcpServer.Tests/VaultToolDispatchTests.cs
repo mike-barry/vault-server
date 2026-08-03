@@ -149,7 +149,7 @@ public sealed class VaultToolDispatchTests(VaultToolDispatchTests.Fixture fixtur
         var (isError, text) = await CallAsync(fixture, Fixture.NoReadClassToken, "read", """{}""");
 
         Assert.True(isError, text);
-        Assert.Equal("insufficient_capability", Code(text));
+        Assert.Equal("authority_required", Code(text));
     }
 
     [Fact]

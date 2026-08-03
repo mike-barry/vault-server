@@ -206,7 +206,7 @@ try {
     Write-Host 'Probe: request_elevation with bogus token (auto-deny stub)'
     $r = Invoke-McpCall -Tool 'request_elevation' -Arguments @{ grant = 'admin' } -Token $bogusToken
     $elevErr = if ($r.Text) { try { $r.Text | ConvertFrom-Json } catch { $null } } else { $null }
-    Check 'is a coded tool error (insufficient_capability)' ($r.StatusCode -eq 200 -and $r.IsError -and $null -ne $elevErr -and $elevErr.code -eq 'insufficient_capability') "status=$($r.StatusCode) isError=$($r.IsError) text=$($r.Text)"
+    Check 'is a coded tool error (authority_required)' ($r.StatusCode -eq 200 -and $r.IsError -and $null -ne $elevErr -and $elevErr.code -eq 'authority_required') "status=$($r.StatusCode) isError=$($r.IsError) text=$($r.Text)"
     Check 'message still names the denied elevation' ($null -ne $elevErr -and $elevErr.message -like '*Elevation to "admin" denied*') "text=$($r.Text)"
 
     Write-Host 'Probe: attenuation-only minting'
@@ -220,9 +220,9 @@ try {
         $mintErr = if ($r.Text) { try { $r.Text | ConvertFrom-Json } catch { $null } } else { $null }
         # Attenuation-only: a mint exceeding the minter's authority is refused, not intersected, so
         # the refusal is a capability denial rather than an argument error.
-        Check 'minted token cannot mint content:write (insufficient_capability on the op_class dimension)' ($r.IsError -and $null -ne $mintErr -and $mintErr.code -eq 'insufficient_capability' -and $mintErr.data.argument -eq 'op_class') "isError=$($r.IsError) text=$($r.Text)"
+        Check 'minted token cannot mint content:write (authority_required on the op_class dimension)' ($r.IsError -and $null -ne $mintErr -and $mintErr.code -eq 'authority_required' -and $mintErr.data.argument -eq 'op_class') "isError=$($r.IsError) text=$($r.Text)"
     } else {
-        Check 'minted token cannot mint content:write (insufficient_capability on the op_class dimension)' $false 'skipped: mint failed'
+        Check 'minted token cannot mint content:write (authority_required on the op_class dimension)' $false 'skipped: mint failed'
     }
 
     Write-Host 'Probe: audit log hygiene'
