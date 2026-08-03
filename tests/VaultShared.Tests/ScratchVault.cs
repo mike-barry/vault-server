@@ -72,6 +72,13 @@ internal sealed class ScratchVault : IDisposable
     public ReadPath ToRead(string relativePath) =>
         Assert.IsType<PathResolution<ReadPath>.Admitted>(Access.ForRead(relativePath)).Path;
 
+    /// <summary>
+    /// A contained path in this vault, admitted by nothing. What the vault-wide pass and the
+    /// wikilink area take, since both work in proof of containment rather than in caller text.
+    /// </summary>
+    public VaultPath At(string relativePath) =>
+        VaultPath.TryCreate(Vault, relativePath, out var path, out var reason) ? path : throw new ArgumentException(reason);
+
     public string Absolute(string relativePath) =>
         Path.Combine([Root, .. relativePath.Split('/')]);
 

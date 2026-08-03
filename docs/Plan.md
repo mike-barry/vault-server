@@ -52,7 +52,7 @@ The phase opens with two steps that touch code rather than documents. They are g
 - [x] Build `edit` over the frontmatter surface
   - `BearerGrantMiddleware` logs every call's full arguments verbatim to an unrotated file. `edit` ships, so a write's frontmatter operations and any supplied body now land in `logs/`. The middleware change is an operator decision in flight and is the one input this step did not consume; `create` is the next tool to make it worse
 - [x] Verify the read-class scope floor end to end
-- [ ] Build wikilink maintenance as one shared area - repair on relocation, pinning on creation, the census on removal - over the layer's single grammar and ranking rule. Ahead of the three tools that consume it, so it is not an artifact of whichever was built first
+- [x] Build wikilink maintenance as one shared area - repair on relocation, pinning on creation, the census on removal - over the layer's single grammar and ranking rule. Ahead of the three tools that consume it, so it is not an artifact of whichever was built first
 - [ ] Build `create`, `move`, and `delete`
   - Input: `.gitkeep` has no producer through the layer - the perimeter refuses dot segments, the grammar refuses the name, both by design - yet folder creation seeds one and removal treats a folder holding only one as empty. This step decides the deliberate, greppable internal producer, likely beside the vault-wide pass's seam
   - Input: `VaultFiles.Move` relocates a file; a folder source answers `SourceMissing`. The folder note's rename the tool spec composes needs a decision here - a second primitive, or composition over the file move - before the `move` tool is built
