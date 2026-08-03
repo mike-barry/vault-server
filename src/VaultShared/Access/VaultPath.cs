@@ -36,6 +36,21 @@ public sealed record VaultPath
     public string Value { get; }
 
     /// <summary>
+    /// Where this path is on disk, composed from the vault root and the segments. Internal, because
+    /// an absolute path never leaves the layer: it exists only between a primitive and the
+    /// filesystem call it makes.
+    /// </summary>
+    internal string Absolute => System.IO.Path.Combine([Vault.Root, .. Segments]);
+
+    /// <summary>
+    /// The vault-relative rendering of the containing folder, or null when this path sits directly
+    /// under the root. The root is a vault rather than a path, so it has no rendering here, and an
+    /// operation that finds it missing reports that as operational rather than as a missing parent.
+    /// </summary>
+    internal string? ParentValue =>
+        Segments.Count > 1 ? string.Join('/', Segments.Take(Segments.Count - 1)) : null;
+
+    /// <summary>
     /// True when any segment is dot-prefixed, at any depth. The operand perimeter and enumeration's
     /// default both turn on this, and they use it differently: no caller may name such a path, while
     /// a census asked for dot entries reports them. That is why the answer is a query here rather
