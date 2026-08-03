@@ -266,6 +266,100 @@ public static class NativeToolSchemas
         }
         """;
 
+    public const string Create = """
+        {
+          "type": "object",
+          "properties": {
+            "path": {
+              "type": "string",
+              "description": "Vault-relative path to bring into existence. A note carries the \".md\" extension; a folder carries none. The extension is never inferred."
+            },
+            "kind": {
+              "type": "string",
+              "enum": [ "note", "folder" ],
+              "description": "Which of the two the path names: \"note\" or \"folder\". Required, because the two take different arguments."
+            },
+            "vault": {
+              "type": "string",
+              "description": "The vault to create in. Optional; the configured default vault is used when it is absent."
+            },
+            "content": {
+              "type": "string",
+              "description": "The note's finished text, frontmatter block included where it has one. Notes only, and required for one: nothing is templated or composed here, and empty text creates an empty note."
+            },
+            "git_keep": {
+              "type": "boolean",
+              "default": false,
+              "description": "Whether to seed the folder's \".gitkeep\", so a folder expected to exist while empty survives a repository round trip. Folders only; off by default."
+            }
+          },
+          "required": [ "path", "kind" ]
+        }
+        """;
+
+    public const string Move = """
+        {
+          "type": "object",
+          "properties": {
+            "path": {
+              "type": "string",
+              "description": "Vault-relative path of the note or folder to relocate. A note carries the \".md\" extension; a folder carries none."
+            },
+            "destination": {
+              "type": "string",
+              "description": "Vault-relative path to move it to, of the same kind. Its parent must already exist - nothing brings a folder into existence on the way past - and it must be unoccupied."
+            },
+            "vault": {
+              "type": "string",
+              "description": "The vault to move within. Optional; the configured default vault is used when it is absent."
+            },
+            "kind": {
+              "type": "string",
+              "enum": [ "note", "folder" ],
+              "description": "Assert which kind the path names: \"note\" or \"folder\". Optional, and a fail-fast only - both kinds take the same arguments here."
+            },
+            "apply": {
+              "type": "boolean",
+              "default": false,
+              "description": "Apply the move. Absent or false answers the same result with \"applied\" false: where everything lands, and every wikilink the move would repair or pin."
+            }
+          },
+          "required": [ "path", "destination" ]
+        }
+        """;
+
+    public const string Delete = """
+        {
+          "type": "object",
+          "properties": {
+            "path": {
+              "type": "string",
+              "description": "Vault-relative path to remove. A note carries the \".md\" extension; a folder carries none. The extension is never inferred."
+            },
+            "kind": {
+              "type": "string",
+              "enum": [ "note", "folder" ],
+              "description": "Which of the two the path names: \"note\" or \"folder\". Required, because the two take different arguments."
+            },
+            "vault": {
+              "type": "string",
+              "description": "The vault to remove from. Optional; the configured default vault is used when it is absent."
+            },
+            "recursive": {
+              "type": "boolean",
+              "default": false,
+              "description": "Remove a folder together with everything under it. Folders only. Without it, a folder that holds anything is refused and the refusal carries the full set the removal would destroy."
+            },
+            "apply": {
+              "type": "boolean",
+              "default": false,
+              "description": "Apply the removal. Absent or false answers the same result with \"applied\" false: the full set that would be destroyed, and every surviving wikilink into it."
+            }
+          },
+          "required": [ "path", "kind" ]
+        }
+        """;
+
     /// <summary>Compact re-serialization, so whitespace and <c>\u</c>-escaping differences between a
     /// literal here and a serializer's output do not read as a schema difference. Member order is
     /// deliberately <em>not</em> normalized - the derived schema follows constructor-parameter order,
@@ -300,6 +394,9 @@ public sealed class NativeToolSchemaTests(TestVaultFixture fixture) : IClassFixt
         { "glob", NativeToolSchemas.Glob },
         { "grep", NativeToolSchemas.Grep },
         { "edit", NativeToolSchemas.Edit },
+        { "create", NativeToolSchemas.Create },
+        { "move", NativeToolSchemas.Move },
+        { "delete", NativeToolSchemas.Delete },
     };
 
     private static JsonElement SchemaOf(string toolName) => NativeToolArguments.SchemaFor(toolName switch
@@ -310,6 +407,9 @@ public sealed class NativeToolSchemaTests(TestVaultFixture fixture) : IClassFixt
         "glob" => GlobTool.Declaration.Arguments,
         "grep" => GrepTool.Declaration.Arguments,
         "edit" => EditTool.Declaration.Arguments,
+        "create" => CreateTool.Declaration.Arguments,
+        "move" => MoveTool.Declaration.Arguments,
+        "delete" => DeleteTool.Declaration.Arguments,
         _ => HealthCheckTool.Declaration.Arguments,
     });
 

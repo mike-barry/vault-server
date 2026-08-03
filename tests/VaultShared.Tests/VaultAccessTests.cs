@@ -238,6 +238,36 @@ public sealed class VaultAccessTests : IDisposable
         Assert.Throws<InvalidOperationException>(() => new VaultAccess(_vault, grant));
     }
 
+    /// <summary>
+    /// The derived-target producer, for the one operation whose set is derived rather than named.
+    /// It widens nothing - scope roots are whole-segment prefixes, so everything under an admitted
+    /// folder is admitted by the same root - and it admits the dot paths the operand perimeter
+    /// refuses a caller to name, because a recursive removal really does destroy them.
+    /// </summary>
+    [Fact]
+    public void Beneath_AdmitsWhatLiesUnderAnAdmittedFolderIncludingADotEntry()
+    {
+        var access = Access(VaultScope.Of(["Projects"]));
+        var folder = Assert.IsType<PathResolution<WritePath>.Admitted>(access.ForWrite("Projects/Widget")).Path;
+
+        Assert.Equal("Projects/Widget/Notes.md", access.Beneath(folder, At("Projects/Widget/Notes.md")).Path.Value);
+        Assert.Equal("Projects/Widget/.gitkeep", access.Beneath(folder, At("Projects/Widget/.gitkeep")).Path.Value);
+        // The folder itself is in its own set.
+        Assert.Equal("Projects/Widget", access.Beneath(folder, At("Projects/Widget")).Path.Value);
+    }
+
+    /// <summary>A path that is not under the folder is a defect at the call site rather than a scope
+    /// answer, so it throws instead of refusing.</summary>
+    [Fact]
+    public void Beneath_RefusesAPathThatIsNotUnderTheFolder()
+    {
+        var access = Access(VaultScope.Unscoped);
+        var folder = Assert.IsType<PathResolution<WritePath>.Admitted>(access.ForWrite("Projects/Widget")).Path;
+
+        Assert.Throws<ArgumentException>(() => access.Beneath(folder, At("Projects/Widget-Two/Notes.md")));
+        Assert.Throws<ArgumentException>(() => access.Beneath(folder, At("Reference/Guide.md")));
+    }
+
     private VaultPath At(string relativePath)
     {
         Assert.True(VaultPath.TryCreate(_vault, relativePath, out var path, out var reason), reason);

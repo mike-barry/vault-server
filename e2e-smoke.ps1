@@ -7,8 +7,10 @@
 #
 # Read-only by design: probes touch vault "test" (the committed test-vault/ fixture)
 # only, and never change a byte of it. The write path is probed through an edit whose
-# outcome is what the note already says and through refusals that fire before anything
-# is written, so the committed fixture stays clean and this script needs no sandbox.
+# outcome is what the note already says, through delete and move previews - which take the
+# same lock and run the same validation as the call they predict - and through refusals
+# that fire before anything is written, so the committed fixture stays clean and this
+# script needs no sandbox. Real mutations live in the sandboxed dispatch tests.
 # grants.json content is never echoed - assertions read parsed non-secret fields only.
 #
 # Usage: .\e2e-smoke.ps1 [-Port 5111] [-StartTimeoutSec 30] [-SkipBuild]
@@ -221,6 +223,73 @@ try {
     } -Token $selectorToken
     $stale = if ($r.Text) { try { $r.Text | ConvertFrom-Json } catch { $null } } else { $null }
     Check 'a stale hash refuses with content_changed and no payload' ($r.IsError -and $null -ne $stale -and $stale.code -eq 'content_changed' -and -not $stale.PSObject.Properties['data']) "isError=$($r.IsError) text=$($r.Text)"
+
+    # The three remaining mutating tools, probed without mutating. delete and move preview by
+    # default, and a plan takes the same lock, runs the same validation and refuses everything a real
+    # call would - so the whole path is exercised and the committed fixture keeps every byte. Real
+    # mutations live in the sandboxed dispatch tests.
+    Write-Host 'Probe: delete preview on vault "test" (the gate, the plan, the census)'
+    $r = Invoke-McpCall -Tool 'delete' -Arguments @{
+        vault = 'test'
+        path = 'Projects/Widget'
+        kind = 'folder'
+        recursive = $true
+    } -Token $selectorToken
+    $plan = if ($r.StatusCode -eq 200 -and -not $r.IsError -and $r.Text) { try { $r.Text | ConvertFrom-Json } catch { $null } } else { $null }
+    Check 'a delete previews rather than removing' ($null -ne $plan -and $plan.applied -eq $false) "isError=$($r.IsError) text=$($r.Text)"
+    # The plan is the file census, so a non-markdown file would be in it too; what it must not be is
+    # the folder name alone.
+    Check 'the plan reports the full blast radius, contents before the folder' ($null -ne $plan -and @($plan.removed).Count -ge 4 -and @($plan.removed)[-1] -eq 'Projects/Widget') "removed=$(if ($plan) { @($plan.removed) -join ',' })"
+    # A census that ran and found nothing is a finding, so the member is a list either way.
+    Check 'the backlink census answers a list rather than an absence' ($null -ne $plan -and $null -ne $plan.PSObject.Properties['backlinks']) "text=$($r.Text)"
+
+    # The guard, and the reason it has no override: the refusal carries the set a recursive removal
+    # would destroy, so the caller retries against the file list rather than the folder name.
+    Write-Host 'Probe: delete of a non-empty folder without recursive (the not_empty guard)'
+    $r = Invoke-McpCall -Tool 'delete' -Arguments @{
+        vault = 'test'
+        path = 'Projects/Widget'
+        kind = 'folder'
+        apply = $true
+    } -Token $selectorToken
+    $notEmpty = if ($r.Text) { try { $r.Text | ConvertFrom-Json } catch { $null } } else { $null }
+    Check 'a plain folder removal meeting contents refuses not_empty carrying the plan' ($r.IsError -and $null -ne $notEmpty -and $notEmpty.code -eq 'not_empty' -and @($notEmpty.data.plan).Count -gt 0) "isError=$($r.IsError) text=$($r.Text)"
+
+    Write-Host 'Probe: move preview on vault "test" (the gate, and post-mutation paths on a plan)'
+    $r = Invoke-McpCall -Tool 'move' -Arguments @{
+        vault = 'test'
+        path = 'Resources/Gizmo-Reference.md'
+        destination = 'Inbox/Gizmo-Reference.md'
+    } -Token $selectorToken
+    $move = if ($r.StatusCode -eq 200 -and -not $r.IsError -and $r.Text) { try { $r.Text | ConvertFrom-Json } catch { $null } } else { $null }
+    Check 'a move previews rather than relocating' ($null -ne $move -and $move.applied -eq $false) "isError=$($r.IsError) text=$($r.Text)"
+    # Every path-valued member names a post-mutation path on a plan exactly as on a result, so no
+    # caller translates between two path vocabularies.
+    Check 'the plan names where the note would land, not where it is' ($null -ne $move -and $move.path -eq 'Inbox/Gizmo-Reference.md' -and @($move.moved) -contains 'Inbox/Gizmo-Reference.md') "text=$($r.Text)"
+
+    # Existence is creation's failure, and it is the filesystem's answer to an atomic create rather
+    # than a check run first - so this refuses without writing anything.
+    Write-Host 'Probe: create over an occupied target (existence as the failure)'
+    $r = Invoke-McpCall -Tool 'create' -Arguments @{
+        vault = 'test'
+        path = 'Inbox/Note-Loose-Thought.md'
+        kind = 'note'
+        content = "# Never written`n"
+    } -Token $selectorToken
+    $occupied = if ($r.Text) { try { $r.Text | ConvertFrom-Json } catch { $null } } else { $null }
+    Check 'an occupied target refuses already_exists' ($r.IsError -and $null -ne $occupied -and $occupied.code -eq 'already_exists') "isError=$($r.IsError) text=$($r.Text)"
+
+    # The name grammar, on the one segment a creation brings into existence, with the spelling that
+    # would have worked - so the miss costs one retry rather than a reading of the grammar.
+    Write-Host 'Probe: create with a name outside the grammar (the derived spelling)'
+    $r = Invoke-McpCall -Tool 'create' -Arguments @{
+        vault = 'test'
+        path = 'Inbox/new thought.md'
+        kind = 'note'
+        content = ''
+    } -Token $selectorToken
+    $badName = if ($r.Text) { try { $r.Text | ConvertFrom-Json } catch { $null } } else { $null }
+    Check 'a name outside the grammar refuses invalid_name naming a spelling that works' ($r.IsError -and $null -ne $badName -and $badName.code -eq 'invalid_name' -and $badName.data.suggested -eq 'New-thought.md') "isError=$($r.IsError) text=$($r.Text)"
 
     # The middleware's vault gate matches the vault argument's property name
     # case-insensitively. The schema now spells it "vault" (param() blocks are snake_case),

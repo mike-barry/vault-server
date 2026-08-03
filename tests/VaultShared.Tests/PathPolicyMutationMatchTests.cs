@@ -76,6 +76,32 @@ public sealed class PathPolicyMutationMatchTests
         Assert.Empty(PathPolicy.None.MutationRequires("Areas/Agentic/Note.md"));
     }
 
+    /// <summary>
+    /// The two target kinds are askable apart, for the one caller that needs them apart: a
+    /// relocation, where a path entry contributes wherever the move goes and a structural rule
+    /// contributes only where artifact status changes. Every other caller asks for both, which is
+    /// the default.
+    /// </summary>
+    [Fact]
+    public void TheTwoTargetKindsAreAskableApart()
+    {
+        var policy = Policy($$"""
+            [
+              { "path": "Areas/Agentic", "mutation_requires": "{{Elevated}}" },
+              { "rule": "folder_note", "mutation_requires": "{{Elevated}}" }
+            ]
+            """);
+
+        Assert.Equal([Elevated], policy.MutationRequires("Areas/Agentic/Note.md", PolicyTargets.Paths));
+        Assert.Empty(policy.MutationRequires("Areas/Agentic/Note.md", PolicyTargets.Structural));
+
+        Assert.Empty(policy.MutationRequires("Projects/Widget/Widget.md", PolicyTargets.Paths));
+        Assert.Equal([Elevated], policy.MutationRequires("Projects/Widget/Widget.md", PolicyTargets.Structural));
+
+        // The default is both, which is what a write asks and what every existing caller means.
+        Assert.Equal([Elevated], policy.MutationRequires("Areas/Agentic/Agentic.md"));
+    }
+
     [Fact]
     public void APathThePolicyCannotReadIsNotOneItSilentlyAdmits()
     {

@@ -31,6 +31,55 @@ public static partial class VaultName
         name.EndsWith(NoteExtension, StringComparison.Ordinal)
         && Grammar().IsMatch(name[..^NoteExtension.Length]);
 
+    /// <summary>
+    /// A conforming spelling derived from what the caller sent, or null where none can be. A
+    /// refusal names it so the miss costs one retry rather than a reading of the grammar; choosing
+    /// among conforming names stays the caller's, which is why this offers exactly one and offers
+    /// nothing where the text carries no conforming characters at all.
+    ///
+    /// The derivation is mechanical: every run of characters the grammar does not admit becomes a
+    /// single dash, dashes at either end are dropped, and a leading lower-case letter is raised.
+    /// Nothing is transliterated - a name that is entirely non-ASCII has no derivation, and
+    /// inventing one would be this build choosing what a note is called.
+    /// </summary>
+    /// <param name="name">The final segment as the caller spelled it, with the note extension where
+    /// it is a note's.</param>
+    public static string? Suggest(string name)
+    {
+        var isNote = name.EndsWith(NoteExtension, StringComparison.OrdinalIgnoreCase);
+        var stem = isNote ? name[..^NoteExtension.Length] : name;
+
+        var groups = new List<string>();
+        var group = new System.Text.StringBuilder();
+        foreach (var character in stem)
+        {
+            if (char.IsAsciiLetterOrDigit(character) || character is '+' or '&')
+            {
+                group.Append(character);
+                continue;
+            }
+
+            if (group.Length > 0)
+                groups.Add(group.ToString());
+            group.Clear();
+        }
+        if (group.Length > 0)
+            groups.Add(group.ToString());
+
+        // The first character must be an upper-case letter or a digit, so a leading group made
+        // entirely of "+" and "&" is trimmed away rather than the name being refused outright.
+        var derived = string.Join('-', groups).TrimStart('+', '&', '-');
+        if (derived.Length == 0)
+            return null;
+
+        derived = char.ToUpperInvariant(derived[0]) + derived[1..];
+        if (!Grammar().IsMatch(derived))
+            return null;
+
+        var suggested = isNote ? derived + NoteExtension : derived;
+        return string.Equals(suggested, name, StringComparison.Ordinal) ? null : suggested;
+    }
+
     // \A and \z rather than ^ and $, which would admit a trailing newline inside the name.
     [GeneratedRegex(@"\A[A-Z0-9][A-Za-z0-9+&]*(?:-[A-Za-z0-9+&]+)*\z")]
     private static partial Regex Grammar();

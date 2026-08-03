@@ -46,6 +46,33 @@ internal static class VaultToolHarness
             : null;
     }
 
+    /// <summary>
+    /// The preview contract, as one assertion: a plan and the result of the call it authorized are
+    /// the same shape and differ in exactly the discriminating member.
+    ///
+    /// It compares the serialized results rather than the records, because a mutation result is a
+    /// list of identities and record equality over lists is reference equality - and because what a
+    /// caller actually compares is what came off the wire, under the same naming policy.
+    /// </summary>
+    public static void AssertPreviewParity(object plan, object applied, string discriminator = "applied")
+    {
+        var planned = Members(plan);
+        var real = Members(applied);
+
+        Assert.Equal("false", planned[discriminator]);
+        Assert.Equal("true", real[discriminator]);
+
+        planned.Remove(discriminator);
+        real.Remove(discriminator);
+        Assert.Equal(planned, real);
+    }
+
+    private static Dictionary<string, string> Members(object result)
+    {
+        using var document = JsonDocument.Parse(JsonSerializer.Serialize(result, NativeToolArguments.Options));
+        return document.RootElement.EnumerateObject().ToDictionary(p => p.Name, p => p.Value.GetRawText());
+    }
+
     /// <summary>The raw argument map, as a front-end hands one in.</summary>
     public static Dictionary<string, JsonElement> Args(object value) =>
         JsonSerializer.Deserialize<Dictionary<string, JsonElement>>(JsonSerializer.Serialize(value))!;

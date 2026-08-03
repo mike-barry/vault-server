@@ -19,15 +19,32 @@ public sealed class WikilinkPlan
     {
         _notes = notes;
         Rewrites = [.. notes.SelectMany(n => n.Rewrites)];
+        Repairs = [.. notes.SelectMany(n => n.Planned).Where(p => !p.Pinned).Select(p => p.Rewrite)];
+        Pins = [.. notes.SelectMany(n => n.Planned).Where(p => p.Pinned).Select(p => p.Rewrite)];
         Relocated = relocated;
         FolderNote = folderNote;
     }
 
     /// <summary>
-    /// Every link this plan changes, in note order and then in position order within a note. What a
-    /// consumer reports as its repaired or pinned set.
+    /// Every link this plan changes, in note order and then in position order within a note.
     /// </summary>
     public IReadOnlyList<LinkRewrite> Rewrites { get; }
+
+    /// <summary>
+    /// The repairs alone: links that named something the relocation moved and now name where it
+    /// went. Empty for a creation, which relocates nothing.
+    ///
+    /// Repair and pinning are separate members because a relocation reports them separately - one
+    /// is maintenance the move owed, the other is protection it applied to links it was never asked
+    /// about - and the two cannot be told apart afterwards from the rewrite text alone.
+    /// </summary>
+    public IReadOnlyList<LinkRewrite> Repairs { get; }
+
+    /// <summary>
+    /// The pins alone: bystander links frozen to the target they resolve to today, so nothing is
+    /// silently re-aimed. The whole of a creation's plan, and part of a relocation's.
+    /// </summary>
+    public IReadOnlyList<LinkRewrite> Pins { get; }
 
     /// <summary>
     /// Every note the relocation itself moves, before and after. One pair for a note relocation; one
@@ -52,8 +69,19 @@ public sealed class WikilinkPlan
     internal IReadOnlyList<NoteRewrite> Notes => _notes;
 }
 
+/// <summary>One planned rewrite, and which of the two things the pass was doing when it planned
+/// it.</summary>
+/// <param name="Pinned">True where the link was frozen to what it opens today, false where it was
+/// re-aimed at where its target went.</param>
+internal sealed record PlannedRewrite(LinkRewrite Rewrite, bool Pinned);
+
 /// <summary>One note's composed text and the rewrites that produced it.</summary>
-internal sealed record NoteRewrite(VaultPath Note, string Content, IReadOnlyList<LinkRewrite> Rewrites);
+internal sealed record NoteRewrite(VaultPath Note, string Content, IReadOnlyList<PlannedRewrite> Planned)
+{
+    /// <summary>The rewrites alone, in position order, for a consumer that does not care which kind
+    /// each was.</summary>
+    public IEnumerable<LinkRewrite> Rewrites => Planned.Select(p => p.Rewrite);
+}
 
 /// <summary>
 /// What a pass over every note in the vault answers. Failures are answered rather than thrown,

@@ -108,7 +108,11 @@ public static class WikilinkMaintenance
                     if (WikilinkTarget.IsPathQualified(target) || before.Resolve(linking, target) is not { } held)
                         return null;
 
-                    return after.Resolve(linking, target) == held ? null : WikilinkName.Qualified(before[held]);
+                    // Every rewrite a creation plans is a pin: nothing moved, so no link is ever
+                    // re-aimed and no link is ever aimed at the new note.
+                    return after.Resolve(linking, target) == held
+                        ? null
+                        : new Replacement(WikilinkName.Qualified(before[held]), Pinned: true);
                 }) is { } rewrite)
                 planned.Add(rewrite);
         }
@@ -251,20 +255,23 @@ public static class WikilinkMaintenance
                 {
                     if (WikilinkTarget.IsPathQualified(target))
                         return map.Pairs.FirstOrDefault(pair => WikilinkTarget.Matches(target, pair.From)) is { } named
-                            ? Emit(after, named.To)
+                            ? new Replacement(Emit(after, named.To), Pinned: false)
                             : null;
 
                     if (before.Resolve(wasAt, target) is not { } held)
                         return null;
 
-                    // The link named the relocated note: re-emit it at the destination.
+                    // The link named the relocated note: re-emit it at the destination. A repair,
+                    // which is the maintenance the relocation owed.
                     if (moved.Contains(held))
-                        return Emit(after, destinations[held]);
+                        return new Replacement(Emit(after, destinations[held]), Pinned: false);
 
                     // A bystander. Its target did not move, but the move may have put a nearer
                     // same-named candidate in its way - or moved the linking note itself. Where the
                     // answer would change, the link is pinned to what it opens today.
-                    return after.Resolve(willBe, target) == held ? null : WikilinkName.Qualified(destinations[held]);
+                    return after.Resolve(willBe, target) == held
+                        ? null
+                        : new Replacement(WikilinkName.Qualified(destinations[held]), Pinned: true);
                 }) is { } rewrite)
                 planned.Add(rewrite);
         }
@@ -327,33 +334,41 @@ public static class WikilinkMaintenance
     /// the splice happens in that same string: normalizing anything first would shift every offset
     /// past a two-character terminator and write over the wrong bytes.
     /// </summary>
-    private static NoteRewrite? Rewritten(VaultPath note, string text, Func<string, string?> replacement)
+    private static NoteRewrite? Rewritten(VaultPath note, string text, Func<string, Replacement?> replacement)
     {
         StringBuilder? composed = null;
-        List<LinkRewrite>? rewrites = null;
+        List<PlannedRewrite>? planned = null;
         var copied = 0;
         var lines = new LineCounter(text);
 
         foreach (var occurrence in Wikilink.Recognize(text))
         {
             var target = occurrence.TargetIn(text);
-            if (replacement(target) is not { } emitted || string.Equals(target, emitted, StringComparison.Ordinal))
+            if (replacement(target) is not { } chosen || string.Equals(target, chosen.Emitted, StringComparison.Ordinal))
                 continue;
 
             composed ??= new StringBuilder(text.Length);
-            rewrites ??= [];
+            planned ??= [];
 
-            composed.Append(text, copied, occurrence.TargetStart - copied).Append(emitted);
+            composed.Append(text, copied, occurrence.TargetStart - copied).Append(chosen.Emitted);
             copied = occurrence.TargetStart + occurrence.TargetLength;
-            rewrites.Add(new LinkRewrite(note.Value, lines.At(occurrence.TargetStart), target, emitted));
+            planned.Add(new PlannedRewrite(
+                new LinkRewrite(note.Value, lines.At(occurrence.TargetStart), target, chosen.Emitted), chosen.Pinned));
         }
 
         if (composed is null)
             return null;
 
         composed.Append(text, copied, text.Length - copied);
-        return new NoteRewrite(note, composed.ToString(), rewrites!);
+        return new NoteRewrite(note, composed.ToString(), planned!);
     }
+
+    /// <summary>
+    /// What one link's target becomes, and which of the pass's two jobs produced it. The
+    /// discrimination is made where the decision is - a repair and a pin are indistinguishable from
+    /// the emitted text afterwards, and the relocating tool reports them apart.
+    /// </summary>
+    private readonly record struct Replacement(string Emitted, bool Pinned);
 
     /// <summary>
     /// Every note's text, positionally, or the first failure that was not a note with nothing left

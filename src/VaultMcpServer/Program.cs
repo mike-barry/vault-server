@@ -149,9 +149,14 @@ var toolRegistry = new ToolRegistry()
     .Add(ReadTool.Declaration, new ReadTool())
     .Add(GlobTool.Declaration, new GlobTool())
     .Add(GrepTool.Declaration, new GrepTool())
-    // The one vault tool holding anything: the declarations are per vault and loaded once at
-    // startup, and a call carries a vault rather than a vocabulary.
-    .Add(EditTool.Declaration, new EditTool(frontmatterRegistries));
+    // The two vault tools holding anything: the declarations are per vault and loaded once at
+    // startup, and a call carries a vault rather than a vocabulary. Both write a note's frontmatter
+    // through the single write path - edit by operations, create by validating a whole supplied
+    // block.
+    .Add(EditTool.Declaration, new EditTool(frontmatterRegistries))
+    .Add(CreateTool.Declaration, new CreateTool(frontmatterRegistries))
+    .Add(MoveTool.Declaration, new MoveTool())
+    .Add(DeleteTool.Declaration, new DeleteTool());
 builder.Services.AddSingleton(toolRegistry);
 
 // The shared execute path. The inherited-lock signal is a delegate rather than an ILogger because

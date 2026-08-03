@@ -51,6 +51,79 @@ public static class ToolPaths
     }
 
     /// <summary>
+    /// A folder operand, admitted for writing. Nothing beyond the operand rule is checked here: a
+    /// folder already on disk is not held to the name grammar, which applies to the one segment a
+    /// call brings into existence.
+    /// </summary>
+    /// <exception cref="ToolRefusal">The path names a note, or the layer refuses it.</exception>
+    public static WritePath WriteFolder(VaultAccess vault, string path)
+    {
+        RequireNoNoteExtension(path);
+        var resolution = vault.ForWrite(path);
+        return resolution is PathResolution<WritePath>.Admitted admitted
+            ? admitted.Path
+            : throw ToolRefusalEnvelope.Translate(resolution);
+    }
+
+    /// <summary>Either operand form, chosen by the kind the call is acting on.</summary>
+    /// <exception cref="ToolRefusal">The path is not that kind, or the layer refuses it.</exception>
+    public static WritePath Write(VaultAccess vault, string path, OperandKind kind) =>
+        kind == OperandKind.Note ? WriteNote(vault, path) : WriteFolder(vault, path);
+
+    /// <summary>
+    /// Which kind an operand's own spelling names, and the refusal where an assertion disagrees
+    /// with it.
+    ///
+    /// <b>The extension discriminates; it is still never inferred.</b> The perimeter admits exactly
+    /// two things and the layer's own rule separates them - a note ends in <c>.md</c> and a folder
+    /// does not - so what a caller wrote already says which of the two it named. What is never
+    /// inferred is the other direction: an extensionless path is not read as a note by appending
+    /// the extension, and a note-kind call handed one is refused naming the spelling that would
+    /// have worked.
+    ///
+    /// A kind assertion therefore checks intent rather than resolving anything, which is exactly
+    /// what the operand vocabulary asks of it. Where the tool can already tell, the assertion buys
+    /// a caller who thinks it is acting on one note the chance to fail before acting on a folder of
+    /// fifty.
+    /// </summary>
+    /// <param name="asserted">The kind the caller asserted, or null where it asserted none.</param>
+    /// <exception cref="ToolRefusal">The assertion disagrees with the spelling.</exception>
+    public static OperandKind KindOf(string path, OperandKind? asserted = null)
+    {
+        var spelled = path.EndsWith(NoteExtension, StringComparison.OrdinalIgnoreCase)
+            ? OperandKind.Note
+            : OperandKind.Folder;
+
+        if (asserted is null || asserted == spelled)
+            return spelled;
+
+        // A note asserted over a folder-shaped path is the never-inferred extension, which carries
+        // the spelling that would have worked; the reverse has no such remedy and is the kind
+        // refusal.
+        if (asserted == OperandKind.Note)
+            RequireNoteExtension(path);
+
+        throw WrongKind(path);
+    }
+
+    /// <summary>
+    /// The extension rule read the other way: a folder operand carries no markdown extension.
+    /// Checked before resolution for the same reason the note rule is - it is a statement about the
+    /// caller's own text alone.
+    /// </summary>
+    /// <exception cref="ToolRefusal">The path names a note.</exception>
+    public static void RequireNoNoteExtension(string path)
+    {
+        if (path.EndsWith(NoteExtension, StringComparison.OrdinalIgnoreCase))
+            throw WrongKind(path);
+    }
+
+    private static ToolRefusal WrongKind(string path) =>
+        new(
+            ToolCodes.WrongKind,
+            $"\"{path}\" carries the \"{NoteExtension}\" extension, so it names a note rather than a folder. A folder operand carries no extension.");
+
+    /// <summary>
     /// The never-inferred extension, as a refusal.
     ///
     /// Folders share the operand space, so a name without an extension is genuinely ambiguous

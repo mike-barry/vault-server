@@ -73,6 +73,9 @@ public sealed class NativeToolSchemaDispatchTests(NativeToolSchemaDispatchTests.
         { "glob", NativeToolSchemas.Glob },
         { "grep", NativeToolSchemas.Grep },
         { "edit", NativeToolSchemas.Edit },
+        { "create", NativeToolSchemas.Create },
+        { "move", NativeToolSchemas.Move },
+        { "delete", NativeToolSchemas.Delete },
     };
 
     [Theory]
@@ -179,6 +182,12 @@ public sealed class NativeToolSchemaDispatchTests(NativeToolSchemaDispatchTests.
         ["glob"] = (Fixture.AdminToken, """{"pattern":"*.md","vault":"personal"}"""),
         ["grep"] = (Fixture.AdminToken, """{"pattern":"widget","vault":"personal"}"""),
         ["edit"] = (Fixture.AdminToken, """{"path":"Note.md","vault":"personal","body":{"find":"a","replace":"b"}}"""),
+        // The three mutating tools' entries are shapes rather than calls: this suite only ever
+        // sends them with one required argument removed, and each of those refuses in the argument
+        // phase, above the lock and above anything that could reach the filesystem.
+        ["create"] = (Fixture.AdminToken, """{"path":"New.md","kind":"note","vault":"personal","content":""}"""),
+        ["move"] = (Fixture.AdminToken, """{"path":"Note.md","destination":"Moved.md","vault":"personal"}"""),
+        ["delete"] = (Fixture.AdminToken, """{"path":"Note.md","kind":"note","vault":"personal"}"""),
     };
 
     /// <summary>

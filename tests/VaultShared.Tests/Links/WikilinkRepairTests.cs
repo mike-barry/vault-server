@@ -305,4 +305,41 @@ public sealed class WikilinkRepairTests : IDisposable
         Assert.Empty(outcome.Written);
         Assert.Equal(["Notes/Ref.md:1 A/Dupe -> C/Dupe"], outcome.Unwritten.Select(r => $"{r.Path}:{r.Line} {r.From} -> {r.To}"));
     }
+
+    /// <summary>
+    /// A relocation does two different things to the graph, and the plan says which each rewrite
+    /// was: a repair re-aims a link at where its target went, a pin freezes a link nobody asked
+    /// about. The two are indistinguishable from the emitted text afterwards, so the discrimination
+    /// is made where the decision is and carried out on the plan.
+    /// </summary>
+    [Fact]
+    public void APlanSaysWhichOfItsRewritesWereRepairsAndWhichWerePins()
+    {
+        _vault
+            .WithNote("Reference/Guide.md", "# The guide\n")
+            .WithNote("Inbox/Note.md", "See [[Guide]] and [[Draft]].\n")
+            .WithNote("Inbox/Draft.md", "# Draft\n");
+
+        var plan = LinkPass.Plan(Move("Inbox/Draft.md", "Inbox/Guide.md"));
+
+        Assert.Equal(["Inbox/Note.md:1 Draft -> Inbox/Guide"], LinkPass.Render(plan.Repairs));
+        Assert.Equal(["Inbox/Note.md:1 Guide -> Reference/Guide"], LinkPass.Render(plan.Pins));
+        Assert.Equal(plan.Rewrites.Count, plan.Repairs.Count + plan.Pins.Count);
+    }
+
+    /// <summary>Everything a creation plans is a pin: nothing moved, so no link is ever
+    /// re-aimed.</summary>
+    [Fact]
+    public void ACreationsPlanIsAllPinsAndNoRepairs()
+    {
+        _vault
+            .WithNote("Reference/Guide.md", "# The guide\n")
+            .WithNote("Inbox/Note.md", "See [[Guide]].\n");
+
+        var plan = LinkPass.Plan(
+            WikilinkMaintenance.PlanCreation(_vault.Access.BypassingScope(), _vault.At("Inbox/Guide.md")));
+
+        Assert.Empty(plan.Repairs);
+        Assert.Equal(["Inbox/Note.md:1 Guide -> Reference/Guide"], LinkPass.Render(plan.Pins));
+    }
 }

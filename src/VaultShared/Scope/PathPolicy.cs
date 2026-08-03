@@ -78,9 +78,17 @@ public sealed class PathPolicy
     /// assertion, including on a body-only edit, and the tools that remove or relocate consult it at
     /// their own validate phases; a second implementation is a second answer.
     /// </summary>
+    /// <param name="among">
+    /// Which entries are consulted. <see cref="PolicyTargets.All"/> is what a write asks, and what a
+    /// caller wanting "the price of mutating this path" means. The two narrower answers exist for
+    /// relocation alone, where the two target kinds contribute under different rules: a path entry
+    /// contributes whenever a declared file or folder is renamed or moved, while a structural rule
+    /// contributes only where artifact status changes - a note renamed to match its folder acquires
+    /// one, a folder note carried along by its folder's rename does not.
+    /// </param>
     /// <exception cref="ArgumentException"><paramref name="relativePath"/> is not a well-formed
     /// vault-relative path. A path a policy cannot read is not one it may silently admit.</exception>
-    public IReadOnlyCollection<string> MutationRequires(string relativePath)
+    public IReadOnlyCollection<string> MutationRequires(string relativePath, PolicyTargets among = PolicyTargets.All)
     {
         if (MutationRules.Count == 0)
             return [];
@@ -88,11 +96,18 @@ public sealed class PathPolicy
         var segments = ScopePath.Normalize(relativePath);
         var required = new HashSet<string>(StringComparer.Ordinal);
         foreach (var rule in MutationRules)
-            if (Matches(rule.Target, segments))
+            if (Consulted(rule.Target, among) && Matches(rule.Target, segments))
                 required.Add(rule.RequiredOpClass);
 
         return required;
     }
+
+    private static bool Consulted(PolicyTarget target, PolicyTargets among) => among switch
+    {
+        PolicyTargets.Paths => target is PolicyTarget.Path,
+        PolicyTargets.Structural => target is PolicyTarget.Structural,
+        _ => true,
+    };
 
     private static bool Matches(PolicyTarget target, string[] segments) => target switch
     {
@@ -172,6 +187,24 @@ public sealed class PathPolicy
         union.UnionWith(AlwaysReadableRoots);
         return VaultScope.Of(union);
     }
+}
+
+/// <summary>
+/// Which kinds of policy target a question consults. The two kinds are matched by different
+/// machinery and, on a relocation, contribute under different rules, so a caller that needs them
+/// apart says which it is asking about rather than re-deriving the split from
+/// <see cref="PathPolicy.MutationRules"/>.
+/// </summary>
+public enum PolicyTargets
+{
+    /// <summary>Every entry, whatever its target. What a write asks.</summary>
+    All,
+
+    /// <summary>Path entries alone.</summary>
+    Paths,
+
+    /// <summary>Structural rules alone.</summary>
+    Structural,
 }
 
 /// <summary>

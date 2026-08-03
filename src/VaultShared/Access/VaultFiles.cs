@@ -8,6 +8,10 @@ namespace VaultShared.Access;
 /// entry, remove one entry. Every one of them answers rather than throwing, because callers must
 /// tell the outcomes apart structurally.
 ///
+/// Moving and removing are each two operations rather than one - a file form and a folder form -
+/// because a path does not say which it names and neither may guess. Inspecting the target to
+/// choose would be the probe every primitive here avoids.
+///
 /// Static, and holding nothing: a primitive's authority is the type of the path it is handed -
 /// <see cref="ReadPath"/> to read, <see cref="WritePath"/> to write, create, move, or remove - so
 /// there is no per-call state for an object to carry. The scope check happened where those proofs
@@ -145,16 +149,65 @@ public static class VaultFiles
     }
 
     /// <summary>
-    /// Moves one entry. The only primitive taking two paths, and both must carry the same vault - a
-    /// pair that does not is a layer defect and throws rather than being answered.
+    /// The name of the placeholder that makes an empty folder exist in the repository. It is the
+    /// tooling's own file: no caller can name it, because the operand perimeter refuses a
+    /// dot-prefixed segment and the name grammar refuses the spelling, both deliberately.
+    /// </summary>
+    public const string GitKeepName = ".gitkeep";
+
+    /// <summary>
+    /// Seeds <see cref="GitKeepName"/> inside a folder, so a folder expected to exist while empty
+    /// survives a repository round trip.
+    ///
+    /// <b>This is the one producer of that file, and naming it is the whole point.</b> Nothing else
+    /// in the build can create a dot-prefixed path: <see cref="VaultAccess.ForWrite"/> refuses one
+    /// as outside the operand perimeter and <see cref="Create"/> refuses the name as outside the
+    /// grammar. Both refusals are right for caller text, and the placeholder is not caller text -
+    /// so rather than weakening either, the file has a member of its own, greppable by name, whose
+    /// only argument is the folder. The child path is composed here and never handed in, which is
+    /// what keeps "a caller can ask for a .gitkeep but cannot name one" true by construction.
+    ///
+    /// The folder's own write proof carries admission for everything under it: scope roots are
+    /// whole-segment prefixes, so a child of an admitted folder is admitted by the same root.
+    ///
+    /// An existing placeholder answers <see cref="WriteOutcome.AlreadyExists"/> from the atomic
+    /// create, like every other creating write.
+    /// </summary>
+    public static WriteOutcome CreateGitKeep(WritePath folder)
+    {
+        var target = folder.Path;
+        if (!VaultPath.TryCreate(target.Vault, $"{target.Value}/{GitKeepName}", out var child, out var reason))
+            throw new InvalidOperationException($"Composed placeholder path under \"{target.Value}\" is not a vault path: {reason}");
+
+        try
+        {
+            using var stream = new FileStream(child.Absolute, FileMode.CreateNew, FileAccess.Write, FileShare.None);
+            return new WriteOutcome.Written(Emit(stream, string.Empty));
+        }
+        catch (IOException ex) when (IsAlreadyExists(ex))
+        {
+            return new WriteOutcome.AlreadyExists(child.Value);
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            return Classify(ex, child);
+        }
+    }
+
+    /// <summary>
+    /// Moves one file. Move is the operation taking two paths, and both must carry the same vault -
+    /// a pair that does not is a layer defect and throws rather than being answered.
     ///
     /// Occupancy is decided against the resolved source ordinally, so a case-only rename is not a
     /// collision; the outcome reports that the move was case-only, because git does not see such a
     /// change and staging it is above this layer. The destination's name is the one segment brought
     /// into existence and is checked against the name grammar, as a note or as a folder.
+    ///
+    /// A folder named as the source answers <see cref="MoveOutcome.SourceMissing"/>:
+    /// <see cref="MoveFolder"/> is the folder form.
     /// </summary>
     /// <exception cref="ArgumentException">The two paths carry different vaults.</exception>
-    public static MoveOutcome Move(WritePath source, WritePath destination)
+    public static MoveOutcome MoveFile(WritePath source, WritePath destination)
     {
         var from = source.Path;
         var to = destination.Path;
@@ -191,6 +244,66 @@ public static class VaultFiles
             return to.ParentValue is { } parent
                 ? new MoveOutcome.MissingParent(parent)
                 : new MoveOutcome.Failed(to.Value, RootMissing);
+        }
+        catch (IOException ex) when (IsAlreadyExists(ex))
+        {
+            return new MoveOutcome.DestinationOccupied(to.Value);
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            return new MoveOutcome.Failed(from.Value, Describe(ex, from, to));
+        }
+    }
+
+    /// <summary>
+    /// Moves one folder, with everything inside it, as a single directory rename.
+    ///
+    /// <b>One filesystem operation, not a walk.</b> The contents keep their names and their
+    /// positions relative to the folder, so nothing under it has to be named, created or removed -
+    /// which is what keeps a relocation from having a half-moved state of its own, and what keeps
+    /// this primitive from creating the folders a per-file relocation would need on the far side.
+    /// The rule against walking a tree is the same one <see cref="RemoveEmptyFolder"/> obeys; here
+    /// it is the platform's rename that makes the walk unnecessary rather than the caller's plan.
+    ///
+    /// The destination's own name is the one segment brought into existence and is checked against
+    /// the folder grammar. A case-only rename is permitted and reported, exactly as for a file.
+    /// </summary>
+    /// <exception cref="ArgumentException">The two paths carry different vaults.</exception>
+    public static MoveOutcome MoveFolder(WritePath source, WritePath destination)
+    {
+        var from = source.Path;
+        var to = destination.Path;
+
+        if (from.Vault != to.Vault)
+            throw new ArgumentException(
+                $"Move spans vaults \"{from.Vault.Name}\" and \"{to.Vault.Name}\".", nameof(destination));
+
+        var name = to.Segments[^1];
+        if (!VaultName.IsFolderName(name))
+            return new MoveOutcome.InvalidName(name);
+
+        var sameEntry = from.Equals(to);
+        var caseOnly = sameEntry && !from.HasSameSpellingAs(to);
+
+        // The destination's parent is established here rather than left to the failure, for the
+        // reason folder creation establishes it: a directory rename reports a missing source and a
+        // missing destination parent as the same platform failure, and the two are different
+        // answers. Only the destination side is inspected - the source's existence still comes from
+        // the attempt.
+        var parent = Directory.GetParent(to.Absolute);
+        if (parent is null || !parent.Exists)
+            return to.ParentValue is { } missing
+                ? new MoveOutcome.MissingParent(missing)
+                : new MoveOutcome.Failed(to.Value, RootMissing);
+
+        try
+        {
+            Directory.Move(from.Absolute, to.Absolute);
+            return new MoveOutcome.Moved(caseOnly);
+        }
+        catch (DirectoryNotFoundException)
+        {
+            return new MoveOutcome.SourceMissing(from.Value);
         }
         catch (IOException ex) when (IsAlreadyExists(ex))
         {

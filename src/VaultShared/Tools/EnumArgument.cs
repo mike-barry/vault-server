@@ -49,12 +49,17 @@ public static class EnumArgument
 
     private sealed class Factory : JsonConverterFactory
     {
-        public override bool CanConvert(Type typeToConvert) =>
-            (Nullable.GetUnderlyingType(typeToConvert) ?? typeToConvert).IsEnum;
+        /// <summary>
+        /// The enum itself and never its nullable form. A converter must handle exactly the type it
+        /// claims - the serializer wraps a converter registered for <c>T</c> to serve <c>T?</c> on
+        /// its own, and a factory claiming both hands the schema exporter a converter for the wrong
+        /// type. An optional enumerated argument therefore binds through the same lenient reader,
+        /// with an absent value staying absent rather than becoming an unrecognized one.
+        /// </summary>
+        public override bool CanConvert(Type typeToConvert) => typeToConvert.IsEnum;
 
         public override JsonConverter CreateConverter(Type typeToConvert, JsonSerializerOptions options) =>
-            (JsonConverter)Activator.CreateInstance(
-                typeof(LenientConverter<>).MakeGenericType(Nullable.GetUnderlyingType(typeToConvert) ?? typeToConvert))!;
+            (JsonConverter)Activator.CreateInstance(typeof(LenientConverter<>).MakeGenericType(typeToConvert))!;
     }
 
     /// <summary>

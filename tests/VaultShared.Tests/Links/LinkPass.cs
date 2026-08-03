@@ -15,8 +15,12 @@ internal static class LinkPass
     public static IReadOnlyList<string> Rewrites(LinkPassOutcome<WikilinkPlan> outcome) =>
         Rendered(Plan(outcome));
 
-    public static IReadOnlyList<string> Rendered(WikilinkPlan plan) =>
-        [.. plan.Rewrites.Select(r => $"{r.Path}:{r.Line} {r.From} -> {r.To}").Order(StringComparer.Ordinal)];
+    public static IReadOnlyList<string> Rendered(WikilinkPlan plan) => Render(plan.Rewrites);
+
+    /// <summary>The same rendering over one of a plan's two halves, for a case whose subject is
+    /// which half a rewrite landed in.</summary>
+    public static IReadOnlyList<string> Render(IEnumerable<LinkRewrite> rewrites) =>
+        [.. rewrites.Select(r => $"{r.Path}:{r.Line} {r.From} -> {r.To}").Order(StringComparer.Ordinal)];
 
     public static IReadOnlyList<string> Occurrences(LinkPassOutcome<IReadOnlyList<LinkOccurrence>> outcome) =>
         [.. InOrder(outcome).Order(StringComparer.Ordinal)];

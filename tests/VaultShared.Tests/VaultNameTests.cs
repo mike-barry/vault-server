@@ -85,4 +85,48 @@ public sealed class VaultNameTests
         Assert.True(VaultName.IsNoteName("Widget.md"));
         Assert.False(VaultName.IsFolderName("Widget.md"));
     }
+
+    // ---- The derived spelling ----
+
+    /// <summary>
+    /// Where a conforming spelling can be derived from what the caller sent, the refusal names it,
+    /// so a miss costs one retry rather than a reading of the grammar. Every run of characters the
+    /// grammar does not admit becomes a single dash, and a leading lower-case letter is raised.
+    /// </summary>
+    [Theory]
+    [InlineData("new thought", "New-thought")]
+    [InlineData("my_note", "My-note")]
+    [InlineData("widget", "Widget")]
+    [InlineData("Widget  Gizmo!!", "Widget-Gizmo")]
+    [InlineData("-Widget-", "Widget")]
+    [InlineData("Café", "Caf")]
+    [InlineData("new thought.md", "New-thought.md")]
+    public void Suggest_DerivesAConformingSpelling(string sent, string expected)
+    {
+        Assert.Equal(expected, VaultName.Suggest(sent));
+        Assert.True(sent.EndsWith(".md", StringComparison.Ordinal)
+            ? VaultName.IsNoteName(expected)
+            : VaultName.IsFolderName(expected));
+    }
+
+    /// <summary>Nothing is transliterated and nothing is invented: a name carrying no conforming
+    /// character has no derivation, and choosing one would be this build deciding what a note is
+    /// called.</summary>
+    [Theory]
+    [InlineData("...")]
+    [InlineData("中文")]
+    [InlineData("+&+")]
+    public void Suggest_OffersNothingWhereNothingCanBeDerived(string sent)
+    {
+        Assert.Null(VaultName.Suggest(sent));
+    }
+
+    /// <summary>A name that already conforms has nothing to suggest, so the refusal carries no
+    /// payload rather than echoing the caller's own text back.</summary>
+    [Fact]
+    public void Suggest_OffersNothingForANameThatAlreadyConforms()
+    {
+        Assert.Null(VaultName.Suggest("Widget-Gizmo"));
+        Assert.Null(VaultName.Suggest("Widget.md"));
+    }
 }

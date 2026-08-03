@@ -130,7 +130,12 @@ public sealed class EditTool(FrontmatterRegistries registries) : ITool
         // ---- 4. Plan ----
 
         var operations = arguments.Ordered.Select(o => o.Decode()).ToList();
-        var registry = operations.Count > 0 ? registries.For(vault.Vault.Name).Require() : NoVocabulary;
+        // A body-only edit is not a frontmatter write - it reads no key, and what prices it is the
+        // vault's path policy - so it runs against the vocabulary that interprets nothing rather
+        // than refusing on a declaration its body has nothing to do with.
+        var registry = operations.Count > 0
+            ? registries.For(vault.Vault.Name).Require()
+            : MutationSupport.NoVocabulary;
 
         RefuseIfStale(arguments, stored);
         var body = NewBody(arguments, stored.Text);
@@ -160,19 +165,6 @@ public sealed class EditTool(FrontmatterRegistries registries) : ITool
             outcome.AppliedOperations,
             [.. outcome.AssertedAuthority.Order(StringComparer.Ordinal)]));
     }
-
-    /// <summary>
-    /// The vocabulary a write that interprets no frontmatter runs against. <b>Not a fallback
-    /// vocabulary</b>: it is reachable only where the request carries no operation, so no key is
-    /// ever looked up in it and it can neither recognize nor refuse one. What refuses an edit that
-    /// does interpret frontmatter, with no declaration loaded, is
-    /// <see cref="RegistryState.Require"/>, and a body-only edit is not a frontmatter write - it
-    /// reads no key, and what prices it is the vault's path policy.
-    /// </summary>
-    private static readonly FrontmatterRegistry NoVocabulary = new(
-        new Dictionary<string, KeyDeclaration>(StringComparer.OrdinalIgnoreCase),
-        [],
-        new Dictionary<string, EntrySchema>(StringComparer.OrdinalIgnoreCase));
 
     private static ReadOutcome.Content Read(WritePath path, string named) =>
         VaultFiles.Read(path.AsRead()) switch

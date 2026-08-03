@@ -162,6 +162,38 @@ public sealed class VaultAccess : IKeyAuthority
             && Admits(path);
 
     /// <summary>
+    /// Admits a path the layer itself produced from beneath a folder this grant already admits for
+    /// writing.
+    ///
+    /// <b>It widens nothing.</b> Scope roots are whole-segment prefixes, so everything under an
+    /// admitted folder is admitted by the same root; the containment relation is checked here rather
+    /// than assumed, and a path that is not under the folder is a defect at the call site rather
+    /// than a scope answer. What this exists for is the one operation whose target set is derived
+    /// rather than named - a recursive removal drives a plan the census produced, and those entries
+    /// include the dot paths the operand perimeter refuses a <em>caller</em> to name.
+    ///
+    /// It stays a member here, named for what it does, for the same reason
+    /// <see cref="BypassingScope"/> does: producing an admitted path outside this type is how the
+    /// scope check gets skipped without saying so, and every site doing something unusual with
+    /// admission should be one grep away.
+    /// </summary>
+    /// <exception cref="ArgumentException"><paramref name="contained"/> is not the folder or beneath
+    /// it, or belongs to another vault.</exception>
+    public WritePath Beneath(WritePath folder, VaultPath contained)
+    {
+        if (contained.Vault != Vault)
+            throw new ArgumentException(
+                $"Path belongs to vault \"{contained.Vault.Name}\", not \"{Vault.Name}\".", nameof(contained));
+
+        if (!contained.Equals(folder.Path)
+            && !contained.Value.StartsWith(folder.Path.Value + '/', StringComparison.OrdinalIgnoreCase))
+            throw new ArgumentException(
+                $"\"{contained.Value}\" is not \"{folder.Path.Value}\" and is not beneath it.", nameof(contained));
+
+        return new WritePath(contained);
+    }
+
+    /// <summary>
     /// The vault-wide pass: unscoped enumerate, read and write, on an object of their own. Named
     /// for what it does rather than for what it is used for, because the point of the seam is that
     /// bypassing scope reads as a deliberate act at the call site and that every site doing it is
