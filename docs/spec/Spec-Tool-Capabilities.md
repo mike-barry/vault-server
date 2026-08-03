@@ -23,7 +23,7 @@ Owned elsewhere:
 
 Seven tools in the first pass. Their names and purposes are fixed; how those purposes are expressed is open.
 
-- **`read`** - return one note's whole content, its frontmatter, or its body, with a whole-file staleness token when the caller asks for one. Those three are the whole set; there is no line range and no section addressing
+- **`read`** - return one note's whole content, its frontmatter, or its body, with a whole-file content hash when the caller asks for one. Those three are the whole set; there is no line range and no section addressing
 - **`glob`** - the only name-and-path search surface, and the discovery step that turns a name into a path
 - **`grep`** - the only content-search surface, at the three granularities the layer offers
 - **`edit`** - the only way to mutate an existing note: ordered frontmatter operations plus at most one body change, applied as a single outcome
@@ -129,7 +129,7 @@ Matching rules, each closing an evasion:
 
 **Two tiers, split by what the output is for.** Results a model reads as content - note text, search hits, path lists - return in the plain native shape an agent already consumes, with each shape's own empty-case convention; structure there costs tokens and buys nothing. Results a caller branches on are structured, which covers every mutation and any assessment whose purpose is a decision.
 
-**One content-tier result carries structure**: a read asked for a staleness token returns the content and the token together.
+**One content-tier result carries structure**: a read asked for a content hash returns the content and the hash together.
 
 **Mutation results share one envelope**, under four obligations:
 
@@ -168,7 +168,7 @@ Errors are coded, stable, human-messaged, and oracle-free (`Spec-Vault-Access-De
 
 **A payload is there to be used in a retry.** The test is whether the caller can lift the value straight into a corrected call. A refusal whose only remedy is elevation has no corrected call, so it carries no payload. Payloads therefore differ from code to code, and callers branch on the code rather than on what came back with it.
 
-**A payload diagnoses and does not bypass.** A staleness refusal returning the current token would let a caller retry with it and clobber content it never read; recovery is a re-read.
+**A payload diagnoses and does not bypass.** A staleness refusal returning the current content hash would let a caller retry with it and clobber content it never read; recovery is a re-read.
 
 **A refusal is not an enumeration surface.** No payload carries a set computed by filtering the request against authority the caller lacks - not what is held, and not the violating subset, which is the same disclosure one item at a time.
 
@@ -180,11 +180,11 @@ Errors are coded, stable, human-messaged, and oracle-free (`Spec-Vault-Access-De
 
 **The read-to-write window is the one an agent occupies** - model time during which the editor, another session, or a person can change the file. The mutex lock does nothing about it; this guard is separate and caller-carried.
 
-- **The token is a digest of the file's bytes as stored**, never of decoded or composed text. That is what makes a token from a read and a token from a mutation the same value, usable in either direction.
-- **The token comes back with the content, from the same read**, so it describes exactly the bytes the caller received. A caller asks for it when it intends to write; a read that does not ask returns content alone.
-- **The token covers the whole file regardless of which part was read**, so nothing authorizes a write from a partial read.
+- **The guard is a content hash: a digest of the file's bytes as stored**, never of decoded or composed text. That is what makes a hash from a read and a hash from a mutation the same value, usable in either direction.
+- **The hash comes back with the content, from the same read**, so it describes exactly the bytes the caller received. A caller asks for it when it intends to write; a read that does not ask returns content alone.
+- **The hash covers the whole file regardless of which part was read**, so nothing authorizes a write from a partial read.
 - **The guard is required on the one operation that can destroy content the caller never saw** and optional elsewhere: a surgical change self-verifies through its own anchor, a wholesale replacement has nothing to self-verify against.
-- **A mutation returns the token carrying forward**, taken from the file after the write, so a chain needs no interleaved read.
+- **A mutation returns the hash carrying forward**, taken from the file after the write, so a chain needs no interleaved read.
 
 ## Authority
 

@@ -31,10 +31,15 @@ public sealed record ToolDeclaration
     public required string Name { get; init; }
     public required string Description { get; init; }
     public required Type Arguments { get; init; }          // the record from Design-Tool-Vocabulary
-    public required string OpClassFloor { get; init; }
+    public required Floor OpClassFloor { get; init; }
     public bool Mutates { get; init; }                     // takes the mutex lock
-    public bool GatesItself { get; init; }                 // authority is the tool's own to check
     public bool RequiresClientSession { get; init; }       // needs a caller whose authority can be rebound
+}
+
+public abstract record Floor
+{
+    public sealed record Class(string OpClass) : Floor;    // checked before the tool runs
+    public sealed record SelfGated             : Floor;    // authority is the tool's own to check
 }
 
 public interface ITool
@@ -47,7 +52,7 @@ Each implementing type exposes its declaration as a static member, so the flags 
 
 `Arguments` names the record that is both the binding target and the source of the advertised schema ([[Design-Tool-Vocabulary.md#Argument Records]]). It is the only statement of a tool's argument surface, and both front-ends read it rather than restating it.
 
-`GatesItself` replaces the retained dispatcher's exemption by tool name. `health_check` and `request_elevation` are gated by something other than an op class - a right of connection, and a per-grant opt-in - and today the dispatcher knows which two by matching their names. Declared, the exemption is a property of the tool rather than a list a third such tool must be added to.
+**`Floor.SelfGated` is the exemption, and it replaces the retained dispatcher's exemption by tool name.** `health_check` and `request_elevation` are gated by something other than an op class - a right of connection, and a per-grant opt-in - and today the dispatcher knows which two by matching their names. Declared, the exemption is a property of the tool rather than a list a third such tool must be added to. A floor is one member with two cases and it is `required`, so a declaration cannot reach the exemption by omission and cannot name a class that is never checked.
 
 `RequiresClientSession` is true on `mint_token` and `request_elevation` alone. Both mutate per-process authority state keyed to a live caller's token, so neither has anything to act on in a process that exits when its one command finishes. The CLI's equivalent is choosing a grant ([[#The CLI's Grant]]).
 
@@ -64,7 +69,7 @@ Each implementing type exposes its declaration as a static member, so the flags 
 One type in `VaultShared` wraps every invocation from either front-end. It runs six steps before the tool's own work begins, and a refusal from an earlier step wins over one from a later.
 
 1. **Session.** A declaration requiring a client session, invoked without one, refuses `tool_unavailable`.
-2. **The op-class floor.** `grant.Allows(OpClassFloor)`, skipped where the declaration says the tool gates itself.
+2. **The op-class floor.** `grant.Allows` the declared class, skipped on `Floor.SelfGated`.
 3. **Arguments.** Bound onto the declared record, then `Validate()`.
 4. **Vault resolution and membership.** For arguments carrying a vault operand: resolve, then check the grant reaches the resolved vault.
 5. **The lock**, where the declaration says the tool mutates.
@@ -76,7 +81,7 @@ One type in `VaultShared` wraps every invocation from either front-end. It runs 
 
 **Routing precedes authorization within step 4**: an unknown vault answers `unknown_vault` rather than an out-of-scope refusal for a vault nobody configured.
 
-**The vault-membership check reaches compiled tools here.** In the retained dispatcher its predicate is typed on `ScriptTool` and the compiled branch returns before reaching it, so a compiled tool taking a vault argument is unchecked. Whether a call targets a vault is read from the argument record - the vault operand is declared on the record rather than found by name - so the check covers every tool that has one and needs no per-tool opt-in. An approved change to retained code.
+**The vault-membership check reaches compiled tools here.** In the retained dispatcher its predicate is typed on `ScriptTool` and the compiled branch returns before reaching it, so a compiled tool taking a vault argument is unchecked. Whether a call targets a vault is a type question: the record implements `IVaultArguments` ([[Design-Tool-Vocabulary.md#Argument Records]]) or it does not. The compiler carries it, so the check covers every tool taking a vault and no new tool can opt out by accident. Script tools keep matching the parameter by name, since a `param()` block offers nothing to mark, and the dispatcher's script branch is unchanged. An approved change to retained code.
 
 **A tool's declared floor is not its whole authority.** Anything more is asserted inside the tool on the path that needs it, through the access object ([[Design-Core-Access-Layer.md#Producing An Admitted Path]]), because the required class depends on what the work turned out to touch.
 
@@ -151,12 +156,13 @@ Proposed changes to retained code, for approval with this document.
 
 - **A tool is declared once, as named properties on a static member of the implementing type.** Rejected: attributes read by reflection. The declaration is consumed as data by both projections and by the execute path, and reflection would buy no drift protection for values that are authored either way while costing the compiler's help on a misspelling. Rejected also: a positional record, where a transposed pair of flags compiles.
 - **There is one kind of tool.** The three retained compiled tools become declarations rather than staying behind the MCP transport, so no second dispatch path survives and a fourth tool has no side to be added to.
+- **The floor is one member with two cases, not a class beside a flag.** A self-gating tool declares `Floor.SelfGated`, so no declaration names an op class that is never checked and no pair of members can disagree. Rejected: a nullable class, which forces the same decision but reads as "no authority needed" at the site where it is written.
 - **A tool declares what it needs, not where it may run.** `RequiresClientSession` states why `mint_token` and `request_elevation` do not reach the CLI; a list of front-end names would state only that they do not, and would need editing by every future front-end. Rejected: making the session a typed dependency so a CLI call cannot be constructed - the stronger form, and it requires two invoke signatures, which is the second tool kind this design just removed.
 - **The session requirement is enforced at the execute path, not by omitting a subcommand.** `--args` reaches a tool by name without the command tree, so a listing filter alone would be cosmetic.
 - **The tool surface is synchronous.** The mutex hold cannot cross a suspension point and a `Mutex` is thread-affine. The cost is borne by the one tool that awaits an approver and takes no lock.
 - **The execute path's steps precede a tool's five phases rather than interleaving.** Argument validation and vault resolution happen above every tool, which is what makes the ordering guarantee structural.
 - **The floor is checked before arguments are bound.** A caller with no authority over a tool cannot probe its argument surface through malformed calls. This is the retained dispatcher's ordering and it costs nothing, since the lock is later than both.
-- **Whether a call targets a vault is read from the argument record.** That is what widens the membership check to compiled tools without a per-tool opt-in, where the retained predicate is typed on `ScriptTool` and the compiled branch returns first.
+- **Whether a call targets a vault is a type on the argument record.** `IVaultArguments` widens the membership check to compiled tools with no per-tool opt-in, where the retained predicate is typed on `ScriptTool` and the compiled branch returns first. Rejected: matching a member named `vault`, as the dispatcher does for scripts. It is the only option for a `param()` block and it works today, but a compiled tool spelling the operand differently would escape the check silently - the same gap in a new place.
 - **An inherited lock proceeds and is logged.** There is nothing to replay and nothing to repair, and refusing would wedge the vault on a crash - which is the outcome the recovery signal exists to prevent.
 - **The lock timeout is a constant, not a setting.** It diagnoses liveness, and a tunable timeout is tuned upward until it stops reporting.
 - **The CLI's grant is a setting naming an ordinary row.** No id is special-cased in code, matching the retained localhost default, so the default is re-pointed by one edit rather than by renaming grants.

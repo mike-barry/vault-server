@@ -45,6 +45,8 @@ The phase opens with two steps that touch code rather than documents. They are g
 
 ## Build
 
+**The specs and the design documents are both inputs to every step, and neither restates the other.** A design document says what shape this build takes where the specs left the shape open. Where a spec already bridges to implementation, no design document repeats it. A subject missing from a design document is therefore not a gap; it is a subject the specs settled. Work each step from its area's design document together with the spec sections that document's coverage index names. Where the two disagree, the specs win and the design document is the defect.
+
 - [ ] Build the core access layer
   - Input: `PathPolicy.IsPathInReadScope` comes out with this step. The design computes a call's effective read scope once, when the access object is constructed, rather than per candidate - a whole-vault enumeration is exactly where rebuilding the union per path costs. `EffectiveReadScope` stays and is what computes it
   - Input: `VaultConfig.Resolve` and `VaultConfig.PathPolicyFor` come out too, and their tests follow the behaviour into the layer. Resolution answers a three-case result and produces the layer's own vault type, so configuration holds which vaults exist and the layer decides what a usable one is

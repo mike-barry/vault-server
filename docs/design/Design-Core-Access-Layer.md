@@ -9,7 +9,7 @@
 - [[Spec-Access-Layer-Capabilities.md#Vault Resolution]] - the canonical name and the two structurally distinguishable failures, met by [[#Paths And Vaults]].
 - [[Spec-Access-Layer-Capabilities.md#Enumeration]] and [[Spec-Access-Layer-Capabilities.md#Content Search]] - both surfaces, the glob, the dot switch, and the four outcomes, met by [[#Enumeration And Search]].
 - [[Spec-Access-Layer-Capabilities.md#Reading]], [[Spec-Access-Layer-Capabilities.md#Writing]], [[Spec-Access-Layer-Capabilities.md#Moving]], [[Spec-Access-Layer-Capabilities.md#Removal]] and [[Spec-Access-Layer-Capabilities.md#Name Validation]] - met by [[#The File Primitives]].
-- [[Spec-Access-Layer-Capabilities.md#Wikilink Grammar And Resolution]] and [[Spec-Obsidian-Link-Behavior.md]] - recognition, the two ranges, and the one comparator, met by [[#Wikilinks]].
+- [[Spec-Access-Layer-Capabilities.md#Wikilink Grammar And Resolution]] and [[Spec-Obsidian-Link-Behavior.md]] - recognition, the two ranges, target matching, and the one comparator, met by [[#Wikilinks]].
 - [[Spec-Tool-Capabilities.md#Wikilink Maintenance]] - the pass scope does not bound, met by [[#The Vault-Wide Pass]].
 
 Not answered here, deliberately:
@@ -79,11 +79,14 @@ Constructed per call from a `Vault` and the caller's `Grant`, which is what make
 
 The effective read scope - the grant's roots unioned with the vault's always-readable roots - is computed once here rather than per candidate, so a whole-vault enumeration filters against one scope instead of rebuilding the union for every path it considers.
 
+`ForWrite` checks the grant's own roots and nothing wider ([[Spec-Auth-Requirements.md#What The Layer Must Do]]). An always-readable root therefore admits a read and refuses a write, which is the asymmetry [[#The Ladder Of Proofs]] carries in the type.
+
 `ForRead` and `ForWrite` are the loud path: a caller named this path, and the answer is admitted or refused. `Admits` is the quiet path, filtering paths the layer itself produced. They are separate members rather than one with a flag, because the quiet one cannot construct a refusal and so cannot leak one.
 
 ## Refusals
 
 Resolution answers; it does not throw. Three refusals are distinguishable, because callers above need to tell them apart: malformed (escaping, rooted, or empty), outside the operand perimeter (a dot-directory segment, which no caller may name whatever its scope), and out of scope.
+Each has its own code in [[Design-Tool-Vocabulary.md#The Error Catalogue]]: malformed is `invalid_path`, the perimeter is `path_excluded`, out of scope is `out_of_scope`. So `path_excluded` names the dot rule, not anything a vault declares.
 
 A refusal carries the caller's own coordinates and nothing else - never whether the target exists, never the grant's roots, never the subset that failed a check.
 
@@ -125,9 +128,13 @@ The layer reports these to its caller and writes nothing to health state. A fail
 
 ## Wikilinks
 
-Two pure pieces, neither of which touches a filesystem.
+Three pure pieces, none of which touches a filesystem.
 
 **Recognition** runs over a note's whole text, frontmatter included, and reports each occurrence as two byte ranges - the whole link, and the target inside it. It takes text and answers occurrences: no path goes in and none comes back. The consumer's enumeration already holds the path, and is what carries it to ranking. A consumer rewrites a target by writing over its range, so it never parses, re-emits, or splits the note. One definition serves every consumer, because a link one consumer sees and another misses is a rewrite that silently misses a link.
+
+**Matching** answers whether a link's target names a given path.
+A target comes in two forms and each matches its own way. A path-qualified target matches on a suffix of whole path components. A bare target matches on basename alone, and ranking decides which of several same-named candidates it resolves to.
+Repair and the census ask this same question, so one piece answers it for both. Both ways of getting it wrong are silent: a link that repair fails to match is left pointing at nothing, and a link that the census fails to match is an orphan nobody reports.
 
 **Ranking** is a comparator over a candidate set and the linking note's path, ordering candidates by nearest relative path with deterministic tie-breaking. It takes the candidates it is given, finds nothing itself, and is the whole of what [[Spec-Obsidian-Link-Behavior.md]] fixes - so the observed rule sits in one comparator that can be changed in a line or two when the editor's behaviour is re-measured.
 
@@ -163,6 +170,7 @@ The derivation of the lock name from the vault root ([[Spec-Vault-Access-Design.
 - **Engine output is read to completion before answering.** A search that cannot read a file must fail whole, which is not decidable until the error stream has been read; streaming would hand a caller results from a search about to fail.
 - **The layer writes nothing to health state.** An operational failure is returned to its caller. A layer that could degrade the server from inside a call would give one caller's failure server-wide visibility.
 - **How the vault-wide pass sits outside the ladder.** Unscoped enumerate, read and write take merely-contained paths and live on their own object, obtained by an explicitly-named call, so bypassing scope is deliberate and greppable. Rejected: a single operation exchanging link occurrences for substitutions, which confines the pass to link text but makes every consumer wanting anything else a new primitive and a new decision.
+- **Matching is a piece of its own, beside recognition and ranking.** Repair and the census both ask whether a link points at a given path, so one piece answers it. Rejected: folding it into ranking. Ranking is handed its candidates and finds none itself, so absorbing this would change what it is.
 - **Removal is two operations rather than one.** A path does not say whether it names a file or a folder, and a removal that inspected the target to find out would be the probe every other primitive here avoids. The caller states which it means.
 - **What the path type does not assert.** Neither existence, nor a conforming name, nor whether it names a file or a folder. Each is checked by the operation that needs it, where it needs it.
 - **Where the lock name derivation sits.** On `Vault`, in the layer, because the watcher must take it as code and is not a front-end.
