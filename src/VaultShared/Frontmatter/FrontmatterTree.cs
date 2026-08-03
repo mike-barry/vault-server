@@ -201,6 +201,75 @@ public sealed class FrontmatterTree
         return true;
     }
 
+    /// <summary>
+    /// Put an entry into this key's block list at <paramref name="index"/>, appending where that is
+    /// the list's length. The key is created holding an empty list where it is absent, which is how
+    /// an add creates its key - and, through the composer, the block on a note that has none.
+    ///
+    /// Internal, and taking a payload rather than a node, because nothing outside this namespace
+    /// holds a node. What the payload must satisfy is the declaration's, checked before an
+    /// operation reaches here; every field becomes a tree value the emitter escapes, so a caller's
+    /// value cannot come out the other side as structure.
+    /// </summary>
+    internal void InsertEntry(string key, EntryPayload payload, int index, string? declaredSpelling = null)
+    {
+        var found = Find(key);
+        if (found is null)
+        {
+            found = new YamlScalarNode(Canonicalize(key, declaredSpelling));
+            root.Children.Add(found, new YamlSequenceNode());
+        }
+
+        if (root.Children[found] is not YamlSequenceNode sequence)
+            throw new InvalidOperationException($"\"{key}\" does not hold a block list.");
+
+        sequence.Children.Insert(Math.Clamp(index, 0, sequence.Children.Count), Node(payload));
+    }
+
+    /// <summary>
+    /// Drop these positions from this key's block list, and the key itself where that empties it -
+    /// removing the last entry drops the key rather than leaving it empty, and an empty tree emits
+    /// no fence, so a removal that empties the block drops the fence with it.
+    /// </summary>
+    internal void RemoveEntriesAt(string key, IReadOnlyList<int> positions)
+    {
+        if (Find(key) is not { } found || root.Children[found] is not YamlSequenceNode sequence)
+            return;
+
+        foreach (var position in positions.Distinct().OrderDescending())
+            if (position >= 0 && position < sequence.Children.Count)
+                sequence.Children.RemoveAt(position);
+
+        if (sequence.Children.Count == 0)
+            root.Children.Remove(found);
+    }
+
+    /// <summary>
+    /// A tree holding this key's node alone, or an empty tree where the key is absent. What the
+    /// outcome diff compares: emitting one key from each side through the composer's own settings is
+    /// what keeps a reserialization that changed only quoting from reading as a change.
+    /// </summary>
+    internal FrontmatterTree KeyOnly(string key)
+    {
+        var isolated = new YamlMappingNode();
+        if (Find(key) is { } found)
+            isolated.Children.Add(found, root.Children[found]);
+
+        return new FrontmatterTree(isolated);
+    }
+
+    private static YamlNode Node(EntryPayload payload)
+    {
+        if (payload is EntryPayload.Scalar scalar)
+            return new YamlScalarNode(scalar.Value);
+
+        var mapping = new YamlMappingNode();
+        foreach (var field in ((EntryPayload.Mapping)payload).Fields)
+            mapping.Children.Add(new YamlScalarNode(field.Name), new YamlScalarNode(field.Value));
+
+        return mapping;
+    }
+
     /// <summary>The key node carrying this spelling, or null. The one place case-insensitivity lives.</summary>
     private YamlNode? Find(string key) =>
         root.Children.Keys.FirstOrDefault(k => string.Equals(Spelling(k), key, KeyComparison));

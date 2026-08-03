@@ -1,4 +1,5 @@
 using VaultShared.Auth;
+using VaultShared.Frontmatter;
 using VaultShared.Scope;
 
 namespace VaultShared.Access;
@@ -18,7 +19,7 @@ namespace VaultShared.Access;
 /// rather than by each caller remembering to. Filtering is silent: a list returns the in-scope
 /// subset without saying what was withheld.
 /// </summary>
-public sealed class VaultAccess
+public sealed class VaultAccess : IKeyAuthority
 {
     private readonly Grant _grant;
     private readonly VaultScope _grantScope;
@@ -182,6 +183,29 @@ public sealed class VaultAccess
     {
         if (!_grant.Allows(opClass))
             throw new AuthorityRefusal(opClass);
+    }
+
+    /// <summary>
+    /// The frontmatter surface's authority seam, over the same grant and the same assertion
+    /// <see cref="AssertKey"/> makes. The surface holds this object as an
+    /// <see cref="IKeyAuthority"/> rather than as a vault, which is how the mid-operation key
+    /// assertion reaches a namespace that knows nothing about vaults.
+    ///
+    /// The denial it raises names the changed key set rather than the op class that failed. That set
+    /// is the call's own coordinates; which class the grant lacks is information about the grant.
+    /// </summary>
+    /// <exception cref="FrontmatterRefusal">The grant holds none of <paramref name="required"/>.</exception>
+    void IKeyAuthority.Assert(IReadOnlySet<string> required, IReadOnlySet<string> changedKeys)
+    {
+        try
+        {
+            foreach (var opClass in required)
+                AssertKey(opClass);
+        }
+        catch (AuthorityRefusal)
+        {
+            throw FrontmatterRefusal.Denied(changedKeys);
+        }
     }
 
     /// <summary>

@@ -63,6 +63,59 @@ public sealed class PathPolicy
             : new PathPolicy(alwaysReadableRoots, mutationRules);
 
     /// <summary>
+    /// What mutating <paramref name="relativePath"/> requires, as a union: several entries may match
+    /// one path and every one of them contributes, so no entry can clear one another contributed.
+    /// Empty where the policy says nothing about it, which is not evidence that the path is
+    /// unprotected - it is the absence of an addition.
+    ///
+    /// Matching is anchored at the vault root, by whole segment, and case-insensitive. Each closes
+    /// an evasion: a batch rooted below the vault would hand the matcher relative paths that cannot
+    /// match, a raw string prefix would catch a similarly named sibling directory, and a caller
+    /// could otherwise reach a protected file by spelling it differently. A path entry matches that
+    /// file and everything beneath it.
+    ///
+    /// One matcher for every enforcer. The frontmatter write path consults it beside the authority
+    /// assertion, including on a body-only edit, and the tools that remove or relocate consult it at
+    /// their own validate phases; a second implementation is a second answer.
+    /// </summary>
+    /// <exception cref="ArgumentException"><paramref name="relativePath"/> is not a well-formed
+    /// vault-relative path. A path a policy cannot read is not one it may silently admit.</exception>
+    public IReadOnlyCollection<string> MutationRequires(string relativePath)
+    {
+        if (MutationRules.Count == 0)
+            return [];
+
+        var segments = ScopePath.Normalize(relativePath);
+        var required = new HashSet<string>(StringComparer.Ordinal);
+        foreach (var rule in MutationRules)
+            if (Matches(rule.Target, segments))
+                required.Add(rule.RequiredOpClass);
+
+        return required;
+    }
+
+    private static bool Matches(PolicyTarget target, string[] segments) => target switch
+    {
+        PolicyTarget.Path path => IsUnder(ScopePath.Normalize(path.Value), segments),
+        PolicyTarget.Structural structural => structural.Rule switch
+        {
+            // A note whose basename matches its parent folder. A shape a path has rather than a
+            // place it is, which is what a prefix target cannot express.
+            StructuralRule.FolderNote =>
+                segments.Length >= 2
+                && System.IO.Path.GetFileNameWithoutExtension(segments[^1])
+                    .Equals(segments[^2], StringComparison.OrdinalIgnoreCase)
+                && segments[^1].EndsWith(".md", StringComparison.OrdinalIgnoreCase),
+            _ => false,
+        },
+        _ => false,
+    };
+
+    private static bool IsUnder(string[] target, string[] segments) =>
+        target.Length <= segments.Length
+        && !target.Where((s, i) => !string.Equals(s, segments[i], StringComparison.OrdinalIgnoreCase)).Any();
+
+    /// <summary>
     /// One <c>mutation_requires</c> entry: what mutating <paramref name="Target"/> requires, named
     /// as an op class in the same vocabulary the grant model uses, so there is no second
     /// enumeration of protection levels to keep in step.
