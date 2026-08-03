@@ -275,3 +275,62 @@ public sealed class VaultAccessTests : IDisposable
         return path;
     }
 }
+
+/// <summary>
+/// The perimeter against a vault that declares one. No path under a dot-directory is reachable by
+/// the tool set, and that rule is fixed in code rather than declared - so a <c>path_policy</c> entry
+/// naming one cannot open it, and neither can an unscoped grant beside it. Policy and scope compose
+/// as a conjunction and scope only narrows; nothing in either direction widens the perimeter.
+/// </summary>
+public sealed class VaultAccessDeclaredPerimeterTests : IDisposable
+{
+    private readonly string _tempDir = Directory.CreateTempSubdirectory("vault-mcp-vault-access-perimeter-").FullName;
+    private readonly Vault _vault;
+
+    public VaultAccessDeclaredPerimeterTests()
+    {
+        var root = Path.Combine(_tempDir, "test");
+        Directory.CreateDirectory(Path.Combine(root, ".obsidian"));
+        var configPath = Path.Combine(_tempDir, "vaults.json");
+        File.WriteAllText(configPath, $$"""
+            {
+              "default_vault": "test",
+              "vaults": {
+                "test": {
+                  "path": {{JsonSerializer.Serialize(root)}},
+                  "path_policy": [ { "path": ".obsidian", "always_readable": true } ]
+                }
+              }
+            }
+            """);
+        var config = VaultConfigLoader.Load(configPath, TestOpClasses.Repo, new RecordingProblemSink());
+        _vault = Assert.IsType<VaultResolution.Resolved>(Vault.Resolve(config, "test")).Vault;
+    }
+
+    public void Dispose() => Directory.Delete(_tempDir, recursive: true);
+
+    private VaultAccess Access(VaultScope scope) =>
+        new(_vault, new Grant(
+            "test-grant",
+            new HashSet<string>(StringComparer.OrdinalIgnoreCase),
+            new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "test" },
+            null,
+            new Dictionary<string, VaultScope>(StringComparer.OrdinalIgnoreCase) { ["test"] = scope }));
+
+    [Fact]
+    public void ADeclaredDotTargetStillRefusesAtThePerimeter()
+    {
+        Assert.IsType<PathResolution<ReadPath>.Excluded>(Access(VaultScope.Unscoped).ForRead(".obsidian/Notes.md"));
+        Assert.IsType<PathResolution<ReadPath>.Excluded>(Access(VaultScope.Of([".obsidian"])).ForRead(".obsidian/Notes.md"));
+    }
+
+    /// <summary>The refusal is the perimeter's rather than the scope check's, which is the
+    /// distinction a caller acts on: exclusion is remedied by nothing a grant changes.</summary>
+    [Fact]
+    public void TheRefusalNamesThePerimeterRatherThanScope()
+    {
+        var refusal = Assert.IsType<PathResolution<WritePath>.Excluded>(Access(VaultScope.Unscoped).ForWrite(".obsidian/Notes.md"));
+
+        Assert.Equal(".obsidian/Notes.md", refusal.Path);
+    }
+}

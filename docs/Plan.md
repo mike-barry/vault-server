@@ -57,9 +57,7 @@ The phase opens with two steps that touch code rather than documents. They are g
 - [x] Build the MCP front-end as a projection of the tool declarations
 - [x] Build the CLI front-end from the same declarations
 - [x] Sweep the code for comments narrating the build rather than describing the code. Every comment should read as a statement about the current design, with the reasoning kept and the chronology dropped. Rewrite in place; do not simply delete, since most of these carry a real constraint wrapped in a stale story
-- [ ] Audit test coverage against the specs, then commit the suite
-  - Known gaps going in: `ScopePath.Normalize` has no direct test and is reached only through `VaultScope.Admits`; `health_check`'s reporting of skipped vaults is unasserted, the fixture having none; and the non-loopback path is covered at unit level only, the host-level `RemoteIpHeader` override existing but unused by any test
-  - The committed fixture has no duplicate basenames, so `Spec-Obsidian-Link-Behavior.md`'s ranking rule cannot be exercised against it. `TestVaultFixture` injects `A/Dupe.md`, `B/Dupe.md` and a dot-directory into its temp copy, which is where those cases live and is why they read as unused
+- [x] Audit test coverage against the specs, then commit the suite
 
 Tests are built with the functionality they cover and split into files by logical area. Coverage derives from the specs and there is nothing else to derive it from.
 

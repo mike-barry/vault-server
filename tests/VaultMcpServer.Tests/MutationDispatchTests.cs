@@ -194,6 +194,65 @@ public sealed class MutationDispatchTests(MutationDispatchTests.Fixture fixture)
         Assert.Contains(Code(text), new[] { "already_exists", "partial_mutation" });
     }
 
+    // ---- The editor's resolution rule, end to end ----
+
+    /// <summary>
+    /// The one behaviour in the set that is matched rather than designed: which note a bare wikilink
+    /// opens when several share a basename (<c>Spec-Obsidian-Link-Behavior.md</c>). The comparator is
+    /// asserted directly in <c>WikilinkRankingTests</c> and the passes over it in
+    /// <c>VaultShared.Tests/Links</c>; what only this level shows is that a real call through the
+    /// transport rewrites exactly the links the rule names and leaves the rest of the vault alone.
+    ///
+    /// <c>Ma/Ref.md</c> and <c>Mb/Ref.md</c> carry the same bare link and resolve to different notes,
+    /// because resolution is relative to the linking file rather than vault-global. Moving
+    /// <c>Ma/Dupe.md</c> therefore repairs one and must not touch the other - and the repaired link is
+    /// emitted qualified, since <c>Mb/Dupe.md</c> leaves the basename duplicated.
+    /// </summary>
+    [Fact]
+    public async Task Move_RepairsOnlyTheBareLinkThatResolvedToTheMovedNoteAndEmitsItQualified()
+    {
+        var (isError, text) = await CallAsync(
+            fixture, "move", """{"path":"Ma/Dupe.md","destination":"Mc/Dupe.md","apply":true}""");
+
+        Assert.False(isError, text);
+        using var doc = JsonDocument.Parse(text);
+        var repaired = doc.RootElement.GetProperty("repaired_links").EnumerateArray().ToList();
+        var rewrite = Assert.Single(repaired);
+        Assert.Equal("Ma/Ref.md", rewrite.GetProperty("path").GetString());
+        Assert.Equal("Dupe", rewrite.GetProperty("from").GetString());
+        Assert.Equal("Mc/Dupe", rewrite.GetProperty("to").GetString());
+
+        Assert.Equal("See [[Mc/Dupe]].\n", await File.ReadAllTextAsync(fixture.In("Ma/Ref.md")));
+        // Its answer never changed, so nothing about it is rewritten.
+        Assert.Equal("See [[Dupe]].\n", await File.ReadAllTextAsync(fixture.In("Mb/Ref.md")));
+    }
+
+    /// <summary>
+    /// The protective half of the same rule. Creating a note whose basename is already in use changes
+    /// what some bare links open, and those are pinned to the note they open now - the ranking is what
+    /// decides which ones. <c>Cb/Ref.md</c> would be re-aimed onto the new note and is pinned;
+    /// <c>Ca/Ref.md</c> already opens the nearer copy and is left as it is.
+    /// </summary>
+    [Fact]
+    public async Task Create_PinsOnlyTheBystanderLinksTheNewNoteWouldReAim()
+    {
+        var (isError, text) = await CallAsync(
+            fixture, "create", """{"path":"Cb/Gizmo.md","kind":"note","content":"# The second one\n"}""");
+
+        Assert.False(isError, text);
+        using var doc = JsonDocument.Parse(text);
+        // The member is present because the basename was taken and the pass ran, which is a different
+        // answer from the absent member a unique name leaves.
+        var pin = Assert.Single(doc.RootElement.GetProperty("pinned_links").EnumerateArray());
+        Assert.Equal("Cb/Ref.md", pin.GetProperty("path").GetString());
+        Assert.Equal("Gizmo", pin.GetProperty("from").GetString());
+        Assert.Equal("Ca/Gizmo", pin.GetProperty("to").GetString());
+
+        // Pinning freezes and never redirects: no link is aimed at the note just created.
+        Assert.Equal("See [[Ca/Gizmo]].\n", await File.ReadAllTextAsync(fixture.In("Cb/Ref.md")));
+        Assert.Equal("See [[Gizmo]].\n", await File.ReadAllTextAsync(fixture.In("Ca/Ref.md")));
+    }
+
     // ---- delete ----
 
     /// <summary>The routine call reports the full set the removal would destroy and every surviving
@@ -263,6 +322,7 @@ public sealed class MutationDispatchTests(MutationDispatchTests.Fixture fixture)
         {
             _vaultRoot = Path.Combine(TempDir, "test-vault");
             CopyDirectory(Path.Combine(TestVaultFixture.RepoRoot, "test-vault"), _vaultRoot);
+            SeedDuplicateBasenames();
 
             File.Copy(
                 Path.Combine(TestVaultFixture.RepoRoot, "frontmatter-registry.json"),
@@ -295,6 +355,41 @@ public sealed class MutationDispatchTests(MutationDispatchTests.Fixture fixture)
             Directory.CreateDirectory(toolsDir);
 
             ConfigureEnvironment(vaultsPath, grantsPath, toolsDirectory: toolsDir, vaultMcpVaultsJsonPath: vaultsPath);
+        }
+
+        /// <summary>
+        /// The committed fixture carries no two notes sharing a basename, so the editor's resolution
+        /// rule has nothing to bind on there and the cases that need one seed their own. Two
+        /// independent sets, keyed on different basenames so neither move nor creation can change
+        /// what the other's links resolve to:
+        ///
+        /// <list type="bullet">
+        /// <item><c>Dupe</c> - two copies and a bare link beside each, for the relocation.</item>
+        /// <item><c>Gizmo</c> - one copy and a bare link in each of two folders, for the creation
+        /// that duplicates it.</item>
+        /// </list>
+        ///
+        /// Written here rather than added to <c>test-vault/</c> because a duplicate basename in the
+        /// committed fixture would change what every other suite's bare links resolve to.
+        /// </summary>
+        private void SeedDuplicateBasenames()
+        {
+            Seed("Ma/Dupe.md", "# One\n");
+            Seed("Mb/Dupe.md", "# Two\n");
+            Seed("Mc/Other.md", "# The destination folder has to exist\n");
+            Seed("Ma/Ref.md", "See [[Dupe]].\n");
+            Seed("Mb/Ref.md", "See [[Dupe]].\n");
+
+            Seed("Ca/Gizmo.md", "# The first one\n");
+            Seed("Ca/Ref.md", "See [[Gizmo]].\n");
+            Seed("Cb/Ref.md", "See [[Gizmo]].\n");
+        }
+
+        private void Seed(string relativePath, string content)
+        {
+            var full = In(relativePath);
+            Directory.CreateDirectory(Path.GetDirectoryName(full)!);
+            File.WriteAllText(full, content);
         }
 
         public void AssertSandboxed() => AssertMutationSandboxed();

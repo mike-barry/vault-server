@@ -19,17 +19,27 @@ namespace VaultMcpServer.Tests;
 [Collection("Program host tests")]
 public sealed class LocalhostAuthDispatchTests : IClassFixture<LocalhostAuthDispatchTests.Fixture>
 {
+    /// <summary>A documentation-range address, so nothing here ever names a real host.</summary>
+    private const string NonLoopback = "203.0.113.5";
+
     private readonly Fixture _fixture;
 
     public LocalhostAuthDispatchTests(Fixture fixture) => _fixture = fixture;
 
     private static StringContent JsonBody(string json) => new(json, Encoding.UTF8, "application/json");
 
-    private static HttpClient AuthedClient(Fixture fixture, string? token)
+    /// <param name="remoteIp">
+    /// The address the request is presented from. Absent means loopback, which is what the real
+    /// server sees and what every case above runs under; a value drives the non-loopback branch
+    /// through the whole host pipeline (see <see cref="ProgramHostFixtureBase.RemoteIpHeader"/>).
+    /// </param>
+    private static HttpClient AuthedClient(Fixture fixture, string? token, string? remoteIp = null)
     {
         var client = fixture.CreateClient();
         if (token is not null)
             client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", token);
+        if (remoteIp is not null)
+            client.DefaultRequestHeaders.Add(ProgramHostFixtureBase.RemoteIpHeader, remoteIp);
         client.DefaultRequestHeaders.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
         client.DefaultRequestHeaders.Accept.Add(new MediaTypeWithQualityHeaderValue("text/event-stream"));
         return client;
@@ -97,6 +107,69 @@ public sealed class LocalhostAuthDispatchTests : IClassFixture<LocalhostAuthDisp
         Assert.Equal(HttpStatusCode.Forbidden, status);
     }
 
+    // ---- Off loopback ----
+
+    /// <summary>
+    /// The loopback gate through the real host, rather than over a hand-built context. The selector
+    /// binding and the minimum-access floor are what make a localhost-only server safe to run with no
+    /// credential; both are properties of the remote address, so a request presented from anywhere
+    /// else must present a token <c>GrantStore.Authenticate</c> accepts.
+    ///
+    /// <c>LoopbackAuthMiddlewareTests</c> asserts the same gate on the middleware alone, which is
+    /// where the address can be varied per case; what only this level shows is that the address the
+    /// host hands the middleware is the connection's, so nothing in the pipeline above it turns a
+    /// remote request into a loopback one.
+    /// </summary>
+    private static async Task<(HttpStatusCode Status, string Body)> HealthCheckFromAsync(Fixture fixture, string? token, string remoteIp)
+    {
+        using var client = AuthedClient(fixture, token, remoteIp);
+        using var response = await client.PostAsync(
+            "/mcp",
+            JsonBody("""{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"health_check","arguments":{}}}"""));
+        return (response.StatusCode, await response.Content.ReadAsStringAsync());
+    }
+
+    [Fact]
+    public async Task NonLoopback_UnknownToken_IsDeniedRatherThanFlooredToMinimum()
+    {
+        var (status, body) = await HealthCheckFromAsync(_fixture, "some-random-unrecognized-token", NonLoopback);
+
+        Assert.Equal(HttpStatusCode.Unauthorized, status);
+        Assert.Equal(Auth.BearerGrantMiddleware.UnauthorizedBody, body);
+    }
+
+    [Fact]
+    public async Task NonLoopback_SelectorToken_IsJustAnUnrecognizedToken()
+    {
+        // Off loopback the selector carries no default binding, so the token that reaches admin over
+        // loopback reaches nothing here.
+        var (status, body) = await HealthCheckFromAsync(_fixture, Fixture.SelectorToken, NonLoopback);
+
+        Assert.Equal(HttpStatusCode.Unauthorized, status);
+        Assert.Equal(Auth.BearerGrantMiddleware.UnauthorizedBody, body);
+    }
+
+    [Fact]
+    public async Task NonLoopback_MissingHeader_IsDenied()
+    {
+        var (status, _) = await HealthCheckFromAsync(_fixture, token: null, NonLoopback);
+
+        Assert.Equal(HttpStatusCode.Unauthorized, status);
+    }
+
+    /// <summary>A real token authenticates from anywhere: the address decides only whether the
+    /// selector and the floor apply.</summary>
+    [Fact]
+    public async Task NonLoopback_RealToken_Authenticates()
+    {
+        var (status, body) = await HealthCheckFromAsync(_fixture, Fixture.ReadOnlyToken, NonLoopback);
+
+        Assert.Equal(HttpStatusCode.OK, status);
+        using var doc = JsonDocument.Parse(ExtractJsonRpcPayload(body));
+        var result = doc.RootElement.GetProperty("result");
+        Assert.False(result.TryGetProperty("isError", out var isError) && isError.GetBoolean());
+    }
+
     [Fact]
     public async Task BlankToken_FloorsToMinimum_HealthCheckWorks()
     {
@@ -110,6 +183,10 @@ public sealed class LocalhostAuthDispatchTests : IClassFixture<LocalhostAuthDisp
     public sealed class Fixture : ProgramHostFixtureBase
     {
         public const string SelectorToken = "test-localhost-selector";
+
+        /// <summary>The ordinary token row beside the named grant - the one thing a request from off
+        /// loopback can present.</summary>
+        public const string ReadOnlyToken = "a-real-readonly-token";
 
         public Fixture() : base("vault-mcp-localhost-auth-tests-")
         {
