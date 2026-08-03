@@ -47,6 +47,20 @@ public sealed class CommittedDeclarationTests
         Assert.DoesNotContain(sink.Problems, p => p.Severity == ProblemSeverity.Fatal);
     }
 
+    /// <summary>
+    /// The fixture vault's path policy declares the guides folder as the read-class scope floor.
+    /// Asserted against the shipped file for the same reason the frontmatter declaration is: the
+    /// floor is configuration, and a dropped entry narrows it silently - every grant simply stops
+    /// reaching the material it is instructed to obey.
+    /// </summary>
+    [Fact]
+    public void TheFixtureVaultDeclaresTheGuidesFolderAsTheReadFloor()
+    {
+        var config = Configuration.VaultConfigLoader.Load(Path("vaults.json"), TestOpClasses.Repo, new RecordingProblemSink());
+
+        Assert.Equal<string[]>(["Resources/Vault/Guides"], [.. config.Vaults["test"].PathPolicy.AlwaysReadableRoots]);
+    }
+
     /// <summary>Every variant the declaration carries reaches a client as its own branch, so the
     /// vocabulary a caller composes an entry against is the one the write path enforces.</summary>
     [Fact]

@@ -262,6 +262,51 @@ try {
         Check 'minted token cannot mint content:write (authority_required on the op_class dimension)' $false 'skipped: mint failed'
     }
 
+    # The read-class scope floor, against the path policy the committed vaults.json actually
+    # declares. The xUnit end-to-end coverage restates that declaration in its own sandbox config,
+    # so what only a live run can show is that the shipped entry loads and takes effect. The narrow
+    # grant is minted rather than configured, because grants.json is this machine's and cannot be
+    # assumed to carry a scoped row. Read-only: the write half is a refusal that fires at path
+    # resolution, before anything is opened.
+    Write-Host 'Probe: the read-class scope floor under a narrowly minted grant'
+    $narrowToken = $null
+    $r = Invoke-McpCall -Tool 'mint_token' -Arguments @{ scope_roots = @('test/Projects/Widget'); op_class = @('content:read', 'content:write') } -Token $selectorToken
+    $narrow = if ($r.StatusCode -eq 200 -and -not $r.IsError -and $r.Text) { try { $r.Text | ConvertFrom-Json } catch { $null } } else { $null }
+    if ($narrow) { $narrowToken = $narrow.token }
+    Check 'selector mints a grant scoped to Projects/Widget alone' ($null -ne $narrowToken) "status=$($r.StatusCode) isError=$($r.IsError) text=$($r.Text)"
+    if ($narrowToken) {
+        $guide = 'Resources/Vault/Guides/Vault-Guide.md'
+        $r = Invoke-McpCall -Tool 'read' -Arguments @{ vault = 'test'; path = $guide } -Token $narrowToken
+        Check 'the always_readable guide reads under a grant scoped elsewhere' ($r.StatusCode -eq 200 -and -not $r.IsError -and $r.Text -like '*Vault-Guide*') "isError=$($r.IsError) text=$($r.Text)"
+
+        # Exactly the union - the grant's own root and the floor - so an over-wide union fails here
+        # rather than passing a containment check.
+        $r = Invoke-McpCall -Tool 'glob' -Arguments @{ vault = 'test'; pattern = '**' } -Token $narrowToken
+        $reached = if ($r.Text) { @($r.Text -split "`n" | Sort-Object) } else { @() }
+        $expected = @(
+            'Projects/Widget/Inbox/Plan-Widget-Assembly.md',
+            'Projects/Widget/Tasks.md',
+            'Projects/Widget/Widget.md',
+            'Resources/Vault/Guides/Document-Conventions.md',
+            'Resources/Vault/Guides/Vault-Guide.md') | Sort-Object
+        Check 'glob returns the union of the grant''s root and the floor, and nothing else' (($reached -join '|') -eq ($expected -join '|')) "reached=$($reached -join ',')"
+
+        # The union reaches reads alone: a write is scope-checked against the grant's own roots.
+        $r = Invoke-McpCall -Tool 'edit' -Arguments @{
+            vault = 'test'
+            path = $guide
+            operations = @(@{ op = 'set'; key = 'doc.type'; value = 'Guide' })
+        } -Token $narrowToken
+        $refused = if ($r.Text) { try { $r.Text | ConvertFrom-Json } catch { $null } } else { $null }
+        Check 'editing that same guide refuses out_of_scope' ($r.IsError -and $null -ne $refused -and $refused.code -eq 'out_of_scope') "isError=$($r.IsError) text=$($r.Text)"
+
+        $r = Invoke-McpCall -Tool 'read' -Arguments @{ vault = 'test'; path = 'Test-Vault.md' } -Token $narrowToken
+        $outside = if ($r.Text) { try { $r.Text | ConvertFrom-Json } catch { $null } } else { $null }
+        Check 'a note outside both roots refuses out_of_scope' ($r.IsError -and $null -ne $outside -and $outside.code -eq 'out_of_scope') "isError=$($r.IsError) text=$($r.Text)"
+    } else {
+        Skip 'the scope floor under a narrowly minted grant' 'the narrow mint failed, so nothing downstream could be probed'
+    }
+
     Write-Host 'Probe: audit log hygiene'
     $log = Get-ChildItem -Path (Join-Path $repoRoot 'logs') -Filter 'vault-mcp-server-*.log' -File |
         Sort-Object Name -Descending | Select-Object -First 1
@@ -271,6 +316,9 @@ try {
         Check 'bogus token value never logged' (-not $logText.Contains($bogusToken))
         if ($mintedToken) {
             Check 'minted token value never logged' (-not $logText.Contains($mintedToken))
+        }
+        if ($narrowToken) {
+            Check 'narrowly minted token value never logged' (-not $logText.Contains($narrowToken))
         }
     } else {
         Check 'newest log file found' $false "no vault-mcp-server-*.log under $repoRoot\logs"
