@@ -6,8 +6,10 @@
 # they fake: real process, real config, real port.
 #
 # Read-only by design: probes touch vault "test" (the committed test-vault/ fixture)
-# only, and never write. grants.json content is never echoed - assertions read
-# parsed non-secret fields only.
+# only, and never change a byte of it. The write path is probed through an edit whose
+# outcome is what the note already says and through refusals that fire before anything
+# is written, so the committed fixture stays clean and this script needs no sandbox.
+# grants.json content is never echoed - assertions read parsed non-secret fields only.
 #
 # Usage: .\e2e-smoke.ps1 [-Port 5111] [-StartTimeoutSec 30] [-SkipBuild]
 # Exit code: 0 all probes passed, 1 otherwise.
@@ -184,6 +186,41 @@ try {
     # to catch.
     $r = Invoke-McpCall -Tool 'grep' -Arguments @{ vault = 'test'; pattern = 'zzz-no-such-string-zzz' } -Token $selectorToken
     Check 'no match is an empty result rather than a failure' ($r.StatusCode -eq 200 -and -not $r.IsError -and -not $r.Text) "isError=$($r.IsError) text=$($r.Text)"
+
+    # The one mutating tool, probed without mutating. An edit setting a scalar to the value the note
+    # already carries runs the whole path - the write floor, the lock, the vault's declaration, the
+    # operations, the authority classification - and composes bytes identical to what is stored, so
+    # nothing is written and this script's read-only posture holds. What it proves is that the
+    # declaration the committed vaults.json names actually loaded: with none, every one of these
+    # refuses frontmatter_unavailable.
+    Write-Host 'Probe: edit on vault "test" (the write path, over a note it leaves unchanged)'
+    $note = 'Inbox/Note-Loose-Thought.md'
+    $r = Invoke-McpCall -Tool 'read' -Arguments @{ vault = 'test'; path = $note; with_content_hash = $true } -Token $selectorToken
+    $before = if ($r.StatusCode -eq 200 -and -not $r.IsError -and $r.Text) { try { $r.Text | ConvertFrom-Json } catch { $null } } else { $null }
+    $r = Invoke-McpCall -Tool 'edit' -Arguments @{
+        vault = 'test'
+        path = $note
+        operations = @(@{ op = 'set'; key = 'doc.type'; value = 'Note' })
+    } -Token $selectorToken
+    $edit = if ($r.StatusCode -eq 200 -and -not $r.IsError -and $r.Text) { try { $r.Text | ConvertFrom-Json } catch { $null } } else { $null }
+    Check 'an edit dispatches and answers the mutation envelope' ($null -ne $edit -and $null -ne $edit.content_hash) "isError=$($r.IsError) text=$($r.Text)"
+    Check 'the value it already carried is a no-op, so nothing applied' ($null -ne $edit -and @($edit.applied_operations).Count -eq 0 -and $edit.frontmatter_changed -eq $false) "text=$($r.Text)"
+    # The whole point of the hash: what a mutation answers is what a read of the same file returns,
+    # so a chain of writes needs no interleaved read.
+    Check 'the hash chains from the read probe''s hash' ($null -ne $edit -and $null -ne $before -and $edit.content_hash -eq $before.content_hash) "edit=$(if ($edit) { $edit.content_hash }) read=$(if ($before) { $before.content_hash })"
+
+    # The guard on the one operation that can destroy content the caller never saw. Refused before
+    # anything is written, and carrying no payload - returning the current hash would let a caller
+    # retry into content it never read.
+    Write-Host 'Probe: edit with a stale content hash (the staleness guard)'
+    $r = Invoke-McpCall -Tool 'edit' -Arguments @{
+        vault = 'test'
+        path = $note
+        body = @{ content = "# Never written`n" }
+        expected_content_hash = ('0' * 64)
+    } -Token $selectorToken
+    $stale = if ($r.Text) { try { $r.Text | ConvertFrom-Json } catch { $null } } else { $null }
+    Check 'a stale hash refuses with content_changed and no payload' ($r.IsError -and $null -ne $stale -and $stale.code -eq 'content_changed' -and -not $stale.PSObject.Properties['data']) "isError=$($r.IsError) text=$($r.Text)"
 
     # The middleware's vault gate matches the vault argument's property name
     # case-insensitively. The schema now spells it "vault" (param() blocks are snake_case),

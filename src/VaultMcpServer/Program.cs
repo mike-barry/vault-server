@@ -148,7 +148,10 @@ var toolRegistry = new ToolRegistry()
     .Add(ElevationRequestTool.Declaration, elevationRequestTool)
     .Add(ReadTool.Declaration, new ReadTool())
     .Add(GlobTool.Declaration, new GlobTool())
-    .Add(GrepTool.Declaration, new GrepTool());
+    .Add(GrepTool.Declaration, new GrepTool())
+    // The one vault tool holding anything: the declarations are per vault and loaded once at
+    // startup, and a call carries a vault rather than a vocabulary.
+    .Add(EditTool.Declaration, new EditTool(frontmatterRegistries));
 builder.Services.AddSingleton(toolRegistry);
 
 // The shared execute path. The inherited-lock signal is a delegate rather than an ILogger because

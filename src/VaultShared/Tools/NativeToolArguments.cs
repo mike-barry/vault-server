@@ -150,7 +150,9 @@ public static class NativeToolArguments
     /// this callback for one. <see cref="EnumArgument"/> is that converter on every enumerated
     /// argument, so an enum-valued member's permitted values - the whole of what a model needs in
     /// order to spell one - are restated by <see cref="Enumerations"/> from the owning object's node,
-    /// which does reach here.</item>
+    /// which does reach here. <see cref="Unconstrained"/> is the same gap for a member whose type
+    /// genuinely admits any JSON: the node the exporter leaves has no shape to state and would
+    /// otherwise carry a bare <c>"default": null</c> and no description at all.</item>
     /// </list>
     /// </summary>
     private static JsonNode Transform(JsonSchemaExporterContext context, JsonNode schema)
@@ -159,6 +161,7 @@ public static class NativeToolArguments
             return schema;
 
         Enumerations(context, node);
+        Unconstrained(context, node);
 
         if (node["type"] is JsonArray types && types.Count == 2 && types.Any(t => t?.GetValue<string>() == "null"))
             node["type"] = types.First(t => t?.GetValue<string>() != "null")!.GetValue<string>();
@@ -187,6 +190,35 @@ public static class NativeToolArguments
     /// binds cannot disagree. A member's declared default and description are carried across, since
     /// nothing else will put them back.
     /// </summary>
+    /// <summary>
+    /// Restates a member the exporter left with no shape at all - a type that admits any JSON, and
+    /// so sits behind a converter this callback is never offered. What comes out is
+    /// <c>{"default": null}</c>: a stale nullability artifact, and no description, which is the part
+    /// a model reads. The replacement keeps "anything goes" by stating no type and carries the
+    /// member's own description across.
+    /// </summary>
+    private static void Unconstrained(JsonSchemaExporterContext context, JsonObject node)
+    {
+        if (node["properties"] is not JsonObject properties)
+            return;
+
+        foreach (var property in context.TypeInfo.Properties)
+        {
+            // Anything the exporter did state a shape for is left exactly as it is: this is for the
+            // node that says nothing, never a widening of one that says something.
+            if (!properties.TryGetPropertyValue(property.Name, out var exported)
+                || exported is not JsonObject slot
+                || slot.Any(member => member.Key is not "default"))
+                continue;
+
+            var replacement = new JsonObject();
+            if (property.AttributeProvider?.GetCustomAttributes(typeof(DescriptionAttribute), inherit: true) is [DescriptionAttribute described, ..])
+                replacement["description"] = described.Description;
+
+            properties[property.Name] = replacement;
+        }
+    }
+
     private static void Enumerations(JsonSchemaExporterContext context, JsonObject node)
     {
         if (node["properties"] is not JsonObject properties)

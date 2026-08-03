@@ -32,6 +32,25 @@ public static class ToolPaths
     }
 
     /// <summary>
+    /// A note operand a mutation names, admitted for writing against the grant's own roots and
+    /// nothing wider - so a note under an always-readable root is refused here and readable
+    /// elsewhere, which is the asymmetry the two path types carry.
+    ///
+    /// A mutation that reads the note first takes its read proof from
+    /// <see cref="WritePath.AsRead"/> rather than resolving the same text twice: anything writable
+    /// is readable, and a second resolution would be a second answer to one question.
+    /// </summary>
+    /// <exception cref="ToolRefusal">The path is not a note, or the layer refuses it.</exception>
+    public static WritePath WriteNote(VaultAccess vault, string path)
+    {
+        RequireNoteExtension(path);
+        var resolution = vault.ForWrite(path);
+        return resolution is PathResolution<WritePath>.Admitted admitted
+            ? admitted.Path
+            : throw ToolRefusalEnvelope.Translate(resolution);
+    }
+
+    /// <summary>
     /// The never-inferred extension, as a refusal.
     ///
     /// Folders share the operand space, so a name without an extension is genuinely ambiguous

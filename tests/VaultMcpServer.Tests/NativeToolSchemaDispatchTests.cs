@@ -72,6 +72,7 @@ public sealed class NativeToolSchemaDispatchTests(NativeToolSchemaDispatchTests.
         { "read", NativeToolSchemas.Read },
         { "glob", NativeToolSchemas.Glob },
         { "grep", NativeToolSchemas.Grep },
+        { "edit", NativeToolSchemas.Edit },
     };
 
     [Theory]
@@ -177,6 +178,7 @@ public sealed class NativeToolSchemaDispatchTests(NativeToolSchemaDispatchTests.
         ["read"] = (Fixture.AdminToken, """{"path":"Note.md","vault":"personal"}"""),
         ["glob"] = (Fixture.AdminToken, """{"pattern":"*.md","vault":"personal"}"""),
         ["grep"] = (Fixture.AdminToken, """{"pattern":"widget","vault":"personal"}"""),
+        ["edit"] = (Fixture.AdminToken, """{"path":"Note.md","vault":"personal","body":{"find":"a","replace":"b"}}"""),
     };
 
     /// <summary>

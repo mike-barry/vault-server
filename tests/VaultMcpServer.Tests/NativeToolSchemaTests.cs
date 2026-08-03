@@ -154,6 +154,118 @@ public static class NativeToolSchemas
         }
         """;
 
+    public const string Edit = """
+        {
+          "type": "object",
+          "properties": {
+            "path": {
+              "type": "string",
+              "description": "Vault-relative path of the note, carrying the \".md\" extension. The extension is never inferred."
+            },
+            "vault": {
+              "type": "string",
+              "description": "The vault the note is in. Optional; the configured default vault is used when it is absent."
+            },
+            "operations": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "op": {
+                    "type": "string",
+                    "description": "The operation: \"set\", \"remove\", \"add_entry\" or \"remove_entry\". Inside an anchor, \"before\" or \"after\"."
+                  },
+                  "key": {
+                    "type": "string",
+                    "description": "The frontmatter key being mutated. Omitted inside an anchor, which addresses an entry under its operation's own key."
+                  },
+                  "value": {
+                    "type": "string",
+                    "description": "The new value. \"set\" only."
+                  },
+                  "entry": {
+                    "description": "The entry to add: an object of the variant's fields, or a bare string for a scalar variant. \"add_entry\" only."
+                  },
+                  "target": {
+                    "type": "string",
+                    "description": "The identity of the entry to remove, or - inside an anchor - of the entry the new one lands beside."
+                  },
+                  "variant": {
+                    "type": "string",
+                    "description": "A variant to clear wholesale, with no target named. \"remove_entry\" only, and only where the declaration permits it."
+                  },
+                  "anchor": {
+                    "type": "object",
+                    "properties": {
+                      "op": {
+                        "type": "string",
+                        "description": "The operation: \"set\", \"remove\", \"add_entry\" or \"remove_entry\". Inside an anchor, \"before\" or \"after\"."
+                      },
+                      "key": {
+                        "type": "string",
+                        "description": "The frontmatter key being mutated. Omitted inside an anchor, which addresses an entry under its operation's own key."
+                      },
+                      "value": {
+                        "type": "string",
+                        "description": "The new value. \"set\" only."
+                      },
+                      "entry": {
+                        "description": "The entry to add: an object of the variant's fields, or a bare string for a scalar variant. \"add_entry\" only."
+                      },
+                      "target": {
+                        "type": "string",
+                        "description": "The identity of the entry to remove, or - inside an anchor - of the entry the new one lands beside."
+                      },
+                      "variant": {
+                        "type": "string",
+                        "description": "A variant to clear wholesale, with no target named. \"remove_entry\" only, and only where the declaration permits it."
+                      },
+                      "anchor": {
+                        "$ref": "#/properties/operations/items/properties/anchor",
+                        "description": "Where an added entry goes: an object carrying \"op\" of \"before\" or \"after\" and \"target\" naming an entry already in the list. Absent appends."
+                      }
+                    },
+                    "required": [
+                      "op"
+                    ],
+                    "description": "Where an added entry goes: an object carrying \"op\" of \"before\" or \"after\" and \"target\" naming an entry already in the list. Absent appends."
+                  }
+                },
+                "required": [
+                  "op"
+                ]
+              },
+              "description": "Frontmatter operations, applied in order, each seeing the previous one's result. Repetition is meaningful."
+            },
+            "body": {
+              "type": "object",
+              "properties": {
+                "content": {
+                  "type": "string",
+                  "description": "The whole new body, replacing everything after the frontmatter block. Requires \"expected_content_hash\"."
+                },
+                "find": {
+                  "type": "string",
+                  "description": "Text to substitute, which must occur exactly once in the body. Zero matches and more than one are each refused."
+                },
+                "replace": {
+                  "type": "string",
+                  "description": "What replaces the matched text. Empty deletes it. Sent with \"find\"."
+                }
+              },
+              "description": "A change to the note's body: either a wholesale replacement, or a substitution that must match exactly once."
+            },
+            "expected_content_hash": {
+              "type": "string",
+              "description": "The content hash a prior read returned. Required for a wholesale body replacement, refused otherwise, and refused if the file has changed since."
+            }
+          },
+          "required": [
+            "path"
+          ]
+        }
+        """;
+
     /// <summary>Compact re-serialization, so whitespace and <c>\u</c>-escaping differences between a
     /// literal here and a serializer's output do not read as a schema difference. Member order is
     /// deliberately <em>not</em> normalized - the derived schema follows constructor-parameter order,
@@ -187,6 +299,7 @@ public sealed class NativeToolSchemaTests(TestVaultFixture fixture) : IClassFixt
         { "read", NativeToolSchemas.Read },
         { "glob", NativeToolSchemas.Glob },
         { "grep", NativeToolSchemas.Grep },
+        { "edit", NativeToolSchemas.Edit },
     };
 
     private static JsonElement SchemaOf(string toolName) => NativeToolArguments.SchemaFor(toolName switch
@@ -196,6 +309,7 @@ public sealed class NativeToolSchemaTests(TestVaultFixture fixture) : IClassFixt
         "read" => ReadTool.Declaration.Arguments,
         "glob" => GlobTool.Declaration.Arguments,
         "grep" => GrepTool.Declaration.Arguments,
+        "edit" => EditTool.Declaration.Arguments,
         _ => HealthCheckTool.Declaration.Arguments,
     });
 

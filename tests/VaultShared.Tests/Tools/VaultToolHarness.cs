@@ -22,7 +22,10 @@ internal static class VaultToolHarness
         if (bound.Validate() is { } fault)
             throw new ToolRefusal(ToolCodes.InvalidArgument, fault.Message, new { argument = fault.Argument });
 
-        return tool.Invoke(new ToolCall(bound, vault.Access, SyntheticTools.Grant("content:read"), null));
+        // The grant the tool is handed is the one the vault was built with, so a case narrowing
+        // authority narrows it in one place and the mid-operation assertion sees the same grant the
+        // scope check did.
+        return tool.Invoke(new ToolCall(bound, vault.Access, vault.Grant, null));
     }
 
     /// <summary>The content tier's text.</summary>

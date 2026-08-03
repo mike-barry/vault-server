@@ -19,22 +19,37 @@ internal sealed class ScratchVault : IDisposable
     /// Where the search engine is. The default points at whatever <c>PATH</c> resolves, which the
     /// enumeration and search cases run against for real.
     /// </param>
-    public ScratchVault(VaultScope? scope = null, SearchEngine? engine = null)
+    /// <param name="opClasses">
+    /// What the grant holds. Empty unless a case is about an assertion the outcome makes: the read
+    /// and enumeration cases assert nothing mid-operation, and a mutation names the classes it
+    /// expects to need so a denial is a case rather than a surprise.
+    /// </param>
+    /// <param name="policy">
+    /// The vault's path policy. <see cref="PathPolicy.None"/> unless a case is about what a
+    /// declared target prices.
+    /// </param>
+    public ScratchVault(
+        VaultScope? scope = null,
+        SearchEngine? engine = null,
+        IReadOnlyCollection<string>? opClasses = null,
+        PathPolicy? policy = null)
     {
         Root = Directory.CreateTempSubdirectory("vault-files-").FullName;
-        Vault = new Vault("scratch", Root, PathPolicy.None);
-        Access = new VaultAccess(Vault, new Grant(
+        Vault = new Vault("scratch", Root, policy ?? PathPolicy.None);
+        Grant = new Grant(
             "test-grant",
-            new HashSet<string>(StringComparer.OrdinalIgnoreCase),
+            new HashSet<string>(opClasses ?? [], StringComparer.OrdinalIgnoreCase),
             new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "scratch" },
             null,
-            new Dictionary<string, VaultScope>(StringComparer.OrdinalIgnoreCase) { ["scratch"] = scope ?? VaultScope.Unscoped }),
-            engine);
+            new Dictionary<string, VaultScope>(StringComparer.OrdinalIgnoreCase) { ["scratch"] = scope ?? VaultScope.Unscoped });
+        Access = new VaultAccess(Vault, Grant, engine);
     }
 
     public string Root { get; }
 
     public Vault Vault { get; }
+
+    public Grant Grant { get; }
 
     public VaultAccess Access { get; }
 

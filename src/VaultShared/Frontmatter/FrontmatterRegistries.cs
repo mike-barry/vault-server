@@ -26,6 +26,15 @@ public sealed class FrontmatterRegistries
         new(new Dictionary<string, RegistryState>(StringComparer.OrdinalIgnoreCase));
 
     /// <summary>
+    /// One vault's state, for a caller holding a declaration rather than a file. The write path
+    /// takes its vocabulary as an argument so it can be exercised against a synthetic one; this is
+    /// the same seam a step above, for the tools that hold the per-vault set rather than a single
+    /// registry. Nothing in a host produces one this way - a host loads files.
+    /// </summary>
+    public static FrontmatterRegistries Of(string vaultName, RegistryState state) =>
+        new(new Dictionary<string, RegistryState>(StringComparer.OrdinalIgnoreCase) { [vaultName] = state });
+
+    /// <summary>
     /// This vault's declaration state. A vault the configuration never named answers
     /// <see cref="RegistryState.Absent"/> with an empty path rather than throwing or returning
     /// null: a caller asking about an unknown vault is asking a fail-closed question, and every

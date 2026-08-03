@@ -15,7 +15,13 @@ public abstract record WriteOutcome
     private WriteOutcome() { }
 
     /// <summary>The content or the folder landed.</summary>
-    public sealed record Written : WriteOutcome;
+    /// <param name="ContentHash">
+    /// SHA-256 of the bytes this write stored, lowercase hex, taken from the same write rather than
+    /// from a read afterwards - so it describes exactly what landed and chains with the hash a read
+    /// of the same file answers. Null where the write brought no content into existence, which is
+    /// folder creation alone: there is no file to describe.
+    /// </param>
+    public sealed record Written(string? ContentHash) : WriteOutcome;
 
     /// <summary>
     /// Nothing there to replace. Replacing is for content that exists; bringing a note into

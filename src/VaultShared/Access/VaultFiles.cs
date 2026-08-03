@@ -66,8 +66,7 @@ public static class VaultFiles
             // Truncate rather than Create: only this mode refuses a target that is not already
             // there, which is what keeps replacing and creating two different operations.
             using var stream = new FileStream(target.Absolute, FileMode.Truncate, FileAccess.Write, FileShare.None);
-            Emit(stream, content);
-            return new WriteOutcome.Written();
+            return new WriteOutcome.Written(Emit(stream, content));
         }
         catch (FileNotFoundException)
         {
@@ -98,8 +97,7 @@ public static class VaultFiles
         try
         {
             using var stream = new FileStream(target.Absolute, FileMode.CreateNew, FileAccess.Write, FileShare.None);
-            Emit(stream, content);
-            return new WriteOutcome.Written();
+            return new WriteOutcome.Written(Emit(stream, content));
         }
         catch (IOException ex) when (IsAlreadyExists(ex))
         {
@@ -136,7 +134,9 @@ public static class VaultFiles
         try
         {
             Directory.CreateDirectory(target.Absolute);
-            return new WriteOutcome.Written();
+            // No file to describe, so no hash: a folder is the one thing this hierarchy reports
+            // written that has no content.
+            return new WriteOutcome.Written(null);
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {
@@ -273,11 +273,29 @@ public static class VaultFiles
     private static string Digest(byte[] bytes) => Convert.ToHexStringLower(SHA256.HashData(bytes));
 
     /// <summary>
-    /// The other half of the composing seam: LF line terminators. Notes are stored with them, and
-    /// nothing detects what was there or preserves another convention.
+    /// The bytes a write of <paramref name="content"/> stores: the other half of the composing seam -
+    /// LF line terminators, UTF-8, no byte-order mark. Notes are stored that way, and nothing detects
+    /// what was there or preserves another convention.
     /// </summary>
-    private static void Emit(Stream stream, string content) =>
-        stream.Write(Utf8NoBom.GetBytes(content.Replace("\r\n", "\n", StringComparison.Ordinal)));
+    private static byte[] Bytes(string content) =>
+        Utf8NoBom.GetBytes(content.Replace("\r\n", "\n", StringComparison.Ordinal));
+
+    /// <summary>Writes the content and answers the digest of the bytes that landed, so a write's
+    /// hash comes from the write rather than from a read afterwards.</summary>
+    private static string Emit(Stream stream, string content)
+    {
+        var bytes = Bytes(content);
+        stream.Write(bytes);
+        return Digest(bytes);
+    }
+
+    /// <summary>
+    /// The digest a write of <paramref name="content"/> would store, without storing it. What lets a
+    /// caller holding both a read's hash and a composed result tell an outcome that changes the file
+    /// from one that would rewrite it byte-identically - the two are the same value exactly when the
+    /// write would change nothing.
+    /// </summary>
+    public static string DigestOf(string content) => Digest(Bytes(content));
 
     /// <summary>
     /// The failures a write shares with folder creation. A missing folder is named in vault-relative

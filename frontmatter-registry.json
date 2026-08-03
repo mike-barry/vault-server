@@ -1,0 +1,110 @@
+{
+  // The frontmatter declaration the "test" vault names, beside the grant and op-class
+  // configuration and outside the vault, at the same trust tier - a declaration inside the thing
+  // it protects would be rewritable by the surface it exists to bound.
+  //
+  // It is a fixture vocabulary, invented for the committed test-vault/ and describing nothing any
+  // real vault carries. What it exercises is the mechanism: a scalar key under a value constraint,
+  // a block list whose variants differ in identity, comparison and whether they clear wholesale,
+  // a bare-scalar entry, and a namespace that prices a whole prefix.
+  "version": 1,
+
+  "namespaces": [
+    {
+      "prefix": "agent.",
+      "write_requires": "agentic:write",
+      "note": "The agentic layer: keys here instruct an agent, so changing one is authoring behaviour rather than content. A key the map below does not list still falls under this."
+    }
+  ],
+
+  "keys": {
+    "doc.title": {
+      "shape": "scalar",
+      "value": { "kind": "string" }
+    },
+    "doc.type": {
+      "shape": "scalar",
+      "value": { "kind": "enum", "values": ["Note", "Plan", "Reference", "Guide", "Project"] },
+      "note": "The fixture's document kinds. An enumeration rather than free text, so a set that refuses a value has something to refuse."
+    },
+    "doc.created": {
+      "shape": "scalar",
+      "value": { "kind": "date" }
+    },
+    "doc.owner": {
+      "shape": "scalar",
+      "value": { "kind": "charclass", "chars": "alnum-dash", "min": 1, "max": 40 }
+    },
+    "nav.contents": {
+      "shape": "block_list",
+      "entry": "nav_entry",
+      "note": "A folder note's listing of what it contains."
+    },
+    "nav.see_also": {
+      "shape": "block_list",
+      "entry": "nav_entry",
+      "note": "Two keys naming one schema, so the loaded declaration holds one object and the advertised branch is one branch both keys accept."
+    },
+    "agent.instructions": {
+      "shape": "block_list",
+      "entry": "directive_entry"
+    }
+  },
+
+  "entry_schemas": {
+    // Identity is the link, compared as the editor and the filesystem resolve one, and entries are
+    // named individually: a listing is authored, not generated, so nothing clears it in one go.
+    "nav_entry": {
+      "variants": [
+        {
+          "name": "link",
+          "discriminated_by": "link",
+          "fields": {
+            "link": { "required": true, "value": { "kind": "wikilink" } },
+            "description": { "required": true, "value": { "kind": "string" } },
+            "load_when": { "required": false, "value": { "kind": "string" } }
+          },
+          "identity": ["link"],
+          "identity_match": "case-insensitive",
+          "removable_wholesale": false
+        }
+      ]
+    },
+
+    // Three shapes in one list: a bare line of prose, a tooling-owned directive that clears
+    // wholesale, and a human-authored one that does not.
+    "directive_entry": {
+      "variants": [
+        {
+          "name": "hint",
+          "scalar": { "kind": "string" },
+          "removable_wholesale": false,
+          "note": "A bare line. It declares no identity, so it is addressable by nothing and every add of one appends."
+        },
+        {
+          "name": "use_skill",
+          "discriminated_by": "use_skill",
+          "fields": {
+            "use_skill": { "required": true, "value": { "kind": "charclass", "chars": "alnum-dash", "min": 1, "max": 60 } },
+            "when": { "required": false, "value": { "kind": "string" } }
+          },
+          "identity": ["use_skill"],
+          "identity_match": "case-insensitive",
+          "removable_wholesale": true,
+          "note": "Tooling owns and rewrites these, so clearing the variant in one go is the useful form."
+        },
+        {
+          "name": "rule",
+          "discriminated_by": "rule",
+          "fields": {
+            "rule": { "required": true, "value": { "kind": "string" } }
+          },
+          "identity": ["rule"],
+          "identity_match": "case-sensitive",
+          "removable_wholesale": false,
+          "note": "A line a human wrote, compared exactly and dropped one at a time."
+        }
+      ]
+    }
+  }
+}
