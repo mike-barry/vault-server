@@ -24,7 +24,7 @@ public sealed class VaultConfigLoadTests : IDisposable
     public void Load_MissingFileThrows()
     {
         var sink = new RecordingProblemSink();
-        var config = VaultConfigLoader.Load(Path.Combine(_tempDir, "absent.json"), sink);
+        var config = VaultConfigLoader.Load(Path.Combine(_tempDir, "absent.json"), TestOpClasses.Repo, sink);
 
         AssertFatalAndEmpty(sink, config);
     }
@@ -34,7 +34,7 @@ public sealed class VaultConfigLoadTests : IDisposable
     {
         var path = WriteConfig($$"""{ "vaults": { "a": {{JsonVault(_tempDir)}} } }""");
         var sink = new RecordingProblemSink();
-        var config = VaultConfigLoader.Load(path, sink);
+        var config = VaultConfigLoader.Load(path, TestOpClasses.Repo, sink);
 
         AssertFatalAndEmpty(sink, config);
     }
@@ -44,7 +44,7 @@ public sealed class VaultConfigLoadTests : IDisposable
     {
         var path = WriteConfig($$"""{ "default_vault": "b", "vaults": { "a": {{JsonVault(_tempDir)}} } }""");
         var sink = new RecordingProblemSink();
-        var config = VaultConfigLoader.Load(path, sink);
+        var config = VaultConfigLoader.Load(path, TestOpClasses.Repo, sink);
 
         AssertFatalAndEmpty(sink, config);
     }
@@ -54,7 +54,7 @@ public sealed class VaultConfigLoadTests : IDisposable
     {
         var path = WriteConfig("""{ "default_vault": "a", "vaults": {} }""");
         var sink = new RecordingProblemSink();
-        var config = VaultConfigLoader.Load(path, sink);
+        var config = VaultConfigLoader.Load(path, TestOpClasses.Repo, sink);
 
         AssertFatalAndEmpty(sink, config);
     }
@@ -66,7 +66,7 @@ public sealed class VaultConfigLoadTests : IDisposable
         // vault is skipped (with a Degraded record) and the healthy vault keeps working.
         var path = WriteConfig($$"""{ "default_vault": "a", "vaults": { "a": {{JsonVault(_tempDir)}}, "b": {{JsonVault(Path.Combine(_tempDir, "no-such-dir"))}} } }""");
         var sink = new RecordingProblemSink();
-        var config = VaultConfigLoader.Load(path, sink);
+        var config = VaultConfigLoader.Load(path, TestOpClasses.Repo, sink);
 
         Assert.False(sink.IsFatallyDegraded);
         var problem = Assert.Single(sink.Problems);
@@ -89,7 +89,7 @@ public sealed class VaultConfigLoadTests : IDisposable
         // (nothing resolvable, one Degraded per vault) rather than going fatal.
         var path = WriteConfig($$"""{ "default_vault": "a", "vaults": { "a": {{JsonVault(Path.Combine(_tempDir, "gone-a"))}}, "b": {{JsonVault(Path.Combine(_tempDir, "gone-b"))}} } }""");
         var sink = new RecordingProblemSink();
-        var config = VaultConfigLoader.Load(path, sink);
+        var config = VaultConfigLoader.Load(path, TestOpClasses.Repo, sink);
 
         Assert.False(sink.IsFatallyDegraded);
         Assert.Equal(2, sink.Problems.Count);
@@ -111,7 +111,7 @@ public sealed class VaultConfigLoadTests : IDisposable
             """);
         var sink = new RecordingProblemSink();
 
-        var config = VaultConfigLoader.Load(path, sink);
+        var config = VaultConfigLoader.Load(path, TestOpClasses.Repo, sink);
 
         Assert.Equal("frontmatter-registry.json", config.Vaults["a"].FrontmatterRegistry);
         Assert.Empty(sink.Problems);
@@ -123,7 +123,7 @@ public sealed class VaultConfigLoadTests : IDisposable
         var path = WriteConfig($$"""{ "default_vault": "a", "vaults": { "a": {{JsonVault(_tempDir)}} } }""");
         var sink = new RecordingProblemSink();
 
-        var config = VaultConfigLoader.Load(path, sink);
+        var config = VaultConfigLoader.Load(path, TestOpClasses.Repo, sink);
 
         Assert.Null(config.Vaults["a"].FrontmatterRegistry);
         Assert.Empty(sink.Problems);
@@ -137,7 +137,7 @@ public sealed class VaultConfigLoadTests : IDisposable
             """);
         var sink = new RecordingProblemSink();
 
-        var config = VaultConfigLoader.Load(path, sink);
+        var config = VaultConfigLoader.Load(path, TestOpClasses.Repo, sink);
 
         AssertFatalAndEmpty(sink, config);
     }

@@ -45,7 +45,7 @@ builder.Services.AddSingleton(opClassRegistry);
 var vaultsConfigPath = Path.GetFullPath(Path.Combine(
     builder.Environment.ContentRootPath,
     builder.Configuration["VaultsConfigPath"] ?? "../../vaults.json"));
-var vaultConfig = VaultConfigLoader.Load(vaultsConfigPath, healthState);
+var vaultConfig = VaultConfigLoader.Load(vaultsConfigPath, opClassRegistry, healthState);
 builder.Services.AddSingleton(vaultConfig);
 
 // GrantStore.Load validates each row's opClasses/vaults against opClassRegistry/vaultConfig,

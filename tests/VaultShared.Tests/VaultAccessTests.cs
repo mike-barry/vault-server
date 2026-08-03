@@ -39,7 +39,7 @@ public sealed class VaultAccessTests : IDisposable
               }
             }
             """);
-        var config = VaultConfigLoader.Load(configPath, new RecordingProblemSink());
+        var config = VaultConfigLoader.Load(configPath, TestOpClasses.Repo, new RecordingProblemSink());
         _vault = Assert.IsType<VaultResolution.Resolved>(Vault.Resolve(config, "test")).Vault;
     }
 

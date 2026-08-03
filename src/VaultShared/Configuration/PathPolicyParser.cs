@@ -23,7 +23,14 @@ public static class PathPolicyParser
     /// matching nothing widens nothing. An unresolvable vault is skipped before this is reached,
     /// so there is no case here for a root that does not exist.
     /// </param>
-    public static PathPolicy Parse(JsonElement policy, string vaultName, string vaultRoot, string configPath, IConfigProblemSink sink)
+    /// <param name="opClasses">
+    /// The loaded op-class configuration, which a <c>mutation_requires</c> class is checked against
+    /// - the same cross-file check the frontmatter registry and grants both run, and for the same
+    /// reason: a policy naming an authority nothing defines is a protection nobody can satisfy and
+    /// nothing can enforce, which reads as working right up until it matters.
+    /// </param>
+    public static PathPolicy Parse(
+        JsonElement policy, string vaultName, string vaultRoot, string configPath, OpClassRegistry opClasses, IConfigProblemSink sink)
     {
         if (policy.ValueKind != JsonValueKind.Array)
         {
@@ -40,7 +47,7 @@ public static class PathPolicyParser
         {
             try
             {
-                var parsed = ParseEntry(entry, vaultName, configPath);
+                var parsed = ParseEntry(entry, vaultName, configPath, opClasses);
 
                 if (parsed.AlwaysReadable && parsed.Path is { } root && seenReadable.Add(root))
                 {
@@ -81,7 +88,7 @@ public static class PathPolicyParser
     /// Validates one entry. Throws <see cref="InvalidDataException"/> on anything malformed, which
     /// the caller turns into a dropped entry rather than a failed vault.
     /// </summary>
-    private static PolicyEntry ParseEntry(JsonElement entry, string vaultName, string configPath)
+    private static PolicyEntry ParseEntry(JsonElement entry, string vaultName, string configPath, OpClassRegistry opClasses)
     {
         var where = $"{configPath}: vault \"{vaultName}\"";
         if (entry.ValueKind != JsonValueKind.Object)
@@ -123,9 +130,13 @@ public static class PathPolicyParser
                     break;
 
                 case "mutation_requires":
-                    mutationRequires = field.Value.GetString() is { Length: > 0 } opClass
+                    var declared = field.Value.GetString() is { Length: > 0 } opClass
                         ? opClass
                         : throw new InvalidDataException($"{where} has a \"path_policy\" entry with an empty \"mutation_requires\".");
+                    if (!opClasses.IsValid(declared))
+                        throw new InvalidDataException(
+                            $"{where} declares \"mutation_requires\": \"{declared}\", which the op-class configuration does not define.");
+                    mutationRequires = opClasses.Canonicalize(declared) ?? declared;
                     break;
 
                 default:

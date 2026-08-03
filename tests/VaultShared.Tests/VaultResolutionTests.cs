@@ -79,7 +79,7 @@ public sealed class VaultResolutionStateTests : IDisposable
               }
             }
             """);
-        return VaultConfigLoader.Load(path, new RecordingProblemSink());
+        return VaultConfigLoader.Load(path, TestOpClasses.Repo, new RecordingProblemSink());
     }
 
     [Fact]
@@ -104,7 +104,7 @@ public sealed class VaultResolutionStateTests : IDisposable
     public void Resolve_AgainstAConfigThatWouldNotLoadIsUnknown()
     {
         var sink = new RecordingProblemSink();
-        var config = VaultConfigLoader.Load(Path.Combine(_tempDir, "absent.json"), sink);
+        var config = VaultConfigLoader.Load(Path.Combine(_tempDir, "absent.json"), TestOpClasses.Repo, sink);
 
         Assert.True(sink.IsFatallyDegraded);
         Assert.IsType<VaultResolution.Unknown>(Vault.Resolve(config, null));

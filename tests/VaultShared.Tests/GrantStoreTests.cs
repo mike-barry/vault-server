@@ -702,7 +702,7 @@ public sealed class GrantStoreTests(TestVaultFixture fixture) : IClassFixture<Te
                 ["broken"] = new { path = Path.Combine(_tempDir, "no-such-vault-root") },
             },
         }));
-        var config = VaultConfigLoader.Load(configPath, new RecordingProblemSink());
+        var config = VaultConfigLoader.Load(configPath, TestOpClasses.Repo, new RecordingProblemSink());
         Assert.Single(config.SkippedVaults);
         return config;
     }

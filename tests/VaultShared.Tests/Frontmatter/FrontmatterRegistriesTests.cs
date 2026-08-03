@@ -35,7 +35,7 @@ public sealed class FrontmatterRegistriesTests : IDisposable
             }
             """);
 
-        var config = VaultConfigLoader.Load(configPath, sink);
+        var config = VaultConfigLoader.Load(configPath, TestOpClasses.Repo, sink);
         return FrontmatterRegistries.Load(config, _tempDir, OpClasses, sink);
 
         static string Names(string? file) => file is null ? "" : $""", "frontmatter_registry": {JsonSerializer.Serialize(file)}""";

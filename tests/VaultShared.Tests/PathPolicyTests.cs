@@ -56,7 +56,7 @@ public sealed class PathPolicyTests : IDisposable
         File.WriteAllText(configPath, $$"""
             { "default_vault": "test", "vaults": { "test": { "path": {{JsonSerializer.Serialize(root)}}{{policy}} } } }
             """);
-        return VaultConfigLoader.Load(configPath, sink);
+        return VaultConfigLoader.Load(configPath, TestOpClasses.Repo, sink);
     }
 
     private static string[] Problems(RecordingProblemSink sink) =>
@@ -102,6 +102,7 @@ public sealed class PathPolicyTests : IDisposable
     [InlineData("""{ "rule": "", "mutation_requires": "content:write" }""", "empty rule")]
     [InlineData("""{ "path": "Areas", "rule": "folder_note", "mutation_requires": "content:write" }""", "two targets")]
     [InlineData("""{ "path": "Areas", "mutation_requires": "" }""", "empty mutation_requires")]
+    [InlineData("""{ "path": "Areas", "mutation_requires": "invented:class" }""", "undefined op class")]
     [InlineData("""{ "rule": "folder_note", "always_readable": true }""", "a rule cannot be a read root")]
     public void Load_MalformedEntryIsDroppedAndReported(string entryJson, string why)
     {
@@ -169,6 +170,39 @@ public sealed class PathPolicyTests : IDisposable
     }
 
     [Fact]
+    public void Load_AnUndefinedOpClassDropsTheEntryAndSaysWhichClass()
+    {
+        // The same cross-file check grants and the frontmatter declaration run, for the same
+        // reason: a policy naming an authority nothing defines is a protection nobody can satisfy
+        // and nothing can enforce, which reads as working right up until it matters. Dropped rather
+        // than fatal, like every other malformed entry - the rest of the policy still applies.
+        var sink = new RecordingProblemSink();
+
+        var config = Load(sink, $$"""
+            [
+              { "path": "Areas", "mutation_requires": "invented:class" },
+              { "path": "{{Guides}}", "always_readable": true }
+            ]
+            """, Guides);
+
+        var policy = config.Vaults["test"].PathPolicy;
+        Assert.Empty(policy.MutationRules);
+        Assert.Equal<string[]>([Guides], [.. policy.AlwaysReadableRoots]);
+        Assert.Contains(Problems(sink), p => p.Contains("invented:class") && p.Contains("op-class configuration does not define"));
+    }
+
+    [Fact]
+    public void Load_ADefinedOpClassIsCarriedInTheRegistrysOwnSpelling()
+    {
+        var sink = new RecordingProblemSink();
+
+        var config = Load(sink, """[ { "path": "Areas", "mutation_requires": "AGENTIC:write" } ]""", "Areas");
+
+        Assert.Equal("agentic:write", Assert.Single(config.Vaults["test"].PathPolicy.MutationRules).RequiredOpClass);
+        Assert.Empty(Problems(sink));
+    }
+
+    [Fact]
     public void Load_ContributionsFromSeveralEntriesAreAllKept()
     {
         // Contributions union - no entry can clear one another contributed - so every matching
@@ -227,7 +261,7 @@ public sealed class PathPolicyTests : IDisposable
             }
             """);
 
-        var config = VaultConfigLoader.Load(configPath, sink);
+        var config = VaultConfigLoader.Load(configPath, TestOpClasses.Repo, sink);
 
         Assert.Equal<string[]>([Guides], [.. config.Vaults["primary"].PathPolicy.AlwaysReadableRoots]);
         Assert.Same(PathPolicy.None, config.Vaults["scratch"].PathPolicy);
@@ -243,7 +277,7 @@ public sealed class PathPolicyTests : IDisposable
         var configPath = Path.Combine(_tempDir, "vaults.json");
         File.WriteAllText(configPath, $$"""{ "default_vault": "test", "vaults": { "test": {{JsonSerializer.Serialize(_tempDir)}} } }""");
 
-        var config = VaultConfigLoader.Load(configPath, sink);
+        var config = VaultConfigLoader.Load(configPath, TestOpClasses.Repo, sink);
 
         Assert.True(sink.IsFatallyDegraded);
         Assert.Empty(config.Vaults);
@@ -264,7 +298,7 @@ public sealed class PathPolicyTests : IDisposable
             { "default_vault": "test", "vaults": { "test": { "path": {{JsonSerializer.Serialize(_tempDir)}}, "{{key}}": "x" } } }
             """);
 
-        var config = VaultConfigLoader.Load(configPath, sink);
+        var config = VaultConfigLoader.Load(configPath, TestOpClasses.Repo, sink);
 
         Assert.True(sink.IsFatallyDegraded);
         Assert.Empty(config.Vaults);
@@ -367,7 +401,7 @@ public sealed class PathPolicyFixtureTests(TestVaultFixture fixture) : IClassFix
     {
         var sink = new RecordingProblemSink();
         using var doc = JsonDocument.Parse($$"""[ { "path": "{{Guides}}", "always_readable": true } ]""");
-        var policy = PathPolicyParser.Parse(doc.RootElement, vault, config.Vaults[vault].Root, "vaults.json", sink);
+        var policy = PathPolicyParser.Parse(doc.RootElement, vault, config.Vaults[vault].Root, "vaults.json", TestOpClasses.Repo, sink);
         Assert.Empty(sink.Problems);
         return policy;
     }

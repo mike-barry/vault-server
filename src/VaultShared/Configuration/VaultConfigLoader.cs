@@ -21,11 +21,17 @@ public static class VaultConfigLoader
     /// site compile while silently discarding recorded failures. Callers that only exercise the
     /// success path (tests) pass a fresh local instance.
     /// </param>
-    public static VaultConfig Load(string path, IConfigProblemSink sink)
+    /// <param name="opClasses">
+    /// The loaded op-class configuration, which a vault's path policy validates its
+    /// <c>mutation_requires</c> classes against. Loaded ahead of this file for the same reason
+    /// grants are loaded after it: a name checked against a file that has not been read yet is a
+    /// check that always passes.
+    /// </param>
+    public static VaultConfig Load(string path, OpClassRegistry opClasses, IConfigProblemSink sink)
     {
         try
         {
-            return LoadCore(path, sink);
+            return LoadCore(path, opClasses, sink);
         }
         catch (Exception ex) when (ex is FileNotFoundException or InvalidDataException or JsonException)
         {
@@ -34,7 +40,7 @@ public static class VaultConfigLoader
         }
     }
 
-    private static VaultConfig LoadCore(string path, IConfigProblemSink sink)
+    private static VaultConfig LoadCore(string path, OpClassRegistry opClasses, IConfigProblemSink sink)
     {
         if (!File.Exists(path))
             throw new FileNotFoundException($"Vault config not found: {path}", path);
@@ -87,7 +93,7 @@ public static class VaultConfigLoader
             }
 
             var policy = entry.Value.TryGetProperty("path_policy", out var policyProp)
-                ? PathPolicyParser.Parse(policyProp, entry.Name, fullRoot, path, sink)
+                ? PathPolicyParser.Parse(policyProp, entry.Name, fullRoot, path, opClasses, sink)
                 : PathPolicy.None;
             vaults[entry.Name] = new VaultConfig.VaultEntry(fullRoot, policy, frontmatterRegistry);
         }

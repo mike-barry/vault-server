@@ -3,8 +3,9 @@ namespace VaultShared.Configuration;
 /// <summary>
 /// The set of valid op-class names, built by <see cref="OpClassRegistryLoader"/> from
 /// op-classes.json - a committed, non-secret data file rather than a hardcoded enum, so adding a
-/// class is a config edit. Loaded before <c>GrantStore</c> and <c>ScriptToolLoader</c>, both of
-/// which validate op-class names read from their own config/scripts against this registry.
+/// class is a config edit. It loads first in the cascade, because everything that names an
+/// authority validates that name against this registry: <c>GrantStore</c>, <c>ScriptToolLoader</c>,
+/// a vault's path policy, and the frontmatter declaration.
 /// </summary>
 public sealed class OpClassRegistry
 {
