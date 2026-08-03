@@ -58,30 +58,15 @@ public sealed class PathPolicy
     /// Applied here, at check time, rather than copied into a grant's roots when the grant is
     /// built - which is what makes it a floor. A copy would be attenuable, and a floor a minted
     /// token can drop is not one.
-    /// </summary>
-    /// <summary>
-    /// The read-class counterpart of <see cref="VaultScope.Admits"/>: true if
-    /// <paramref name="relativePath"/> falls under <paramref name="grantScope"/> <em>or</em> under
-    /// this vault's always-readable roots.
-    ///
-    /// The floor is unioned into the scope rather than checked beside it, so this stays one
-    /// containment test against one <see cref="VaultScope"/> - there is no second admitting rule
-    /// for a caller to reason about, and enumeration over the same effective scope needs no
-    /// special case. On <see cref="None"/> the union is the identity and this is exactly
-    /// <see cref="VaultScope.Admits"/>.
     ///
     /// <b>Read-class callers only.</b> Every write-class path - and every authority decision,
-    /// including mint's attenuation check - stays on <see cref="VaultScope.Admits"/> against the
-    /// grant's own scope. A grant that can read the always-readable roots must not thereby be
-    /// able to write them, nor to mint a token rooted at them.
+    /// including mint's attenuation check - stays on the grant's own scope. A grant that can read
+    /// the always-readable roots must not thereby be able to write them, nor to mint a token
+    /// rooted at them.
     ///
-    /// The policy must be the one belonging to the vault the path is in
-    /// (<see cref="VaultShared.Configuration.VaultConfig.PathPolicyFor"/>) - the same discipline
+    /// The policy must be the one belonging to the vault the path is in - the same discipline
     /// <see cref="VaultShared.Auth.Grant.ScopeIn"/> enforces for scope roots.
     /// </summary>
-    public bool IsPathInReadScope(string relativePath, VaultScope grantScope) =>
-        EffectiveReadScope(grantScope).Admits(relativePath);
-
     public VaultScope EffectiveReadScope(VaultScope grantScope)
     {
         if (AlwaysReadableRoots.Count == 0 || grantScope is not VaultScope.RootedScope rooted)

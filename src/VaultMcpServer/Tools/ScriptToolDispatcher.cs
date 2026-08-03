@@ -238,8 +238,8 @@ public sealed class ScriptToolDispatcher(ScriptToolRegistry registry, NativeTool
     /// <summary>
     /// The vault a call effectively targets: the string <c>vault</c> argument when present
     /// (looked up case-insensitively, since the schema casing comes from the param() block), else
-    /// the configured default vault. A blank value is treated as absent, matching
-    /// <see cref="VaultConfig.Resolve"/>'s own null/blank-to-default handling.
+    /// the configured default vault. A blank value is treated as absent, matching vault
+    /// resolution's own null/blank-to-default handling.
     /// </summary>
     private string ResolveEffectiveVault(IDictionary<string, JsonElement>? arguments)
     {

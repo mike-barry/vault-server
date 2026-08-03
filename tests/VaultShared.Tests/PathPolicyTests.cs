@@ -5,6 +5,18 @@ using VaultShared.Scope;
 namespace VaultShared.Tests;
 
 /// <summary>
+/// The union a read-class caller runs against: a grant's own scope in a vault widened by that
+/// vault's always-readable roots. <c>VaultAccess</c> is what composes these two in production, and
+/// composes them once per call rather than per path; here the pair is asserted directly, so a
+/// change to the union is a failure in these cases rather than only in the layer's.
+/// </summary>
+internal static class ReadScopeExtensions
+{
+    internal static bool ReadAdmits(this PathPolicy policy, string relativePath, VaultScope grantScope) =>
+        policy.EffectiveReadScope(grantScope).Admits(relativePath);
+}
+
+/// <summary>
 /// A vault's path policy: what survives load validation, what it reports, and the read-scope
 /// union its <c>always_readable</c> modifier performs. Writes its own vaults.json over temp
 /// directories rather than using the committed fixture, because most of these cases turn on a
@@ -62,7 +74,7 @@ public sealed class PathPolicyTests : IDisposable
 
         var config = Load(sink, """[ { "path": "Resources\\Vault\\.\\Guides", "always_readable": true } ]""", Guides);
 
-        Assert.Equal<string[]>([Guides], [.. config.PathPolicyFor("test").AlwaysReadableRoots]);
+        Assert.Equal<string[]>([Guides], [.. config.Vaults["test"].PathPolicy.AlwaysReadableRoots]);
         Assert.Empty(Problems(sink));
     }
 
@@ -73,7 +85,7 @@ public sealed class PathPolicyTests : IDisposable
 
         var config = Load(sink, policyJson: null);
 
-        Assert.Same(PathPolicy.None, config.PathPolicyFor("test"));
+        Assert.Same(PathPolicy.None, config.Vaults["test"].PathPolicy);
         Assert.Empty(Problems(sink));
     }
 
@@ -93,7 +105,7 @@ public sealed class PathPolicyTests : IDisposable
         var config = Load(sink, $$"""[ {{entryJson}}, { "path": "{{Guides}}", "always_readable": true } ]""", Guides);
 
         // The rest of the policy survives the bad entry, and the vault still loads.
-        Assert.Equal<string[]>([Guides], [.. config.PathPolicyFor("test").AlwaysReadableRoots]);
+        Assert.Equal<string[]>([Guides], [.. config.Vaults["test"].PathPolicy.AlwaysReadableRoots]);
         var problem = Assert.Single(Problems(sink));
         Assert.True(problem.Contains("dropped"), $"{why}: expected a drop to be reported, got: {problem}");
     }
@@ -109,7 +121,7 @@ public sealed class PathPolicyTests : IDisposable
 
         var config = Load(sink, $$"""[ { "path": "Areas", "{{key}}": "agentic:write" } ]""");
 
-        Assert.Same(PathPolicy.None, config.PathPolicyFor("test"));
+        Assert.Same(PathPolicy.None, config.Vaults["test"].PathPolicy);
         Assert.Contains(Problems(sink), p => p.Contains(key) && p.Contains("not implemented yet"));
     }
 
@@ -120,7 +132,7 @@ public sealed class PathPolicyTests : IDisposable
 
         var config = Load(sink, $$"""[ { "path": "{{Guides}}", "always_readable": true } ]""");
 
-        Assert.Equal<string[]>([Guides], [.. config.PathPolicyFor("test").AlwaysReadableRoots]);
+        Assert.Equal<string[]>([Guides], [.. config.Vaults["test"].PathPolicy.AlwaysReadableRoots]);
         Assert.Contains(Problems(sink), p => p.Contains("does not exist"));
     }
 
@@ -131,7 +143,7 @@ public sealed class PathPolicyTests : IDisposable
 
         var config = Load(sink, """[ { "path": "Vault-Manifest.md", "always_readable": true } ]""", "Vault-Manifest.md");
 
-        Assert.Equal<string[]>(["Vault-Manifest.md"], [.. config.PathPolicyFor("test").AlwaysReadableRoots]);
+        Assert.Equal<string[]>(["Vault-Manifest.md"], [.. config.Vaults["test"].PathPolicy.AlwaysReadableRoots]);
         Assert.Empty(Problems(sink));
     }
 
@@ -158,8 +170,8 @@ public sealed class PathPolicyTests : IDisposable
 
         var config = VaultConfigLoader.Load(configPath, sink);
 
-        Assert.Equal<string[]>([Guides], [.. config.PathPolicyFor("primary").AlwaysReadableRoots]);
-        Assert.Same(PathPolicy.None, config.PathPolicyFor("scratch"));
+        Assert.Equal<string[]>([Guides], [.. config.Vaults["primary"].PathPolicy.AlwaysReadableRoots]);
+        Assert.Same(PathPolicy.None, config.Vaults["scratch"].PathPolicy);
         Assert.Empty(Problems(sink));
     }
 
@@ -205,7 +217,7 @@ public sealed class PathPolicyTests : IDisposable
     [Fact]
     public void EffectiveReadScope_UnionsTheFloorIntoARootedGrantScope()
     {
-        var policy = Load(new RecordingProblemSink(), $$"""[ { "path": "{{Guides}}", "always_readable": true } ]""", Guides).PathPolicyFor("test");
+        var policy = Load(new RecordingProblemSink(), $$"""[ { "path": "{{Guides}}", "always_readable": true } ]""", Guides).Vaults["test"].PathPolicy;
 
         var effective = Assert.IsType<VaultScope.RootedScope>(policy.EffectiveReadScope(Rooted("Projects/Widget")));
 
@@ -215,7 +227,7 @@ public sealed class PathPolicyTests : IDisposable
     [Fact]
     public void EffectiveReadScope_LeavesAnUnscopedGrantUnscoped()
     {
-        var policy = Load(new RecordingProblemSink(), $$"""[ { "path": "{{Guides}}", "always_readable": true } ]""", Guides).PathPolicyFor("test");
+        var policy = Load(new RecordingProblemSink(), $$"""[ { "path": "{{Guides}}", "always_readable": true } ]""", Guides).Vaults["test"].PathPolicy;
 
         Assert.Same(VaultScope.Unscoped, policy.EffectiveReadScope(VaultScope.Unscoped));
     }
@@ -229,28 +241,28 @@ public sealed class PathPolicyTests : IDisposable
     }
 
     [Fact]
-    public void IsPathInReadScope_NarrowGrantReachesTheFloorAndKeepsItsOwnRoots()
+    public void ReadAdmits_NarrowGrantReachesTheFloorAndKeepsItsOwnRoots()
     {
-        var policy = Load(new RecordingProblemSink(), $$"""[ { "path": "{{Guides}}", "always_readable": true } ]""", Guides).PathPolicyFor("test");
+        var policy = Load(new RecordingProblemSink(), $$"""[ { "path": "{{Guides}}", "always_readable": true } ]""", Guides).Vaults["test"].PathPolicy;
         var scope = Rooted("Projects/Widget");
 
-        Assert.True(policy.IsPathInReadScope($"{Guides}/Vault-Guide.md", scope));
-        Assert.True(policy.IsPathInReadScope("Projects/Widget/Widget.md", scope));
-        Assert.False(policy.IsPathInReadScope("Projects/Other/Other.md", scope));
+        Assert.True(policy.ReadAdmits($"{Guides}/Vault-Guide.md", scope));
+        Assert.True(policy.ReadAdmits("Projects/Widget/Widget.md", scope));
+        Assert.False(policy.ReadAdmits("Projects/Other/Other.md", scope));
     }
 
     [Fact]
-    public void IsPathInReadScope_MatchesTheFloorBySegmentLikeAnyOtherRoot()
+    public void ReadAdmits_MatchesTheFloorBySegmentLikeAnyOtherRoot()
     {
-        var policy = Load(new RecordingProblemSink(), $$"""[ { "path": "{{Guides}}", "always_readable": true } ]""", Guides).PathPolicyFor("test");
+        var policy = Load(new RecordingProblemSink(), $$"""[ { "path": "{{Guides}}", "always_readable": true } ]""", Guides).Vaults["test"].PathPolicy;
 
-        Assert.False(policy.IsPathInReadScope("Resources/Vault/Guides-Old/Vault-Guide.md", Rooted("Projects/Widget")));
+        Assert.False(policy.ReadAdmits("Resources/Vault/Guides-Old/Vault-Guide.md", Rooted("Projects/Widget")));
     }
 
     [Fact]
-    public void IsPathInReadScope_WithNoPolicyIsExactlyTheScopeCheck()
+    public void ReadAdmits_WithNoPolicyIsExactlyTheScopeCheck()
     {
-        Assert.False(PathPolicy.None.IsPathInReadScope($"{Guides}/Vault-Guide.md", Rooted("Projects/Widget")));
+        Assert.False(PathPolicy.None.ReadAdmits($"{Guides}/Vault-Guide.md", Rooted("Projects/Widget")));
     }
 
     /// <summary>
@@ -269,11 +281,11 @@ public sealed class PathPolicyTests : IDisposable
     /// into a grant's own roots where a later mint could drop it.
     /// </summary>
     [Fact]
-    public void IsPathInReadScope_AttenuatedScopeStillReachesTheFloor()
+    public void ReadAdmits_AttenuatedScopeStillReachesTheFloor()
     {
-        var policy = Load(new RecordingProblemSink(), $$"""[ { "path": "{{Guides}}", "always_readable": true } ]""", Guides).PathPolicyFor("test");
+        var policy = Load(new RecordingProblemSink(), $$"""[ { "path": "{{Guides}}", "always_readable": true } ]""", Guides).Vaults["test"].PathPolicy;
 
-        Assert.True(policy.IsPathInReadScope($"{Guides}/Document-Conventions.md", Rooted("Projects/Widget/Inbox")));
+        Assert.True(policy.ReadAdmits($"{Guides}/Document-Conventions.md", Rooted("Projects/Widget/Inbox")));
     }
 }
 
@@ -296,7 +308,7 @@ public sealed class PathPolicyFixtureTests(TestVaultFixture fixture) : IClassFix
     {
         var sink = new RecordingProblemSink();
         using var doc = JsonDocument.Parse($$"""[ { "path": "{{Guides}}", "always_readable": true } ]""");
-        var policy = PathPolicyParser.Parse(doc.RootElement, vault, config.Resolve(vault).Root, "vaults.json", sink);
+        var policy = PathPolicyParser.Parse(doc.RootElement, vault, config.Vaults[vault].Root, "vaults.json", sink);
         Assert.Empty(sink.Problems);
         return policy;
     }
@@ -313,11 +325,11 @@ public sealed class PathPolicyFixtureTests(TestVaultFixture fixture) : IClassFix
     {
         var policy = GuidesPolicy(fixture.Config, "test");
 
-        Assert.True(policy.IsPathInReadScope(Guide, Narrow));
-        Assert.True(policy.IsPathInReadScope($"{Guides}/Document-Conventions.md", Narrow));
-        Assert.True(policy.IsPathInReadScope("Projects/Widget/Widget.md", Narrow));
-        Assert.False(policy.IsPathInReadScope("Resources/Gizmo-Reference.md", Narrow));
-        Assert.False(policy.IsPathInReadScope("Inbox/Note-Loose-Thought.md", Narrow));
+        Assert.True(policy.ReadAdmits(Guide, Narrow));
+        Assert.True(policy.ReadAdmits($"{Guides}/Document-Conventions.md", Narrow));
+        Assert.True(policy.ReadAdmits("Projects/Widget/Widget.md", Narrow));
+        Assert.False(policy.ReadAdmits("Resources/Gizmo-Reference.md", Narrow));
+        Assert.False(policy.ReadAdmits("Inbox/Note-Loose-Thought.md", Narrow));
     }
 
     [Fact]
@@ -329,7 +341,7 @@ public sealed class PathPolicyFixtureTests(TestVaultFixture fixture) : IClassFix
     [Fact]
     public void TheSeededGuidesResolveToRealFilesUnderTheFixtureVault()
     {
-        Assert.True(File.Exists(Path.Combine(fixture.Config.Resolve(null).Root, Guide)));
-        Assert.True(File.Exists(Path.Combine(fixture.Config.Resolve("scratch").Root, Guide)));
+        Assert.True(File.Exists(Path.Combine(fixture.Config.Vaults["test"].Root, Guide)));
+        Assert.True(File.Exists(Path.Combine(fixture.Config.Vaults["scratch"].Root, Guide)));
     }
 }

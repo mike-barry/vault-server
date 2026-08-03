@@ -3,34 +3,10 @@ using VaultShared.Configuration;
 
 namespace VaultShared.Tests;
 
-public sealed class VaultConfigTests(TestVaultFixture fixture) : IClassFixture<TestVaultFixture>
-{
-    [Fact]
-    public void Resolve_FallsBackToDefaultVault()
-    {
-        Assert.Equal("test", fixture.Config.Resolve(null).Name);
-        Assert.Equal("test", fixture.Config.Resolve("").Name);
-    }
-
-    [Fact]
-    public void Resolve_ExplicitVault()
-    {
-        Assert.Equal("scratch", fixture.Config.Resolve("scratch").Name);
-    }
-
-    [Fact]
-    public void Resolve_ReturnsCanonicalNameForCaseInsensitiveInput()
-    {
-        Assert.Equal("test", fixture.Config.Resolve("TEST").Name);
-    }
-
-    [Fact]
-    public void Resolve_UnknownVaultThrows()
-    {
-        Assert.Throws<ArgumentException>(() => fixture.Config.Resolve("nope"));
-    }
-}
-
+/// <summary>
+/// What loading vaults.json produces. Which of those vaults is usable, and what a name resolves
+/// to, is the access layer's - see <c>VaultResolutionTests</c>.
+/// </summary>
 public sealed class VaultConfigLoadTests : IDisposable
 {
     private readonly string _tempDir = Directory.CreateTempSubdirectory("vault-mcp-config-tests-").FullName;
@@ -99,27 +75,11 @@ public sealed class VaultConfigLoadTests : IDisposable
         Assert.Contains("\"b\"", problem.Detail);
         Assert.Contains("does not exist", problem.Detail);
 
-        Assert.Equal("a", config.Resolve("a").Name);
-        Assert.Single(config.Vaults);
+        Assert.Equal("a", Assert.Single(config.Vaults).Key);
         var skippedReason = Assert.Single(config.SkippedVaults).Value;
         Assert.Contains("does not exist", skippedReason);
         Assert.True(config.IsConfigured("b"));
         Assert.Contains("b", config.ConfiguredVaultNames);
-    }
-
-    [Fact]
-    public void Resolve_SkippedVaultFailsAsUnavailableDistinctFromUnknown()
-    {
-        var path = WriteConfig($$"""{ "default_vault": "a", "vaults": { "a": {{JsonVault(_tempDir)}}, "b": {{JsonVault(Path.Combine(_tempDir, "no-such-dir"))}} } }""");
-        var config = VaultConfigLoader.Load(path, new RecordingProblemSink());
-
-        var unavailable = Assert.Throws<ArgumentException>(() => config.Resolve("b"));
-        Assert.Contains("currently unavailable", unavailable.Message);
-        Assert.Contains("\"b\"", unavailable.Message);
-
-        var unknown = Assert.Throws<ArgumentException>(() => config.Resolve("nope"));
-        Assert.Contains("Unknown vault", unknown.Message);
-        Assert.DoesNotContain("currently unavailable", unknown.Message);
     }
 
     [Fact]
@@ -136,9 +96,9 @@ public sealed class VaultConfigLoadTests : IDisposable
         Assert.All(sink.Problems, p => Assert.Equal(ProblemSeverity.Degraded, p.Severity));
         Assert.Empty(config.Vaults);
         Assert.Equal(2, config.SkippedVaults.Count);
-        // The default vault is skipped, so resolving the default fails as unavailable.
-        var ex = Assert.Throws<ArgumentException>(() => config.Resolve(null));
-        Assert.Contains("currently unavailable", ex.Message);
+        // The default vault is among the skipped, which is what makes resolving it answer
+        // unavailable rather than unknown.
+        Assert.Contains(config.DefaultVault, config.SkippedVaults.Keys);
     }
 
     /// <summary>Shared assertion for every whole-file-failure case above: the load no
@@ -153,7 +113,7 @@ public sealed class VaultConfigLoadTests : IDisposable
         Assert.NotEmpty(problem.Detail);
 
         Assert.Empty(config.Vaults);
-        Assert.Throws<ArgumentException>(() => config.Resolve(null));
+        Assert.Empty(config.SkippedVaults);
     }
 
     private static string JsonVault(string path) =>

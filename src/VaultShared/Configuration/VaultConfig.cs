@@ -3,16 +3,15 @@ using VaultShared.Scope;
 namespace VaultShared.Configuration;
 
 /// <summary>
-/// The vault name-to-root-path map, built by <see cref="VaultConfigLoader"/> from vaults.json.
-/// Every vault-targeting operation resolves its vault through <see cref="Resolve"/>,
-/// falling back to <see cref="DefaultVault"/> when no vault is named.
+/// The vault name-to-entry map, built by <see cref="VaultConfigLoader"/> from vaults.json. It holds
+/// which vaults exist; the access layer decides what a usable one is and is the only thing that
+/// resolves a name against this (<c>VaultShared.Access.Vault.Resolve</c>).
 ///
 /// A configured vault whose root directory does not exist at load time is skipped
 /// per-entry rather than failing the whole file: it is excluded from the resolvable
 /// <see cref="Vaults"/> set, listed in <see cref="SkippedVaults"/> (name to reason), and
-/// recorded as a Degraded problem - the other vaults keep working. <see cref="Resolve"/>
-/// against a skipped vault fails with a distinct "configured but currently unavailable"
-/// error rather than the "unknown vault" error, so a broken root is tellable from a typo.
+/// recorded as a Degraded problem - the other vaults keep working. The two sets are what makes
+/// a broken vault tellable from a typo without reading an error message.
 /// </summary>
 public sealed class VaultConfig
 {
@@ -38,7 +37,7 @@ public sealed class VaultConfig
 
     /// <summary>
     /// Configured vaults skipped at load time (name to human-readable reason) - today only
-    /// "root directory does not exist". Never resolvable via <see cref="Resolve"/>, but still
+    /// "root directory does not exist". Never resolvable, but still
     /// part of the <em>configured</em> set (<see cref="IsConfigured"/>,
     /// <see cref="ConfiguredVaultNames"/>): a grants.json row naming a skipped vault stays
     /// valid, because the vault being broken is the vault's problem, not the grant's.
@@ -59,33 +58,4 @@ public sealed class VaultConfig
     /// is missing, unparseable, or structurally invalid.</summary>
     internal static VaultConfig Empty => new() { Vaults = NoVaults, DefaultVault = string.Empty };
 
-    /// <summary>
-    /// Resolves a vault name (or null/empty for the default) to its canonical configured
-    /// name and root path. A vault skipped at load time (see <see cref="SkippedVaults"/>)
-    /// fails with a "configured but currently unavailable" error naming the reason,
-    /// distinct from the "unknown vault" error an unconfigured name gets.
-    /// </summary>
-    public (string Name, string Root) Resolve(string? vault)
-    {
-        var name = string.IsNullOrWhiteSpace(vault) ? DefaultVault : vault;
-        if (!Vaults.TryGetValue(name, out var entry))
-        {
-            if (SkippedVaults.TryGetValue(name, out var reason))
-                throw new ArgumentException($"Vault \"{name}\" is configured but currently unavailable: {reason}.");
-            throw new ArgumentException($"Unknown vault: {name}. Configured vaults: {string.Join(", ", Vaults.Keys)}");
-        }
-        var canonical = Vaults.Keys.First(k => k.Equals(name, StringComparison.OrdinalIgnoreCase));
-        return (canonical, entry.Root);
-    }
-
-    /// <summary>
-    /// The <see cref="PathPolicy"/> declared for <paramref name="vault"/>, or
-    /// <see cref="PathPolicy.None"/> when the vault declares none or is not resolvable. Never
-    /// null, so a read caller can union the floor in unconditionally.
-    /// </summary>
-    public PathPolicy PathPolicyFor(string? vault)
-    {
-        var name = string.IsNullOrWhiteSpace(vault) ? DefaultVault : vault;
-        return Vaults.TryGetValue(name, out var entry) ? entry.PathPolicy : PathPolicy.None;
-    }
 }
