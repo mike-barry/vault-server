@@ -161,7 +161,29 @@ try {
     Check 'zero problems (real grants.json parses clean)' ($null -ne $health -and @($health.problems).Count -eq 0) "problems=$(if ($health) { @($health.problems).Count })"
 
     Write-Host 'Probe: read on vault "test" with selector token (selector -> default binding)'
-    Skip 'a read succeeds with content' 'no read tool is built yet - restore this probe with it, against its own argument surface'
+    $r = Invoke-McpCall -Tool 'read' -Arguments @{ vault = 'test'; path = 'Resources/Gizmo-Reference.md' } -Token $selectorToken
+    Check 'a read succeeds with content' ($r.StatusCode -eq 200 -and -not $r.IsError -and $r.Text) "status=$($r.StatusCode) isError=$($r.IsError) text=$($r.Text)"
+    # The content tier is plain text, not an envelope: what a model reads comes back in the shape it
+    # already consumes.
+    Check 'content is the note text rather than a wrapper' ($null -ne $r.Text -and $r.Text -like '*Gizmo*') "text=$($r.Text)"
+
+    # The one content-tier result carrying structure. Asserted here because the hash is what a later
+    # write chains on, and a read that returned one describing other bytes is unrecoverable above it.
+    Write-Host 'Probe: read with a content hash (the staleness guard the write path chains on)'
+    $r = Invoke-McpCall -Tool 'read' -Arguments @{ vault = 'test'; path = 'Resources/Gizmo-Reference.md'; part = 'body'; with_content_hash = $true } -Token $selectorToken
+    $read = if ($r.StatusCode -eq 200 -and -not $r.IsError -and $r.Text) { try { $r.Text | ConvertFrom-Json } catch { $null } } else { $null }
+    Check 'returns content and content_hash together' ($null -ne $read -and $read.content -and $read.content_hash) "text=$($r.Text)"
+    Check 'the hash is lowercase hex SHA-256 of the whole file' ($null -ne $read -and $read.content_hash -cmatch '^[0-9a-f]{64}$') "hash=$(if ($read) { $read.content_hash })"
+
+    Write-Host 'Probe: glob and grep on vault "test" (the two search surfaces)'
+    $r = Invoke-McpCall -Tool 'glob' -Arguments @{ vault = 'test'; pattern = 'Resources/**' } -Token $selectorToken
+    Check 'glob returns vault-relative note paths' ($r.StatusCode -eq 200 -and -not $r.IsError -and $r.Text -like '*Resources/Gizmo-Reference.md*') "text=$($r.Text)"
+    $r = Invoke-McpCall -Tool 'grep' -Arguments @{ vault = 'test'; pattern = 'Gizmo'; granularity = 'files' } -Token $selectorToken
+    Check 'grep returns the notes containing a match' ($r.StatusCode -eq 200 -and -not $r.IsError -and $r.Text -like '*.md*') "text=$($r.Text)"
+    # Zero matches is an empty result, never a failure - an existence check must not require a caller
+    # to catch.
+    $r = Invoke-McpCall -Tool 'grep' -Arguments @{ vault = 'test'; pattern = 'zzz-no-such-string-zzz' } -Token $selectorToken
+    Check 'no match is an empty result rather than a failure' ($r.StatusCode -eq 200 -and -not $r.IsError -and -not $r.Text) "isError=$($r.IsError) text=$($r.Text)"
 
     # The middleware's vault gate matches the vault argument's property name
     # case-insensitively. The schema now spells it "vault" (param() blocks are snake_case),

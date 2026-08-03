@@ -138,10 +138,17 @@ builder.Services.AddSingleton(elevationRequestTool);
 
 // The registry takes declarations, so a tool with no declaration has nothing to register and a new
 // one is a `new` plus a line here. The order is the order tools/list reports them in.
+//
+// The vault tools hold nothing: their vault, grant and session all arrive on the call, which is what
+// lets one instance answer every caller. The three above hold server state instead, which is why
+// they are constructed with it.
 var toolRegistry = new ToolRegistry()
     .Add(MintTokenTool.Declaration, mintTokenTool)
     .Add(HealthCheckTool.Declaration, healthCheckTool)
-    .Add(ElevationRequestTool.Declaration, elevationRequestTool);
+    .Add(ElevationRequestTool.Declaration, elevationRequestTool)
+    .Add(ReadTool.Declaration, new ReadTool())
+    .Add(GlobTool.Declaration, new GlobTool())
+    .Add(GrepTool.Declaration, new GrepTool());
 builder.Services.AddSingleton(toolRegistry);
 
 // The shared execute path. The inherited-lock signal is a delegate rather than an ILogger because

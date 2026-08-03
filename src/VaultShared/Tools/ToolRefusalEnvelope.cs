@@ -94,6 +94,76 @@ public static class ToolRefusalEnvelope
     }
 
     /// <summary>
+    /// The single site that maps the layer's answer to a caller-named path onto a code. The layer
+    /// distinguishes the three refusals structurally and says nothing about what they are called;
+    /// this is where they are named, once, so no tool re-decides that a dot segment is
+    /// <see cref="ToolCodes.PathExcluded"/> rather than a scope denial.
+    ///
+    /// Each payload is the caller's own text and nothing else. <see cref="ToolCodes.OutOfScope"/>
+    /// carries none at all: its only remedy is elevation, so there is no corrected call to lift a
+    /// value into.
+    /// </summary>
+    /// <exception cref="ArgumentException"><paramref name="resolution"/> was admitted, which is not
+    /// a refusal to translate.</exception>
+    public static ToolRefusal Translate<TPath>(PathResolution<TPath> resolution) where TPath : class =>
+        resolution switch
+        {
+            PathResolution<TPath>.Malformed malformed => new ToolRefusal(
+                ToolCodes.InvalidPath,
+                $"\"{malformed.Path}\" is not a usable vault-relative path: {malformed.Reason}"),
+
+            PathResolution<TPath>.Excluded excluded => new ToolRefusal(
+                ToolCodes.PathExcluded,
+                $"\"{excluded.Path}\" lies under a dot-directory, which this tooling does not own."),
+
+            PathResolution<TPath>.OutOfScope outOfScope => new ToolRefusal(
+                ToolCodes.OutOfScope,
+                $"\"{outOfScope.Path}\" is outside this grant's scope."),
+
+            _ => throw new ArgumentException("An admitted path is not a refusal.", nameof(resolution)),
+        };
+
+    /// <summary>
+    /// The single site that maps an enumeration or content-search failure onto a code. Two of the
+    /// layer's four outcomes are failures the catalogue names apart, and the split is the one the
+    /// specs require to survive: a caller's own malformed pattern is
+    /// <see cref="ToolCodes.InvalidPattern"/> and needs the call to change, everything else is
+    /// <see cref="ToolCodes.SearchFailed"/> and the identical call may be retried.
+    ///
+    /// <b>A file the search could not read is a search failure, not a read failure.</b>
+    /// <see cref="ToolCodes.ReadFailed"/> names a path in its payload, and the file that failed is
+    /// one the engine met while walking the whole vault - before scope filtering - so naming it
+    /// would disclose a path the caller may not reach through a surface that otherwise filters
+    /// silently. The engine's diagnostic rides <c>detail</c> with that entry scrubbed out of it,
+    /// and both failures are retryable in the same way.
+    /// </summary>
+    /// <exception cref="ArgumentException"><paramref name="outcome"/> is a result, not a
+    /// failure.</exception>
+    public static ToolRefusal Translate<TResult>(SearchOutcome<TResult> outcome) =>
+        outcome switch
+        {
+            SearchOutcome<TResult>.BadPattern bad => new ToolRefusal(
+                ToolCodes.InvalidPattern,
+                $"The search engine refused the pattern: {bad.Reason}"),
+
+            // The diagnostic is scrubbed of the entry it names before it rides detail: the file the
+            // engine met is found while walking the whole vault, before scope filtering, so carrying
+            // its path would disclose one the caller may not reach through a surface that otherwise
+            // filters silently.
+            SearchOutcome<TResult>.Unreadable unreadable => new ToolRefusal(
+                ToolCodes.SearchFailed,
+                "The search failed because a file it had to read could not be read.",
+                new { detail = unreadable.Reason.Replace(unreadable.Path, "<unreadable file>", StringComparison.OrdinalIgnoreCase) }),
+
+            SearchOutcome<TResult>.Failed failed => new ToolRefusal(
+                ToolCodes.SearchFailed,
+                "The search engine failed.",
+                new { detail = failed.Reason }),
+
+            _ => throw new ArgumentException("A result is not a refusal.", nameof(outcome)),
+        };
+
+    /// <summary>
     /// The mid-operation key assertion's denial, which the layer raises in its own vocabulary. It
     /// carries no payload: the class the operation turned out to require is named in the message,
     /// and a caller's remedy is elevation rather than a corrected call.

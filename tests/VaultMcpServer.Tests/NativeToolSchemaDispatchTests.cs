@@ -69,6 +69,9 @@ public sealed class NativeToolSchemaDispatchTests(NativeToolSchemaDispatchTests.
         { "mint_token", NativeToolSchemas.MintToken },
         { "request_elevation", NativeToolSchemas.RequestElevation },
         { "health_check", NativeToolSchemas.HealthCheck },
+        { "read", NativeToolSchemas.Read },
+        { "glob", NativeToolSchemas.Glob },
+        { "grep", NativeToolSchemas.Grep },
     };
 
     [Theory]
@@ -171,6 +174,9 @@ public sealed class NativeToolSchemaDispatchTests(NativeToolSchemaDispatchTests.
     public static readonly Dictionary<string, (string Token, string Arguments)> ValidCalls = new()
     {
         ["mint_token"] = (Fixture.AdminToken, """{"scope_roots":["personal/Projects/Foo"],"op_class":["content:read"],"ttl":5}"""),
+        ["read"] = (Fixture.AdminToken, """{"path":"Note.md","vault":"personal"}"""),
+        ["glob"] = (Fixture.AdminToken, """{"pattern":"*.md","vault":"personal"}"""),
+        ["grep"] = (Fixture.AdminToken, """{"pattern":"widget","vault":"personal"}"""),
     };
 
     /// <summary>

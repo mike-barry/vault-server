@@ -77,6 +77,83 @@ public static class NativeToolSchemas
         { "type": "object", "properties": {} }
         """;
 
+    // The vault tools were never hand-authored, so their pins are the contract itself rather than a
+    // record of a conversion. What they guard is the same thing: the argument record is the only
+    // statement of the surface, and a member renamed, reordered, made required, or dropped from an
+    // enumeration is a change every caller sees.
+
+    public const string Read = """
+        {
+          "type": "object",
+          "properties": {
+            "path": {
+              "type": "string",
+              "description": "Vault-relative path of the note, carrying the \".md\" extension. The extension is never inferred."
+            },
+            "vault": {
+              "type": "string",
+              "description": "The vault to read in. Optional; the configured default vault is used when it is absent."
+            },
+            "part": {
+              "type": "string",
+              "enum": [ "all", "frontmatter", "body" ],
+              "default": "all",
+              "description": "Which facet to return: the whole note, the frontmatter block's inner text without its fences, or the body. Defaults to the whole note."
+            },
+            "with_content_hash": {
+              "type": "boolean",
+              "default": false,
+              "description": "Whether to return the whole file's content hash alongside the content, for a later write to guard against a change it never saw. Defaults to false."
+            }
+          },
+          "required": [ "path" ]
+        }
+        """;
+
+    public const string Glob = """
+        {
+          "type": "object",
+          "properties": {
+            "pattern": {
+              "type": "string",
+              "description": "Glob pattern, matched case-insensitively, with \"**\" for recursive descent. A pattern containing no separator matches a path's final segment at any depth; one containing a separator is anchored at the vault root."
+            },
+            "vault": {
+              "type": "string",
+              "description": "The vault to search in. Optional; the configured default vault is used when it is absent."
+            }
+          },
+          "required": [ "pattern" ]
+        }
+        """;
+
+    public const string Grep = """
+        {
+          "type": "object",
+          "properties": {
+            "pattern": {
+              "type": "string",
+              "description": "Regular expression, in the search engine's syntax, matched against note content."
+            },
+            "vault": {
+              "type": "string",
+              "description": "The vault to search in. Optional; the configured default vault is used when it is absent."
+            },
+            "granularity": {
+              "type": "string",
+              "enum": [ "lines", "files", "counts" ],
+              "default": "lines",
+              "description": "How much of the answer to return: every matching line, the notes containing a match, or a match count per note. Defaults to lines."
+            },
+            "path_glob": {
+              "type": "string",
+              "description": "Optional glob narrowing which notes are searched, matched the same way glob's pattern is."
+            }
+          },
+          "required": [ "pattern" ]
+        }
+        """;
+
     /// <summary>Compact re-serialization, so whitespace and <c>\u</c>-escaping differences between a
     /// literal here and a serializer's output do not read as a schema difference. Member order is
     /// deliberately <em>not</em> normalized - the derived schema follows constructor-parameter order,
@@ -107,12 +184,18 @@ public sealed class NativeToolSchemaTests(TestVaultFixture fixture) : IClassFixt
         { "mint_token", NativeToolSchemas.MintToken },
         { "request_elevation", NativeToolSchemas.RequestElevation },
         { "health_check", NativeToolSchemas.HealthCheck },
+        { "read", NativeToolSchemas.Read },
+        { "glob", NativeToolSchemas.Glob },
+        { "grep", NativeToolSchemas.Grep },
     };
 
     private static JsonElement SchemaOf(string toolName) => NativeToolArguments.SchemaFor(toolName switch
     {
         "mint_token" => MintTokenTool.Declaration.Arguments,
         "request_elevation" => ElevationRequestTool.Declaration.Arguments,
+        "read" => ReadTool.Declaration.Arguments,
+        "glob" => GlobTool.Declaration.Arguments,
+        "grep" => GrepTool.Declaration.Arguments,
         _ => HealthCheckTool.Declaration.Arguments,
     });
 
@@ -138,6 +221,8 @@ public sealed class NativeToolSchemaTests(TestVaultFixture fixture) : IClassFixt
     [Theory]
     [InlineData("mint_token", "scope_roots", "op_class", "ttl")]
     [InlineData("request_elevation", "grant", "scope_roots", "op_class", "ttl", "session_context")]
+    [InlineData("read", "path", "vault", "part", "with_content_hash")]
+    [InlineData("grep", "pattern", "vault", "granularity", "path_glob")]
     public void InputSchema_AdvertisesTheSnakeCaseWireNames(string toolName, params string[] expected)
     {
         var advertised = SchemaOf(toolName).GetProperty("properties").EnumerateObject().Select(p => p.Name).ToArray();
@@ -152,6 +237,9 @@ public sealed class NativeToolSchemaTests(TestVaultFixture fixture) : IClassFixt
     [Theory]
     [InlineData("mint_token")]
     [InlineData("request_elevation")]
+    // glob, not read or grep: those two declare real non-null defaults, which are not the leak this
+    // guards, and the pinned literals above already state them exactly.
+    [InlineData("glob")]
     public void InputSchema_CarriesNoNullUnionsOrNullDefaults(string toolName)
     {
         var text = NativeToolSchemas.Canonical(SchemaOf(toolName));

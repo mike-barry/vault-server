@@ -192,21 +192,29 @@ public sealed class BearerGrantMiddlewareTests : IClassFixture<BearerGrantMiddle
     }
 
     /// <summary>
-    /// The gate's admitting side. Unlike the refusals above, this one needs a tool that exists:
-    /// with none, the dispatcher answers "unknown tool" as a 200 tool error, so not-401/not-403
-    /// holds for any name at all and the assertion cannot tell an admitted call from a missing
-    /// tool. Restore it against the first compiled tool that takes a vault argument.
+    /// The gate's admitting side, which needs a tool that exists: against an unknown name the
+    /// dispatcher answers a 200 tool error, so not-401/not-403 would hold for any name at all and
+    /// the assertion could not tell an admitted call from a missing tool. <c>read</c> takes a vault
+    /// argument and this grant is scoped to <c>personal</c>, so the call reaches the tool - which
+    /// then answers its own <c>path_not_found</c>, over HTTP 200.
     /// </summary>
-    [Fact(Skip = "Needs a compiled tool taking a vault argument; with none, this passes for any tool name.")]
+    [Fact]
     public async Task ToolCallNamingInScopeVault_IsNotRejectedByTheGate()
     {
         using var client = _fixture.CreateClient();
         client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", Fixture.ReadOnlyToken);
-        var body = """{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"some_tool","arguments":{"vault":"personal","path":"a.md"}}}""";
+        // The refusal cases above stop in the middleware, so they never need the transport to accept
+        // the request. This one has to reach the tool, and the MCP endpoint answers 406 without both
+        // of these.
+        client.DefaultRequestHeaders.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
+        client.DefaultRequestHeaders.Accept.Add(new MediaTypeWithQualityHeaderValue("text/event-stream"));
+        var body = """{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"read","arguments":{"vault":"personal","path":"a.md"}}}""";
         using var response = await client.PostAsync("/mcp", JsonBody(body));
 
         Assert.NotEqual(HttpStatusCode.Unauthorized, response.StatusCode);
         Assert.NotEqual(HttpStatusCode.Forbidden, response.StatusCode);
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        Assert.Contains("path_not_found", await response.Content.ReadAsStringAsync(), StringComparison.Ordinal);
     }
 
     private static StringContent JsonBody(string json) => new(json, Encoding.UTF8, "application/json");

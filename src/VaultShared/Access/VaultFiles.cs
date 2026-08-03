@@ -1,3 +1,4 @@
+using System.Security.Cryptography;
 using System.Text;
 
 namespace VaultShared.Access;
@@ -28,13 +29,18 @@ public static class VaultFiles
     /// Reads a note's content, classifying a failure from the failure itself.
     /// <see cref="ReadOutcome.NotFound"/> covers a missing note and a missing folder along the way;
     /// everything else the platform raises is <see cref="ReadOutcome.Failed"/>.
+    ///
+    /// The bytes are taken once and both answers derive from them: the decoded text, and the digest
+    /// the staleness guard is carried by. Hashing from a second read would describe bytes the
+    /// returned text may no longer be a decoding of.
     /// </summary>
     public static ReadOutcome Read(ReadPath path)
     {
         var target = path.Path;
         try
         {
-            return new ReadOutcome.Content(File.ReadAllText(target.Absolute, Encoding.UTF8));
+            var bytes = File.ReadAllBytes(target.Absolute);
+            return new ReadOutcome.Content(Decode(bytes), Digest(bytes));
         }
         catch (Exception ex) when (ex is FileNotFoundException or DirectoryNotFoundException)
         {
@@ -246,6 +252,25 @@ public static class VaultFiles
             return new RemovalOutcome.Failed(target.Value, Describe(ex, target));
         }
     }
+
+    /// <summary>
+    /// The reading half of the composing seam: UTF-8, with a byte-order mark recognized and dropped
+    /// rather than surfacing as a leading character. A mark naming another encoding is honoured, so
+    /// a note the editor wrote as UTF-16 still decodes to its own text instead of to mojibake.
+    /// </summary>
+    private static string Decode(byte[] bytes)
+    {
+        using var stream = new MemoryStream(bytes, writable: false);
+        using var reader = new StreamReader(stream, Encoding.UTF8, detectEncodingFromByteOrderMarks: true);
+        return reader.ReadToEnd();
+    }
+
+    /// <summary>
+    /// The staleness guard's value: SHA-256 of the bytes as stored, lowercase hex. Over the stored
+    /// bytes rather than the decoded or composed text, which is what makes a hash from a read and a
+    /// hash from a write the same value and lets a chain run in either direction.
+    /// </summary>
+    private static string Digest(byte[] bytes) => Convert.ToHexStringLower(SHA256.HashData(bytes));
 
     /// <summary>
     /// The other half of the composing seam: LF line terminators. Notes are stored with them, and

@@ -46,6 +46,10 @@ public static class NativeToolArguments
         // default is what the natives' plain records need.
         TypeInfoResolver = new DefaultJsonTypeInfoResolver(),
         PropertyNamingPolicy = JsonNamingPolicy.SnakeCaseLower,
+        // An enumerated argument binds by its wire spelling and never refuses here, so an
+        // unrecognized value reaches the tool's own Validate rather than escaping as a binder
+        // failure - see EnumArgument.
+        Converters = { EnumArgument.Converter },
     };
 
     private static readonly JsonSchemaExporterOptions ExporterOptions = new() { TransformSchemaNode = Transform };
@@ -142,12 +146,19 @@ public static class NativeToolArguments
     /// noise where the real default is a value the tool substitutes itself (<c>ttl</c>'s 60).</item>
     /// <item>It does not read <see cref="DescriptionAttribute"/> at all, so a member's
     /// <c>description</c> - the part of the schema a model actually reads - would vanish.</item>
+    /// <item>It emits an unconstrained node for a type behind a custom converter, and never calls
+    /// this callback for one. <see cref="EnumArgument"/> is that converter on every enumerated
+    /// argument, so an enum-valued member's permitted values - the whole of what a model needs in
+    /// order to spell one - are restated by <see cref="Enumerations"/> from the owning object's node,
+    /// which does reach here.</item>
     /// </list>
     /// </summary>
     private static JsonNode Transform(JsonSchemaExporterContext context, JsonNode schema)
     {
         if (schema is not JsonObject node)
             return schema;
+
+        Enumerations(context, node);
 
         if (node["type"] is JsonArray types && types.Count == 2 && types.Any(t => t?.GetValue<string>() == "null"))
             node["type"] = types.First(t => t?.GetValue<string>() != "null")!.GetValue<string>();
@@ -163,5 +174,42 @@ public static class NativeToolArguments
             node["description"] = description.Description;
 
         return node;
+    }
+
+    /// <summary>
+    /// Restates every enum-valued member of <paramref name="node"/>'s own type, which the exporter
+    /// left unconstrained and never offered to <see cref="Transform"/>. Done from the owning object's
+    /// node because that is the innermost node the callback does reach, and driven off
+    /// <see cref="JsonTypeInfo.Properties"/> so the wire name here is the one the binder matches on
+    /// rather than a second rendering of it.
+    ///
+    /// The values are <see cref="EnumArgument"/>'s own wire spellings, so what is advertised and what
+    /// binds cannot disagree. A member's declared default and description are carried across, since
+    /// nothing else will put them back.
+    /// </summary>
+    private static void Enumerations(JsonSchemaExporterContext context, JsonObject node)
+    {
+        if (node["properties"] is not JsonObject properties)
+            return;
+
+        foreach (var property in context.TypeInfo.Properties)
+        {
+            if ((Nullable.GetUnderlyingType(property.PropertyType) ?? property.PropertyType) is not { IsEnum: true } enumeration)
+                continue;
+            if (!properties.TryGetPropertyValue(property.Name, out var exported))
+                continue;
+
+            var replacement = new JsonObject
+            {
+                ["type"] = "string",
+                ["enum"] = new JsonArray([.. EnumArgument.WireNames(enumeration).Select(name => (JsonNode)JsonValue.Create(name))]),
+            };
+            if (exported is JsonObject slot && slot["default"] is { } declared)
+                replacement["default"] = declared.DeepClone();
+            if (property.AttributeProvider?.GetCustomAttributes(typeof(DescriptionAttribute), inherit: true) is [DescriptionAttribute described, ..])
+                replacement["description"] = described.Description;
+
+            properties[property.Name] = replacement;
+        }
     }
 }

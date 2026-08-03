@@ -84,6 +84,17 @@ public sealed record ToolCall(IToolArguments Arguments, VaultAccess? Vault, Gran
     /// <summary>The bound arguments as the record the declaration named. The execute path binds onto
     /// exactly that type, so the cast cannot miss.</summary>
     public T ArgumentsAs<T>() where T : IToolArguments => (T)Arguments;
+
+    /// <summary>
+    /// The access object, for a tool whose arguments implement <see cref="IVaultArguments"/>. The
+    /// execute path constructs one for exactly those, so the absence a tool would otherwise have to
+    /// handle is a wiring defect rather than a call to refuse.
+    /// </summary>
+    /// <exception cref="InvalidOperationException">The tool was registered with an argument record
+    /// that names no vault.</exception>
+    public VaultAccess RequireVault(string toolName) =>
+        Vault ?? throw new InvalidOperationException(
+            $"Tool \"{toolName}\" operates in a vault, but its arguments do not implement {nameof(IVaultArguments)}.");
 }
 
 /// <summary>

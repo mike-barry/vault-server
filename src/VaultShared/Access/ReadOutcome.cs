@@ -14,8 +14,18 @@ public abstract record ReadOutcome
 {
     private ReadOutcome() { }
 
-    /// <summary>The note's text, decoded as UTF-8 with any byte-order mark dropped.</summary>
-    public sealed record Content(string Text) : ReadOutcome;
+    /// <summary>
+    /// The note's text, decoded as UTF-8 with any byte-order mark dropped, and the digest of the
+    /// bytes it was decoded from.
+    /// </summary>
+    /// <param name="ContentHash">
+    /// SHA-256 of the file's bytes as stored, lowercase hex. It comes from this read rather than
+    /// from a second one, so it describes exactly the bytes <paramref name="Text"/> was decoded
+    /// from - a later read would hash bytes the returned text may no longer describe. It covers the
+    /// whole file whatever a caller then takes out of the text, which is what stops a partial read
+    /// from authorizing a write.
+    /// </param>
+    public sealed record Content(string Text, string ContentHash) : ReadOutcome;
 
     /// <summary>Nothing at that path, or nothing at a folder along the way.</summary>
     public sealed record NotFound(string Path) : ReadOutcome;
