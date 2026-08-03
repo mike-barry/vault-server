@@ -64,6 +64,7 @@ The phase opens with two steps that touch code rather than documents. They are g
   - Input: `VaultFiles.Move` relocates a file; a folder source answers `SourceMissing`. The folder note's rename the tool spec composes needs a decision here - a second primitive, or composition over the file move - before the `move` tool is built
 - [ ] Build the MCP front-end as a projection of the tool declarations
 - [ ] Build the CLI front-end from the same declarations
+  - Input: `health_check` reads `ServerHealthState` from `VaultMcpServer`, so it cannot project to the CLI as it stands. This step decides the seam - move the type, or give the declaration a health source the CLI can supply
 - [ ] Sweep the code for comments narrating the build rather than describing the code. Every comment should read as a statement about the current design, with the reasoning kept and the chronology dropped. Rewrite in place; do not simply delete, since most of these carry a real constraint wrapped in a stale story
   - Distinct from the prework sweep, which removed pointers to the deleted PowerShell implementation and to documents this repo cannot reach. This one is about the *history* narrated in comments that are otherwise accurate
   - Two sources feed it. The retained code carries the previous build's work-sequencing - `a later batch`, `this batch`, `the new check this batch adds`, `the health-state redesign exists to eliminate` - which describes an order of work nobody can now observe. This build adds its own each time something moves
