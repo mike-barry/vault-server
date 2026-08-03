@@ -37,21 +37,21 @@ internal static class VaultSearch
     /// come through here; what separates them is the predicate.
     /// </summary>
     internal static SearchOutcome<VaultPath> Enumerate(
-        Vault vault, SearchEngine engine, string? pattern, Func<VaultPath, bool> admit)
+        Vault vault, SearchEngine engine, string? pattern, bool pruneDotEntries, Func<VaultPath, bool> admit)
     {
-        var run = engine.Run(vault.Root, [.. Always, .. Glob(pattern), "--files", "--null", .. Here]);
+        var run = engine.Run(vault.Root, [.. Always, .. Glob(pattern, pruneDotEntries), "--files", "--null", .. Here]);
         return Read(run, vault, output => Paths(vault, Split(output, trailing: false), admit));
     }
 
     /// <summary>Matching lines with their locations: the richest granularity.</summary>
     internal static SearchOutcome<MatchLine> Lines(
-        Vault vault, SearchEngine engine, string regex, string? pattern, Func<VaultPath, bool> admit)
+        Vault vault, SearchEngine engine, string regex, string? pattern, bool pruneDotEntries, Func<VaultPath, bool> admit)
     {
         // --json is the one output shape that carries the path, the line number and the line's text
         // as separate fields, so none of them has to be recovered from a rendering that a path
         // holding a colon would make ambiguous. Its summary event doubles as the completion marker
         // Read below turns on.
-        var run = engine.Run(vault.Root, [.. Always, .. Glob(pattern), "--json", "--regexp", regex, .. Here]);
+        var run = engine.Run(vault.Root, [.. Always, .. Glob(pattern, pruneDotEntries), "--json", "--regexp", regex, .. Here]);
         return Read(run, vault, output => Matches(vault, output, admit));
     }
 
@@ -61,19 +61,19 @@ internal static class VaultSearch
     /// on a whole-vault search that difference is the whole cost of the operation.
     /// </summary>
     internal static SearchOutcome<VaultPath> Containing(
-        Vault vault, SearchEngine engine, string regex, string? pattern, Func<VaultPath, bool> admit)
+        Vault vault, SearchEngine engine, string regex, string? pattern, bool pruneDotEntries, Func<VaultPath, bool> admit)
     {
         var run = engine.Run(
-            vault.Root, [.. Always, .. Glob(pattern), "--files-with-matches", "--null", "--stats", "--regexp", regex, .. Here]);
+            vault.Root, [.. Always, .. Glob(pattern, pruneDotEntries), "--files-with-matches", "--null", "--stats", "--regexp", regex, .. Here]);
         return Read(run, vault, output => Paths(vault, Split(output, trailing: true), admit));
     }
 
     /// <summary>How many lines matched per file, again as its own invocation for the same reason.</summary>
     internal static SearchOutcome<MatchCount> Counts(
-        Vault vault, SearchEngine engine, string regex, string? pattern, Func<VaultPath, bool> admit)
+        Vault vault, SearchEngine engine, string regex, string? pattern, bool pruneDotEntries, Func<VaultPath, bool> admit)
     {
         var run = engine.Run(
-            vault.Root, [.. Always, .. Glob(pattern), "--count", "--null", "--stats", "--regexp", regex, .. Here]);
+            vault.Root, [.. Always, .. Glob(pattern, pruneDotEntries), "--count", "--null", "--stats", "--regexp", regex, .. Here]);
         return Read(run, vault, output => Counted(vault, output, admit));
     }
 
@@ -82,9 +82,20 @@ internal static class VaultSearch
     /// <c>**</c> and case-insensitivity, and whose anchoring is the required one: a pattern with no
     /// separator matches a path's final segment at any depth, one with a separator is anchored at
     /// the vault root.
+    ///
+    /// With dot entries off, the dot rule also prunes the walk: a negative glob intersects where a
+    /// positive one unions, and a directory it excludes is never entered, so a default search does
+    /// not read the object store under <c>.git</c> and cannot fail on a file in there that a
+    /// concurrent git operation holds locked. It is stated after the caller's own glob because the
+    /// engine gives the last matching glob precedence, and no caller pattern may reach past the dot
+    /// rule while the switch is off. The caller's predicate keeps the rule as well, so nothing
+    /// depends on the engine's glob semantics alone.
     /// </summary>
-    private static string[] Glob(string? pattern) =>
-        string.IsNullOrEmpty(pattern) ? [] : ["--iglob", pattern];
+    private static string[] Glob(string? pattern, bool pruneDotEntries)
+    {
+        string[] caller = string.IsNullOrEmpty(pattern) ? [] : ["--iglob", pattern];
+        return pruneDotEntries ? [.. caller, "--iglob", "!.*"] : caller;
+    }
 
     /// <summary>
     /// The four outcomes, decided from the run rather than from message text wherever it can be.

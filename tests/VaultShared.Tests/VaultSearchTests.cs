@@ -168,6 +168,21 @@ public sealed class VaultSearchTests : IDisposable
     }
 
     [Fact]
+    public void AnUnreadableFileUnderADotDirectoryDoesNotFailADefaultSearch()
+    {
+        // With dot entries off the walk is pruned at the engine, so a file a concurrent git
+        // operation holds locked is never read by a search that was never going to include it.
+        // Asked for dot entries, the same search reads the file and fails whole.
+        using var held = _vault.Unreadable(".obsidian/Deep.md");
+
+        Assert.Equal(
+            ["Notes/Alpha.md", "Notes/Sub/Nested.md", "Projects/Widget/Widget.md"],
+            Files(_vault.Access.SearchFiles("needle")));
+
+        Assert.IsType<SearchOutcome<VaultPath>.Unreadable>(_vault.Access.SearchFiles("needle", includeDotEntries: true));
+    }
+
+    [Fact]
     public void AnEngineThatCannotBeRunIsAnOperationalFailure()
     {
         using var missing = Layout(new ScratchVault(engine: new SearchEngine(Path.Combine(_vault.Root, "no-such-engine"))));

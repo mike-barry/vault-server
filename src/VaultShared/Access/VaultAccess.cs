@@ -98,7 +98,7 @@ public sealed class VaultAccess
     /// what keeps a caller off the vault copies living under a dot-directory.
     /// </param>
     public SearchOutcome<VaultPath> EnumerateNotes(string? pattern = null, bool includeDotEntries = false) =>
-        VaultSearch.Enumerate(Vault, _engine, pattern, Filter(includeDotEntries, notesOnly: true));
+        VaultSearch.Enumerate(Vault, _engine, pattern, !includeDotEntries, Filter(includeDotEntries, notesOnly: true));
 
     /// <summary>
     /// Every file in the vault whatever its extension, or those matching <paramref name="pattern"/>.
@@ -107,7 +107,7 @@ public sealed class VaultAccess
     /// </summary>
     /// <inheritdoc cref="EnumerateNotes" path="/param"/>
     public SearchOutcome<VaultPath> EnumerateFiles(string? pattern = null, bool includeDotEntries = false) =>
-        VaultSearch.Enumerate(Vault, _engine, pattern, Filter(includeDotEntries, notesOnly: false));
+        VaultSearch.Enumerate(Vault, _engine, pattern, !includeDotEntries, Filter(includeDotEntries, notesOnly: false));
 
     /// <summary>
     /// Regex search over note content, answering each matching line with its location. The richest
@@ -117,7 +117,7 @@ public sealed class VaultAccess
     /// <param name="pattern">An optional glob narrowing which notes are searched, as in <see cref="EnumerateNotes"/>.</param>
     /// <param name="includeDotEntries">As in <see cref="EnumerateNotes"/>, and off by default here too.</param>
     public SearchOutcome<MatchLine> SearchLines(string regex, string? pattern = null, bool includeDotEntries = false) =>
-        VaultSearch.Lines(Vault, _engine, regex, pattern, Filter(includeDotEntries, notesOnly: true));
+        VaultSearch.Lines(Vault, _engine, regex, pattern, !includeDotEntries, Filter(includeDotEntries, notesOnly: true));
 
     /// <summary>
     /// The set of notes containing a match. Its own capability rather than <see cref="SearchLines"/>
@@ -126,7 +126,7 @@ public sealed class VaultAccess
     /// </summary>
     /// <inheritdoc cref="SearchLines" path="/param"/>
     public SearchOutcome<VaultPath> SearchFiles(string regex, string? pattern = null, bool includeDotEntries = false) =>
-        VaultSearch.Containing(Vault, _engine, regex, pattern, Filter(includeDotEntries, notesOnly: true));
+        VaultSearch.Containing(Vault, _engine, regex, pattern, !includeDotEntries, Filter(includeDotEntries, notesOnly: true));
 
     /// <summary>
     /// How many lines matched in each note that has a match, for the same reason
@@ -134,19 +134,22 @@ public sealed class VaultAccess
     /// </summary>
     /// <inheritdoc cref="SearchLines" path="/param"/>
     public SearchOutcome<MatchCount> SearchCounts(string regex, string? pattern = null, bool includeDotEntries = false) =>
-        VaultSearch.Counts(Vault, _engine, regex, pattern, Filter(includeDotEntries, notesOnly: true));
+        VaultSearch.Counts(Vault, _engine, regex, pattern, !includeDotEntries, Filter(includeDotEntries, notesOnly: true));
 
     /// <summary>
     /// Scope, the dot rule, and note enumeration's markdown restriction, as one predicate over what
     /// the engine returned.
     ///
-    /// None of the three may be expressed as a second <c>--iglob</c> or appended to the caller's
-    /// own, and the reason is that globs union rather than intersect. A second positive glob widens
-    /// the answer instead of narrowing it, and appending is worse than useless: <c>notes/**</c> with
-    /// <c>.md</c> appended is <c>notes/**.md</c>, which the engine accepts and degrades to a single
-    /// <c>*</c>, so every nested note silently disappears from the result. A positive glob also
-    /// overrides <c>--type</c>, so the markdown restriction cannot ride that flag either whenever a
-    /// caller supplied a pattern - which is why it never does.
+    /// Neither scope nor the markdown restriction may be expressed as a second <c>--iglob</c> or
+    /// appended to the caller's own, and the reason is that positive globs union rather than
+    /// intersect. A second positive glob widens the answer instead of narrowing it, and appending
+    /// is worse than useless: <c>notes/**</c> with <c>.md</c> appended is <c>notes/**.md</c>, which
+    /// the engine accepts and degrades to a single <c>*</c>, so every nested note silently
+    /// disappears from the result. A positive glob also overrides <c>--type</c>, so the markdown
+    /// restriction cannot ride that flag either whenever a caller supplied a pattern - which is why
+    /// it never does. The dot rule is the exception: a negative glob intersects, so with dot
+    /// entries off it also prunes the engine's walk, and this predicate keeps the rule beside that
+    /// pruning rather than depending on it.
     ///
     /// The markdown test is case-insensitive: names already on disk are not checked against the name
     /// grammar, so a note spelled <c>.MD</c> stays enumerable, searchable and movable.
@@ -156,6 +159,18 @@ public sealed class VaultAccess
             (includeDotEntries || !path.HasDotSegment)
             && (!notesOnly || path.Value.EndsWith(".md", StringComparison.OrdinalIgnoreCase))
             && Admits(path);
+
+    /// <summary>
+    /// The vault-wide pass: unscoped enumerate, read and write, on an object of their own. Named
+    /// for what it does rather than for what it is used for, because the point of the seam is that
+    /// bypassing scope reads as a deliberate act at the call site and that every site doing it is
+    /// one grep away.
+    ///
+    /// Wikilink maintenance is the one pass scope does not bound - see <see cref="VaultWidePass"/>
+    /// for why. The operation's own paths are still resolved and scope-checked through the members
+    /// above.
+    /// </summary>
+    public VaultWidePass BypassingScope() => new(Vault, _engine);
 
     /// <summary>
     /// Asserts a capability key mid-operation, once the outcome is known. The floor for what was
