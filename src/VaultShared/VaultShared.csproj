@@ -6,4 +6,10 @@
     <Nullable>enable</Nullable>
   </PropertyGroup>
 
+  <ItemGroup>
+    <!-- CliWrap invokes ripgrep, which backs enumeration and content search. Both are chosen
+         dependencies rather than candidates. -->
+    <PackageReference Include="CliWrap" Version="3.10.4" />
+  </ItemGroup>
+
 </Project>

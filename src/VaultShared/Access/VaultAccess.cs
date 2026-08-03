@@ -12,22 +12,34 @@ namespace VaultShared.Access;
 /// and the strongest defence is that no such argument exists. It takes the grant rather than a bare
 /// scope because the layer owes authority two things: path admission from the grant's scope in this
 /// vault, and the mid-operation key assertion from the same grant's op classes.
+///
+/// Both enumeration surfaces and all three search granularities are operations here rather than
+/// free functions, so their results are filtered against the effective read scope by construction
+/// rather than by each caller remembering to. Filtering is silent: a list returns the in-scope
+/// subset without saying what was withheld.
 /// </summary>
 public sealed class VaultAccess
 {
     private readonly Grant _grant;
     private readonly VaultScope _grantScope;
     private readonly VaultScope _readScope;
+    private readonly SearchEngine _engine;
 
     /// <param name="grant">
     /// The caller's grant. It must carry a scope entry for <paramref name="vault"/>; a grant that
     /// does not is an upstream defect and throws rather than being interpreted as permission.
     /// </param>
-    public VaultAccess(Vault vault, Grant grant)
+    /// <param name="engine">
+    /// Where the search engine is, handed in like the grant and never read from ambient state.
+    /// Omitted means the engine as <c>PATH</c> resolves it, which is what a host configuring no
+    /// explicit location falls back to.
+    /// </param>
+    public VaultAccess(Vault vault, Grant grant, SearchEngine? engine = null)
     {
         Vault = vault;
         _grant = grant;
         _grantScope = grant.ScopeIn(vault.Name);
+        _engine = engine ?? SearchEngine.OnPath;
 
         // The effective read scope is computed once, here, rather than per candidate: a whole-vault
         // enumeration filters against one scope instead of rebuilding the union for every path it
@@ -71,6 +83,79 @@ public sealed class VaultAccess
 
         return _readScope.Admits(candidate.Value);
     }
+
+    /// <summary>
+    /// Every markdown file in the vault, or those matching <paramref name="pattern"/>. What backs
+    /// everything whose subject is a note.
+    /// </summary>
+    /// <param name="pattern">
+    /// Standard glob syntax with <c>**</c> for recursive descent, matched case-insensitively. A
+    /// pattern containing no separator matches a path's final segment at any depth; one containing a
+    /// separator is anchored at the vault root. Null or empty returns everything in the domain.
+    /// </param>
+    /// <param name="includeDotEntries">
+    /// Whether a path with a dot-prefixed segment at any depth is returned. Off by default, which is
+    /// what keeps a caller off the vault copies living under a dot-directory.
+    /// </param>
+    public SearchOutcome<VaultPath> EnumerateNotes(string? pattern = null, bool includeDotEntries = false) =>
+        VaultSearch.Enumerate(Vault, _engine, pattern, Filter(includeDotEntries, notesOnly: true));
+
+    /// <summary>
+    /// Every file in the vault whatever its extension, or those matching <paramref name="pattern"/>.
+    /// The census: it backs whole-vault passes that must not miss a non-markdown file, where a
+    /// silent omission is a wrong answer rather than a narrower one.
+    /// </summary>
+    /// <inheritdoc cref="EnumerateNotes" path="/param"/>
+    public SearchOutcome<VaultPath> EnumerateFiles(string? pattern = null, bool includeDotEntries = false) =>
+        VaultSearch.Enumerate(Vault, _engine, pattern, Filter(includeDotEntries, notesOnly: false));
+
+    /// <summary>
+    /// Regex search over note content, answering each matching line with its location. The richest
+    /// of the three granularities.
+    /// </summary>
+    /// <param name="regex">The engine's regex syntax. A malformed one is a caller error.</param>
+    /// <param name="pattern">An optional glob narrowing which notes are searched, as in <see cref="EnumerateNotes"/>.</param>
+    /// <param name="includeDotEntries">As in <see cref="EnumerateNotes"/>, and off by default here too.</param>
+    public SearchOutcome<MatchLine> SearchLines(string regex, string? pattern = null, bool includeDotEntries = false) =>
+        VaultSearch.Lines(Vault, _engine, regex, pattern, Filter(includeDotEntries, notesOnly: true));
+
+    /// <summary>
+    /// The set of notes containing a match. Its own capability rather than <see cref="SearchLines"/>
+    /// with the lines discarded, because a caller wanting a file list should not pay to materialize
+    /// every match in order to throw them away.
+    /// </summary>
+    /// <inheritdoc cref="SearchLines" path="/param"/>
+    public SearchOutcome<VaultPath> SearchFiles(string regex, string? pattern = null, bool includeDotEntries = false) =>
+        VaultSearch.Containing(Vault, _engine, regex, pattern, Filter(includeDotEntries, notesOnly: true));
+
+    /// <summary>
+    /// How many lines matched in each note that has a match, for the same reason
+    /// <see cref="SearchFiles"/> is its own capability.
+    /// </summary>
+    /// <inheritdoc cref="SearchLines" path="/param"/>
+    public SearchOutcome<MatchCount> SearchCounts(string regex, string? pattern = null, bool includeDotEntries = false) =>
+        VaultSearch.Counts(Vault, _engine, regex, pattern, Filter(includeDotEntries, notesOnly: true));
+
+    /// <summary>
+    /// Scope, the dot rule, and note enumeration's markdown restriction, as one predicate over what
+    /// the engine returned.
+    ///
+    /// None of the three may be expressed as a second <c>--iglob</c> or appended to the caller's
+    /// own, and the reason is that globs union rather than intersect. A second positive glob widens
+    /// the answer instead of narrowing it, and appending is worse than useless: <c>notes/**</c> with
+    /// <c>.md</c> appended is <c>notes/**.md</c>, which the engine accepts and degrades to a single
+    /// <c>*</c>, so every nested note silently disappears from the result. A positive glob also
+    /// overrides <c>--type</c>, so the markdown restriction cannot ride that flag either whenever a
+    /// caller supplied a pattern - which is why it never does.
+    ///
+    /// The markdown test is case-insensitive: names already on disk are not checked against the name
+    /// grammar, so a note spelled <c>.MD</c> stays enumerable, searchable and movable.
+    /// </summary>
+    private Func<VaultPath, bool> Filter(bool includeDotEntries, bool notesOnly) =>
+        path =>
+            (includeDotEntries || !path.HasDotSegment)
+            && (!notesOnly || path.Value.EndsWith(".md", StringComparison.OrdinalIgnoreCase))
+            && Admits(path);
 
     /// <summary>
     /// Asserts a capability key mid-operation, once the outcome is known. The floor for what was

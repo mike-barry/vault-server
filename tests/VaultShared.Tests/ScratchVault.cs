@@ -11,7 +11,15 @@ namespace VaultShared.Tests;
 /// </summary>
 internal sealed class ScratchVault : IDisposable
 {
-    public ScratchVault()
+    /// <param name="scope">
+    /// The grant's scope in this vault. Unscoped unless a case is about what a narrower one
+    /// withholds.
+    /// </param>
+    /// <param name="engine">
+    /// Where the search engine is. The default points at whatever <c>PATH</c> resolves, which the
+    /// enumeration and search cases run against for real.
+    /// </param>
+    public ScratchVault(VaultScope? scope = null, SearchEngine? engine = null)
     {
         Root = Directory.CreateTempSubdirectory("vault-files-").FullName;
         Vault = new Vault("scratch", Root, PathPolicy.None);
@@ -20,7 +28,8 @@ internal sealed class ScratchVault : IDisposable
             new HashSet<string>(StringComparer.OrdinalIgnoreCase),
             new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "scratch" },
             null,
-            new Dictionary<string, VaultScope>(StringComparer.OrdinalIgnoreCase) { ["scratch"] = VaultScope.Unscoped }));
+            new Dictionary<string, VaultScope>(StringComparer.OrdinalIgnoreCase) { ["scratch"] = scope ?? VaultScope.Unscoped }),
+            engine);
     }
 
     public string Root { get; }
@@ -62,6 +71,35 @@ internal sealed class ScratchVault : IDisposable
         Directory.CreateDirectory(Path.GetDirectoryName(Absolute(relativePath))!);
         File.WriteAllText(Absolute(relativePath), content);
         return this;
+    }
+
+    /// <summary>
+    /// Makes one file unreadable for as long as the returned handle is held, so a search has a file
+    /// it must fail on. Windows refuses a second reader of an exclusively opened file; elsewhere the
+    /// mode bits do it.
+    /// </summary>
+    public IDisposable Unreadable(string relativePath)
+    {
+        var absolute = Absolute(relativePath);
+        if (!OperatingSystem.IsWindows())
+        {
+            var original = File.GetUnixFileMode(absolute);
+            File.SetUnixFileMode(absolute, UnixFileMode.None);
+            // The platform test is repeated inside the restore because the analyzer reads the
+            // lambda on its own, not at the site it was built from.
+            return new Restore(() =>
+            {
+                if (!OperatingSystem.IsWindows())
+                    File.SetUnixFileMode(absolute, original);
+            });
+        }
+
+        return File.Open(absolute, FileMode.Open, FileAccess.ReadWrite, FileShare.None);
+    }
+
+    private sealed class Restore(Action undo) : IDisposable
+    {
+        public void Dispose() => undo();
     }
 
     public string TextOf(string relativePath) => File.ReadAllText(Absolute(relativePath));
