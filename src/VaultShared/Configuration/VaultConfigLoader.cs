@@ -60,13 +60,18 @@ public static class VaultConfigLoader
             if (!entry.Value.TryGetProperty("path", out var pathProp) || pathProp.GetString() is not { Length: > 0 } vaultRoot)
                 throw new InvalidDataException($"{path}: vault \"{entry.Name}\" is missing a non-empty \"path\".");
             foreach (var field in entry.Value.EnumerateObject())
-            {
-                if (field.Name is "frontmatter_registry")
-                    throw new InvalidDataException(
-                        $"{path}: vault \"{entry.Name}\" uses \"frontmatter_registry\", which is specified but not implemented yet.");
-                if (field.Name is not ("path" or "path_policy"))
+                if (field.Name is not ("path" or "path_policy" or "frontmatter_registry"))
                     throw new InvalidDataException($"{path}: vault \"{entry.Name}\" has an unrecognized key \"{field.Name}\".");
-            }
+
+            // Carried as the entry names it and resolved by the frontmatter registry cascade
+            // against this file's own directory. A vault naming none has no vocabulary, so every
+            // frontmatter write in it refuses - which is a Degraded host rather than a failed load,
+            // since nothing else in the vault depends on it.
+            string? frontmatterRegistry = null;
+            if (entry.Value.TryGetProperty("frontmatter_registry", out var registryProp))
+                frontmatterRegistry = registryProp.GetString() is { Length: > 0 } declared
+                    ? declared
+                    : throw new InvalidDataException($"{path}: vault \"{entry.Name}\" has an empty \"frontmatter_registry\".");
 
             var fullRoot = Path.GetFullPath(vaultRoot);
             var resolvable = Directory.Exists(fullRoot);
@@ -84,7 +89,7 @@ public static class VaultConfigLoader
             var policy = entry.Value.TryGetProperty("path_policy", out var policyProp)
                 ? PathPolicyParser.Parse(policyProp, entry.Name, fullRoot, path, sink)
                 : PathPolicy.None;
-            vaults[entry.Name] = new VaultConfig.VaultEntry(fullRoot, policy);
+            vaults[entry.Name] = new VaultConfig.VaultEntry(fullRoot, policy, frontmatterRegistry);
         }
 
         if (vaults.Count == 0 && skipped.Count == 0)

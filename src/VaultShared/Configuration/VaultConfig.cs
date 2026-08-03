@@ -28,7 +28,14 @@ public sealed class VaultConfig
     /// two such files drift, and a vault renamed in one and not the other loses the policy
     /// someone believes it has.
     /// </summary>
-    public sealed record VaultEntry(string Root, PathPolicy PathPolicy);
+    /// <param name="FrontmatterRegistry">
+    /// This vault's declaration file, as the entry names it, or null when it names none. Resolved
+    /// against the directory holding <c>vaults.json</c> rather than against the vault root: the
+    /// declaration is the source of every key-level protection and lives beside the grant and
+    /// op-class configuration at the same trust tier, so it is never discovered by walking vault
+    /// content. Two vaults may name one file and share a vocabulary, or name their own.
+    /// </param>
+    public sealed record VaultEntry(string Root, PathPolicy PathPolicy, string? FrontmatterRegistry = null);
 
     /// <summary>The resolvable vaults: configured name to its entry.</summary>
     public required IReadOnlyDictionary<string, VaultEntry> Vaults { get; init; }

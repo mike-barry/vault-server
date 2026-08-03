@@ -101,6 +101,47 @@ public sealed class VaultConfigLoadTests : IDisposable
         Assert.Contains(config.DefaultVault, config.SkippedVaults.Keys);
     }
 
+    [Fact]
+    public void Load_CarriesTheDeclaredFrontmatterRegistryName()
+    {
+        // Carried as the entry names it. Resolving it is the registry cascade's, which is what
+        // keeps the file's location a property of the configuration rather than of the vault.
+        var path = WriteConfig($$"""
+            { "default_vault": "a", "vaults": { "a": { "path": {{JsonPath(_tempDir)}}, "frontmatter_registry": "frontmatter-registry.json" } } }
+            """);
+        var sink = new RecordingProblemSink();
+
+        var config = VaultConfigLoader.Load(path, sink);
+
+        Assert.Equal("frontmatter-registry.json", config.Vaults["a"].FrontmatterRegistry);
+        Assert.Empty(sink.Problems);
+    }
+
+    [Fact]
+    public void Load_AVaultNamingNoRegistryStaysValid()
+    {
+        var path = WriteConfig($$"""{ "default_vault": "a", "vaults": { "a": {{JsonVault(_tempDir)}} } }""");
+        var sink = new RecordingProblemSink();
+
+        var config = VaultConfigLoader.Load(path, sink);
+
+        Assert.Null(config.Vaults["a"].FrontmatterRegistry);
+        Assert.Empty(sink.Problems);
+    }
+
+    [Fact]
+    public void Load_AnEmptyFrontmatterRegistryIsFatal()
+    {
+        var path = WriteConfig($$"""
+            { "default_vault": "a", "vaults": { "a": { "path": {{JsonPath(_tempDir)}}, "frontmatter_registry": "" } } }
+            """);
+        var sink = new RecordingProblemSink();
+
+        var config = VaultConfigLoader.Load(path, sink);
+
+        AssertFatalAndEmpty(sink, config);
+    }
+
     /// <summary>Shared assertion for every whole-file-failure case above: the load no
     /// longer throws - it records a Fatal problem from source "VaultConfig" and returns an
     /// inert config with no resolvable vaults.</summary>
@@ -116,6 +157,7 @@ public sealed class VaultConfigLoadTests : IDisposable
         Assert.Empty(config.SkippedVaults);
     }
 
-    private static string JsonVault(string path) =>
-        $$"""{ "path": {{System.Text.Json.JsonSerializer.Serialize(path)}} }""";
+    private static string JsonVault(string path) => $$"""{ "path": {{JsonPath(path)}} }""";
+
+    private static string JsonPath(string path) => System.Text.Json.JsonSerializer.Serialize(path);
 }

@@ -6,6 +6,7 @@ using VaultShared.Health;
 using VaultMcpServer.Logging;
 using VaultMcpServer.Tools;
 using VaultShared.Configuration;
+using VaultShared.Frontmatter;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -76,6 +77,17 @@ else
     grantStore = GrantStore.Load(grantsConfigPath, opClassRegistry, vaultConfig, healthState, localhostOptions: localhostAuthOptions);
 }
 builder.Services.AddSingleton(grantStore);
+
+// The frontmatter declarations, one per vault and one instance per file, loaded after op-classes
+// because the load-time cross-file check - an authority the op-class configuration does not define -
+// runs against that registry. Skipped for the same reason grants are when a prior load already went
+// fatal: every declared authority would fail against an empty op-class set and bury the root cause
+// under a list of "unknown op class". A failed load here is Degraded and refuses exactly the
+// frontmatter writes.
+var frontmatterRegistries = healthState.IsFatallyDegraded
+    ? FrontmatterRegistries.None
+    : FrontmatterRegistries.Load(vaultConfig, Path.GetDirectoryName(vaultsConfigPath)!, opClassRegistry, healthState);
+builder.Services.AddSingleton(frontmatterRegistries);
 
 var toolsDir = Path.GetFullPath(Path.Combine(
     builder.Environment.ContentRootPath,

@@ -98,6 +98,11 @@ public sealed class PathPolicyTests : IDisposable
     [InlineData("""{ "path": "Areas", "always_readable": false }""", "modifier present but false")]
     [InlineData("""{ "path": "Areas", "always_redable": true }""", "misspelled modifier")]
     [InlineData("\"Areas\"", "not an object")]
+    [InlineData("""{ "rule": "not_a_rule", "mutation_requires": "content:write" }""", "unknown rule")]
+    [InlineData("""{ "rule": "", "mutation_requires": "content:write" }""", "empty rule")]
+    [InlineData("""{ "path": "Areas", "rule": "folder_note", "mutation_requires": "content:write" }""", "two targets")]
+    [InlineData("""{ "path": "Areas", "mutation_requires": "" }""", "empty mutation_requires")]
+    [InlineData("""{ "rule": "folder_note", "always_readable": true }""", "a rule cannot be a read root")]
     public void Load_MalformedEntryIsDroppedAndReported(string entryJson, string why)
     {
         var sink = new RecordingProblemSink();
@@ -110,19 +115,73 @@ public sealed class PathPolicyTests : IDisposable
         Assert.True(problem.Contains("dropped"), $"{why}: expected a drop to be reported, got: {problem}");
     }
 
-    [Theory]
-    [InlineData("rule")]
-    [InlineData("mutation_requires")]
-    public void Load_SpecifiedButUnimplementedKeyIsRefusedRatherThanIgnored(string key)
+    // ---- mutation_requires ----
+
+    [Fact]
+    public void Load_CarriesAPathTargetsMutationRequires()
     {
-        // Silently ignoring these would let config claim a path is protected while nothing
-        // enforces it - a lie that reads as working.
         var sink = new RecordingProblemSink();
 
-        var config = Load(sink, $$"""[ { "path": "Areas", "{{key}}": "agentic:write" } ]""");
+        var config = Load(sink, """[ { "path": "Areas\\Agentic", "mutation_requires": "agentic:write" } ]""", "Areas/Agentic");
 
-        Assert.Same(PathPolicy.None, config.Vaults["test"].PathPolicy);
-        Assert.Contains(Problems(sink), p => p.Contains(key) && p.Contains("not implemented yet"));
+        var rule = Assert.Single(config.Vaults["test"].PathPolicy.MutationRules);
+        Assert.Equal("Areas/Agentic", Assert.IsType<PathPolicy.PolicyTarget.Path>(rule.Target).Value);
+        Assert.Equal("agentic:write", rule.RequiredOpClass);
+        Assert.Empty(Problems(sink));
+    }
+
+    [Fact]
+    public void Load_CarriesAStructuralRuleTarget()
+    {
+        // A shape a path has rather than a place it is, which a prefix target cannot express. The
+        // rule is code; the declaration decides whether it applies and at what price.
+        var sink = new RecordingProblemSink();
+
+        var config = Load(sink, """[ { "rule": "folder_note", "mutation_requires": "content:write" } ]""");
+
+        var rule = Assert.Single(config.Vaults["test"].PathPolicy.MutationRules);
+        Assert.Equal(StructuralRule.FolderNote, Assert.IsType<PathPolicy.PolicyTarget.Structural>(rule.Target).Rule);
+        Assert.Empty(Problems(sink));
+    }
+
+    [Fact]
+    public void Load_OneEntryCarriesBothModifiers()
+    {
+        var sink = new RecordingProblemSink();
+
+        var config = Load(sink, $$"""[ { "path": "{{Guides}}", "always_readable": true, "mutation_requires": "agentic:write" } ]""", Guides);
+
+        var policy = config.Vaults["test"].PathPolicy;
+        Assert.Equal<string[]>([Guides], [.. policy.AlwaysReadableRoots]);
+        Assert.Equal(Guides, Assert.IsType<PathPolicy.PolicyTarget.Path>(Assert.Single(policy.MutationRules).Target).Value);
+    }
+
+    [Fact]
+    public void Load_MutationEntriesDoNotWidenTheReadFloor()
+    {
+        // Two modifiers, two effects. Naming a path's mutation price says nothing about who may
+        // read it.
+        var config = Load(new RecordingProblemSink(), """[ { "path": "Areas", "mutation_requires": "agentic:write" } ]""", "Areas");
+
+        var policy = config.Vaults["test"].PathPolicy;
+        Assert.Empty(policy.AlwaysReadableRoots);
+        Assert.False(policy.ReadAdmits("Areas/Anything.md", Rooted("Projects/Widget")));
+    }
+
+    [Fact]
+    public void Load_ContributionsFromSeveralEntriesAreAllKept()
+    {
+        // Contributions union - no entry can clear one another contributed - so every matching
+        // entry has to survive the load for the union to be over all of them.
+        var config = Load(new RecordingProblemSink(), """
+            [
+              { "path": "Areas", "mutation_requires": "agentic:write" },
+              { "path": "Areas/Nested", "mutation_requires": "content:write" },
+              { "rule": "folder_note", "mutation_requires": "content:write" }
+            ]
+            """, "Areas/Nested");
+
+        Assert.Equal(3, config.Vaults["test"].PathPolicy.MutationRules.Count);
     }
 
     [Fact]
@@ -192,8 +251,8 @@ public sealed class PathPolicyTests : IDisposable
     }
 
     [Theory]
-    [InlineData("frontmatter_registry", "not implemented yet")]
     [InlineData("always_readable", "unrecognized key")]
+    [InlineData("frontmatter_regstry", "unrecognized key")]
     public void Load_BadVaultEntryKeyIsFatal(string key, string expectedFragment)
     {
         // Unrecognized at the vault level rather than dropped: unlike a path_policy entry there
