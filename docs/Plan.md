@@ -45,9 +45,7 @@ The phase opens with two steps that touch code rather than documents. They are g
 
 **The specs and the design documents are both inputs to every step, and are intended to complement each other.** A design document says what shape this build takes where the specs left the shape open. Load both documents whenever touching on an area they cover to get the full picture.
 
-- [ ] Build the core access layer
-  - Input: `PathPolicy.IsPathInReadScope` comes out with this step. The design computes a call's effective read scope once, when the access object is constructed, rather than per candidate - a whole-vault enumeration is exactly where rebuilding the union per path costs. `EffectiveReadScope` stays and is what computes it
-  - Input: `VaultConfig.Resolve` and `VaultConfig.PathPolicyFor` come out too, and their tests follow the behaviour into the layer. Resolution answers a three-case result and produces the layer's own vault type, so configuration holds which vaults exist and the layer decides what a usable one is
+- [x] Build the core access layer
 - [ ] Build the frontmatter surface - the substrate's single write path and the registry's loader, asserted by the conformance suite against a synthetic declaration
   - `OpClassRegistry.IsValid` has no production caller and is not leftover: the load-time cross-file check this step owes - an op class the op-class configuration does not define - is a membership query, and that is the member shaped for it
   - Retained `PathPolicyParser` refuses `mutation_requires` and `rule` at load today, and retained `VaultConfigLoader` refuses `frontmatter_registry` the same way. All three are accepted and carried here, an approved change to retained code: the write path consults policy beside the authority assertion, and move and delete consult it at their own validate phases. The refusals are guards over specified-but-unbuilt surfaces, not dead config - each is lifted only when its consumer lands
