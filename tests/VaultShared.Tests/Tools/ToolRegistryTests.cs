@@ -1,3 +1,4 @@
+using System.Text.Json;
 using VaultShared.Tools;
 
 namespace VaultShared.Tests.Tools;
@@ -16,7 +17,50 @@ public sealed class ToolRegistryTests
             .Add(SyntheticTools.Declaration("first"), new RecordingTool())
             .Add(SyntheticTools.Declaration("second"), new RecordingTool());
 
-        Assert.Equal(["first", "second"], registry.Declarations.Select(d => d.Name));
+        Assert.Equal(["first", "second"], registry.Registrations.Select(r => r.Declaration.Name));
+    }
+
+    /// <summary>The schema a front-end advertises for an ordinary tool is the one derived from the
+    /// argument record its declaration names.</summary>
+    [Fact]
+    public void AdvertisedSchema_OrdinaryTool_IsTheArgumentRecordsSchema()
+    {
+        var declaration = SyntheticTools.Declaration("probe");
+        var registration = new ToolRegistry().Add(declaration, new RecordingTool()).Find("probe")!.Value;
+
+        Assert.Equal(
+            NativeToolArguments.SchemaFor(declaration.Arguments).GetRawText(),
+            registration.AdvertisedSchema("any-vault").GetRawText());
+    }
+
+    /// <summary>
+    /// The vocabulary seam: a tool that renders its own schema over a vault's declaration is asked
+    /// for it, and is handed the vault the projection chose. This is the whole of what keeps a
+    /// front-end from naming <c>edit</c> - the type answers, not a branch on the name.
+    /// </summary>
+    [Fact]
+    public void AdvertisedSchema_VocabularyTool_IsTheToolsOwnRenderingForTheNamedVault()
+    {
+        var tool = new VocabularyTool();
+        var registration = new ToolRegistry().Add(SyntheticTools.Declaration("probe"), tool).Find("probe")!.Value;
+
+        var schema = registration.AdvertisedSchema("chosen");
+
+        Assert.Equal("chosen", tool.AskedFor);
+        Assert.Equal("chosen", schema.GetProperty("vault").GetString());
+    }
+
+    private sealed class VocabularyTool : ITool, IVocabularySchema
+    {
+        public string? AskedFor { get; private set; }
+
+        public JsonElement AdvertisedSchema(string vaultName)
+        {
+            AskedFor = vaultName;
+            return JsonSerializer.SerializeToElement(new Dictionary<string, string> { ["vault"] = vaultName });
+        }
+
+        public ToolResult Invoke(ToolCall call) => new ToolResult.Content("");
     }
 
     [Fact]

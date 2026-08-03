@@ -57,6 +57,29 @@ public sealed class ScriptToolDispatcher(ScriptToolRegistry registry, ToolRegist
         ["properties"] = new Dictionary<string, object>(),
     });
 
+    /// <summary>
+    /// The declared tools' listing entries, rendered once at construction.
+    ///
+    /// <b>The vault whose vocabulary the schemas carry is the default vault.</b> It is the vault an
+    /// absent <c>vault</c> argument targets, and a listing is not per vault; a caller naming another
+    /// one is validated against that vault's own declaration at the write path, which is the sole
+    /// enforcement point either way. Where nothing loaded, the variant branches are simply absent -
+    /// advertising was never permission.
+    ///
+    /// Rendered once because there is nothing to re-render for: a declaration is compiled and the
+    /// frontmatter registries load at startup with no hot reload. Script tools are the part of a
+    /// listing that does change, and they are assembled per call below.
+    /// </summary>
+    private readonly IReadOnlyList<Tool> _declaredTools =
+    [
+        .. toolRegistry.Registrations.Select(r => new Tool
+        {
+            Name = r.Declaration.Name,
+            Description = r.Declaration.Description,
+            InputSchema = r.AdvertisedSchema(vaultConfig.DefaultVault),
+        })
+    ];
+
     // Constructed directly and registered before builder.Build() (see the
     // httpContextAccessor comment in Program.cs), so no ILogger is resolvable yet at
     // construction time. Program.cs calls AttachLogger once the service provider exists.
@@ -82,8 +105,7 @@ public sealed class ScriptToolDispatcher(ScriptToolRegistry registry, ToolRegist
             .Where(p => p.Source == ScriptToolLoader.HealthSource && p.SubjectPath is not null)
             .Select(p => new Tool { Name = Path.GetFileNameWithoutExtension(p.SubjectPath!), Description = $"BROKEN: {p.Detail}", InputSchema = EmptyObjectSchema });
 
-        var tools = toolRegistry.Declarations
-            .Select(d => new Tool { Name = d.Name, Description = d.Description, InputSchema = NativeToolArguments.SchemaFor(d.Arguments) })
+        var tools = _declaredTools
             .Concat(registry.Tools.Select(t => new Tool { Name = t.Name, Description = t.Description, InputSchema = t.BuildInputSchema() }))
             .Concat(brokenScriptTools)
             .ToList();

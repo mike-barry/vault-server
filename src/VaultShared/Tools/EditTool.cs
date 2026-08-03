@@ -58,7 +58,7 @@ public sealed record EditResult(
 /// <param name="registries">Every vault's loaded declaration. Held rather than handed in on the
 /// call, because the declaration is per vault and loaded once at startup, and the call carries a
 /// vault rather than a vocabulary.</param>
-public sealed class EditTool(FrontmatterRegistries registries) : ITool
+public sealed class EditTool(FrontmatterRegistries registries) : ITool, IVocabularySchema
 {
     public const string ToolName = "edit";
 
@@ -116,6 +116,12 @@ public sealed class EditTool(FrontmatterRegistries registries) : ITool
     /// <summary>The advertised vocabulary of one vault, or the empty one where nothing loaded.</summary>
     public FrontmatterVocabulary Vocabulary(string vaultName) =>
         FrontmatterVocabulary.Of(registries.For(vaultName));
+
+    /// <summary>
+    /// The seam a front-end reaches this tool's schema through, and the reason it needs no per-tool
+    /// branch to do it: the projection names a vault and this composes the two halves.
+    /// </summary>
+    public JsonElement AdvertisedSchema(string vaultName) => Schema(Vocabulary(vaultName));
 
     public ToolResult Invoke(ToolCall call)
     {

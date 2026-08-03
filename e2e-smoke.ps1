@@ -105,6 +105,24 @@ function Invoke-McpCall {
     return [pscustomobject]$out
 }
 
+# One stateless JSON-RPC tools/list, answered the same SSE way as a call. Returns the
+# advertised tool array, which is what both front-ends project from one declaration each.
+function Invoke-McpList {
+    param([string]$Token)
+    $headers = @{ Accept = 'application/json, text/event-stream' }
+    if ($Token) { $headers['Authorization'] = "Bearer $Token" }
+    $body = @{ jsonrpc = '2.0'; id = ++$script:rpcId; method = 'tools/list' } | ConvertTo-Json -Compress
+
+    $resp = Invoke-WebRequest -Uri "$baseUrl/mcp" -Method Post -Headers $headers `
+        -ContentType 'application/json' -Body $body -SkipHttpErrorCheck -TimeoutSec 15
+    if ([int]$resp.StatusCode -ne 200) { return $null }
+
+    $dataLines = ([string]$resp.Content -split "`r?`n") |
+        Where-Object { $_ -like 'data:*' } |
+        ForEach-Object { $_.Substring(5).TrimStart() }
+    return (($dataLines -join "`n") | ConvertFrom-Json).result.tools
+}
+
 # ---------------------------------------------------------------------------
 # Preflight + build + start
 # ---------------------------------------------------------------------------
@@ -163,6 +181,29 @@ try {
     $health = if ($r.Text) { $r.Text | ConvertFrom-Json } else { $null }
     Check 'is_fatally_degraded is false' ($null -ne $health -and $health.is_fatally_degraded -eq $false)
     Check 'zero problems (real grants.json parses clean)' ($null -ne $health -and @($health.problems).Count -eq 0) "problems=$(if ($health) { @($health.problems).Count })"
+
+    # The projection itself: every declaration reaches the wire as a tool definition, and edit's
+    # schema carries the default vault's own entry vocabulary. Nothing but a live server against the
+    # real config proves the committed declaration projects into what a client is actually offered.
+    Write-Host 'Probe: tools/list (the declarations, projected)'
+    $tools = Invoke-McpList -Token $selectorToken
+    $names = @($tools | ForEach-Object { $_.name })
+    $expected = @('mint_token', 'health_check', 'request_elevation', 'read', 'glob', 'grep', 'edit', 'create', 'move', 'delete')
+    $missing = @($expected | Where-Object { $names -notcontains $_ })
+    Check 'all ten declared tools are advertised' ($missing.Count -eq 0) "missing=$($missing -join ', ')"
+    Check 'every advertised tool carries a description and an object schema' (
+        @($tools).Count -gt 0 -and -not @($tools | Where-Object { -not $_.description -or $_.inputSchema.type -ne 'object' })
+    ) "tools=$($names -join ', ')"
+
+    # The vocabulary seam. edit's entry branches are generated from the default vault's loaded
+    # declaration, so an absent or unloadable one shows up here as a missing alternation rather than
+    # only at the write path.
+    $edit = @($tools | Where-Object { $_.name -eq 'edit' }) | Select-Object -First 1
+    $entry = if ($edit) { $edit.inputSchema.properties.operations.items.properties.entry } else { $null }
+    $variants = @($entry.anyOf | ForEach-Object { $_.title })
+    Check "edit's entry advertises the default vault's variant branches" (
+        $variants -contains 'link' -and $variants -contains 'use_skill' -and $variants -contains 'hint'
+    ) "variants=$($variants -join ', ')"
 
     Write-Host 'Probe: read on vault "test" with selector token (selector -> default binding)'
     $r = Invoke-McpCall -Tool 'read' -Arguments @{ vault = 'test'; path = 'Resources/Gizmo-Reference.md' } -Token $selectorToken

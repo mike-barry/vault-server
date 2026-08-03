@@ -95,6 +95,60 @@ public sealed class EditDispatchTests(EditDispatchTests.Fixture fixture) : IClas
         Assert.True(properties.TryGetProperty("expected_content_hash", out _));
     }
 
+    /// <summary>
+    /// The vocabulary seam, end to end: <c>edit</c>'s advertised <c>entry</c> carries one branch per
+    /// variant of the <b>default vault's</b> loaded declaration - the vault an absent <c>vault</c>
+    /// argument targets. This fixture's default vault names the committed declaration, so the
+    /// branches are that file's variants.
+    ///
+    /// The absent case is asserted where it belongs: <c>NativeToolSchemaDispatchTests</c>'s fixture
+    /// configures no declaration at all, and pins that <c>entry</c> arrives unconstrained.
+    /// </summary>
+    [Fact]
+    public async Task ToolsList_EditsEntryCarriesTheDefaultVaultsVariantBranches()
+    {
+        var result = await SendAsync(fixture, Fixture.WriteToken, """{"jsonrpc":"2.0","id":1,"method":"tools/list"}""");
+
+        var tool = Assert.Single(result.GetProperty("tools").EnumerateArray(), t => t.GetProperty("name").GetString() == "edit");
+        var entry = tool.GetProperty("inputSchema")
+            .GetProperty("properties").GetProperty("operations")
+            .GetProperty("items").GetProperty("properties").GetProperty("entry");
+
+        var variants = entry.GetProperty("anyOf").EnumerateArray()
+            .Select(b => b.GetProperty("title").GetString())
+            .ToArray();
+        Assert.Contains("link", variants);
+        Assert.Contains("use_skill", variants);
+        Assert.Contains("hint", variants);
+    }
+
+    /// <summary>
+    /// The whole listing's wire contract, read off whatever the server advertises rather than a
+    /// hand-kept list: every declaration arrives with a name, a description and a schema, and every
+    /// name is <c>snake_case</c> - the one regression that would leave schema and binder agreeing
+    /// with each other while breaking every existing caller.
+    /// </summary>
+    [Fact]
+    public async Task ToolsList_EveryAdvertisedToolCarriesNameDescriptionAndSchemaInSnakeCase()
+    {
+        var result = await SendAsync(fixture, Fixture.WriteToken, """{"jsonrpc":"2.0","id":1,"method":"tools/list"}""");
+
+        var advertised = result.GetProperty("tools").EnumerateArray().ToList();
+        Assert.Equal(10, advertised.Count);
+
+        foreach (var tool in advertised)
+        {
+            var name = tool.GetProperty("name").GetString()!;
+            Assert.Matches("^[a-z][a-z0-9_]*$", name);
+            Assert.False(string.IsNullOrWhiteSpace(tool.GetProperty("description").GetString()), name);
+
+            var schema = tool.GetProperty("inputSchema");
+            Assert.Equal("object", schema.GetProperty("type").GetString());
+            foreach (var argument in schema.GetProperty("properties").EnumerateObject())
+                Assert.Matches("^[a-z][a-z0-9_]*$", argument.Name);
+        }
+    }
+
     // ---- Dispatch ----
 
     /// <summary>The mutation result is the structured tier, serialized under the shared naming

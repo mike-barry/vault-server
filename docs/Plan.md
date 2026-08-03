@@ -54,7 +54,7 @@ The phase opens with two steps that touch code rather than documents. They are g
 - [x] Verify the read-class scope floor end to end
 - [x] Build wikilink maintenance as one shared area - repair on relocation, pinning on creation, the census on removal - over the layer's single grammar and ranking rule. Ahead of the three tools that consume it, so it is not an artifact of whichever was built first
 - [x] Build `create`, `move`, and `delete`
-- [ ] Build the MCP front-end as a projection of the tool declarations
+- [x] Build the MCP front-end as a projection of the tool declarations
 - [ ] Build the CLI front-end from the same declarations
   - Input: `health_check` reads `ServerHealthState` from `VaultMcpServer`, so it cannot project to the CLI as it stands. This step decides the seam - move the type, or give the declaration a health source the CLI can supply
 - [ ] Sweep the code for comments narrating the build rather than describing the code. Every comment should read as a statement about the current design, with the reasoning kept and the chronology dropped. Rewrite in place; do not simply delete, since most of these carry a real constraint wrapped in a stale story

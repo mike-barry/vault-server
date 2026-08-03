@@ -16,6 +16,11 @@ namespace VaultMcpServer.Tests;
 /// <c>NativeToolSchemaTests</c> pins the same text against the tool objects; this class pins that it
 /// survives the dispatcher's <c>tools/list</c> assembly and MCP's own serialization, which is the
 /// only place a schema regression would actually reach a caller.
+///
+/// This fixture's vault names no frontmatter declaration, so it is also where the vocabulary seam's
+/// absent case is pinned: <c>edit</c> stays advertised with its ordinary argument surface and its
+/// <c>entry</c> carries no variant branches, because advertising was never permission. The loaded
+/// case is <c>EditDispatchTests</c>'s.
 /// </summary>
 [Collection("Program host tests")]
 public sealed class NativeToolSchemaDispatchTests(NativeToolSchemaDispatchTests.Fixture fixture) : IClassFixture<NativeToolSchemaDispatchTests.Fixture>
