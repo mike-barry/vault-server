@@ -31,8 +31,8 @@ public sealed class BearerGrantMiddlewareTests : IClassFixture<BearerGrantMiddle
     }
 
     /// <summary>
-    /// Under the fail-closed localhost floor (Batch A), an expired token and an unknown token no
-    /// longer 401 - both degrade to the built-in minimum-access grant, so the session runs
+    /// Under the fail-closed localhost floor, an expired token and an unknown token do not
+    /// 401 - both degrade to the built-in minimum-access grant, so the session runs
     /// harmless rather than hard-failing (a subagent with a stale/mangled token stays recoverable).
     /// Constructs the middleware directly, capturing the grant it attaches, with a FixedTimeProvider
     /// so the "expired" case is deterministic without real elapsed wall-clock time.

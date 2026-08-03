@@ -249,10 +249,10 @@ public sealed class ServerHealthStateTests
     }
 
     /// <summary>
-    /// Recording happens at startup (the main thread) and, in a later batch, from a
+    /// Recording happens at startup (the main thread) and at runtime from the tools/
     /// file-watcher thread - this proves the backing collection tolerates concurrent
-    /// writers without losing entries or throwing, which is the property that later
-    /// concurrent use depends on.
+    /// writers without losing entries or throwing, which is what that pair of writers
+    /// depends on.
     /// </summary>
     [Fact]
     public async Task RecordFatal_IsThreadSafeUnderConcurrentWriters()

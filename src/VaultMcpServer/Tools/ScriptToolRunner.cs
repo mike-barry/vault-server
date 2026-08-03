@@ -120,8 +120,9 @@ public sealed class ScriptToolRunner : IDisposable
     /// The calling grant's op-class set (see <see cref="Auth.Grant.OpClasses"/>), injected into the
     /// runspace as the <c>VaultMcpOpClasses</c> global (see <see cref="WrapperScript"/>) so a tool
     /// script can gate an elevated in-script operation against the
-    /// same authority the dispatcher's floor check (<c>grant.Allows(tool.OpClass)</c>) used to admit
-    /// the call. Not a script parameter, for the same reason as <paramref name="scopeRoots"/>: a
+    /// same authority the dispatcher's floor check (<c>ToolExecution.FloorRefusal</c>, over the class
+    /// the script declares) admits the call by. Not a script parameter, for the same reason as
+    /// <paramref name="scopeRoots"/>: a
     /// tool's own <c>param()</c> block is its verbatim MCP input schema, so a client-controllable
     /// argument would let a caller forge its grant's classes. Null (the default) leaves the global
     /// unset - a standalone <c>pwsh -File</c> run has no injected context, so an in-script assertion

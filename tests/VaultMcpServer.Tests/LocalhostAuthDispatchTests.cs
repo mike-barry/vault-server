@@ -8,7 +8,7 @@ using VaultShared.Tests;
 namespace VaultMcpServer.Tests;
 
 /// <summary>
-/// End-to-end HTTP coverage for the Batch A localhost auth model wired through the real host: the
+/// End-to-end HTTP coverage for the localhost auth model wired through the real host: the
 /// well-known selector token resolving to the configured default named grant, and blank/unknown
 /// tokens degrading to the minimum-access floor (health_check still works; vault content is
 /// denied). Boots Program with a token-less named <c>admin</c> grant and

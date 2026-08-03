@@ -8,7 +8,7 @@ using VaultShared.Tests;
 namespace VaultMcpServer.Tests;
 
 /// <summary>
-/// End-to-end HTTP-level coverage for the diagnostics surfaces in Batch D: the native
+/// End-to-end HTTP-level coverage for the server's diagnostics surfaces: the
 /// <c>health_check</c> tool (listed for everyone, callable by any authenticated grant
 /// regardless of op class), the <c>BROKEN:</c> prefix synthesized for a script that failed to
 /// load, and the <c>initialize</c> response's <c>instructions</c> field reflecting the

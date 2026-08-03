@@ -494,11 +494,12 @@ public sealed class ScriptToolLoaderTests : IDisposable
     public void Load_SideCarSchema_LeavesEveryOtherParameterDerived()
     {
         // The counterpart to the case above, and the "without a block" case at parameter
-        // granularity: `path` sits in the same script and still derives exactly as before.
-        // The unchanged-shape coverage for a script with no block at all is already carried by
-        // BuildInputSchema_MatchesJsonSchemaShape and the two ValidateSet schema tests above,
-        // and by the byte-identical schemas the real tools/ folder still derives - so this
-        // adds only what is new: that Schema is null where no block was authored.
+        // granularity: `path` sits in the same script and derives from its param() declaration
+        // exactly as it would with no side-car present - a side-car states one parameter's node
+        // and leaves every other one alone. The unchanged-shape coverage for a script with no
+        // block at all is carried by BuildInputSchema_MatchesJsonSchemaShape and the two
+        // ValidateSet schema tests above; what this adds is that Schema is null where no block
+        // was authored.
         WriteScript("edit_fm.ps1", SideCarSchemaScript);
         var tool = Assert.Single(ScriptToolLoader.Load(_tempDir, OpClasses, new ServerHealthState()));
 

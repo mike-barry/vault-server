@@ -169,7 +169,7 @@ public static class ToolCodes
     /// </summary>
     public const string NotFound = "not_found";
 
-    // --- Carried over from the retained natives --------------------------------------------
+    // --- Operational conditions, raised outside the vault tools ------------------------------
 
     /// <summary>A transient per-principal throttle. <c>data: {limit_per_minute}</c>. Operational;
     /// retryable - coding it as a capability or argument failure would route a retryable condition

@@ -109,10 +109,9 @@ public sealed class ScriptToolArgumentEncoderTests
     public void BindArgument_ScalarForAnEncodingParameter_IsNotSerialized()
     {
         var parameter = Parameter("""{"type":"array"}""");
-        // Pinned to the exact CLR type now that the plain conversion actually keeps an integral
-        // one. This assertion was deliberately loose ("not JSON text") while the number branch
-        // widened every value to double, so that fixing the widening would not read as an encoder
-        // regression; with the branch fixed, the loose form would pass against either behavior.
+        // Pinned to the exact CLR type, because the plain conversion keeps an integral one. A
+        // looser assertion ("not JSON text") would pass just as well against a number branch that
+        // widened every value to double, so it would not hold the conversion to what it does.
         Assert.IsType<long>(ScriptToolArgumentEncoder.BindArgument(parameter, Value("42")));
         Assert.Equal(true, ScriptToolArgumentEncoder.BindArgument(parameter, Value("true")));
         Assert.Null(ScriptToolArgumentEncoder.BindArgument(parameter, Value("null")));

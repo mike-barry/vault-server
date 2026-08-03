@@ -8,10 +8,9 @@ namespace VaultMcpServer.Tests;
 
 /// <summary>
 /// End-to-end HTTP coverage for the derived native schemas: that what
-/// <see cref="VaultMcpServer.Tools.NativeToolArguments"/> exports from each tool's argument record
-/// is what a client actually receives in <c>tools/list</c>, and that a real call to each of the
-/// three natives behaves as it did when the schema was hand-authored and the arguments were
-/// hand-walked.
+/// <see cref="VaultShared.Tools.NativeToolArguments"/> exports from each tool's argument record is
+/// what a client actually receives in <c>tools/list</c>, and that a real call to each declared tool
+/// binds against that same schema rather than against a second, hand-walked reading of it.
 ///
 /// <c>NativeToolSchemaTests</c> pins the same text against the tool objects; this class pins that it
 /// survives the dispatcher's <c>tools/list</c> assembly and MCP's own serialization, which is the
@@ -197,7 +196,7 @@ public sealed class NativeToolSchemaDispatchTests(NativeToolSchemaDispatchTests.
 
     /// <summary>
     /// Every advertised tool is pinned. <see cref="Pinned"/> is a hand-written list, so without this
-    /// a fourth native would ship with no schema assertion at all and nothing would say so.
+    /// a newly declared tool would ship with no schema assertion at all and nothing would say so.
     /// </summary>
     [Fact]
     public async Task EveryAdvertisedTool_HasAPinnedSchema()

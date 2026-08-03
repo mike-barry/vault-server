@@ -9,10 +9,9 @@ using VaultShared.Tools;
 namespace VaultMcpServer.Tests;
 
 /// <summary>
-/// The three native tools' <c>inputSchema</c> literals, exactly as they were hand-authored before
-/// the schema derived from the argument record. They are the acceptance criterion for the
-/// conversion: the derivation is allowed to change how the schema is <em>produced</em> and nothing
-/// about what it <em>says</em>, because every one of these strings is already on the wire.
+/// Every declared tool's <c>inputSchema</c> literal, pinned verbatim. Each is derived from the
+/// tool's argument record, and the derivation may change how a schema is <em>produced</em> and
+/// nothing about what it <em>says</em>: this text is the wire contract every caller reads.
 ///
 /// Shared with the dispatch-level test that asserts the same text arrives over HTTP - so the
 /// pinned form is checked against the tool object here and against the real <c>tools/list</c>
@@ -77,10 +76,9 @@ public static class NativeToolSchemas
         { "type": "object", "properties": {} }
         """;
 
-    // The vault tools were never hand-authored, so their pins are the contract itself rather than a
-    // record of a conversion. What they guard is the same thing: the argument record is the only
-    // statement of the surface, and a member renamed, reordered, made required, or dropped from an
-    // enumeration is a change every caller sees.
+    // The vault tools follow. What their pins guard is what the three above guard: the argument
+    // record is the only statement of the surface, and a member renamed, reordered, made required,
+    // or dropped from an enumeration is a change every caller sees.
 
     public const string Read = """
         {
@@ -374,14 +372,14 @@ public static class NativeToolSchemas
 }
 
 /// <summary>
-/// Pins what the three declared tools advertise: <see cref="NativeToolArguments"/> derives it from
+/// Pins what each declared tool advertises: <see cref="NativeToolArguments"/> derives it from
 /// the argument record the declaration names, rather than from a hand-authored
 /// <c>Dictionary&lt;string, object&gt;</c> literal, and the derivation may change how the schema is
 /// <em>produced</em> and nothing about what it <em>says</em>.
 ///
-/// The binding boundary moved with the conversion: a binding failure is not a
+/// The binding boundary sits outside the tool: a binding failure is not a
 /// <c>{code, message, data?}</c> error until it is re-raised as one, and the shared execute path is
-/// now the single site that does that, so the cases below drive it rather than a tool.
+/// the single site that does that, so the cases below drive it rather than a tool.
 /// </summary>
 public sealed class NativeToolSchemaTests(TestVaultFixture fixture) : IClassFixture<TestVaultFixture>
 {

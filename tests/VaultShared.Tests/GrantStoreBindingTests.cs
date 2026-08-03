@@ -6,7 +6,7 @@ using VaultShared.Scope;
 namespace VaultShared.Tests;
 
 /// <summary>
-/// Unit coverage for the Batch A auth changes on <see cref="GrantStore"/>: token-less named
+/// Unit coverage for the localhost auth model on <see cref="GrantStore"/>: token-less named
 /// grants parsed from grants.json, the localhost selector/minimum-floor resolution
 /// (<see cref="GrantStore.ResolveLocalhostGrant"/>), and the elevation binding table
 /// (rebind-with-TTL and lazy revert inside <see cref="GrantStore.Authenticate"/>). Every test

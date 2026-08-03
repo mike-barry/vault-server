@@ -8,8 +8,8 @@ using VaultShared.Tests;
 namespace VaultMcpServer.Tests;
 
 /// <summary>
-/// End-to-end coverage for the dispatcher's authoritative vault-membership enforcement (Batch B
-/// hardening): <see cref="Tools.ScriptToolDispatcher.CallToolAsync"/> re-checks
+/// End-to-end coverage for the dispatcher's authoritative vault-membership enforcement:
+/// <see cref="Tools.ScriptToolDispatcher.CallToolAsync"/> re-checks
 /// <c>grant.CanAccessVault</c> on the call's effective vault - the deserialized <c>vault</c>
 /// argument when present, else the configured default vault - for every tool that takes a Vault
 /// parameter. This is the check the middleware's best-effort body-peek 403 cannot be trusted to

@@ -107,7 +107,7 @@ public sealed class ScriptToolsWatcherTests : IDisposable, IClassFixture<ScriptT
         // End-to-end through the watcher: a script broken by an edit shows up as a Degraded
         // ScriptTools problem after the triggered re-scan (while the rest of the folder
         // keeps its tools), and fixing it clears the problem on the next re-scan - the
-        // replaceable-per-source behavior the health_check batch will consume.
+        // replaceable-per-source behavior health_check reports over.
         var scriptPath = Path.Combine(_tempDir, "greet.ps1");
         await File.WriteAllTextAsync(scriptPath, ValidScript);
         await File.WriteAllTextAsync(Path.Combine(_tempDir, "other.ps1"), ValidScript);

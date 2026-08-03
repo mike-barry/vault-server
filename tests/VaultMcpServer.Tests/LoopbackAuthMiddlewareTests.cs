@@ -10,7 +10,7 @@ using VaultShared.Tests;
 namespace VaultMcpServer.Tests;
 
 /// <summary>
-/// Unit coverage for the middleware's loopback gate (Batch B hardening): the selector->default
+/// Unit coverage for the middleware's loopback gate: the selector->default
 /// binding and the minimum-access floor apply only to a loopback remote, while a non-loopback
 /// request must present a real token that <see cref="GrantStore.Authenticate"/> accepts - otherwise
 /// a fixed generic 401 with no Expired-vs-Unknown oracle in the body. Constructs the middleware

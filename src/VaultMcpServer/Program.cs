@@ -60,8 +60,8 @@ var grantsConfigPath = Path.GetFullPath(Path.Combine(
 
 // Localhost auth policy (see LocalhostAuthOptions / GrantStore.ResolveLocalhostGrant): the
 // well-known non-secret selector token, an optional strict expected-token override, and the
-// named grant the selector binds to on this machine (the dev default - absent means the selector
-// floors to minimum access, i.e. the switchover to a live dev default is a later batch).
+// named grant the selector binds to on this machine. The grant id is optional: absent, the
+// selector floors to minimum access, so naming one here is what widens it.
 var localhostAuthOptions = new LocalhostAuthOptions(
     SelectorToken: builder.Configuration["LocalhostAuth:SelectorToken"] is { Length: > 0 } sel ? sel : LocalhostAuthOptions.DefaultSelectorToken,
     ExpectedLocalhostToken: builder.Configuration["LocalhostAuth:ExpectedLocalhostToken"] is { Length: > 0 } exp ? exp : null,
@@ -139,9 +139,10 @@ builder.Services.AddSingleton(elevationRequestTool);
 // The registry takes declarations, so a tool with no declaration has nothing to register and a new
 // one is a `new` plus a line here. The order is the order tools/list reports them in.
 //
-// The vault tools hold nothing: their vault, grant and session all arrive on the call, which is what
-// lets one instance answer every caller. The three above hold server state instead, which is why
-// they are constructed with it.
+// A vault tool's vault, grant and session all arrive on the call, which is what lets one instance
+// answer every caller; the per-vault frontmatter declarations are the one thing any of them holds,
+// and only the two noted below do. The three above hold server state instead, which is why they are
+// constructed with it.
 var toolRegistry = new ToolRegistry()
     .Add(MintTokenTool.Declaration, mintTokenTool)
     .Add(HealthCheckTool.Declaration, healthCheckTool)

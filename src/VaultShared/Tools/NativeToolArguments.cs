@@ -134,9 +134,9 @@ public static class NativeToolArguments
     }
 
     /// <summary>
-    /// The one <c>TransformSchemaNode</c> callback for the server, closing the exporter's two gaps
+    /// The one <c>TransformSchemaNode</c> callback in the build, closing the exporter's three gaps
     /// against what an MCP <c>inputSchema</c> should look like. Authored once here rather than per
-    /// tool, since both gaps are properties of the exporter, not of any tool.
+    /// tool, since every gap is a property of the exporter, not of any tool.
     ///
     /// <list type="number">
     /// <item>It emits <c>["string","null"]</c>-style unions for every optional or nullable member
@@ -180,17 +180,6 @@ public static class NativeToolArguments
     }
 
     /// <summary>
-    /// Restates every enum-valued member of <paramref name="node"/>'s own type, which the exporter
-    /// left unconstrained and never offered to <see cref="Transform"/>. Done from the owning object's
-    /// node because that is the innermost node the callback does reach, and driven off
-    /// <see cref="JsonTypeInfo.Properties"/> so the wire name here is the one the binder matches on
-    /// rather than a second rendering of it.
-    ///
-    /// The values are <see cref="EnumArgument"/>'s own wire spellings, so what is advertised and what
-    /// binds cannot disagree. A member's declared default and description are carried across, since
-    /// nothing else will put them back.
-    /// </summary>
-    /// <summary>
     /// Restates a member the exporter left with no shape at all - a type that admits any JSON, and
     /// so sits behind a converter this callback is never offered. What comes out is
     /// <c>{"default": null}</c>: a stale nullability artifact, and no description, which is the part
@@ -219,6 +208,17 @@ public static class NativeToolArguments
         }
     }
 
+    /// <summary>
+    /// Restates every enum-valued member of <paramref name="node"/>'s own type, which the exporter
+    /// left unconstrained and never offered to <see cref="Transform"/>. Done from the owning object's
+    /// node because that is the innermost node the callback does reach, and driven off
+    /// <see cref="JsonTypeInfo.Properties"/> so the wire name here is the one the binder matches on
+    /// rather than a second rendering of it.
+    ///
+    /// The values are <see cref="EnumArgument"/>'s own wire spellings, so what is advertised and what
+    /// binds cannot disagree. A member's declared default and description are carried across, since
+    /// nothing else will put them back.
+    /// </summary>
     private static void Enumerations(JsonSchemaExporterContext context, JsonObject node)
     {
         if (node["properties"] is not JsonObject properties)

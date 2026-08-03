@@ -166,8 +166,8 @@ public sealed class GrantStoreTests(TestVaultFixture fixture) : IClassFixture<Te
     [Fact]
     public void Load_UnknownVault_SkipsRow()
     {
-        // The new check this batch adds: a row naming a vault absent from the configured
-        // vault set (e.g. after a vault rename) skips rather than loading silently inert.
+        // A row naming a vault absent from the configured vault set (e.g. after a vault rename)
+        // skips rather than loading silently inert.
         var (store, sink) = LoadRows(
             """ "token-a": { "id": "admin", "opClasses": ["content:read"], "vaults": ["renamed-away"], "ttl": "*", "scopeRoots": { "renamed-away": ["*"] } } """,
             GoodRow);
@@ -659,7 +659,7 @@ public sealed class GrantStoreTests(TestVaultFixture fixture) : IClassFixture<Te
     /// <summary>Shared assertion for the remaining whole-file-failure cases (missing file,
     /// structurally-empty table): the load records a Fatal problem from source "GrantStore"
     /// and returns an inert store nobody can authenticate against. Per-row validation
-    /// failures no longer land here - they skip just their row; see
+    /// failures do not land here - they skip just their row; see
     /// <see cref="AssertSingleRowSkipped"/>.</summary>
     private static void AssertFatalAndEmpty(RecordingProblemSink sink, GrantStore store)
     {
