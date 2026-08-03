@@ -39,13 +39,11 @@ The phase opens with two steps that touch code rather than documents. They are g
 - [x] Design the frontmatter surface - the block grammar and facet split, the operation vocabulary, outcome-based authority classification, the validator, and the registry's loading and failure behaviour. Ahead of the tool vocabulary, because `edit`'s argument surface is a projection of the operation vocabulary and its advertised schema is generated from the declaration
 - [x] Design the tool vocabulary as one surface: argument shapes, return tiers, error vocabulary, the preview convention, the write-class envelope. The largest single task here, and its own phase
 - [x] Design the front-end projection - one tool declaration, two front-ends, and what each may vary, and the shared execute path that checks the op-class floor, takes the mutex lock, and constructs the per-call access object
-- [ ] Operator review of the design, as one pass over the four documents together. The phase's own check: each document was written against its area, and this is where they are read as one design and either signed off or sent back. Nothing in Build starts until it is done
-  - Read as a set rather than one at a time. Most of what a review can catch here is a seam - a subject two documents each think the other owns, a type one names and another contradicts, a deferral pointing at a document that no longer takes it - and none of those are visible from inside a single document
-  - A document sent back is revised and re-read at the same bar. Where the review changes a decision that a later document built on, the later one is revised in the same pass
+- [x] Operator review of the design, as one pass over the four documents together. The phase's own check: each document was written against its area, and this is where they are read as one design and either signed off or sent back. Nothing in Build starts until it is done
 
 ## Build
 
-**The specs and the design documents are both inputs to every step, and neither restates the other.** A design document says what shape this build takes where the specs left the shape open. Where a spec already bridges to implementation, no design document repeats it. A subject missing from a design document is therefore not a gap; it is a subject the specs settled. Work each step from its area's design document together with the spec sections that document's coverage index names. Where the two disagree, the specs win and the design document is the defect.
+**The specs and the design documents are both inputs to every step, and are intended to complement each other.** A design document says what shape this build takes where the specs left the shape open. Load both documents whenever touching on an area they cover to get the full picture.
 
 - [ ] Build the core access layer
   - Input: `PathPolicy.IsPathInReadScope` comes out with this step. The design computes a call's effective read scope once, when the access object is constructed, rather than per candidate - a whole-vault enumeration is exactly where rebuilding the union per path costs. `EffectiveReadScope` stays and is what computes it
