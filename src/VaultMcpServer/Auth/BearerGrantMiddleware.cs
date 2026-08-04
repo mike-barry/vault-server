@@ -7,52 +7,75 @@ using VaultMcpServer.Health;
 namespace VaultMcpServer.Auth;
 
 /// <summary>
-/// Localhost bearer-token gate in front of every request. Resolves the presented token to a grant
-/// via <see cref="GrantStore.ResolveLocalhostGrant"/>, which never errors: a token matching a real
-/// grant row, minted grant, or active elevation binding resolves to that authority, the localhost
-/// selector token binds to the configured default grant, and a blank, unrecognized, or expired
-/// token degrades to the built-in minimum-access floor rather than a 401. This is the fail-closed
-/// localhost model (the server binds <c>localhost:5111</c> only) - a subagent with a missing or
-/// mangled token runs harmless instead of failing hard. The resolved grant is attached to
-/// <c>HttpContext.Items[GrantItemKey]</c> for downstream op-class enforcement, and the principal's
-/// token-hash to <c>HttpContext.Items[PrincipalTokenHashItemKey]</c> so the elevation tool can
-/// rebind it without the raw token reaching a tool.
-///
-/// Writes one audit log line per request: grant id (never the token), JSON-RPC method, and - for a
-/// tools/call - the tool name, vault argument, and full arguments. A tools/call naming a vault
-/// outside the grant's <see cref="Grant.Vaults"/> is still rejected with 403 (the minimum-access
-/// floor has no vaults, so it 403s on any vault content while health_check and request_elevation,
-/// which name no vault, pass through).
-///
-/// Before any of that, checks <see cref="ServerHealthState.IsFatallyDegraded"/> and, if set,
-/// short-circuits every request (regardless of token) with 503 and a fixed generic body -
-/// deliberately the same text for every request and every underlying error, so it can never
-/// leak which config file or which detail is broken. That 503 gate is unchanged.
+/// Authenticates every request against a bearer token and attaches the resolved grant to
+/// <c>HttpContext</c>.
 /// </summary>
+/// <remarks>
+/// <para>
+/// A loopback request resolves its token through <see cref="GrantStore.ResolveLocalhostGrant"/>,
+/// which never fails: a token matching a grant row, a minted grant, or an active elevation
+/// binding resolves to that authority; the localhost selector token binds to the configured
+/// default grant; and a blank, unrecognized, or expired token falls back to the built-in
+/// minimum-access floor instead of a 401. That fallback exists because the server binds
+/// loopback only, so a subagent with a missing or mangled token runs harmlessly rather than
+/// failing hard. A non-loopback request gets neither the selector nor the floor and must present
+/// a token <see cref="GrantStore.Authenticate"/> accepts.
+/// </para>
+/// <para>
+/// The resolved grant is placed in <c>HttpContext.Items[GrantItemKey]</c> for downstream
+/// op-class enforcement, and the presented token's hash in
+/// <c>HttpContext.Items[PrincipalTokenHashItemKey]</c> so the elevation tool can rebind the
+/// principal without the raw token reaching a tool.
+/// </para>
+/// <para>
+/// One audit line is written per request: the grant id (never the token), the JSON-RPC method,
+/// and, for a <c>tools/call</c>, the tool name, vault argument, and full arguments. A
+/// <c>tools/call</c> naming a vault outside the grant's <see cref="Grant.Vaults"/> is rejected
+/// with 403. The minimum-access floor has no vaults, so it is refused for any vault content
+/// while <c>health_check</c> and <c>request_elevation</c>, which name no vault, pass through.
+/// </para>
+/// <para>
+/// Before any of that, <see cref="ServerHealthState.IsFatallyDegraded"/> short-circuits every
+/// request with a 503 regardless of the token.
+/// </para>
+/// </remarks>
+/// <param name="next">The next middleware in the pipeline.</param>
+/// <param name="grantStore">Resolves a presented token to a grant.</param>
+/// <param name="healthState">Supplies the fatal-degradation flag that gates every request.</param>
+/// <param name="logger">Receives the per-request audit lines.</param>
 public sealed class BearerGrantMiddleware(RequestDelegate next, GrantStore grantStore, ServerHealthState healthState, ILogger<BearerGrantMiddleware> logger)
 {
+    /// <summary>The <c>HttpContext.Items</c> key holding the grant resolved for the request.</summary>
     public const string GrantItemKey = "Grant";
 
-    /// <summary>Items key for the presented token's hash (see <see cref="GrantStore.HashKey"/>) -
-    /// the elevation tool reads it to rebind the principal without ever seeing the raw token.</summary>
+    /// <summary>
+    /// The <c>HttpContext.Items</c> key holding the hash of the presented token (see
+    /// <see cref="GrantStore.HashKey"/>). The elevation tool reads it to rebind the principal
+    /// without ever seeing the raw token.
+    /// </summary>
     public const string PrincipalTokenHashItemKey = "PrincipalTokenHash";
 
     /// <summary>
-    /// Fixed, detail-free body returned for every request while <see cref="ServerHealthState.IsFatallyDegraded"/>
-    /// is true. Intentionally says nothing about which file or which validation failed -
-    /// see <see cref="ServerHealthState.Problems"/> (via the logs) for that.
+    /// The response body returned for every request while
+    /// <see cref="ServerHealthState.IsFatallyDegraded"/> is true. The same text is returned for
+    /// every request and every underlying error so that it cannot reveal which config file or
+    /// which validation failed; <see cref="ServerHealthState.Problems"/>, via the logs, carries
+    /// that detail.
     /// </summary>
     public const string FatalDegradedBody =
         "A fatal server configuration error is preventing this server from operating. Check the server logs for details.";
 
     /// <summary>
-    /// Fixed, detail-free body returned with a 401 when a non-loopback request fails to
-    /// authenticate. Deliberately says nothing about why (unknown vs expired token): the
-    /// server-side audit log carries that (via <see cref="GrantStore.GetAuthFailureReason"/>),
-    /// but the response must never be an oracle a remote caller can probe.
+    /// The response body returned with a 401 when a non-loopback request fails to authenticate.
+    /// It does not say whether the token was unknown or expired, so a remote caller cannot probe
+    /// the response to tell the two apart; the server-side audit log records the reason from
+    /// <see cref="GrantStore.GetAuthFailureReason"/>.
     /// </summary>
     public const string UnauthorizedBody = "Unauthorized.";
 
+    /// <summary>Authenticates the request, audits it, and passes it to the next middleware.</summary>
+    /// <param name="context">The request being handled.</param>
+    /// <returns>A task that completes once the request has been rejected or forwarded.</returns>
     public async Task InvokeAsync(HttpContext context)
     {
         if (healthState.IsFatallyDegraded)
@@ -61,19 +84,15 @@ public sealed class BearerGrantMiddleware(RequestDelegate next, GrantStore grant
             return;
         }
 
-        // Extract the bearer token (empty when the header is missing or malformed - a blank token,
-        // which the localhost floor handles, not a 401).
+        // A missing or malformed header yields an empty token, which the localhost floor handles
+        // rather than a 401.
         var header = context.Request.Headers["Authorization"].ToString();
         var token = header.StartsWith("Bearer ", StringComparison.Ordinal)
             ? header["Bearer ".Length..].Trim()
             : "";
 
-        // The selector->default binding and the minimum-access floor are a localhost-only
-        // convenience (the server's whole trust model is that it binds loopback). Only apply them
-        // to a request whose remote address is loopback; a null RemoteIpAddress is treated as
-        // non-loopback (fail closed). A non-loopback request must present a real token that
-        // Authenticate accepts - there is no floor and no selector for it - otherwise it gets a
-        // fixed generic 401 with no Expired-vs-Unknown oracle in the body.
+        // The selector-to-default binding and the minimum-access floor apply only to loopback
+        // requests. A null RemoteIpAddress counts as non-loopback, so the check fails closed.
         var remoteIp = context.Connection.RemoteIpAddress;
         var isLoopback = remoteIp is not null && IPAddress.IsLoopback(remoteIp);
 
@@ -87,8 +106,8 @@ public sealed class BearerGrantMiddleware(RequestDelegate next, GrantStore grant
             var authenticated = grantStore.Authenticate(token);
             if (authenticated is null)
             {
-                // GetAuthFailureReason is diagnostic-only and stays server-side (the log line),
-                // never the response body. Same audit shape as the vault-scope rejection below.
+                // The failure reason is diagnostic only: it goes in the log line and never in the
+                // response body.
                 logger.LogWarning(
                     "Audit: grant=(none) remoteIp={RemoteIp} reason={Reason} result=rejected-non-loopback",
                     remoteIp, grantStore.GetAuthFailureReason(token));
@@ -118,6 +137,11 @@ public sealed class BearerGrantMiddleware(RequestDelegate next, GrantStore grant
         await next(context);
     }
 
+    /// <summary>Writes a plain-text refusal and ends the request.</summary>
+    /// <param name="context">The request to respond to.</param>
+    /// <param name="statusCode">The HTTP status code to return.</param>
+    /// <param name="message">The response body.</param>
+    /// <returns>A task that completes once the body has been written.</returns>
     private static async Task Reject(HttpContext context, int statusCode, string message)
     {
         context.Response.StatusCode = statusCode;
@@ -126,11 +150,14 @@ public sealed class BearerGrantMiddleware(RequestDelegate next, GrantStore grant
     }
 
     /// <summary>
-    /// Best-effort peek at the JSON-RPC request body for audit logging and vault-scope
-    /// enforcement, without disturbing it for downstream handlers. Buffers and rewinds the
-    /// request stream; tolerates non-JSON, empty, or malformed bodies (the MCP handler
-    /// reports protocol errors itself).
+    /// Reads the JSON-RPC request body for audit logging and the vault-scope check without
+    /// disturbing it for downstream handlers. The request stream is buffered and rewound.
+    /// Non-JSON, empty, and malformed bodies return all-null rather than failing; the MCP
+    /// handler reports protocol errors itself.
     /// </summary>
+    /// <param name="request">The request whose body is inspected.</param>
+    /// <returns>The JSON-RPC method, and for a <c>tools/call</c> the tool name, the vault
+    /// argument, and the raw arguments JSON. Any element is null when it is not present.</returns>
     private static async Task<(string? Method, string? Tool, string? Vault, string? Arguments)> PeekJsonRpcCall(HttpRequest request)
     {
         if (request.ContentLength is null or 0)
@@ -176,12 +203,15 @@ public sealed class BearerGrantMiddleware(RequestDelegate next, GrantStore grant
     }
 
     /// <summary>
-    /// Looks up a JSON object property by name, case-insensitively. Tool-argument property
-    /// names are client-schema-cased: a script tool exposes its parameters verbatim from the
-    /// param() block, which spells them snake_case, but the PowerShell binder itself matches
-    /// case-insensitively, so a client may legitimately send "Vault" and must still be gated
-    /// here. The JSON-RPC envelope's own field names are protocol-defined lowercase and exact.
+    /// Looks up a JSON object property by name, ignoring case. Tool-argument names are matched
+    /// case-insensitively because the PowerShell binder is, so a client may legitimately send
+    /// "Vault" and must still be gated here. The JSON-RPC envelope's own field names are
+    /// protocol-defined lowercase and are matched exactly.
     /// </summary>
+    /// <param name="obj">The JSON object to search.</param>
+    /// <param name="name">The property name to look for.</param>
+    /// <param name="value">The matched property value, or default when no property matches.</param>
+    /// <returns><c>true</c> when a property matched; otherwise <c>false</c>.</returns>
     private static bool TryGetPropertyIgnoreCase(JsonElement obj, string name, out JsonElement value)
     {
         foreach (var property in obj.EnumerateObject())

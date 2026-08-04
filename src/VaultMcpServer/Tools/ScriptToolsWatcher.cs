@@ -1,19 +1,21 @@
 namespace VaultMcpServer.Tools;
 
 /// <summary>
-/// Watches `tools/` for `.ps1` create/change/rename/delete events and re-scans the folder
-/// via <see cref="ScriptToolRegistry.Refresh"/> so added, edited, or removed script tools
-/// take effect without a server restart. Rapid-fire events (an editor's save can fire
-/// several in a row) are debounced behind a single timer that keeps getting pushed back,
-/// so one save triggers one refresh.
-///
-/// After a refresh, broadcasts `notifications/tools/list_changed` via
-/// <see cref="ScriptToolDispatcher.NotifyToolsListChangedAsync"/> - best-effort, per the
-/// caveats documented there.
-///
-/// A missing `tools/` directory is not watched, matching <see cref="ScriptToolLoader.Load"/>
-/// treating a missing folder as zero tools rather than a startup failure.
+/// Watches the tools directory for <c>.ps1</c> create, change, rename, and delete events and
+/// re-scans it through <see cref="ScriptToolRegistry.Refresh"/>, so added, edited, or removed
+/// script tools take effect without a server restart.
 /// </summary>
+/// <remarks>
+/// An editor's save can fire several events in a row, so events are debounced behind one timer
+/// that is pushed back on each event and one save produces one refresh.
+///
+/// After a refresh the watcher broadcasts <c>notifications/tools/list_changed</c> through
+/// <see cref="ScriptToolDispatcher.NotifyToolsListChangedAsync"/>, which is best-effort for the
+/// reasons documented there.
+///
+/// A missing tools directory is not watched, matching <see cref="ScriptToolLoader.Load"/>, which
+/// treats a missing folder as zero tools rather than a startup failure.
+/// </remarks>
 public sealed class ScriptToolsWatcher : IDisposable
 {
     private static readonly TimeSpan DebounceWindow = TimeSpan.FromMilliseconds(300);
@@ -24,6 +26,11 @@ public sealed class ScriptToolsWatcher : IDisposable
     private readonly FileSystemWatcher? _watcher;
     private readonly Timer _debounceTimer;
 
+    /// <summary>Starts watching the tools directory, if it exists.</summary>
+    /// <param name="toolsDir">The directory to watch for <c>.ps1</c> changes.</param>
+    /// <param name="registry">The registry re-scanned after a debounced change.</param>
+    /// <param name="dispatcher">Broadcasts the tools-list-changed notification after a refresh.</param>
+    /// <param name="logger">Receives watcher status and failure messages.</param>
     public ScriptToolsWatcher(string toolsDir, ScriptToolRegistry registry, ScriptToolDispatcher dispatcher, ILogger<ScriptToolsWatcher> logger)
     {
         _registry = registry;
@@ -66,11 +73,10 @@ public sealed class ScriptToolsWatcher : IDisposable
         }
         catch (Exception ex)
         {
-            // Per-script validation problems do not throw - ScriptToolLoader skips the
-            // script and records the problem into ServerHealthState's replaceable
-            // ScriptTools set (which also logs, via the attached logger). This catch is a
-            // safety net for anything unexpected (e.g. an IO failure enumerating the
-            // folder itself): log and keep the previously-loaded tool set rather than
+            // Per-script validation problems do not throw: ScriptToolLoader skips the script
+            // and records the problem into ServerHealthState's replaceable ScriptTools set,
+            // which also logs it. This catch covers anything unexpected, such as an IO failure
+            // enumerating the folder, and keeps the previously loaded tool set rather than
             // crashing the watcher.
             _logger.LogWarning(ex, "Failed to refresh script tools after a tools directory change; keeping the previous tool set.");
             return;
@@ -91,6 +97,7 @@ public sealed class ScriptToolsWatcher : IDisposable
         }
     }
 
+    /// <summary>Stops watching and releases the timer and file-system watcher.</summary>
     public void Dispose()
     {
         _debounceTimer.Dispose();

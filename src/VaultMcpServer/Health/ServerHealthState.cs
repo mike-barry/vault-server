@@ -5,43 +5,50 @@ using VaultShared.Health;
 
 namespace VaultMcpServer.Health;
 
-/// <summary>A single problem to record via <see cref="ServerHealthState.ReplaceDegraded(string, IReadOnlyList{DegradedProblem})"/>:
-/// its human-readable detail plus, optionally, the path of the file it concerns.</summary>
+/// <summary>Represents one problem to record via
+/// <see cref="ServerHealthState.ReplaceDegraded(string, IReadOnlyList{DegradedProblem})"/>.</summary>
+/// <param name="Detail">The human-readable description of what is wrong.</param>
+/// <param name="SubjectPath">The path of the file the problem concerns, or null when it concerns
+/// no particular file.</param>
 public sealed record DegradedProblem(string Detail, string? SubjectPath = null);
 
 /// <summary>
-/// Process-wide record of config problems found at startup and by runtime re-scans (the
-/// tools/ file watcher) - the server's alternative to hard-stopping on bad config. A
-/// config loader calls <see cref="RecordFatal"/> or
-/// <see cref="RecordDegraded"/> rather than throwing, and returns an inert/empty instance, so the process
-/// always starts; <see cref="Auth.BearerGrantMiddleware"/> consults <see cref="IsFatallyDegraded"/>
-/// to short-circuit every request with 503 while any fatal problem is outstanding.
-///
-/// Two backing collections, matching the two lifetimes a problem can have:
-/// <list type="bullet">
-/// <item>An append-only queue for startup-load problems (<see cref="RecordFatal"/> /
-/// <see cref="RecordDegraded"/>). vaults.json, op-classes.json, and grants.json load
-/// exactly once per process, so their problems never need to be retracted.</item>
-/// <item>A keyed, replaceable per-source set (<see cref="ReplaceDegraded"/>) for sources
-/// that re-scan at runtime - today the script-tool loader, whose per-script problems are
-/// recomputed on every tools/ re-scan: a fixed script must stop appearing as a problem and
-/// a newly-broken one must appear, which an append-only queue cannot express. Replaceable
-/// sets are Degraded-only by construction, so they can never influence
-/// <see cref="IsFatallyDegraded"/>.</item>
-/// </list>
-/// <see cref="Problems"/> returns the coherent current picture across both - the view the
-/// <c>health_check</c> tool renders and the one the <c>initialize</c> instructions summarize.
-/// Those two members are also the whole of <see cref="IHealthState"/>, the seam by which a tool
-/// reports on a process's health without knowing which front-end's process it is.
-///
-/// Recording can happen at startup (the main thread, before the DI container exists) and
-/// from the tools/ file-watcher thread, so both collections are thread-safe.
-///
-/// Problems recorded before the host is built are flushed to the logger once by
-/// <c>Program.cs</c>; problems recorded after <see cref="AttachLogger"/> has been called
-/// (runtime re-scans) are logged as they are recorded, so nothing depends on a second
-/// flush pass.
+/// Records the configuration problems found at startup and by runtime re-scans, so the server
+/// can start with bad configuration instead of hard-stopping. A config loader calls
+/// <see cref="RecordFatal"/> or <see cref="RecordDegraded"/> instead of throwing and returns an
+/// empty instance; <see cref="Auth.BearerGrantMiddleware"/> reads
+/// <see cref="IsFatallyDegraded"/> and rejects every request with 503 while a fatal problem is
+/// outstanding.
 /// </summary>
+/// <remarks>
+/// <para>
+/// There are two backing collections, one per problem lifetime. Startup-load problems
+/// (<see cref="RecordFatal"/>, <see cref="RecordDegraded"/>) go into an append-only queue:
+/// vaults.json, op-classes.json, and grants.json load exactly once per process, so their
+/// problems never need to be retracted. Sources that re-scan at runtime - today only the
+/// script-tool loader - use the keyed, replaceable per-source sets of
+/// <see cref="ReplaceDegraded"/>, so a fixed script stops appearing as a problem and a
+/// newly-broken one appears. A replaceable set is always Degraded, so it can never affect
+/// <see cref="IsFatallyDegraded"/>.
+/// </para>
+/// <para>
+/// <see cref="Problems"/> is the combined view across both, and is what the <c>health_check</c>
+/// tool renders and what the MCP <c>initialize</c> instructions summarize. It and
+/// <see cref="IsFatallyDegraded"/> are the whole of <see cref="IHealthState"/>, which lets a
+/// tool report on process health without knowing which front-end it is running in.
+/// </para>
+/// <para>
+/// Both collections are thread-safe, because problems are recorded both from the startup
+/// thread, before the DI container exists, and from the tools directory watcher's thread.
+/// </para>
+/// <para>
+/// Problems recorded before the host is built are flushed to the logger once by
+/// <c>Program.cs</c>. Problems recorded after <see cref="AttachLogger"/> has run are logged as
+/// they are recorded, so no second flush pass is needed.
+/// </para>
+/// </remarks>
+/// <param name="timeProvider">Supplies the timestamp on each recorded problem. Defaults to
+/// <see cref="TimeProvider.System"/>.</param>
 public sealed class ServerHealthState(TimeProvider? timeProvider = null) : IConfigProblemSink, IHealthState
 {
     private readonly TimeProvider _timeProvider = timeProvider ?? TimeProvider.System;
@@ -51,20 +58,19 @@ public sealed class ServerHealthState(TimeProvider? timeProvider = null) : IConf
     private volatile ILogger? _logger;
     private volatile string _instructionsSummary = string.Empty;
 
-    /// <summary>True once at least one <see cref="ProblemSeverity.Fatal"/> problem has been
-    /// recorded. Read with <see cref="Volatile.Read(ref int)"/> so it observes a concurrent
-    /// <see cref="RecordFatal"/> from another thread without needing a lock. Replaceable
-    /// per-source sets (<see cref="ReplaceDegraded"/>) never contribute - they are
-    /// Degraded-only.</summary>
+    /// <summary>
+    /// Gets a value indicating whether at least one <see cref="ProblemSeverity.Fatal"/> problem
+    /// has been recorded. The count is read with <see cref="Volatile.Read(ref int)"/> so a
+    /// concurrent <see cref="RecordFatal"/> on another thread is observed without a lock.
+    /// Replaceable per-source sets never contribute, because they are always Degraded.
+    /// </summary>
     public bool IsFatallyDegraded => Volatile.Read(ref _fatalCount) > 0;
 
     /// <summary>
-    /// A point-in-time snapshot of the current problem picture: every append-only startup
-    /// problem (oldest first), followed by each replaceable source's <em>current</em>
-    /// problem set (sources in ordinal order). A source whose last
-    /// <see cref="ReplaceDegraded"/> call passed an empty set contributes nothing - its
-    /// earlier problems are gone from this view, which is the point of the replaceable
-    /// bucket.
+    /// Gets a point-in-time snapshot of the current problems: every append-only startup problem
+    /// oldest first, then each replaceable source's current problem set, with sources in ordinal
+    /// order. A source whose last <see cref="ReplaceDegraded"/> call passed an empty set
+    /// contributes nothing.
     /// </summary>
     public IReadOnlyCollection<HealthProblem> Problems =>
         _problems
@@ -73,28 +79,26 @@ public sealed class ServerHealthState(TimeProvider? timeProvider = null) : IConf
             .ToArray();
 
     /// <summary>
-    /// Hooks up runtime logging once the host (and therefore an <see cref="ILogger"/>) exists.
-    /// <c>Program.cs</c> calls this immediately <em>after</em> flushing the startup-recorded
-    /// problems, so everything recorded before this call is logged exactly once by the flush
-    /// and everything recorded after (watcher re-scans) is logged here at record time.
+    /// Sets the logger used to record problems as they arrive. <c>Program.cs</c> calls this
+    /// after flushing the problems recorded during startup, so everything recorded before the
+    /// call is logged once by the flush and everything recorded after is logged here.
     /// </summary>
+    /// <param name="logger">The logger to write problem records to.</param>
     public void AttachLogger(ILogger logger) => _logger = logger;
 
     /// <summary>
-    /// A pre-rendered, cached summary of the current problem picture - recomputed once per
-    /// mutation (<see cref="RecordFatal"/>, <see cref="RecordDegraded"/>,
-    /// <see cref="ReplaceDegraded"/>), never assembled on read. Copied verbatim into the MCP
-    /// <c>initialize</c> response's <c>instructions</c> field by <c>Program.cs</c>'s
-    /// <c>ConfigureSessionOptions</c> callback, which runs on every HTTP request under the
-    /// stateless transport and therefore must stay cheap - a plain field read, not a
-    /// recompute. Empty when there are no problems, so callers can treat "empty/absent" and
-    /// "no problems" as the same thing.
+    /// Gets a cached one-line summary of the current problems, or an empty string when there
+    /// are none. It is recomputed on every mutation and never assembled on read, because
+    /// <c>Program.cs</c> copies it into the MCP <c>initialize</c> response's
+    /// <c>instructions</c> field from a callback that runs on every HTTP request under the
+    /// stateless transport.
     /// </summary>
     public string InstructionsSummary => _instructionsSummary;
 
-    /// <summary>Records a whole-file failure. <paramref name="source"/> identifies the
-    /// subsystem (e.g. "VaultConfig", "OpClassRegistry", "GrantStore"); <paramref name="detail"/>
-    /// is the human-readable message describing what failed.</summary>
+    /// <summary>Records a failure that invalidates a whole file.</summary>
+    /// <param name="source">The subsystem the problem belongs to, for example "VaultConfig",
+    /// "OpClassRegistry", or "GrantStore".</param>
+    /// <param name="detail">The human-readable description of what failed.</param>
     public void RecordFatal(string source, string detail)
     {
         _problems.Enqueue(new HealthProblem(ProblemSeverity.Fatal, source, detail, _timeProvider.GetUtcNow()));
@@ -103,11 +107,14 @@ public sealed class ServerHealthState(TimeProvider? timeProvider = null) : IConf
         RecomputeInstructionsSummary();
     }
 
-    /// <summary>Records a per-entry skip that doesn't invalidate the rest of the file it came
-    /// from, append-only - for startup-only loads (vaults.json entries, grants.json rows)
-    /// that never re-run within a process lifetime. A source that re-scans at runtime should
-    /// use <see cref="ReplaceDegraded"/> instead, so a later scan can retract a fixed
-    /// problem.</summary>
+    /// <summary>
+    /// Records a skipped entry that does not invalidate the rest of the file it came from. The
+    /// record is append-only, so this suits startup-only loads such as vaults.json entries and
+    /// grants.json rows. A source that re-scans at runtime should call
+    /// <see cref="ReplaceDegraded"/> instead, so a later scan can retract a fixed problem.
+    /// </summary>
+    /// <param name="source">The subsystem the problem belongs to.</param>
+    /// <param name="detail">The human-readable description of what was skipped.</param>
     public void RecordDegraded(string source, string detail)
     {
         _problems.Enqueue(new HealthProblem(ProblemSeverity.Degraded, source, detail, _timeProvider.GetUtcNow()));
@@ -116,20 +123,22 @@ public sealed class ServerHealthState(TimeProvider? timeProvider = null) : IConf
     }
 
     /// <summary>
-    /// Replaces <paramref name="source"/>'s current Degraded problem set wholesale - the
-    /// recording surface for anything recomputed by a runtime re-scan (today: per-script
-    /// problems from the tools/ loader). Passing an empty <paramref name="details"/> clears
-    /// the source's problems from <see cref="Problems"/> entirely - a re-scan that found
-    /// nothing wrong retracts whatever the previous scan reported. Always Degraded severity:
-    /// a replaceable problem can never be Fatal, so <see cref="IsFatallyDegraded"/> is
-    /// unaffected by construction.
+    /// Replaces a source's current Degraded problem set wholesale. This is the recording
+    /// surface for anything recomputed by a runtime re-scan, today the per-script problems from
+    /// the tools directory loader. Recorded problems are always Degraded, so
+    /// <see cref="IsFatallyDegraded"/> is never affected.
     /// </summary>
+    /// <param name="source">The subsystem whose problem set is being replaced.</param>
+    /// <param name="details">The problems found by this scan. An empty list clears the source's
+    /// problems from <see cref="Problems"/>, retracting whatever the previous scan reported.</param>
     public void ReplaceDegraded(string source, IReadOnlyList<string> details) =>
         ReplaceDegraded(source, details.Select(d => new DegradedProblem(d)).ToList());
 
     /// <inheritdoc cref="ReplaceDegraded(string, IReadOnlyList{string})"/>
-    /// <remarks>Structured overload: each <see cref="DegradedProblem"/> may carry the path of
-    /// the file it concerns, preserved onto the recorded <see cref="HealthProblem.SubjectPath"/>.</remarks>
+    /// <param name="source">The subsystem whose problem set is being replaced.</param>
+    /// <param name="problems">The problems found by this scan. Each may carry the path of the
+    /// file it concerns, which is preserved onto <see cref="HealthProblem.SubjectPath"/>. An
+    /// empty list clears the source's problems.</param>
     public void ReplaceDegraded(string source, IReadOnlyList<DegradedProblem> problems)
     {
         var now = _timeProvider.GetUtcNow();
@@ -151,8 +160,7 @@ public sealed class ServerHealthState(TimeProvider? timeProvider = null) : IConf
 
     /// <summary>
     /// Rebuilds <see cref="InstructionsSummary"/> from the current <see cref="Problems"/> view.
-    /// Called once at the end of every mutation, never from a request path - see
-    /// <see cref="InstructionsSummary"/>'s remarks for why that split matters.
+    /// Called at the end of every mutation and never from a request path.
     /// </summary>
     private void RecomputeInstructionsSummary()
     {

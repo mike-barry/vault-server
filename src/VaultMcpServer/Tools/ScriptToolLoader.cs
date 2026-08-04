@@ -7,70 +7,87 @@ using VaultShared.Configuration;
 namespace VaultMcpServer.Tools;
 
 /// <summary>
-/// Loads MCP tool metadata from a flat folder of `.ps1` scripts - no separate manifest.
-/// Per script: the tool name is the file's base name; description, per-parameter
-/// descriptions, and op class come from a leading `&lt;# ... #&gt;` comment-based-help
-/// block (`.SYNOPSIS`, `.PARAMETER &lt;name&gt;`, `.NOTES` containing "OpClass: Read" or
-/// "OpClass: Write"); the parameter list, types, required/optional status, and any
-/// `[ValidateSet(...)]` members come from static AST parsing of the script's `param()` block.
-///
-/// A parameter whose derived JSON type is too coarse to be a usable contract - an array of
-/// objects derives as a bare `{type: "array"}` - can carry a `.SCHEMA &lt;name&gt;` side-car
-/// block in the same help block, whose body is literal JSON Schema that replaces the whole
-/// derived property node (see <see cref="ScriptToolParameter.Schema"/>). `.PARAMETER` stays
-/// mandatory for every parameter regardless; a side-car simply supersedes its text for the
-/// advertised schema. Two authoring constraints, both inherited from the surrounding parser:
-/// a body containing `#&gt;` truncates the entire help block, because
-/// <see cref="HelpBlockRegex"/> is non-greedy; and a body line that would itself match
-/// <see cref="SectionHeaderRegex"/> would end the block early - not reachable from valid JSON,
-/// whose lines can never begin with `.` followed by a letter.
-///
-/// A script that fails validation (parse error, missing `.SYNOPSIS`, missing/invalid
-/// `.NOTES` op class, an undocumented parameter, a malformed or misnamed `.SCHEMA`) loads
-/// zero tools from that file and is reported as a Degraded problem; the rest of the folder
-/// loads normally. A bad `.SCHEMA` never falls back to <c>MapJsonType</c>: the fallback would
-/// re-advertise the parameter as a bare `{type: "string"}` and, because side-car presence is
-/// also the argument-encoding signal, silently strip its encoding - so a typo would degrade
-/// the tool rather than break it visibly. Because this
-/// runs on every re-scan (startup and each <see cref="ScriptToolsWatcher"/>-triggered
-/// <see cref="ScriptToolRegistry.Refresh"/>), problems are recorded via
-/// <see cref="ServerHealthState.ReplaceDegraded"/> under <see cref="HealthSource"/> - each
-/// scan replaces the previous scan's set, so a fixed script stops appearing as a problem
-/// and a newly-broken one appears.
+/// Loads MCP tool metadata from a flat folder of <c>.ps1</c> scripts, with no separate manifest.
 /// </summary>
+/// <remarks>
+/// <para>
+/// Per script, the tool name is the file's base name. The description, the per-parameter
+/// descriptions, and the op class come from a leading <c>&lt;# ... #&gt;</c> comment-based-help
+/// block: <c>.SYNOPSIS</c>, <c>.PARAMETER &lt;name&gt;</c>, and a <c>.NOTES</c> section
+/// containing "OpClass: &lt;name&gt;". The parameter list, types, required or optional status,
+/// and any <c>[ValidateSet(...)]</c> members come from static AST parsing of the script's
+/// <c>param()</c> block.
+/// </para>
+/// <para>
+/// A parameter whose derived JSON type is too coarse to be a usable contract - an array of
+/// objects derives as a bare <c>{type: "array"}</c> - can carry a <c>.SCHEMA &lt;name&gt;</c>
+/// side-car block in the same help block, whose body is literal JSON Schema that replaces the
+/// whole derived property node (see <see cref="ScriptToolParameter.Schema"/>). Every parameter
+/// still needs a <c>.PARAMETER</c> entry; a side-car only supersedes its text for the advertised
+/// schema. Two authoring constraints come from the parser: a side-car body containing
+/// <c>#&gt;</c> truncates the entire help block, because <see cref="HelpBlockRegex"/> is
+/// non-greedy, and a body line matching <see cref="SectionHeaderRegex"/> would end the block
+/// early, which valid JSON cannot do because its lines never begin with a <c>.</c> followed by a
+/// letter.
+/// </para>
+/// <para>
+/// A script that fails validation - a parse error, a missing <c>.SYNOPSIS</c>, a missing or
+/// invalid <c>.NOTES</c> op class, an undocumented parameter, or a malformed or misnamed
+/// <c>.SCHEMA</c> - loads zero tools from that file and is reported as a Degraded problem, while
+/// the rest of the folder loads normally. A bad <c>.SCHEMA</c> is never quietly replaced by the
+/// derived type: that would re-advertise the parameter as a bare <c>{type: "string"}</c> and,
+/// because side-car presence is also the argument-encoding signal, strip its encoding, so a typo
+/// would degrade the tool instead of breaking it visibly.
+/// </para>
+/// <para>
+/// This runs on every scan, at startup and on each refresh the watcher triggers, so problems are
+/// recorded through <see cref="ServerHealthState.ReplaceDegraded"/> under
+/// <see cref="HealthSource"/>. Each scan replaces the previous scan's set, so a fixed script
+/// stops appearing as a problem and a newly-broken one appears.
+/// </para>
+/// </remarks>
 public static partial class ScriptToolLoader
 {
     /// <summary>The <see cref="ServerHealthState"/> source key this loader's replaceable per-script problem set is recorded under.</summary>
     public const string HealthSource = "ScriptTools";
 
+    /// <summary>Matches the script's leading <c>&lt;# ... #&gt;</c> comment-help block.</summary>
     [GeneratedRegex(@"<#(.*?)#>", RegexOptions.Singleline)]
     private static partial Regex HelpBlockRegex();
 
     /// <summary>
-    /// One `.TAG [arg]` comment-help section header, anchored to its own line.
-    ///
-    /// The trailing class carries `\r` deliberately. Under <see cref="RegexOptions.Multiline"/>
-    /// .NET's `$` matches only *before* a `\n`, never before the `\r` of a CRLF pair - so on a
-    /// script saved with CRLF endings the `\r` is left for this class to consume, and a class of
-    /// just `[ \t]` cannot. Every header would then fail to match, the script would parse zero
-    /// sections, and the loader would refuse it for a missing `.SYNOPSIS` it plainly has. The `\r`
-    /// falls outside the match either way (the leading class and `\S+` both exclude it), so
-    /// nothing downstream sees it: a section body starts on the terminator and is `Trim()`ed.
+    /// Matches one <c>.TAG [arg]</c> comment-help section header on its own line.
     /// </summary>
+    /// <remarks>
+    /// Keep <c>\r</c> in the trailing character class. Under
+    /// <see cref="RegexOptions.Multiline"/>, .NET's <c>$</c> matches only before a <c>\n</c> and
+    /// never before the <c>\r</c> of a CRLF pair, so on a script saved with CRLF endings the
+    /// <c>\r</c> is left for this class to consume and a class of just <c>[ \t]</c> cannot match
+    /// it. Every header would then fail to match, the script would parse zero sections, and the
+    /// loader would refuse it for a missing <c>.SYNOPSIS</c> it plainly has. The <c>\r</c> falls
+    /// outside the captured groups either way, so nothing downstream sees it.
+    /// </remarks>
     [GeneratedRegex(@"^[ \t]*\.(?<tag>[A-Za-z]+)\b[ \t]*(?<arg>\S+)?[ \t\r]*$", RegexOptions.Multiline)]
     private static partial Regex SectionHeaderRegex();
 
+    /// <summary>Matches the <c>OpClass: &lt;name&gt;</c> declaration inside a <c>.NOTES</c> section.</summary>
     [GeneratedRegex(@"OpClass:\s*(\S+)", RegexOptions.IgnoreCase)]
     private static partial Regex OpClassRegex();
 
+    /// <summary>Scans a folder of <c>.ps1</c> scripts and returns the tools they declare.</summary>
+    /// <param name="toolsDir">The directory to scan. A missing directory yields no tools and no
+    /// problems.</param>
+    /// <param name="opClassRegistry">Validates and canonicalizes the op class each script
+    /// declares.</param>
     /// <param name="healthState">
-    /// Receives this scan's per-script problem set via
-    /// <see cref="ServerHealthState.ReplaceDegraded"/> - replaced wholesale on every call,
-    /// including with an empty set when every script (or a missing/empty folder) is clean,
-    /// so a previous scan's problems don't outlive the scripts that caused them. Required,
-    /// deliberately with no default, same as the other loaders: a defaulted throwaway
-    /// instance would silently discard recorded problems.
+    /// Receives this scan's per-script problem set through
+    /// <see cref="ServerHealthState.ReplaceDegraded"/>, replaced wholesale on every call
+    /// including with an empty set when every script is clean, so a previous scan's problems do
+    /// not outlive the scripts that caused them. It has no default, like the other loaders'
+    /// equivalent parameter, because a throwaway default instance would discard the recorded
+    /// problems.
     /// </param>
+    /// <returns>The tools loaded from the folder, ordered by file name.</returns>
     public static IReadOnlyList<ScriptTool> Load(string toolsDir, OpClassRegistry opClassRegistry, ServerHealthState healthState)
     {
         var tools = new List<ScriptTool>();
@@ -80,22 +97,19 @@ public static partial class ScriptToolLoader
         {
             foreach (var path in Directory.EnumerateFiles(toolsDir, "*.ps1", SearchOption.TopDirectoryOnly).OrderBy(p => p, StringComparer.OrdinalIgnoreCase))
             {
-                // Per-script skip-and-report: a script failing validation loads zero tools
-                // from that file; the rest of the folder loads normally. IOException is
-                // included for a file locked mid-save by an editor - the save completing
-                // fires another watcher event, and that re-scan picks the script up (and
-                // clears the transient problem).
+                // A script that fails validation loads zero tools while the rest of the folder
+                // loads normally. IOException is caught because an editor can hold the file
+                // locked mid-save; the save completing fires another watcher event, and that
+                // re-scan picks the script up and clears the transient problem.
                 try
                 {
                     tools.Add(LoadOne(path, opClassRegistry));
                 }
                 catch (Exception ex) when (ex is InvalidDataException or IOException)
                 {
-                    // The path is carried as structured data (DegradedProblem.SubjectPath) so
-                    // ScriptToolDispatcher's BROKEN-prefix listing can recover the script's base
-                    // name without parsing it back out of the Detail string. The path is still
-                    // included in the human-readable Detail for the log line and the listing
-                    // description; it just isn't the machine-readable source of the name anymore.
+                    // The path is carried as structured data as well as in the message text, so
+                    // ScriptToolDispatcher's BROKEN listing entry can recover the script's base
+                    // name without parsing it back out of the message.
                     problems.Add(new DegradedProblem($"Tool script skipped - {path}: {ex.Message}", path));
                 }
             }
@@ -105,6 +119,12 @@ public static partial class ScriptToolLoader
         return tools;
     }
 
+    /// <summary>Loads one script's tool metadata.</summary>
+    /// <param name="path">The full path of the <c>.ps1</c> file.</param>
+    /// <param name="opClassRegistry">Validates and canonicalizes the declared op class.</param>
+    /// <returns>The tool the script declares.</returns>
+    /// <exception cref="InvalidDataException">The script does not parse, or its comment-based
+    /// help is missing or inconsistent with its <c>param()</c> block.</exception>
     private static ScriptTool LoadOne(string path, OpClassRegistry opClassRegistry)
     {
         var name = Path.GetFileNameWithoutExtension(path);
@@ -141,15 +161,12 @@ public static partial class ScriptToolLoader
             parameters.Add(new ScriptToolParameter(paramName, MapJsonType(p.StaticType), IsMandatory(p), description, AllowedValues(p), schema));
         }
 
-        // A `.SCHEMA` whose name matches nothing in the param() block is refused rather than
-        // ignored, mirroring the refusal of a parameter carrying no `.PARAMETER` entry: a
-        // misspelled name is otherwise indistinguishable from an absent block, and the
-        // parameter would silently re-derive through MapJsonType with nothing to read as a
-        // signal. A nameless `.SCHEMA` is the same refusal - it too names no parameter. That
-        // is deliberately *not* the treatment a nameless `.PARAMETER` gets (it is dropped),
-        // because dropping one is still caught: the parameter it was meant to document then
-        // has no help entry and the script is refused a line later. Nothing catches a dropped
-        // `.SCHEMA`, so consistency in effect means refusing here.
+        // A `.SCHEMA` naming no parameter in the param() block is refused rather than ignored,
+        // and so is a nameless one. A misspelled name is otherwise indistinguishable from an
+        // absent block, and the parameter would fall back to its derived type with nothing left
+        // to signal the encoding. A nameless `.PARAMETER` is dropped instead, which is safe
+        // because the parameter it was meant to document then has no help entry and the script
+        // is refused a line earlier. Nothing would catch a dropped `.SCHEMA`.
         foreach (var schemaName in help.Schemas.Keys)
         {
             if (schemaName.Length == 0)
@@ -161,17 +178,22 @@ public static partial class ScriptToolLoader
         return new ScriptTool(name, help.Synopsis!, opClass, path, parameters);
     }
 
-    /// <summary>Parses a `.SCHEMA` block body into the detached <see cref="JsonElement"/> that
-    /// replaces the parameter's derived property node. A malformed body is an
-    /// <see cref="InvalidDataException"/> like the loader's other per-script refusals - never a
-    /// fallback to <c>MapJsonType</c>.</summary>
+    /// <summary>
+    /// Parses a <c>.SCHEMA</c> block body into the detached <see cref="JsonElement"/> that
+    /// replaces the parameter's derived property node.
+    /// </summary>
+    /// <param name="paramName">The parameter the side-car block names.</param>
+    /// <param name="schemaText">The block's body, expected to be JSON.</param>
+    /// <returns>The parsed schema, detached from the document that parsed it.</returns>
+    /// <exception cref="InvalidDataException">The body is not valid JSON. The script is refused
+    /// rather than falling back to the derived type.</exception>
     private static JsonElement ParseSideCarSchema(string paramName, string schemaText)
     {
         try
         {
-            // Clone() detaches the element from the JsonDocument being disposed here, so the
-            // parameter carries an independently valid value rather than a window into a
-            // buffer that is about to be returned to the pool.
+            // Clone() detaches the element from the JsonDocument disposed here, so the parameter
+            // carries an independently valid value rather than a window into a buffer that is
+            // about to be returned to the pool.
             using var document = JsonDocument.Parse(schemaText);
             return document.RootElement.Clone();
         }
@@ -181,9 +203,17 @@ public static partial class ScriptToolLoader
         }
     }
 
+    /// <summary>Represents the sections parsed out of a script's comment-based-help block.</summary>
+    /// <param name="Synopsis">The <c>.SYNOPSIS</c> text, or null when the section is absent.</param>
+    /// <param name="Notes">The <c>.NOTES</c> text, or null when the section is absent.</param>
+    /// <param name="Parameters">The <c>.PARAMETER</c> texts, keyed by parameter name.</param>
+    /// <param name="Schemas">The <c>.SCHEMA</c> block bodies, keyed by parameter name.</param>
     private sealed record CommentHelp(string? Synopsis, string? Notes, IReadOnlyDictionary<string, string> Parameters, IReadOnlyDictionary<string, string> Schemas);
 
-    /// <summary>Parses the leading `&lt;# ... #&gt;` comment-based-help block, if any.</summary>
+    /// <summary>Parses the leading <c>&lt;# ... #&gt;</c> comment-based-help block, if any.</summary>
+    /// <param name="scriptText">The full text of the script file.</param>
+    /// <returns>The parsed sections. Every member is empty or null when no help block is
+    /// present.</returns>
     private static CommentHelp ParseCommentHelp(string scriptText)
     {
         var blockMatch = HelpBlockRegex().Match(scriptText);
@@ -197,7 +227,7 @@ public static partial class ScriptToolLoader
         string? notes = null;
         var parameters = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
         // Keyed case-insensitively like `parameters`, because that is how PowerShell's binder
-        // matches a parameter name and so how the rest of the pipeline spells one.
+        // matches a parameter name.
         var schemas = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
 
         for (var i = 0; i < headers.Count; i++)
@@ -220,9 +250,9 @@ public static partial class ScriptToolLoader
                 case "PARAMETER" when arg.Length > 0:
                     parameters[arg] = text;
                     break;
-                // Recorded unconditionally, including with an empty arg - unlike PARAMETER,
-                // which is guarded above. LoadOne refuses a nameless block; see the comment
-                // there for why a drop would be the wrong kind of consistency.
+                // Recorded even with an empty arg, unlike PARAMETER, which is guarded above.
+                // LoadOne refuses a nameless block; see the comment there for why it is not
+                // dropped.
                 case "SCHEMA":
                     schemas[arg] = text;
                     break;
@@ -232,6 +262,9 @@ public static partial class ScriptToolLoader
         return new CommentHelp(synopsis, notes, parameters, schemas);
     }
 
+    /// <summary>Returns whether a parameter declares <c>[Parameter(Mandatory)]</c>.</summary>
+    /// <param name="param">The parsed parameter to inspect.</param>
+    /// <returns><c>true</c> when the parameter is mandatory; otherwise <c>false</c>.</returns>
     private static bool IsMandatory(ParameterAst param)
     {
         foreach (var attr in param.Attributes.OfType<AttributeAst>())
@@ -250,13 +283,15 @@ public static partial class ScriptToolLoader
         return false;
     }
 
-    /// <summary>The string members of the parameter's `[ValidateSet(...)]`, or null when it declares none.</summary>
+    /// <summary>Returns the string members of a parameter's <c>[ValidateSet(...)]</c>.</summary>
+    /// <param name="param">The parsed parameter to inspect.</param>
+    /// <returns>The declared values, or null when the parameter declares no set.</returns>
     private static IReadOnlyList<string>? AllowedValues(ParameterAst param)
     {
         foreach (var attr in param.Attributes.OfType<AttributeAst>())
         {
             // Attribute types are matched by the name as written, the same way IsMandatory
-            // matches "Parameter" - the AST is parsed statically, never type-resolved.
+            // matches "Parameter", because the AST is parsed statically and never type-resolved.
             if (attr.TypeName.Name is not ("ValidateSet" or "ValidateSetAttribute"))
                 continue;
             var values = attr.PositionalArguments.OfType<StringConstantExpressionAst>().Select(a => a.Value).ToList();
@@ -266,6 +301,10 @@ public static partial class ScriptToolLoader
         return null;
     }
 
+    /// <summary>Maps a parameter's .NET static type to a JSON Schema type name.</summary>
+    /// <param name="type">The parameter's static type.</param>
+    /// <returns>The JSON Schema type name, defaulting to <c>"string"</c> for anything
+    /// unrecognized.</returns>
     private static string MapJsonType(Type type)
     {
         if (type == typeof(string))

@@ -5,23 +5,28 @@ using VaultShared.Auth;
 namespace VaultMcpServer.Auth;
 
 /// <summary>
-/// The honest default <see cref="IElevationApprover"/>: denies every request and logs it. With no
-/// real out-of-band approval provider wired up, auto-deny is the safe posture - an unattended or
-/// floored session cannot escalate just because nothing was configured to say no. The log line
-/// records that an elevation was requested (grant ids and TTL, never a token) so the attempt is
-/// visible.
-///
-/// Constructed before <c>builder.Build()</c> alongside the native tools, so no <see cref="ILogger"/>
-/// is resolvable yet - defaults to a no-op logger and <c>Program.cs</c> calls
-/// <see cref="AttachLogger"/> once the service provider exists, mirroring
-/// <c>ScriptToolDispatcher</c>.
+/// Represents the default <see cref="IElevationApprover"/>, which denies every request and logs
+/// it. This is the safe posture when no out-of-band approval provider is configured: a session
+/// cannot escalate just because nothing was wired up to say no. The log line records the grant
+/// ids and TTL of the attempt, never a token.
 /// </summary>
+/// <remarks>
+/// This type is constructed before <c>builder.Build()</c>, when no <see cref="ILogger"/> can be
+/// resolved yet, so it starts with a no-op logger and <c>Program.cs</c> calls
+/// <see cref="AttachLogger"/> once the service provider exists.
+/// </remarks>
 public sealed class AutoDenyElevationApprover : IElevationApprover
 {
     private ILogger _logger = NullLogger.Instance;
 
+    /// <summary>Sets the logger used to record denied elevation attempts.</summary>
+    /// <param name="logger">The logger to write denial warnings to.</param>
     public void AttachLogger(ILogger logger) => _logger = logger;
 
+    /// <summary>Logs the request and denies it.</summary>
+    /// <param name="request">The elevation request to review.</param>
+    /// <param name="cancellationToken">Not used; the decision is made without waiting.</param>
+    /// <returns>A completed task holding a denial decision.</returns>
     public Task<ElevationDecision> ReviewAsync(ElevationRequest request, CancellationToken cancellationToken)
     {
         _logger.LogWarning(

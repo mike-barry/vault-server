@@ -11,29 +11,24 @@ using VaultShared.Tools;
 
 var builder = WebApplication.CreateBuilder(args);
 
-// The Kestrel listener bind, an appsetting like the path settings below - resolved straight off
-// IConfiguration with a code default so an unset value preserves the historical
-// http://localhost:5111 behavior. Plain HTTP only; the localhost auth floor (see
-// BearerGrantMiddleware / GrantStore) is the trust model here, not TLS. A comma-separated list is
-// honored, matching UseUrls' own semantics.
+// The Kestrel listener bind, read from configuration with a code default. Plain HTTP only: the
+// trust model here is the localhost auth floor (see BearerGrantMiddleware and GrantStore), not
+// TLS. A comma-separated list is accepted, matching UseUrls' own semantics.
 builder.WebHost.UseUrls(builder.Configuration["ListenUrls"] ?? "http://localhost:5111");
 
-// File sink for ILogger, wired into the standard logging builder now so appsettings'
-// "Logging" section governs its level filtering exactly like the console provider - no
-// bespoke level machinery. The provider itself can be constructed and written to before
-// builder.Build() (it needs no DI), but an actual ILogger<T> can't be resolved until the
-// service provider exists - see the health-problem buffering note below for how the config
-// loads' Fatal/Degraded problems, recorded before that point, still reach this file.
+// The file sink for ILogger, registered with the standard logging builder so appsettings'
+// "Logging" section governs its level filtering just as it does the console provider's. The
+// provider needs no DI, so it can be constructed and written to before builder.Build(), but an
+// ILogger<T> cannot be resolved until the service provider exists.
 var logsDirectory = Path.GetFullPath(Path.Combine(
     builder.Environment.ContentRootPath,
     builder.Configuration["LogsDirectory"] ?? "../../logs"));
 builder.Logging.AddProvider(new FileLoggerProvider(logsDirectory));
 
-// Records config problems instead of the loaders below throwing, so the process always
-// starts - see ServerHealthState's remarks. Constructed directly (not via DI) for the same
-// reason scriptToolRegistry/scriptToolRunner are below: the loaders need it synchronously,
-// before builder.Build() produces a service provider. Registered as a singleton so
-// BearerGrantMiddleware can resolve the same instance later to short-circuit with 503.
+// Collects the config problems the loaders below record instead of throwing, so the process
+// always starts. Constructed directly rather than through DI because the loaders need it before
+// builder.Build() produces a service provider, and registered as a singleton so
+// BearerGrantMiddleware resolves this same instance.
 var healthState = new ServerHealthState();
 builder.Services.AddSingleton(healthState);
 
@@ -49,19 +44,18 @@ var vaultsConfigPath = Path.GetFullPath(Path.Combine(
 var vaultConfig = VaultConfigLoader.Load(vaultsConfigPath, opClassRegistry, healthState);
 builder.Services.AddSingleton(vaultConfig);
 
-// GrantStore.Load validates each row's opClasses/vaults against opClassRegistry/vaultConfig,
-// so if either already went fatal above, a real parse of grants.json would fail every row
-// against an empty registry and pile a second, confusing "unknown opClass"/"unknown vault"
-// fatal on top of the real root cause. Skip straight to an empty store in that case instead -
-// see GrantStore.Empty's remarks.
+// GrantStore.Load validates each row's opClasses and vaults against the op-class registry and
+// the vault config. If either of those already recorded a fatal problem, parsing grants.json
+// would fail every row against an empty registry and bury the root cause under a list of
+// "unknown opClass" and "unknown vault" errors, so an empty store is used instead.
 var grantsConfigPath = Path.GetFullPath(Path.Combine(
     builder.Environment.ContentRootPath,
     builder.Configuration["GrantsConfigPath"] ?? "../../grants.json"));
 
-// Localhost auth policy (see LocalhostAuthOptions / GrantStore.ResolveLocalhostGrant): the
+// Localhost auth policy (see LocalhostAuthOptions and GrantStore.ResolveLocalhostGrant): the
 // well-known non-secret selector token, an optional strict expected-token override, and the
-// named grant the selector binds to on this machine. The grant id is optional: absent, the
-// selector floors to minimum access, so naming one here is what widens it.
+// named grant the selector binds to on this machine. The grant id is optional; without it the
+// selector resolves to the minimum-access floor, so naming one here is what widens it.
 var localhostAuthOptions = new LocalhostAuthOptions(
     SelectorToken: builder.Configuration["LocalhostAuth:SelectorToken"] is { Length: > 0 } sel ? sel : LocalhostAuthOptions.DefaultSelectorToken,
     ExpectedLocalhostToken: builder.Configuration["LocalhostAuth:ExpectedLocalhostToken"] is { Length: > 0 } exp ? exp : null,
@@ -79,12 +73,10 @@ else
 }
 builder.Services.AddSingleton(grantStore);
 
-// The frontmatter declarations, one per vault and one instance per file, loaded after op-classes
-// because the load-time cross-file check - an authority the op-class configuration does not define -
-// runs against that registry. Skipped for the same reason grants are when a prior load already went
-// fatal: every declared authority would fail against an empty op-class set and bury the root cause
-// under a list of "unknown op class". A failed load here is Degraded and refuses exactly the
-// frontmatter writes.
+// The frontmatter declarations, one per vault and one instance per file. Loaded after op-classes
+// because the load-time check that every declared authority is a real op class runs against that
+// registry, and skipped after a prior fatal problem for the same reason grants are. A failed load
+// here is Degraded and refuses only the frontmatter writes.
 var frontmatterRegistries = healthState.IsFatallyDegraded
     ? FrontmatterRegistries.None
     : FrontmatterRegistries.Load(vaultConfig, Path.GetDirectoryName(vaultsConfigPath)!, opClassRegistry, healthState);
@@ -96,37 +88,35 @@ var toolsDir = Path.GetFullPath(Path.Combine(
 var scriptToolRegistry = new ScriptToolRegistry(toolsDir, opClassRegistry, healthState);
 builder.Services.AddSingleton(scriptToolRegistry);
 
-// Pass the host's resolved vaults.json path so the runner can pin VAULT_MCP_VAULTS_JSON to it
-// ahead of every script invocation - a script reads that env var to locate vaults.json, and
-// re-asserting the intended path each call stops a prior tool script from redirecting a later one
-// via the process-wide variable. The ripgrep path (RipgrepPath appsetting -> VAULT_MCP_RG_PATH)
-// rides the same mechanism; unset means a script falls back to rg on PATH.
+// The runner is given the host's resolved vaults.json path so it can set VAULT_MCP_VAULTS_JSON
+// before every script invocation. A script reads that variable to locate vaults.json, and
+// re-asserting the path each call stops one tool script from redirecting a later one through the
+// process-wide variable. The ripgrep path (the RipgrepPath setting, passed as VAULT_MCP_RG_PATH)
+// works the same way; when it is unset a script falls back to rg on PATH.
 var ripgrepPath = builder.Configuration["RipgrepPath"] is { Length: > 0 } rgp
     ? Path.GetFullPath(Path.Combine(builder.Environment.ContentRootPath, rgp))
     : null;
 var scriptToolRunner = new ScriptToolRunner(vaultsConfigPath, ripgrepPath);
 builder.Services.AddSingleton(scriptToolRunner);
 
-// A directly-constructed, directly-registered instance (rather than AddHttpContextAccessor())
-// so ScriptToolDispatcher and the elevation tool can be wired up here, before builder.Build() -
-// the framework still populates HttpContext on it per-request once it's resolvable as
-// IHttpContextAccessor.
+// Constructed and registered directly rather than through AddHttpContextAccessor(), so
+// ScriptToolDispatcher can be wired up here, before builder.Build(). The framework still
+// populates HttpContext on it per request once it is resolvable as IHttpContextAccessor.
 var httpContextAccessor = new HttpContextAccessor();
 builder.Services.AddSingleton<IHttpContextAccessor>(httpContextAccessor);
 
-// Declared tools are compiled implementations (not hot-reloaded from disk like script tools).
-// Constructed directly here - like scriptToolRegistry/scriptToolRunner above - because
-// ScriptToolDispatcher needs the registry synchronously, before builder.Build() produces a
-// service provider. Each is also registered as its own singleton instance below so it is
-// resolvable through DI by type, same as GrantStore/VaultConfig/ScriptToolRegistry.
+// Declared tools are compiled implementations, not loaded from disk like script tools. They are
+// constructed here because ScriptToolDispatcher needs the registry before builder.Build()
+// produces a service provider, and each is also registered as a singleton so it stays resolvable
+// through DI by type.
 var mintTokenTool = new MintTokenTool(grantStore, opClassRegistry, vaultConfig);
 builder.Services.AddSingleton(mintTokenTool);
 var healthCheckTool = new HealthCheckTool(healthState, vaultConfig);
 builder.Services.AddSingleton(healthCheckTool);
 
-// Elevation: the approval seam is the IElevationApprover interface, and the implementation is
-// chosen here in code, not by config. Auto-deny is the hardcoded default - the honest one, so
-// nothing can escalate by default. Constructed before builder.Build(); logger attached post-build.
+// The elevation approver is chosen here in code, not by configuration, and auto-deny is the
+// default so nothing can escalate unless an approver is deliberately wired in. It is constructed
+// before builder.Build(), so its logger is attached after the build below.
 var autoDenyApprover = new AutoDenyElevationApprover();
 builder.Services.AddSingleton<IElevationApprover>(autoDenyApprover);
 var elevationOptions = new ElevationOptions(
@@ -136,13 +126,13 @@ var elevationRequestTool = new ElevationRequestTool(
     grantStore, autoDenyApprover, opClassRegistry, vaultConfig, elevationOptions, TimeProvider.System);
 builder.Services.AddSingleton(elevationRequestTool);
 
-// The registry takes declarations, so a tool with no declaration has nothing to register and a new
-// one is a `new` plus a line here. The order is the order tools/list reports them in.
+// The registry is keyed by declaration, so adding a tool means a `new` plus a line here. This
+// order is the order tools/list reports them in.
 //
-// A vault tool's vault, grant and session all arrive on the call, which is what lets one instance
-// answer every caller; the per-vault frontmatter declarations are the one thing any of them holds,
-// and only the two noted below do. The three above hold server state instead, which is why they are
-// constructed with it.
+// A vault tool's vault, grant, and session all arrive on the call, so one instance can answer
+// every caller. The only per-caller-independent state any of them holds is the per-vault
+// frontmatter declarations, which only the two noted below need. The three tools above hold
+// server state instead, which is why they are constructed with it.
 var toolRegistry = new ToolRegistry()
     .Add(MintTokenTool.Declaration, mintTokenTool)
     .Add(HealthCheckTool.Declaration, healthCheckTool)
@@ -150,10 +140,9 @@ var toolRegistry = new ToolRegistry()
     .Add(ReadTool.Declaration, new ReadTool())
     .Add(GlobTool.Declaration, new GlobTool())
     .Add(GrepTool.Declaration, new GrepTool())
-    // The two vault tools holding anything: the declarations are per vault and loaded once at
-    // startup, and a call carries a vault rather than a vocabulary. Both write a note's frontmatter
-    // through the single write path - edit by operations, create by validating a whole supplied
-    // block.
+    // The two tools that hold the frontmatter declarations: those are per vault and loaded once
+    // at startup, while a call carries only a vault name. Both write a note's frontmatter through
+    // the same write path - edit applies operations, create validates a whole supplied block.
     .Add(EditTool.Declaration, new EditTool(frontmatterRegistries))
     .Add(CreateTool.Declaration, new CreateTool(frontmatterRegistries))
     .Add(MoveTool.Declaration, new MoveTool())
@@ -161,7 +150,8 @@ var toolRegistry = new ToolRegistry()
 builder.Services.AddSingleton(toolRegistry);
 
 // The shared execute path. The inherited-lock signal is a delegate rather than an ILogger because
-// VaultShared carries no logging abstraction; it is bound to the host's logger once one exists.
+// VaultShared takes no dependency on a logging abstraction; it is bound to the host's logger once
+// one exists.
 ILogger? executionLogger = null;
 var toolExecution = new ToolExecution(
     vaultConfig,
@@ -176,12 +166,11 @@ builder.Services
     .WithHttpTransport(options =>
     {
         options.Stateless = true;
-        // Runs on every HTTP request in stateless mode (a fresh McpServerOptions per
-        // request, so no cross-request race), after BearerGrantMiddleware. Must stay cheap:
-        // it copies healthState's pre-rendered, cached InstructionsSummary rather than
-        // assembling anything from Problems itself - see that property's remarks. Empty
-        // summary (no problems) leaves ServerInstructions null, so an initialize response
-        // says nothing extra while the server is healthy.
+        // In stateless mode this runs on every HTTP request, after BearerGrantMiddleware, with
+        // a fresh McpServerOptions each time. It must stay cheap, so it copies healthState's
+        // cached InstructionsSummary rather than assembling anything from Problems. An empty
+        // summary leaves ServerInstructions null, so a healthy server's initialize response
+        // says nothing extra.
         options.ConfigureSessionOptions = (_, serverOptions, _) =>
         {
             var summary = healthState.InstructionsSummary;
@@ -203,10 +192,10 @@ autoDenyApprover.AttachLogger(app.Services.GetRequiredService<ILogger<AutoDenyEl
 var scriptToolsWatcher = new ScriptToolsWatcher(
     toolsDir, scriptToolRegistry, scriptToolDispatcher, app.Services.GetRequiredService<ILogger<ScriptToolsWatcher>>());
 
-// Flushes every problem ServerHealthState buffered during the config loads above - those
-// all ran before builder.Build(), so there was no DI ILogger yet to log them to directly.
-// Fatal -> Error, Degraded -> Warning; nothing here decides IsFatallyDegraded, it only
-// reports what the loaders already recorded.
+// Logs every problem ServerHealthState collected during the config loads above, which all ran
+// before builder.Build() and so had no ILogger to write to. Fatal problems log as errors and
+// degraded ones as warnings. Nothing here decides IsFatallyDegraded; it only reports what the
+// loaders recorded.
 foreach (var problem in healthState.Problems)
 {
     var level = problem.Severity == ProblemSeverity.Fatal ? LogLevel.Error : LogLevel.Warning;
@@ -215,9 +204,9 @@ foreach (var problem in healthState.Problems)
 if (healthState.IsFatallyDegraded)
     app.Logger.LogError("Server is fatally degraded - every request will be rejected with 503 until this is fixed and the server is restarted.");
 
-// From here on, problems recorded at runtime (the tools/ watcher's re-scans replacing the
-// ScriptTools problem set) log themselves at record time - attached only AFTER the flush
-// above so nothing recorded during startup is logged twice.
+// From here on, problems recorded at runtime by the tools directory watcher's re-scans log
+// themselves as they are recorded. The logger is attached after the loop above so that nothing
+// recorded during startup is logged twice.
 healthState.AttachLogger(app.Logger);
 
 app.Logger.LogInformation("Op classes loaded from {Path}: {OpClasses}", opClassesConfigPath, string.Join(", ", opClassRegistry.Names));
