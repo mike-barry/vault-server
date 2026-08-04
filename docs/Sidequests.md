@@ -25,3 +25,28 @@ Approved: 2026-08-02.
 The committed entry is `C:/Repos/vault-server-redesign/test-vault`. Any clone at another path gets a vault whose root does not exist, and `VaultConfig` records that as Degraded rather than failing, so the server starts and the vault is quietly unavailable. The file also churns per developer.
 
 The obvious fix is the wrong one. `VaultConfig` resolves a root with `Path.GetFullPath(vaultRoot)`, which resolves against the working directory, and `run.ps1` sets that to `src/VaultMcpServer` - so a relative `test-vault` resolves to `src/VaultMcpServer/test-vault` and fails the same way, with the same quiet degradation. Resolving relative to the configuration file's own directory is what makes a relative spelling mean what it looks like, and that is a change to retained code.
+
+## The audit surface: a content-redaction flag, and a CLI audit log
+
+Approved: 2026-08-03.
+
+Every server call's full arguments land verbatim in `logs/` - since `edit` and
+`create` shipped, that includes note bodies and frontmatter operations - and the
+CLI writes no audit line at all, so a `vault.exe` mutation leaves no record
+anywhere except the working tree. Chattiness and off already exist through the
+standard `Logging` section; what does not exist is a way to keep the audit trail
+without the content, or any trail at all on the second front-end. The cost of
+leaving it: logs unsuitable for sharing or long retention while writes flow
+through them, and an audit answer of "nothing happened" for CLI mutations.
+
+The fix is an audit-line composer in `VaultShared` - tool name, grant id, bound
+arguments, outcome code, with a redaction switch that drops content-carrying
+values and keeps identity-shaped ones, driven by the declaration's `Mutates`
+flag - consumed by `BearerGrantMiddleware` behind a config flag defaulting to
+today's behaviour, and by an opt-in `AuditLogPath` in `vault.settings.json`.
+Less obvious than it looks: the e2e log-hygiene probes pin parts of the current
+audit format and assert lines are present under the shipped config, so the
+shipped defaults must not change; a CLI log write failure must not fail the
+tool call it records; and `FileLoggerProvider` creates its timestamped file
+unconditionally at startup, so "logging off" still litters `logs/` with empty
+files unless creation goes lazy - worth folding in while there.
