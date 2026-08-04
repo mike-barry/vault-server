@@ -1,62 +1,71 @@
 namespace VaultShared.Frontmatter;
 
 /// <summary>
-/// One entry as the checks see it, whether it came out of a note or off an operation. Both sides run
-/// the same variant matcher and the same field checks through this, which is what makes a note the
-/// validator passes one no operation can refuse over the same key: there is one implementation of
-/// each check rather than a reading side and a writing side that can drift.
+/// Presents one entry to the checks, whether it came out of a note or off an operation. Both sides
+/// run the same variant matcher and the same field checks through this view, so a note the
+/// validator passes cannot be one an operation refuses over the same key.
 /// </summary>
 internal readonly struct EntryView
 {
     private readonly FrontmatterEntry? _entry;
     private readonly EntryPayload? _payload;
 
+    /// <summary>Initializes a view over an entry read from a note.</summary>
+    /// <param name="entry">The entry as it stands in the note.</param>
     internal EntryView(FrontmatterEntry entry)
     {
         _entry = entry;
         _payload = null;
     }
 
+    /// <summary>Initializes a view over an entry an operation is about to add.</summary>
+    /// <param name="payload">The entry the caller supplied.</param>
     internal EntryView(EntryPayload payload)
     {
         _entry = null;
         _payload = payload;
     }
 
+    /// <summary>Gets whether the entry is a bare scalar rather than a mapping of fields.</summary>
     internal bool IsScalar => _entry?.IsScalar ?? _payload is EntryPayload.Scalar;
 
-    /// <summary>The entry's text where it is a bare scalar, and null where it is a mapping.</summary>
+    /// <summary>Gets the entry's text where it is a bare scalar, and null where it is a mapping.</summary>
     internal string? Value => _entry is not null
         ? _entry.Value
         : (_payload as EntryPayload.Scalar)?.Value;
 
-    /// <summary>The entry's field names, in order, empty where it is not a mapping.</summary>
+    /// <summary>Gets the entry's field names, in order, empty where it is not a mapping.</summary>
     internal IReadOnlyList<string> Fields => _entry is not null
         ? _entry.Fields
         : (_payload as EntryPayload.Mapping)?.Fields.Select(f => f.Name).ToArray() ?? [];
 
-    /// <summary>One field's text, matched case-insensitively, or null where it is not there.</summary>
+    /// <summary>Returns one field's text.</summary>
+    /// <param name="name">The field name, matched case-insensitively.</param>
+    /// <returns>The field's text, or null where the entry does not carry it.</returns>
     internal string? Field(string name) => _entry is not null
         ? _entry.Field(name)
         : (_payload as EntryPayload.Mapping)?.Field(name);
 }
 
 /// <summary>
-/// The per-key checkers, shared by the write path and the validator. The write path runs them over
-/// the keys an operation touched and the validator runs them over every key in the block; the extent
-/// differs and the checks do not.
+/// Checks one frontmatter key against its declaration. The write path and the validator share these
+/// checks: the write path runs them over the keys an operation touched and the validator runs them
+/// over every key in the block, so the extent differs and the checks do not.
 ///
-/// Everything here is a report. Which findings a caller-supplied value turns into a hard refusal is
-/// the write path's decision, taken by reading these same violations.
+/// Everything here is reported as data. Which findings become a hard refusal is the write path's
+/// decision, taken by reading these same violations.
 /// </summary>
 internal static class FrontmatterChecks
 {
     /// <summary>
-    /// Which variants of <paramref name="schema"/> an entry matches. Matching walks the variants
-    /// once - a scalar node against the scalar variant, a mapping against the variant whose
-    /// discriminating field it carries. Matching none and matching two are each a violation rather
-    /// than a fallback, which is why this answers a list rather than a variant or null.
+    /// Returns which variants of <paramref name="schema"/> an entry matches. Matching walks the
+    /// variants once: a scalar node against the scalar variant, a mapping against the variant whose
+    /// discriminating field it carries.
     /// </summary>
+    /// <param name="schema">The schema whose variants are matched.</param>
+    /// <param name="entry">The entry to match.</param>
+    /// <returns>The matching variants. Matching none and matching several are each a violation
+    /// rather than a fallback, so this returns a list instead of a variant or null.</returns>
     internal static IReadOnlyList<EntryVariant> Match(EntrySchema schema, EntryView entry)
     {
         if (entry.IsScalar)
@@ -69,12 +78,14 @@ internal static class FrontmatterChecks
         ];
     }
 
-    /// <summary>
-    /// The identity value addressing this entry under <paramref name="variant"/>, or null where the
-    /// variant declares no identity or the entry carries none of its identity fields. A variant
-    /// with no identity is not addressable: nothing matches it, and a duplicate add under it is a
-    /// second entry rather than a no-op.
-    /// </summary>
+    /// <summary>Returns the identity value that addresses this entry under
+    /// <paramref name="variant"/>.</summary>
+    /// <param name="variant">The variant the entry matched.</param>
+    /// <param name="entry">The entry to read the identity from.</param>
+    /// <returns>The first non-empty identity field's value, or null where the variant declares no
+    /// identity or the entry carries none of its identity fields. An entry with no identity cannot
+    /// be addressed, so a duplicate add under it produces a second entry rather than a
+    /// no-op.</returns>
     internal static string? IdentityOf(EntryVariant variant, EntryView entry)
     {
         foreach (var field in variant.Identity)
@@ -85,10 +96,15 @@ internal static class FrontmatterChecks
     }
 
     /// <summary>
-    /// Everything wrong with one key: the compiled-in checks that are true of any block, and the
-    /// declaration applied to whatever the key holds. An undeclared key is itself a violation and
-    /// nothing further is checked under it - the declaration has nothing to say about its shape.
+    /// Returns everything wrong with one key: the compiled-in checks that hold for any block, and
+    /// the declaration applied to whatever the key holds.
     /// </summary>
+    /// <param name="registry">The vault's loaded declaration.</param>
+    /// <param name="tree">The frontmatter the key lives in.</param>
+    /// <param name="key">The key to check.</param>
+    /// <returns>The violations found, empty where the key is valid. An undeclared key is itself a
+    /// violation and nothing further is checked under it, because the declaration has nothing to
+    /// say about its shape.</returns>
     internal static IReadOnlyList<Violation> CheckKey(FrontmatterRegistry registry, FrontmatterTree tree, string key)
     {
         if (!registry.Keys.TryGetValue(key, out var declaration))
@@ -122,8 +138,8 @@ internal static class FrontmatterChecks
             return violations;
         }
 
-        // A block-list key. The two compiled-in shape findings first, because neither leaves entries
-        // to walk.
+        // A block-list key. The two shape findings come first, because neither leaves entries to
+        // walk.
         if (shape == FrontmatterShape.Scalar)
         {
             violations.Add(new Violation(
@@ -147,10 +163,16 @@ internal static class FrontmatterChecks
     }
 
     /// <summary>
-    /// One entry against its schema: exactly one variant, then that variant's required fields,
-    /// unknown fields, exclusive groups in both directions, and each field's value constraint.
-    /// <paramref name="position"/> is 1-based, as every entry position reported to a human is.
+    /// Checks one entry against its schema: exactly one variant, then that variant's required
+    /// fields, unknown fields, exclusive groups in both directions, and each field's value
+    /// constraint.
     /// </summary>
+    /// <param name="schema">The schema the entry must satisfy.</param>
+    /// <param name="entry">The entry to check.</param>
+    /// <param name="key">The block-list key the entry lives under, carried onto each violation.</param>
+    /// <param name="position">The entry's position, 1-based as every entry position reported to a
+    /// person is.</param>
+    /// <returns>The violations found, empty where the entry is valid.</returns>
     internal static IReadOnlyList<Violation> CheckEntry(EntrySchema schema, EntryView entry, string key, int position)
     {
         var matched = Match(schema, entry);

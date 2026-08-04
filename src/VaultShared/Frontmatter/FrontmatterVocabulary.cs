@@ -1,43 +1,44 @@
 namespace VaultShared.Frontmatter;
 
 /// <summary>
-/// The machine-readable advertisement of what a frontmatter operation may carry: a projection of the
-/// loaded declaration, one branch per entry variant, generated from the same
-/// <see cref="FrontmatterRegistry"/> instance the write path holds. There is no second copy to drift
-/// and so no drift test to write.
+/// Describes what a frontmatter operation may carry, for a client to read. It is a projection of
+/// the loaded declaration, with one branch per entry variant, generated from the same
+/// <see cref="FrontmatterRegistry"/> instance the write path holds, so there is no second copy to
+/// drift.
 ///
-/// <b>It advertises; it does not enforce.</b> Generation is a read of the registry and asserts
-/// nothing, which is what keeps the write path the sole enforcement point: a payload satisfying
-/// everything advertised here can still be refused there. Constraints with no clean client-facing
-/// expression - a mutually exclusive group, an identity, whether a variant clears wholesale - are
-/// carried in <see cref="EntryBranch.Description"/> rather than dropped or invented into a shape a
-/// client would read as enforceable.
+/// This type advertises and does not enforce. Generating it is a read of the registry and asserts
+/// nothing, which keeps the write path the sole enforcement point: a payload satisfying everything
+/// advertised here can still be refused there. Constraints with no clean client-facing expression -
+/// an exclusive group, an identity, whether a variant clears wholesale - are carried in
+/// <see cref="EntryBranch.Description"/> rather than dropped or reshaped into something a client
+/// would read as enforceable.
 ///
-/// The shape is a neutral model rather than a rendered schema document. What carries it to a client
-/// - which schema dialect, which envelope - belongs to the tool vocabulary, and a projection that
-/// chose one here would put that decision in the layer that must not know which front-end is asking.
+/// The shape is a neutral model rather than a rendered schema document. Which schema dialect and
+/// envelope carry it to a client belongs to the tool vocabulary, because this layer must not know
+/// which front-end is asking.
 /// </summary>
 /// <param name="Keys">Every declared key, so a client can name one.</param>
-/// <param name="Branches">One per entry variant across every block-list key. Empty where no
-/// declaration is loaded, which is exactly how a failed load reaches a client: <c>edit</c> stays
-/// advertised with its ordinary argument surface and its variant branches simply absent, because
-/// advertising was never permission.</param>
+/// <param name="Branches">One branch per entry variant across every block-list key. Empty where no
+/// declaration is loaded, which is how a failed load reaches a client: <c>edit</c> stays advertised
+/// with its ordinary argument surface and its variant branches simply absent.</param>
 public sealed record FrontmatterVocabulary(
     IReadOnlyList<KeyAdvertisement> Keys,
     IReadOnlyList<EntryBranch> Branches)
 {
-    /// <summary>What a vault with no usable declaration advertises: the operations, with nothing to
-    /// say about keys or entries.</summary>
+    /// <summary>Gets what a vault with no usable declaration advertises: nothing to say about keys
+    /// or entries.</summary>
     public static FrontmatterVocabulary None { get; } = new([], []);
 
-    /// <summary>
-    /// The projection of a vault's declaration state. A state that did not load answers
-    /// <see cref="None"/> rather than refusing: generation is a read, and refusing to advertise is
-    /// not what a failed load does.
-    /// </summary>
+    /// <summary>Returns the projection of a vault's declaration state.</summary>
+    /// <param name="state">The vault's declaration state.</param>
+    /// <returns>The projection, or <see cref="None"/> where the declaration did not load.
+    /// Generating a projection is a read, so a failed load answers rather than refusing.</returns>
     public static FrontmatterVocabulary Of(RegistryState state) =>
         state is RegistryState.Loaded loaded ? Of(loaded.Registry) : None;
 
+    /// <summary>Returns the projection of a loaded declaration.</summary>
+    /// <param name="registry">The declaration to project.</param>
+    /// <returns>The advertised keys and entry branches.</returns>
     public static FrontmatterVocabulary Of(FrontmatterRegistry registry)
     {
         var keys = new List<KeyAdvertisement>();
@@ -59,8 +60,8 @@ public sealed record FrontmatterVocabulary(
                 var existing = branches.FindIndex(b => ReferenceEquals(b.Schema, schema) && b.Variant == variant.Name);
                 if (existing >= 0)
                 {
-                    // Two keys naming one schema hold one object, so the branch is one branch that
-                    // both keys accept rather than two identical ones a client has to reconcile.
+                    // Two keys naming one schema hold one object, so this is one branch both keys
+                    // accept rather than two identical ones a client has to reconcile.
                     branches[existing] = branches[existing] with { Keys = [.. branches[existing].Keys, name] };
                     continue;
                 }
@@ -91,11 +92,13 @@ public sealed record FrontmatterVocabulary(
             Description(variant));
 
     /// <summary>
-    /// What the branch says in prose because a client-facing schema cannot say it: the exclusive
-    /// group, which field addresses the entry and how it compares, and whether the variant may be
-    /// cleared wholesale. Each of these is enforced at the write path whatever a client makes of the
-    /// sentence.
+    /// Returns what the branch must say in prose because a client-facing schema cannot express it:
+    /// the exclusive group, which field addresses the entry and how it compares, and whether the
+    /// variant may be cleared wholesale. Each of these is enforced at the write path whatever a
+    /// client makes of the sentence.
     /// </summary>
+    /// <param name="variant">The variant to describe.</param>
+    /// <returns>The description, empty where the variant has nothing extra to say.</returns>
     private static string Description(EntryVariant variant)
     {
         var parts = new List<string>();
@@ -126,17 +129,20 @@ public sealed record FrontmatterVocabulary(
     };
 }
 
-/// <summary>One declared key, as a client sees it.</summary>
-/// <param name="Value">What a scalar key's text must satisfy, and null for a block-list key - its
+/// <summary>Represents one declared key, as a client sees it.</summary>
+/// <param name="Key">The key's name.</param>
+/// <param name="Shape">Whether the key holds a plain value or a list of entries.</param>
+/// <param name="Value">What a scalar key's text must satisfy, and null for a block-list key, whose
 /// entry branches carry the constraints.</param>
 /// <param name="Description">The operator's own note, where the declaration carries one.</param>
 public sealed record KeyAdvertisement(string Key, KeyShape Shape, SchemaValue? Value, string? Description);
 
 /// <summary>
-/// One shape an entry may take, as one branch of the advertised alternation.
+/// Represents one shape an entry may take, as one branch of the advertised alternation.
 /// </summary>
-/// <param name="Schema">The declared schema this branch belongs to. Reference equality is what
-/// identifies it, since two keys naming one schema hold one instance.</param>
+/// <param name="Schema">The declared schema this branch belongs to. It is identified by reference
+/// equality, since two keys naming one schema hold one instance.</param>
+/// <param name="Variant">The variant's name.</param>
 /// <param name="Keys">The declared keys that accept it.</param>
 /// <param name="Discriminator">The field whose presence selects this branch, and null for a scalar
 /// branch.</param>
@@ -153,14 +159,17 @@ public sealed record EntryBranch(
     SchemaValue? Scalar,
     string Description);
 
-/// <summary>One field of a branch.</summary>
+/// <summary>Represents one field of a branch.</summary>
+/// <param name="Name">The field's name.</param>
+/// <param name="Required">Whether an entry on this branch must carry it.</param>
+/// <param name="Value">What the field's text must satisfy.</param>
+/// <param name="Description">The operator's own note, where the declaration carries one.</param>
 public sealed record SchemaField(string Name, bool Required, SchemaValue Value, string? Description);
 
-/// <summary>
-/// A value's advertised shape. <paramref name="Type"/> is the JSON type name, which is always
-/// <c>string</c> here: the parse leaves every scalar as the text that was written, so a value that
-/// is a date or a number in a client's eyes is a string in the note.
-/// </summary>
+/// <summary>Represents a value's advertised shape.</summary>
+/// <param name="Type">The JSON type name, which is always <c>string</c> here: the parse leaves
+/// every scalar as the text that was written, so a value that is a date or a number in a client's
+/// eyes is a string in the note.</param>
 /// <param name="Enum">The permitted values, where the constraint is an enumeration, and null
 /// otherwise.</param>
 /// <param name="Description">What the constraint wanted, in the words a violation would use.</param>

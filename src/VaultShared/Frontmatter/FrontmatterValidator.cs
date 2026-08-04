@@ -1,32 +1,34 @@
 namespace VaultShared.Frontmatter;
 
 /// <summary>
-/// A note's content and a declaration in, a list of violations out, empty when valid. It needs
-/// nothing else - no path, no filesystem, no consumer configuration.
+/// Validates a note's frontmatter against a declaration. It takes the note's content and the
+/// declaration and needs nothing else - no path, no filesystem, no consumer configuration.
 ///
-/// <b>It never returns a verdict.</b> A boolean satisfies the single-note tools and strands the
-/// sweeping one, which builds findings and remedy payloads from what was wrong, and the return shape
-/// is set by the widest consumer. Each violation carries what a remedy needs without re-deriving it.
+/// It returns a list of violations rather than a boolean verdict. A boolean would satisfy the
+/// single-note tools but strand the sweeping one, which builds findings and remedy payloads from
+/// what was wrong, and each violation carries what a remedy needs without re-deriving it.
 ///
-/// It is the whole-block extent over the checkers the write path applies per key - one variant
-/// matcher, one constraint check - so a note this passes cannot be one an operation refuses over the
-/// same key. What is compiled in rather than declared runs beside those checks rather than as a
-/// second pass. Every key in the block is checked, and a key the declaration does not recognize is
-/// itself a violation: this is a report on a note as it stands, not a gate. What an edit may write is
-/// the write path's question, and it is scoped to the keys that edit touches.
+/// It runs the same checks the write path applies per key, over every key in the block, so a note
+/// this passes cannot be one an operation refuses over the same key. A key the declaration does not
+/// recognize is itself a violation, because this is a report on a note as it stands rather than a
+/// gate. What an edit may write is the write path's question and is scoped to the keys that edit
+/// touches.
 /// </summary>
 public static class FrontmatterValidator
 {
     /// <summary>
-    /// Everything wrong with <paramref name="content"/>'s frontmatter under
-    /// <paramref name="registry"/>, in the order the block carries its keys.
-    ///
-    /// A block that will not parse is tolerated in the sense that matters - nothing throws, and one
-    /// malformed note does not fail a whole-vault pass - and is reported as
-    /// <see cref="ViolationRule.UnparsableBlock"/> rather than passed over. Answering "valid" for a
-    /// note the write path refuses would break the agreement between the two extents, and the
-    /// sweeping consumer this return shape exists for is exactly the one that needs to see it.
+    /// Returns everything wrong with a note's frontmatter, in the order the block carries its keys.
     /// </summary>
+    /// <param name="content">The note's full content.</param>
+    /// <param name="registry">The declaration to validate against.</param>
+    /// <returns>The violations found, empty when the note is valid.</returns>
+    /// <remarks>
+    /// A block that will not parse is tolerated in the sense that nothing throws and one malformed
+    /// note does not fail a whole-vault pass, but it is still reported as
+    /// <see cref="ViolationRule.UnparsableBlock"/>. Answering "valid" for a note the write path
+    /// refuses would break the agreement between the two, and the sweeping consumer is exactly the
+    /// one that needs to see it.
+    /// </remarks>
     public static IReadOnlyList<Violation> Validate(string content, FrontmatterRegistry registry)
     {
         var split = NoteSplit.Of(content);

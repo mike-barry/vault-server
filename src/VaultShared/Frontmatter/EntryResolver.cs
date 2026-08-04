@@ -1,28 +1,33 @@
 namespace VaultShared.Frontmatter;
 
-/// <summary>One entry of a block list, with what the declaration makes of it.</summary>
-/// <param name="Position">Its index in the list, 0-based - an internal coordinate for a removal or
-/// an insertion, never a caller-facing address. Entry positions reported to humans are 1-based and
-/// live on <see cref="Violation"/>.</param>
+/// <summary>Represents one entry of a block list, together with what the declaration makes of it.</summary>
+/// <param name="Position">Its index in the list, 0-based. This is an internal coordinate for a
+/// removal or an insertion, never a caller-facing address; entry positions reported to people are
+/// 1-based and live on <see cref="Violation"/>.</param>
 /// <param name="Variant">The single variant it matches, or null where it matches none or several.
-/// An entry with no variant has no identity and is addressable by nothing.</param>
-/// <param name="Identity">The value addressing it, or null where its variant declares no identity
-/// or it carries none of the identity fields.</param>
+/// An entry with no variant has no identity and cannot be addressed.</param>
+/// <param name="Identity">The value that addresses it, or null where its variant declares no
+/// identity or the entry carries none of the identity fields.</param>
 internal sealed record ResolvedEntry(int Position, EntryVariant? Variant, string? Identity);
 
 /// <summary>
-/// The one resolver every identity question goes through - does this entry already exist, which
-/// entry does a removal name, where does an anchor point. One implementation, so a duplicate add and
-/// a removal cannot disagree about whether an entry is there.
+/// Resolves entries of a block list by their declared identity. Every identity question goes
+/// through this type - whether an entry already exists, which entry a removal names, where an
+/// anchor points - so a duplicate add and a removal cannot disagree about whether an entry is
+/// there.
 ///
-/// Comparison is the <see cref="EntryVariant.IdentityMatch"/> the declaration puts on the entry's
-/// own variant, chosen there because the right answer differs within a single list: an identity
-/// naming a file or a wikilink compares as the filesystem and the editor resolve it, and a line of
-/// human prose compares exactly.
+/// Comparison uses the <see cref="EntryVariant.IdentityMatch"/> declared on the entry's own
+/// variant, because the right answer differs within a single list: an identity naming a file or a
+/// wikilink compares the way the filesystem and the editor resolve it, while a line of human prose
+/// compares exactly.
 /// </summary>
 internal static class EntryResolver
 {
-    /// <summary>Every entry under <paramref name="key"/>, with its variant and identity.</summary>
+    /// <summary>Returns every entry under <paramref name="key"/>, with its variant and identity.</summary>
+    /// <param name="tree">The frontmatter to read.</param>
+    /// <param name="key">The block-list key whose entries are resolved.</param>
+    /// <param name="schema">The schema whose variants the entries are matched against.</param>
+    /// <returns>The entries in list order, empty where the key holds no block list.</returns>
     internal static IReadOnlyList<ResolvedEntry> Entries(FrontmatterTree tree, string key, EntrySchema schema)
     {
         var entries = tree.Entries(key);
@@ -39,10 +44,13 @@ internal static class EntryResolver
     }
 
     /// <summary>
-    /// The entries <paramref name="identity"/> addresses. Every entry is compared under its own
-    /// variant's declared comparison, so one list holding a case-insensitive variant beside a
+    /// Returns the entries that <paramref name="identity"/> addresses. Each entry is compared under
+    /// its own variant's declared comparison, so a list holding a case-insensitive variant beside a
     /// case-sensitive one answers each the way its declaration says.
     /// </summary>
+    /// <param name="entries">The resolved entries to search.</param>
+    /// <param name="identity">The addressing value to match.</param>
+    /// <returns>The matching entries, empty where none match.</returns>
     internal static IReadOnlyList<ResolvedEntry> Matching(IReadOnlyList<ResolvedEntry> entries, string identity) =>
     [
         .. entries.Where(e =>

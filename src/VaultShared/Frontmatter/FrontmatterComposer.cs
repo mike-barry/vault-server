@@ -6,39 +6,43 @@ using YamlDotNet.RepresentationModel;
 namespace VaultShared.Frontmatter;
 
 /// <summary>
-/// Composes a note's content from a tree and a body, and it is the only thing in the build that
-/// writes a fence. One site, so a removal that empties the block drops the fence with it and no note
-/// is ever left holding an empty fence pair.
-///
-/// The emitter configuration lives here for the same reason. It carries four parts, each of which
-/// changes what lands on disk; spread across call sites they would drift. Do not change any of them.
-/// They were established by measuring round-trip fidelity against the vault's existing notes - under
-/// this configuration 315 of 320 blocks round-trip byte-identically, the five that differ being
-/// folded scalars under a dot-directory the tooling cannot reach - and that measurement cannot be
-/// re-run from this repository. Changing a setting reformats existing frontmatter on its next write.
-///
-/// Composing guarantees meaning, not bytes: what comes back carries every key in its original order
-/// with every value's content intact, and may differ from the block that was parsed in quoting, and
-/// in blank lines, comments, and a folded scalar's line wrapping, which are artifacts of text with no
-/// place in a tree. Keeping those out of a note that was not edited is not this type's job -
-/// reserialization is confined to writes that ran a frontmatter operation, and that confinement is
-/// the write path's decision. A body-only write reaches for <see cref="NoteSplit.BodyOffset"/>
-/// instead and never arrives here.
+/// Composes a note's content from a frontmatter tree and a body. This is the only type that writes
+/// a fence, so an empty tree emits no fence and no note is left with an empty fence pair.
 /// </summary>
+/// <remarks>
+/// Do not change the four emitter settings. They were chosen by measuring round-trip fidelity
+/// against the real vault's existing notes: 315 of 320 blocks round-trip byte-identically under
+/// these settings, and the five that do not are folded scalars under a dot directory the tooling
+/// cannot reach. That measurement cannot be re-run from this repository, and changing any setting
+/// reformats existing frontmatter on its next write.
+///
+/// Composing preserves meaning, not bytes. The result carries every key in its original order with
+/// every value's content intact, but may differ from the parsed block in quoting, blank lines,
+/// comments, and a folded scalar's line wrapping, none of which a tree can hold. Keeping those out
+/// of a note that was not edited is the write path's job: it composes only when a frontmatter
+/// operation ran, and a body-only write splices at <see cref="NoteSplit.BodyOffset"/> without
+/// coming here.
+/// </remarks>
 public static class FrontmatterComposer
 {
     /// <summary>
-    /// A note's content: the block, fenced, followed by <paramref name="body"/> verbatim. An empty
-    /// tree emits no fence and the content is the body alone.
+    /// Returns a note's content: the frontmatter block, fenced, followed by
+    /// <paramref name="body"/> verbatim. An empty tree emits no fence, and the content is the body
+    /// alone.
     /// </summary>
+    /// <param name="tree">The frontmatter to emit.</param>
+    /// <param name="body">The note's body, written through unchanged.</param>
+    /// <returns>The composed note content.</returns>
     public static string Compose(FrontmatterTree tree, string body) =>
         tree.IsEmpty ? body : $"---\n{Emit(tree)}---\n{body}";
 
     /// <summary>
-    /// A block's inner text, unfenced and terminated, or the empty string for an empty tree. This is
-    /// also what a diff over values compares: emitting both sides through these settings is what
-    /// keeps a reserialization that changed only quoting from reading as a change.
+    /// Returns a block's inner text, without fences and ending in a line terminator, or the empty
+    /// string for an empty tree. A diff over values emits both sides through this method, so a
+    /// reserialization that changed only quoting does not read as a change.
     /// </summary>
+    /// <param name="tree">The frontmatter to emit.</param>
+    /// <returns>The block's inner text.</returns>
     public static string Emit(FrontmatterTree tree)
     {
         if (tree.IsEmpty)
@@ -51,8 +55,8 @@ public static class FrontmatterComposer
         using (var writer = new StringWriter(text) { NewLine = "\n" })
             stream.Save(new ImplicitDocEnd(new Emitter(writer, settings)), assignAnchors: false);
 
-        // The closing fence goes on its own line, so the block's text ends with a terminator whatever
-        // the last value's style was.
+        // The closing fence goes on its own line, so the block's text must end with a terminator
+        // whatever style the last value used.
         if (text.Length > 0 && text[^1] != '\n')
             text.Append('\n');
 
@@ -61,15 +65,15 @@ public static class FrontmatterComposer
 }
 
 /// <summary>
-/// Rewrites both document events to their implicit forms. Without it YamlDotNet emits its own
-/// <c>---</c> opener and <c>...</c> terminator inside the block, where the fence lines already
-/// provide them.
-///
-/// Internal because it is an implementation detail of the one composer: a public decorator would put
-/// YamlDotNet's emitter types on this assembly's surface, and no caller outside holds a node.
+/// Wraps an emitter and rewrites both document events to their implicit forms. Without this,
+/// YamlDotNet emits its own <c>---</c> opener and <c>...</c> terminator inside the block, where the
+/// fence lines already provide them.
 /// </summary>
+/// <param name="inner">The emitter the rewritten events are passed to.</param>
 internal sealed class ImplicitDocEnd(IEmitter inner) : IEmitter
 {
+    /// <summary>Emits <paramref name="e"/>, replacing a document start or end with its implicit form.</summary>
+    /// <param name="e">The event to emit.</param>
     public void Emit(ParsingEvent e) => inner.Emit(e switch
     {
         DocumentStart => new DocumentStart(null, null, isImplicit: true),

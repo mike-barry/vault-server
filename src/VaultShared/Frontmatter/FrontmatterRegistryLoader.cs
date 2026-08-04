@@ -4,23 +4,24 @@ using VaultShared.Configuration;
 namespace VaultShared.Frontmatter;
 
 /// <summary>
-/// Builds a <see cref="FrontmatterRegistry"/> from a declaration file. The only producer of one
-/// outside an explicit construction in a test.
+/// Builds a <see cref="FrontmatterRegistry"/> from a declaration file. Outside tests, which
+/// construct one directly, this is the only producer of a registry.
 ///
 /// The declaration is validated at load rather than at first use, so a file the operator got wrong
-/// is a Degraded host with frontmatter writes refused rather than a refusal that arrives on the
-/// first note that happens to exercise the broken part. Every check the registry spec lists runs
-/// here, over the file's shape, before the records are built.
+/// leaves a Degraded host with frontmatter writes refused, rather than a refusal that arrives on
+/// the first note that happens to exercise the broken part. Every check runs here, over the file's
+/// shape, before the records are built.
 ///
-/// The runtime reads the declaration and never writes it: nothing in this build has a writing
+/// The runtime reads the declaration and never writes it. There is deliberately no writing
 /// counterpart to this type, which is what keeps the agent-facing surface from redefining what
 /// counts as protected.
 /// </summary>
 public static class FrontmatterRegistryLoader
 {
     /// <summary>Comments and trailing commas are tolerated on read. Comments serve the operator and
-    /// are not preserved, which the read-only rule makes moot; where a rationale must reach a
-    /// display surface, a declaration entry carries an explicit note field instead.</summary>
+    /// are not preserved, which does not matter because nothing rewrites the file. Where a
+    /// rationale must reach a display surface, a declaration entry carries an explicit note field
+    /// instead.</summary>
     private static readonly JsonDocumentOptions ReadOptions = new()
     {
         CommentHandling = JsonCommentHandling.Skip,
@@ -28,13 +29,15 @@ public static class FrontmatterRegistryLoader
     };
 
     /// <summary>
-    /// Reads the declaration at <paramref name="path"/> and answers one of the three states.
-    /// Nothing is thrown and nothing is recorded: what a host does about a failure is
-    /// <see cref="FrontmatterRegistries"/>'s, which knows which vaults named this file.
+    /// Reads the declaration at <paramref name="path"/> and returns one of the three states.
+    /// Nothing is thrown and nothing is recorded here: what a host does about a failure belongs to
+    /// <see cref="FrontmatterRegistries"/>, which knows which vaults named this file.
     /// </summary>
-    /// <param name="opClasses">The loaded op-class configuration, for the one cross-file check -
-    /// a declaration naming an authority nothing defines. Precedented by grants, already validated
-    /// against the same registry at load, which is why this load joins the same cascade after it.</param>
+    /// <param name="path">The declaration file to read.</param>
+    /// <param name="opClasses">The loaded op-class configuration, for the one cross-file check: a
+    /// declaration naming an authority nothing defines. This load runs after the op-class
+    /// configuration in the cascade for that reason.</param>
+    /// <returns>The declaration state: loaded, absent, or unloadable.</returns>
     public static RegistryState Load(string path, OpClassRegistry opClasses)
     {
         if (!File.Exists(path))
@@ -61,9 +64,9 @@ public static class FrontmatterRegistryLoader
             if (field.Name is not ("version" or "namespaces" or "keys" or "entry_schemas"))
                 throw new InvalidDataException($"unrecognized top-level key \"{field.Name}\".");
 
-        // A declaration written against a later shape must not be read as this one: the fields it
-        // adds would come out as the unrecognized-key refusal above, but the ones it repurposes
-        // would not.
+        // A declaration written against a later shape must not be read as this one. Fields it adds
+        // would be caught by the unrecognized-key refusal above, but fields it repurposes would
+        // not.
         if (root.TryGetProperty("version", out var version) && (version.ValueKind != JsonValueKind.Number || version.GetInt32() != 1))
             throw new InvalidDataException("\"version\" must be 1.");
 
@@ -122,8 +125,8 @@ public static class FrontmatterRegistryLoader
         var hasValue = element.TryGetProperty("value", out var valueElement);
         var hasEntry = element.TryGetProperty("entry", out var entryElement);
 
-        // The shape-and-constraint contradiction, in both of its directions. A block-list key's
-        // constraints live on its entry schema, and a scalar key has no members for one to describe.
+        // Both directions of the shape-and-constraint contradiction. A block-list key's constraints
+        // live on its entry schema, and a scalar key has no members for one to describe.
         if (shape == KeyShape.BlockList && hasValue)
             throw new InvalidDataException($"{where} is a block_list and declares a \"value\" constraint - its entry schema carries the constraints.");
         if (shape == KeyShape.Scalar && hasEntry)
@@ -164,7 +167,7 @@ public static class FrontmatterRegistryLoader
             var prefix = Text(entry, "prefix", where) is { Length: > 0 } p
                 ? p
                 : throw new InvalidDataException($"{where} declares no non-empty \"prefix\".");
-            // A namespace exists to name an authority; one that names none says nothing, since a
+            // A namespace exists to name an authority. One that names none says nothing, because a
             // namespace can only add to what is required.
             var requires = OpClass(entry, $"namespace \"{prefix}\"", opClasses)
                 ?? throw new InvalidDataException($"namespace \"{prefix}\" declares no \"write_requires\" - a namespace rule exists to name one.");
@@ -215,10 +218,9 @@ public static class FrontmatterRegistryLoader
             if (!names.Add(variant.Name))
                 throw new InvalidDataException($"{where} declares two variants named \"{variant.Name}\".");
 
-            // Both halves of "an entry matches exactly one variant". Matching walks the variants
-            // once - a scalar node against the scalar variant, a mapping against the variant whose
-            // discriminating field it carries - so two variants answering to the same node are a
-            // declaration that cannot be matched rather than a precedence rule to invent.
+            // Both halves of the rule that an entry matches exactly one variant. Matching walks the
+            // variants once, so two variants that answer to the same node would be a declaration
+            // nothing can match, and there is no precedence rule to fall back on.
             if (variant.DiscriminatedBy is { } discriminator && !discriminators.Add(discriminator))
                 throw new InvalidDataException($"{where} has two variants discriminated by \"{discriminator}\".");
             if (variant.Scalar is not null)
@@ -255,7 +257,7 @@ public static class FrontmatterRegistryLoader
         var scalar = element.TryGetProperty("scalar", out var scalarElement) ? ParseConstraint(scalarElement, where) : null;
 
         // The selector is one or the other. A variant declaring both would be reachable two ways
-        // and a variant declaring neither is unreachable, and neither is a case matching can resolve.
+        // and one declaring neither would be unreachable, and matching can resolve neither case.
         if (discriminatedBy is not null && scalar is not null)
             throw new InvalidDataException($"{where} declares both \"discriminated_by\" and \"scalar\" - a selector is one or the other.");
         if (discriminatedBy is null && scalar is null)
@@ -324,10 +326,18 @@ public static class FrontmatterRegistryLoader
     }
 
     /// <summary>
-    /// A list of the variant's own field names, canonicalized to the spelling the variant declares.
-    /// Naming a field the variant does not declare is a load-time refusal wherever it happens: an
-    /// identity or an exclusive group over a field that is not there addresses nothing.
+    /// Reads a list of the variant's own field names, canonicalized to the spelling the variant
+    /// declares. Naming a field the variant does not declare fails the load wherever it happens,
+    /// because an identity or an exclusive group over a field that is not there addresses nothing.
     /// </summary>
+    /// <param name="variant">The variant object being read.</param>
+    /// <param name="property">Which property holds the list, such as <c>identity</c>.</param>
+    /// <param name="where">How the variant is named in a failure message.</param>
+    /// <param name="fields">The variant's declared fields, for canonicalizing and checking each
+    /// name.</param>
+    /// <returns>The canonical field names, empty where the property is absent.</returns>
+    /// <exception cref="InvalidDataException">The property is not an array of declared field names,
+    /// repeats a name, or is present and empty.</exception>
     private static List<string> FieldNames(
         JsonElement variant, string property, string where, Dictionary<string, EntryField> fields)
     {
@@ -361,10 +371,10 @@ public static class FrontmatterRegistryLoader
         var declared = Text(variant, "identity_match", where);
         if (declared is null)
             return hasIdentity
-                // Required with an identity, because there is no answer that is right by default:
-                // an identity naming a file compares as the filesystem resolves it and a line of
-                // prose compares exactly, and guessing either silently makes a scan and an
-                // operation disagree about whether an entry is already there.
+                // Required alongside an identity, because no default is right: an identity naming a
+                // file compares the way the filesystem resolves it, and a line of prose compares
+                // exactly. Guessing either would make a scan and an operation disagree about
+                // whether an entry is already there.
                 ? throw new InvalidDataException($"{where} declares an identity and no \"identity_match\" - it is case-sensitive or case-insensitive.")
                 : StringComparison.Ordinal;
 
@@ -409,8 +419,8 @@ public static class FrontmatterRegistryLoader
                 return new StringConstraint();
 
             default:
-                // The refusal that keeps the vocabulary closed. A typo'd kind read as an
-                // unconstrained string would be a field the declaration believes is checked.
+                // Keeps the set of kinds closed. A misspelled kind read as an unconstrained string
+                // would leave a field the declaration believes is checked.
                 throw new InvalidDataException(
                     $"{where} names an unknown constraint kind \"{kind}\" - the kinds are date, enum, charclass, wikilink and string.");
         }
@@ -433,7 +443,7 @@ public static class FrontmatterRegistryLoader
         }
 
         // An enumeration with no members admits nothing, so every value of the field it constrains
-        // is a violation - a declaration nobody meant to write.
+        // would be a violation.
         if (members.Count == 0)
             throw new InvalidDataException($"{where} has an enum constraint with no values.");
 
@@ -451,8 +461,7 @@ public static class FrontmatterRegistryLoader
         var min = Bound(element, "min", where);
         var max = Bound(element, "max", where);
         Require(min >= 0, $"{where} has a negative \"min\".");
-        // Crossed bounds admit nothing at all, which is the same silent-refusal shape as an empty
-        // enumeration.
+        // Crossed bounds admit nothing at all, the same problem as an empty enumeration.
         Require(min <= max, $"{where} has a charclass whose bounds cross - \"min\" {min} is above \"max\" {max}.");
 
         return new CharClassConstraint(characterClass, min, max);
@@ -466,10 +475,17 @@ public static class FrontmatterRegistryLoader
     // ---- Shared checks ----
 
     /// <summary>
-    /// The declared op class at <c>write_requires</c>, or null when none is declared. The cross-file
-    /// check: an authority the op-class configuration does not define is a protection nothing can
-    /// ever satisfy, which reads as a locked key rather than as the misconfiguration it is.
+    /// Reads the declared op class at <c>write_requires</c>. This is the cross-file check: an
+    /// authority the op-class configuration does not define is a protection nothing can ever
+    /// satisfy, which would look like a permanently locked key rather than the misconfiguration it
+    /// is.
     /// </summary>
+    /// <param name="element">The object that may carry <c>write_requires</c>.</param>
+    /// <param name="where">How the object is named in a failure message.</param>
+    /// <param name="opClasses">The loaded op-class configuration to check against.</param>
+    /// <returns>The canonical op class name, or null where none is declared.</returns>
+    /// <exception cref="InvalidDataException">The value is not a non-empty string, or names an op
+    /// class the configuration does not define.</exception>
     private static string? OpClass(JsonElement element, string where, OpClassRegistry opClasses)
     {
         if (Text(element, "write_requires", where) is not { } declared)
@@ -482,8 +498,13 @@ public static class FrontmatterRegistryLoader
         return opClasses.Canonicalize(declared) ?? declared;
     }
 
-    /// <summary>A positive allowlist over an object's keys, the same posture the retained
-    /// configuration parsers take: a typo'd field cannot read as a declaration someone made.</summary>
+    /// <summary>Refuses any key of an object that is not on the permitted list, so a misspelled
+    /// field cannot read as a declaration someone made. The other configuration parsers take the
+    /// same posture.</summary>
+    /// <param name="element">The object whose keys are checked.</param>
+    /// <param name="where">How the object is named in a failure message.</param>
+    /// <param name="permitted">The key names the object may carry.</param>
+    /// <exception cref="InvalidDataException">The object carries a key that is not permitted.</exception>
     private static void Allow(JsonElement element, string where, params string[] permitted)
     {
         foreach (var field in element.EnumerateObject())

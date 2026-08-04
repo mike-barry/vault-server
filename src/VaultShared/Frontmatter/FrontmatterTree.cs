@@ -3,15 +3,16 @@ using YamlDotNet.RepresentationModel;
 
 namespace VaultShared.Frontmatter;
 
-/// <summary>What a key holds, as a question a value read cannot answer.</summary>
+/// <summary>Describes what a frontmatter key holds. Reading the key's value cannot answer this.</summary>
 public enum FrontmatterShape
 {
     /// <summary>The key is not in the block.</summary>
     Absent,
 
     /// <summary>
-    /// The key holds a single value, or holds none at all. A valueless key counts as scalar because
-    /// there is no list under it to lose; the validator reports it separately as an empty block.
+    /// The key holds a single value, or holds none at all. A key with no value counts as scalar
+    /// because there is no list under it to lose; the validator reports it separately as an empty
+    /// block.
     /// </summary>
     Scalar,
 
@@ -19,38 +20,39 @@ public enum FrontmatterShape
     Block,
 }
 
-/// <summary>What came of parsing a block's inner text.</summary>
+/// <summary>Describes the result of parsing a block's inner text.</summary>
 public enum TreeParse
 {
-    /// <summary>A mapping, and the tree is it.</summary>
+    /// <summary>The text parsed to a mapping, which is the tree.</summary>
     Parsed,
 
     /// <summary>The text is not YAML. A reader treats this as no block; the write path refuses it.</summary>
     Unparsable,
 
-    /// <summary>The text parsed to something other than a mapping - a bare scalar, or a sequence.</summary>
+    /// <summary>The text parsed to something other than a mapping, such as a bare scalar or a sequence.</summary>
     NotAMapping,
 }
 
 /// <summary>
-/// A parsed frontmatter block, over YamlDotNet's representation model - the mutable node tree, never
-/// its object serializer. Only the node layer preserves key order and per-node quoting style, which
-/// the preservation invariants require. The library and the node layer were settled by measuring the
-/// candidate libraries against the vault's existing notes, a measurement this repository cannot
-/// repeat, so neither is open to reconsideration here.
+/// Represents a parsed frontmatter block over YamlDotNet's representation model - the mutable node
+/// tree, never its object serializer. Only the node layer preserves key order and per-node quoting
+/// style, which this layer's preservation guarantees require. The library and the node layer were
+/// both settled by measuring candidate libraries against the real vault's existing notes, and that
+/// measurement cannot be repeated from this repository.
 ///
-/// The wrapper exists so no caller holds a raw node. It owns canonical key lookup, the three-answer
-/// shape query, and the reads that tolerate a malformed block, so no second place decides how a key
-/// is matched or what a value's shape is.
+/// The wrapper keeps raw YamlDotNet nodes off the public surface. It owns canonical key lookup, the
+/// shape query, and the reads that tolerate a malformed block, so nothing else decides how a key is
+/// matched or what a value's shape is.
 ///
-/// Nothing here coerces a value. A date-shaped scalar is the text that was written, because the node
-/// layer carries a scalar's text and its style rather than a typed value.
+/// No value is coerced. A date-shaped scalar is the text that was written, because the node layer
+/// carries a scalar's text and style rather than a typed value.
 /// </summary>
 public sealed class FrontmatterTree
 {
     /// <summary>
-    /// Key membership is case-insensitive throughout: lookup, canonicalization, shape, and the reads.
-    /// Two spellings of one key are one key, matching how the rest of the layer compares names.
+    /// How key names are compared everywhere in this type: lookup, canonicalization, shape, and the
+    /// reads. Two spellings of one key are one key, matching how the rest of the layer compares
+    /// names.
     /// </summary>
     private const StringComparison KeyComparison = StringComparison.OrdinalIgnoreCase;
 
@@ -58,17 +60,23 @@ public sealed class FrontmatterTree
 
     private FrontmatterTree(YamlMappingNode root) => this.root = root;
 
-    /// <summary>The node the composer emits. Internal, so no caller outside this namespace holds one.</summary>
+    /// <summary>Gets the node the composer emits.</summary>
     internal YamlMappingNode Root => root;
 
-    /// <summary>A block with no keys. What a note with no frontmatter parses to, and what a removal empties to.</summary>
+    /// <summary>Returns a block with no keys, which is what a note with no frontmatter parses to
+    /// and what a removal of the last key empties to.</summary>
+    /// <returns>An empty tree.</returns>
     public static FrontmatterTree Empty() => new(new YamlMappingNode());
 
     /// <summary>
-    /// Parse a block's inner text. The two failure answers are distinct because the write path
-    /// refuses them for distinct reasons - text that is not YAML, and text that is YAML but not a
-    /// mapping - and <paramref name="tree"/> is an empty tree in both, so no caller holds a null.
+    /// Parses a block's inner text. The two failure results are kept apart because the write path
+    /// refuses them for different reasons: text that is not YAML, and text that is YAML but not a
+    /// mapping.
     /// </summary>
+    /// <param name="innerText">The block's inner text, without fences.</param>
+    /// <param name="tree">The parsed tree, or an empty tree on either failure, so no caller holds a
+    /// null.</param>
+    /// <returns>What came of the parse.</returns>
     public static TreeParse TryParse(string innerText, out FrontmatterTree tree)
     {
         tree = Empty();
@@ -76,11 +84,11 @@ public sealed class FrontmatterTree
         YamlStream stream = new();
         try
         {
-            // Parsed with a terminator, because the split hands over the block's text without the
-            // final inner line's one. A block scalar reads its trailing newline from that terminator,
-            // so parsing the text as given would turn `desc: |` into `desc: |-` on the way back out -
-            // a byte the emitter moved for no reason anybody asked for. Restoring it here makes the
-            // parse and the composer, which always terminates the block, inverses of each other.
+            // The split hands over the block's text without the final inner line's terminator, and
+            // a block scalar reads its trailing newline from that terminator. Parsing the text as
+            // given would turn `desc: |` into `desc: |-` on the way back out. Restoring the
+            // terminator here makes this parse and the composer, which always terminates the block,
+            // inverses of each other.
             stream.Load(new StringReader(innerText.EndsWith('\n') ? innerText : innerText + "\n"));
         }
         catch (YamlException)
@@ -88,7 +96,7 @@ public sealed class FrontmatterTree
             return TreeParse.Unparsable;
         }
 
-        // An empty fence pair is a block with empty frontmatter: nothing here emits one, but one
+        // An empty fence pair is a block with empty frontmatter. Nothing here emits one, but one
         // found on disk reads and edits normally.
         if (stream.Documents.Count == 0)
             return TreeParse.Parsed;
@@ -101,12 +109,19 @@ public sealed class FrontmatterTree
     }
 
     /// <summary>
-    /// The tolerant read: a whole note's content to its block, where a block that will not parse
-    /// reads as no block. The read accessors report on notes rather than gating them and run over
-    /// every file in the vault, so one malformed note must not fail a whole-vault pass. The write
-    /// path refuses that same note through <see cref="TryParse"/>, because writing into a block
-    /// nobody could parse means guessing.
+    /// Reads a whole note's content and returns its frontmatter block, treating a block that will
+    /// not parse as no block at all.
     /// </summary>
+    /// <param name="content">The note's full content.</param>
+    /// <returns>The parsed block, or an empty tree where the note has no block or its block will
+    /// not parse.</returns>
+    /// <remarks>
+    /// Reads tolerate a malformed block and writes do not, and the asymmetry is deliberate. The
+    /// read accessors report on notes rather than gating them and run over every file in the vault,
+    /// so one malformed note must not fail a whole-vault pass. The write path refuses that same
+    /// note through <see cref="TryParse"/>, because writing into a block nobody could parse means
+    /// guessing.
+    /// </remarks>
     public static FrontmatterTree Read(string content)
     {
         var split = NoteSplit.Of(content);
@@ -117,33 +132,38 @@ public sealed class FrontmatterTree
         return tree;
     }
 
-    /// <summary>Whether the block holds no keys. An empty tree emits no fence.</summary>
+    /// <summary>Gets whether the block holds no keys. An empty tree emits no fence.</summary>
     public bool IsEmpty => root.Children.Count == 0;
 
-    /// <summary>Every key, in the order the block carries them.</summary>
+    /// <summary>Gets every key, in the order the block carries them.</summary>
     public IReadOnlyList<string> Keys => [.. root.Children.Keys.Select(Spelling)];
 
-    /// <summary>Whether the block carries this key, under any spelling.</summary>
+    /// <summary>Returns whether the block carries this key under any spelling.</summary>
+    /// <param name="key">The key to look for, matched case-insensitively.</param>
+    /// <returns>True when the block carries the key.</returns>
     public bool Contains(string key) => Find(key) is not null;
 
     /// <summary>
-    /// The spelling a write should use for this key: the tree's own where the key is already there,
-    /// and <paramref name="declaredSpelling"/> where it is not. Without this one seam a
+    /// Returns the spelling a write should use for this key. Without going through this method a
     /// differently-cased spelling passes the case-insensitive membership test and then lands as a
     /// second key beside the first.
-    ///
-    /// The declaration is what supplies the second half, and it is passed in rather than reached for
-    /// - this type knows no vocabulary. A caller with no declared spelling to offer gets the key back
-    /// as it was given.
     /// </summary>
+    /// <param name="key">The key as the caller gave it.</param>
+    /// <param name="declaredSpelling">The declaration's own spelling, used where the block does not
+    /// already carry the key. This type knows no vocabulary, so the spelling is passed in rather
+    /// than looked up.</param>
+    /// <returns>The block's own spelling where the key is present, otherwise
+    /// <paramref name="declaredSpelling"/>, or the key as given when that is null.</returns>
     public string Canonicalize(string key, string? declaredSpelling = null) =>
         Find(key) is { } present ? Spelling(present) : declaredSpelling ?? key;
 
     /// <summary>
-    /// What this key holds. Reading a value cannot answer this: a block-valued field, an absent
-    /// field, and a field declared with no value all read back the same, and a flat scalar operation
-    /// aimed at a field holding a list would replace the list with a string.
+    /// Returns what this key holds. Reading the key's value cannot answer this, because a
+    /// block-valued key, an absent key, and a key declared with no value all read back the same,
+    /// and a scalar set aimed at a key holding a list would replace the list with a string.
     /// </summary>
+    /// <param name="key">The key to inspect.</param>
+    /// <returns>The key's shape.</returns>
     public FrontmatterShape ShapeOf(string key) => Find(key) switch
     {
         null => FrontmatterShape.Absent,
@@ -152,38 +172,41 @@ public sealed class FrontmatterTree
             : FrontmatterShape.Scalar,
     };
 
-    /// <summary>
-    /// The text under this key, or null where the key is absent or holds a block. A valueless key
-    /// reads as the empty string, which is what distinguishes it from an absent one.
-    /// </summary>
+    /// <summary>Returns the text under this key.</summary>
+    /// <param name="key">The key to read.</param>
+    /// <returns>The key's text, or null where the key is absent or holds a block. A key present
+    /// with no value reads as the empty string, which is what distinguishes it from an absent
+    /// one.</returns>
     public string? Scalar(string key) =>
         Find(key) is { } found && root.Children[found] is YamlScalarNode scalar ? scalar.Value ?? string.Empty : null;
 
-    /// <summary>
-    /// The scalar items under this key, empty where the key is absent, is not a sequence, or holds a
-    /// sequence of anything else. An entry that is a mapping has no scalar rendering and is reached
-    /// through <see cref="Entries"/> instead.
-    /// </summary>
+    /// <summary>Returns the scalar items under this key.</summary>
+    /// <param name="key">The key to read.</param>
+    /// <returns>The scalar items, empty where the key is absent or does not hold a sequence. An
+    /// entry that is a mapping has no scalar rendering and is reached through
+    /// <see cref="Entries"/> instead.</returns>
     public IReadOnlyList<string> Sequence(string key) =>
         Find(key) is { } found && root.Children[found] is YamlSequenceNode sequence
             ? [.. sequence.Children.OfType<YamlScalarNode>().Select(n => n.Value ?? string.Empty)]
             : [];
 
-    /// <summary>
-    /// The entries under this key, in order, empty where the key holds no sequence. Every accessor
-    /// returning a collection returns an empty one rather than an absent value: every caller
-    /// enumerates the result, and an absent-value return pushes a null check into all of them.
-    /// </summary>
+    /// <summary>Returns the entries under this key, in order.</summary>
+    /// <param name="key">The key to read.</param>
+    /// <returns>The entries, empty where the key holds no sequence. Every accessor here returns an
+    /// empty collection rather than null, because every caller enumerates the result.</returns>
     public IReadOnlyList<FrontmatterEntry> Entries(string key) =>
         Find(key) is { } found && root.Children[found] is YamlSequenceNode sequence
             ? [.. sequence.Children.Select(node => new FrontmatterEntry(node))]
             : [];
 
     /// <summary>
-    /// Put a scalar under this key, at its existing position where it is already there and appended
-    /// where it is not. The spelling written is the canonical one, so a differently-cased key can
-    /// never land beside the one already in the block.
+    /// Puts a scalar under this key, keeping its existing position where the key is already present
+    /// and appending it where it is not. The spelling written is the canonical one, so a
+    /// differently-cased key can never land beside the one already in the block.
     /// </summary>
+    /// <param name="key">The key to write.</param>
+    /// <param name="value">The text to write under it.</param>
+    /// <param name="declaredSpelling">The declaration's own spelling, used when the key is absent.</param>
     public void Set(string key, string value, string? declaredSpelling = null)
     {
         var found = Find(key);
@@ -193,7 +216,9 @@ public sealed class FrontmatterTree
             root.Children.Add(new YamlScalarNode(Canonicalize(key, declaredSpelling)), new YamlScalarNode(value));
     }
 
-    /// <summary>Drop this key whatever it holds. Answers whether it was there.</summary>
+    /// <summary>Removes this key, whatever it holds.</summary>
+    /// <param name="key">The key to remove.</param>
+    /// <returns>True when the key was there.</returns>
     public bool Remove(string key)
     {
         if (Find(key) is not { } found)
@@ -204,15 +229,19 @@ public sealed class FrontmatterTree
     }
 
     /// <summary>
-    /// Put an entry into this key's block list at <paramref name="index"/>, appending where that is
-    /// the list's length. The key is created holding an empty list where it is absent, which is how
-    /// an add creates its key - and, through the composer, the block on a note that has none.
+    /// Inserts an entry into this key's block list at <paramref name="index"/>, appending when that
+    /// is the list's length. The key is created holding an empty list where it is absent, which is
+    /// how an add creates its key and, through the composer, the block on a note that has none.
     ///
-    /// Internal, and taking a payload rather than a node, because nothing outside this namespace
-    /// holds a node. What the payload must satisfy is the declaration's, checked before an
-    /// operation reaches here; every field becomes a tree value the emitter escapes, so a caller's
-    /// value cannot come out the other side as structure.
+    /// The payload's fields each become a tree value that the emitter escapes, so a caller's value
+    /// cannot come out the other side as structure. Whether the payload satisfies the declaration
+    /// is checked before an operation reaches here.
     /// </summary>
+    /// <param name="key">The block-list key to insert under.</param>
+    /// <param name="payload">The entry's fields and values, or a bare scalar.</param>
+    /// <param name="index">Where in the list the entry goes, clamped to the list's bounds.</param>
+    /// <param name="declaredSpelling">The declaration's own spelling, used when the key is absent.</param>
+    /// <exception cref="InvalidOperationException">The key is present and does not hold a block list.</exception>
     internal void InsertEntry(string key, EntryPayload payload, int index, string? declaredSpelling = null)
     {
         var found = Find(key);
@@ -229,10 +258,13 @@ public sealed class FrontmatterTree
     }
 
     /// <summary>
-    /// Drop these positions from this key's block list, and the key itself where that empties it -
-    /// removing the last entry drops the key rather than leaving it empty, and an empty tree emits
-    /// no fence, so a removal that empties the block drops the fence with it.
+    /// Removes these positions from this key's block list, and the key itself where that empties
+    /// the list. An empty tree emits no fence, so a removal that empties the block drops the fence
+    /// with it.
     /// </summary>
+    /// <param name="key">The block-list key to remove from.</param>
+    /// <param name="positions">The 0-based positions to remove. Duplicates and out-of-range values
+    /// are ignored.</param>
     internal void RemoveEntriesAt(string key, IReadOnlyList<int> positions)
     {
         if (Find(key) is not { } found || root.Children[found] is not YamlSequenceNode sequence)
@@ -247,10 +279,12 @@ public sealed class FrontmatterTree
     }
 
     /// <summary>
-    /// A tree holding this key's node alone, or an empty tree where the key is absent. What the
-    /// outcome diff compares: emitting one key from each side through the composer's own settings is
-    /// what keeps a reserialization that changed only quoting from reading as a change.
+    /// Returns a tree holding this key's node alone. The outcome diff compares one key from each
+    /// side by emitting both through the composer's settings, so a reserialization that changed
+    /// only quoting does not read as a change.
     /// </summary>
+    /// <param name="key">The key to isolate.</param>
+    /// <returns>A tree holding just that key, or an empty tree where the key is absent.</returns>
     internal FrontmatterTree KeyOnly(string key)
     {
         var isolated = new YamlMappingNode();
@@ -272,7 +306,10 @@ public sealed class FrontmatterTree
         return mapping;
     }
 
-    /// <summary>The key node carrying this spelling, or null. The one place case-insensitivity lives.</summary>
+    /// <summary>Returns the key node carrying this spelling, or null where the block has none.
+    /// This is the only place key names are compared.</summary>
+    /// <param name="key">The key to look for, matched case-insensitively.</param>
+    /// <returns>The matching key node, or null.</returns>
     private YamlNode? Find(string key) =>
         root.Children.Keys.FirstOrDefault(k => string.Equals(Spelling(k), key, KeyComparison));
 
@@ -280,32 +317,34 @@ public sealed class FrontmatterTree
 }
 
 /// <summary>
-/// One entry in a block list, read tolerantly. An entry is a bare scalar or a mapping of fields, and
-/// which it is decides how a caller reads it; the declaration decides which variant those fields
-/// satisfy, which is not this type's question.
+/// Represents one entry in a block list, read tolerantly. An entry is a bare scalar or a mapping of
+/// fields, and which it is decides how a caller reads it. Which variant those fields satisfy is the
+/// declaration's question, not this type's.
 /// </summary>
 public sealed class FrontmatterEntry
 {
     private readonly YamlNode node;
 
+    /// <summary>Initializes an entry over a YAML node.</summary>
+    /// <param name="node">The node the entry reads from.</param>
     internal FrontmatterEntry(YamlNode node) => this.node = node;
 
-    /// <summary>Whether the entry is a bare scalar rather than a mapping of fields.</summary>
+    /// <summary>Gets whether the entry is a bare scalar rather than a mapping of fields.</summary>
     public bool IsScalar => node is YamlScalarNode;
 
-    /// <summary>The entry's text where it is a bare scalar, and null where it is not.</summary>
+    /// <summary>Gets the entry's text where it is a bare scalar, and null where it is not.</summary>
     public string? Value => node is YamlScalarNode scalar ? scalar.Value ?? string.Empty : null;
 
-    /// <summary>The entry's field names, in order, empty where the entry is not a mapping.</summary>
+    /// <summary>Gets the entry's field names, in order, empty where the entry is not a mapping.</summary>
     public IReadOnlyList<string> Fields =>
         node is YamlMappingNode mapping
             ? [.. mapping.Children.Keys.OfType<YamlScalarNode>().Select(k => k.Value ?? string.Empty)]
             : [];
 
-    /// <summary>
-    /// One field's text, or null where the entry is not a mapping, the field is not there, or the
-    /// field itself holds a block. Matched case-insensitively, as key membership is.
-    /// </summary>
+    /// <summary>Returns one field's text.</summary>
+    /// <param name="name">The field name, matched case-insensitively as key names are.</param>
+    /// <returns>The field's text, or null where the entry is not a mapping, the field is not there,
+    /// or the field itself holds a block.</returns>
     public string? Field(string name)
     {
         if (node is not YamlMappingNode mapping)
