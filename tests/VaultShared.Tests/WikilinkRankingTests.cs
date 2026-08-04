@@ -4,10 +4,11 @@ using VaultShared.Scope;
 namespace VaultShared.Tests;
 
 /// <summary>
-/// The editor's observed resolution rule (<c>Spec-Obsidian-Link-Behavior.md</c>), which is a
-/// requirement rather than a design choice: the vault's existing content already depends on which
-/// file a bare wikilink opens. These cases are the measurement written down, so a re-measurement
-/// that changes the comparator has something to disagree with.
+/// Obsidian's observed resolution rule, which is a requirement rather than a design choice: the
+/// vault's existing content already depends on which file a bare wikilink opens. These cases are the
+/// measurement written down - taken on 2026-07-23 against Obsidian configured with <i>New link
+/// format = shortest path when possible</i> and <i>Automatically update internal links = on</i> - so
+/// a re-measurement that changes the comparator has something to disagree with.
 ///
 /// Ranking finds nothing itself and touches no filesystem, so the vault here is a value rather than
 /// a tree and the candidate sets are handed in.

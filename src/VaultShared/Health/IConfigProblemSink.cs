@@ -8,8 +8,9 @@ namespace VaultShared.Health;
 ///
 /// That decision differs by host, which is why this is an interface rather than a concrete type.
 /// A long-running server records problems, starts anyway, and refuses requests while any fatal
-/// one stands. A single-invocation front-end has nothing to stay up for and fails instead
-/// (<c>Spec-Auth-Requirements.md:Both Front-Ends Are Granted</c>). Both use the same loaders.
+/// one stands. A single-invocation front-end has nothing to stay up for and fails instead, because
+/// configuration that will not load must never admit an invocation unrestricted. Both use the same
+/// loaders.
 ///
 /// Only the append-only recording surface is here. A source that re-scans at runtime needs to
 /// retract a problem it previously reported, which no loader in this layer does.

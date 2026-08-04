@@ -5,9 +5,11 @@ namespace VaultShared.Access;
 /// set and the linking note's path: it takes the candidates it is handed, finds nothing itself, and
 /// touches no filesystem.
 ///
-/// The rule is the editor's observed behaviour (<c>Spec-Obsidian-Link-Behavior.md</c>), not a design
-/// choice, and the vault's existing content already depends on it. It is therefore isolated to
-/// <see cref="Compare"/>, which is the whole of what a re-measurement would change.
+/// The rule is Obsidian's observed behaviour, not a design choice, and the vault's existing content
+/// already depends on it. It was measured on 2026-07-23, against Obsidian configured with <i>New
+/// link format = shortest path when possible</i> and <i>Automatically update internal links = on</i>;
+/// re-measure the editor before changing it. The rule is isolated to <see cref="Compare"/>, which is
+/// the whole of what a re-measurement would change.
 /// </summary>
 public static class WikilinkRanking
 {

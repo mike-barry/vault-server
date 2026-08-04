@@ -10,9 +10,12 @@ namespace VaultShared.Frontmatter;
 /// writes a fence. One site, so a removal that empties the block drops the fence with it and no note
 /// is ever left holding an empty fence pair.
 ///
-/// The emitter configuration lives here for the same reason. It was established by measurement over
-/// the real corpus (<c>Spec-Vault-Access-Design.md:Frontmatter Emitter Settings</c>) and carries four
-/// parts, each of which changes what lands on disk; spread across call sites they would drift.
+/// The emitter configuration lives here for the same reason. It carries four parts, each of which
+/// changes what lands on disk; spread across call sites they would drift. Do not change any of them.
+/// They were established by measuring round-trip fidelity against the vault's existing notes - under
+/// this configuration 315 of 320 blocks round-trip byte-identically, the five that differ being
+/// folded scalars under a dot-directory the tooling cannot reach - and that measurement cannot be
+/// re-run from this repository. Changing a setting reformats existing frontmatter on its next write.
 ///
 /// Composing guarantees meaning, not bytes: what comes back carries every key in its original order
 /// with every value's content intact, and may differ from the block that was parsed in quoting, and

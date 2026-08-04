@@ -5,8 +5,7 @@ namespace VaultShared.Access;
 /// failures callers need to tell apart. The hierarchy is closed by a private constructor.
 ///
 /// One type serves both surfaces because both distinguish the same four outcomes, and because a
-/// pattern-bearing enumeration is itself a name-and-path search
-/// (<c>Spec-Access-Layer-Capabilities.md:Enumeration</c>).
+/// pattern-bearing enumeration is itself a name-and-path search.
 ///
 /// <see cref="Results"/> being empty is the correct answer to a well-formed question that matched
 /// nothing. Folding it into a failure would force every caller to interpret an error to find out
@@ -35,9 +34,9 @@ public abstract record SearchOutcome<TResult>
     public sealed record BadPattern(string Reason) : SearchOutcome<TResult>;
 
     /// <summary>
-    /// Something the search had to read could not be read, so the whole search failed
-    /// (<c>Spec-Vault-Access-Design.md:Load-Bearing Semantics</c>). Skipping the file would turn a
-    /// permissions problem into a wrong answer the caller cannot distinguish from a correct one.
+    /// Something the search had to read could not be read, so the whole search failed. Skipping the
+    /// file would turn a permissions problem into a wrong answer the caller cannot distinguish from
+    /// a correct one.
     /// </summary>
     public sealed record Unreadable(string Path, string Reason) : SearchOutcome<TResult>;
 

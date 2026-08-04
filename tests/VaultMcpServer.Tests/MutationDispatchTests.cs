@@ -198,7 +198,7 @@ public sealed class MutationDispatchTests(MutationDispatchTests.Fixture fixture)
 
     /// <summary>
     /// The one behaviour in the set that is matched rather than designed: which note a bare wikilink
-    /// opens when several share a basename (<c>Spec-Obsidian-Link-Behavior.md</c>). The comparator is
+    /// opens in Obsidian when several share a basename. The comparator is
     /// asserted directly in <c>WikilinkRankingTests</c> and the passes over it in
     /// <c>VaultShared.Tests/Links</c>; what only this level shows is that a real call through the
     /// transport rewrites exactly the links the rule names and leaves the rest of the vault alone.

@@ -6,9 +6,9 @@ using CliWrap.Buffered;
 namespace VaultShared.Access;
 
 /// <summary>
-/// Where the search engine is. Ripgrep backs both enumeration surfaces and content search
-/// (<c>Spec-Vault-Access-Design.md:Fixed Constraints</c>), and this type is how its location reaches
-/// the layer: handed to <see cref="VaultAccess"/> by the caller that constructed it. The layer never
+/// Where the search engine is. Ripgrep backs both enumeration surfaces and content search, and this
+/// type is how its location reaches the layer: handed to <see cref="VaultAccess"/> by the caller
+/// that constructed it. The layer never
 /// reads the location from an environment variable, a configuration file, or anything else it could
 /// reach unhanded - the same rule scope is held to, for the same reason.
 ///

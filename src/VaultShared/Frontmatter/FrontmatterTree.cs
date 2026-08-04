@@ -34,8 +34,10 @@ public enum TreeParse
 
 /// <summary>
 /// A parsed frontmatter block, over YamlDotNet's representation model - the mutable node tree, never
-/// its object serializer (<c>Spec-Vault-Access-Design.md:Fixed Constraints</c>). Only the node layer
-/// preserves key order and per-node quoting style, which the preservation invariants require.
+/// its object serializer. Only the node layer preserves key order and per-node quoting style, which
+/// the preservation invariants require. The library and the node layer were settled by measuring the
+/// candidate libraries against the vault's existing notes, a measurement this repository cannot
+/// repeat, so neither is open to reconsideration here.
 ///
 /// The wrapper exists so no caller holds a raw node. It owns canonical key lookup, the three-answer
 /// shape query, and the reads that tolerate a malformed block, so no second place decides how a key

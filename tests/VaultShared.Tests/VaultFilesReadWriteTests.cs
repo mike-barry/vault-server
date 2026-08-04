@@ -5,7 +5,7 @@ namespace VaultShared.Tests;
 
 /// <summary>
 /// Reading, the two write forms, and folder creation, against a real directory tree. What is under
-/// test is what the specs make load-bearing: classification that comes from the failure rather than
+/// test is what the layer makes load-bearing: classification that comes from the failure rather than
 /// from a probe, a creating write whose refusal is the filesystem's, nothing materializing a parent
 /// on the way past, and the encoding and terminators the composing seam states.
 /// </summary>

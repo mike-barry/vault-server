@@ -25,8 +25,8 @@ public readonly record struct NoteSplit(bool HasBlock, string InnerText, string 
 {
     /// <summary>
     /// Line terminators, normalized to LF with no detection of what was there. Notes are stored that
-    /// way (<c>Spec-Vault-Access-Design.md:Fixed Constraints</c>) and the repository normalizes every
-    /// text file on checkout, so no other convention survives a round trip regardless.
+    /// way and the repository normalizes every text file on checkout, so no other convention
+    /// survives a round trip regardless.
     ///
     /// This is the surface's entry seam, not its exit: the write path compares the block before and
     /// after composing to detect a body write that disturbed it, and normalizing between those reads

@@ -44,9 +44,8 @@ public sealed record Vault(string Name, string Root, PathPolicy Policy)
     }
 
     /// <summary>
-    /// The cross-process mutex name for this vault (<c>Spec-Vault-Access-Design.md:The Mutex Lock
-    /// Name</c>), derived from the root's location so two configurations naming one directory
-    /// contend. Nothing here acquires it.
+    /// The cross-process mutex name for this vault, derived from the root's location so two
+    /// configurations naming one directory contend. Nothing here acquires it.
     ///
     /// The derivation is a contract with <c>VaultWatcher</c>, which takes it as code: any change
     /// breaks both processes at once. Hashed because a mutex name is capped at 260 characters and

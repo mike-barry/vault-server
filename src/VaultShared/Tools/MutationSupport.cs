@@ -6,8 +6,8 @@ namespace VaultShared.Tools;
 /// <summary>
 /// The pieces the three mutating tools that do not route through the frontmatter write path share:
 /// the artifact-level assertion, the partial-failure refusal, and the vocabulary a write that
-/// interprets no frontmatter runs against. They sit together because each is a rule the specs state
-/// once for the whole tool set, and a copy per tool is a copy that can drift.
+/// interprets no frontmatter runs against. They sit together because each is one rule for the whole
+/// tool set, and a copy per tool is a copy that can drift.
 /// </summary>
 internal static class MutationSupport
 {

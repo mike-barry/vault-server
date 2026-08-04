@@ -1,11 +1,10 @@
 namespace VaultShared.Tools;
 
 /// <summary>
-/// The one error catalogue every tool and the shared execute path draw from
-/// (<c>Design-Tool-Vocabulary.md:The Error Catalogue</c>). Codes are stable: a caller branches on
-/// what one means, so an existing code is never widened to cover a near fit and never repurposed.
-/// The set extends additively - a failure it does not carry earns a new constant here under the
-/// spec's distinctions and the payload rules below.
+/// The one error catalogue every tool and the shared execute path draw from. Codes are stable: a
+/// caller branches on what one means, so an existing code is never widened to cover a near fit and
+/// never repurposed. The set extends additively - a failure it does not carry earns a new constant
+/// here, under the payload rules below.
 ///
 /// <b>Three rules govern every payload.</b>
 /// <list type="number">

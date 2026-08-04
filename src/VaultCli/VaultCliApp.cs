@@ -7,7 +7,7 @@ namespace VaultCli;
 /// from the registry, parse, and run the one tool the command line named.
 ///
 /// <b>The cascade runs before the parse, with no exemption.</b> Configuration that will not load
-/// fails the process (<c>Spec-Auth-Requirements.md:Both Front-Ends Are Granted</c>), and a
+/// fails the process rather than admitting the invocation unrestricted, and a
 /// front-end that answered <c>--help</c> from a process it had refused to configure would be
 /// carving the first hole in that rule. The cost is that help needs loadable configuration; the
 /// failure names the file to fix.

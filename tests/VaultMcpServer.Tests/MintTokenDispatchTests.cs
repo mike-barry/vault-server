@@ -14,8 +14,8 @@ namespace VaultMcpServer.Tests;
 /// (<c>ManageGrants</c>) applies to it the same way as a script tool's declared class, and
 /// that a token it mints actually authenticates a follow-up call scoped to what was granted.
 /// A fresh host per test class (not a shared <c>IClassFixture</c>) since minting mutates the
-/// host's <see cref="VaultMcpServer.Auth.GrantStore"/> in memory - the mutating-tool convention
-/// documented in the Testing corpus doc.
+/// host's <see cref="VaultMcpServer.Auth.GrantStore"/> in memory: a tool that mutates host state
+/// gets its own host, so no other test class inherits what it changed.
 /// </summary>
 [Collection("Program host tests")]
 public sealed class MintTokenDispatchTests : IClassFixture<MintTokenDispatchTests.Fixture>

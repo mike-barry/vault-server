@@ -9,9 +9,9 @@ namespace VaultCli;
 /// the invocation was refused, and <c>code</c> is where the vocabulary lives.
 ///
 /// <b>Every case here is fail-closed.</b> A single-invocation front-end has nothing to stay up for,
-/// so where the server records a problem and starts degraded, this fails
-/// (<c>Spec-Auth-Requirements.md:Both Front-Ends Are Granted</c>). There is no path from a missing
-/// or unreadable value to authority.
+/// so where the server records a problem and starts degraded, this fails: configuration that will
+/// not load must never admit an invocation unrestricted. There is no path from a missing or
+/// unreadable value to authority.
 /// </summary>
 public sealed class CliFailure(ToolRefusal refusal) : Exception(refusal.Message)
 {

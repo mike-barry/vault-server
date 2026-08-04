@@ -10,7 +10,7 @@ namespace VaultMcpServer.Logging;
 /// framework's <c>LoggerFactory</c> before a message ever reaches this provider - there is
 /// no bespoke level machinery here.
 ///
-/// Deliberately simple per the design: a single writer behind one lock (no per-request
+/// Deliberately simple: a single writer behind one lock (no per-request
 /// buffering, no rolling/rotation beyond the one file per process lifetime), and no
 /// external logging packages - only <see cref="System.IO.StreamWriter"/> and framework
 /// logging abstractions.

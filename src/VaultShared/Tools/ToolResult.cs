@@ -1,10 +1,9 @@
 namespace VaultShared.Tools;
 
 /// <summary>
-/// What a tool answers with. Two tiers, split by what the output is for
-/// (<c>Spec-Tool-Capabilities.md:Result Tiers</c>): text a model reads directly, and structure a
-/// caller branches on. Neither knows a transport - each front-end renders both, and a tool never
-/// formats for one.
+/// What a tool answers with. Two tiers, split by what the output is for: text a model reads
+/// directly, and structure a caller branches on. Neither knows a transport - each front-end renders
+/// both, and a tool never formats for one.
 ///
 /// The hierarchy is closed by a private constructor, so the two tiers are the whole answer.
 /// </summary>

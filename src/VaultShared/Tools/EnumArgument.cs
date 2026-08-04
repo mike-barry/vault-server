@@ -6,15 +6,15 @@ namespace VaultShared.Tools;
 /// <summary>
 /// The wire contract for an enumerated argument, and the reason binding one never refuses.
 ///
-/// <b>An unrecognized value is refused in the tool's own error vocabulary</b>
-/// (<c>Design-Tool-Vocabulary.md:Argument Rules</c>), which means it must survive binding long
+/// <b>An unrecognized value is refused in the tool's own error vocabulary</b>, which means it must
+/// survive binding long
 /// enough for <see cref="IToolArguments.Validate"/> to see it. The serializer's own enum handling
 /// does the opposite: it throws, and a refusal escaping that way arrives shaped by the binder rather
 /// than by the catalogue. So <see cref="Converter"/> answers <see cref="Unrecognized{TEnum}"/>
 /// instead - a value outside the declared members, which <see cref="IsRecognized"/> then reports and
 /// the tool's own <c>Validate</c> turns into an <see cref="ArgumentFault"/>.
 ///
-/// Comparison is trimmed and case-folded, as the design requires. The wire spelling of a member is
+/// Comparison is trimmed and case-folded. The wire spelling of a member is
 /// its name under the same <see cref="JsonNamingPolicy.SnakeCaseLower"/> policy that governs
 /// argument names, so one convention covers names and enumerated values alike and neither is
 /// authored twice.

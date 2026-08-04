@@ -4,7 +4,7 @@ namespace VaultCli.Tests;
 
 /// <summary>
 /// The fail-closed matrix. Configuration that will not load fails the CLI rather than admitting it
-/// unrestricted (<c>Spec-Auth-Requirements.md:Both Front-Ends Are Granted</c>), and an untested
+/// unrestricted, and an untested
 /// fail-closed path is one that quietly becomes fail-open - which is why each case asserts that
 /// nothing was answered on standard output as well as that the exit code refused.
 ///

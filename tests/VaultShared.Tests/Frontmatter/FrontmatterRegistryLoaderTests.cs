@@ -258,7 +258,7 @@ public sealed class FrontmatterRegistryLoaderTests : IDisposable
         Assert.Null(registry.Keys["plain.created"].Entry);
     }
 
-    // ---- Load-time checks the spec names ----
+    // ---- Load-time checks ----
 
     [Fact]
     public void Load_RefusesAnUnknownConstraintKind()

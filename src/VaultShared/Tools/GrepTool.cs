@@ -4,8 +4,8 @@ using VaultShared.Access;
 
 namespace VaultShared.Tools;
 
-/// <summary>How much of a content search's answer comes back. The three the layer offers, and the
-/// three the spec fixes.</summary>
+/// <summary>How much of a content search's answer comes back. These three granularities are the
+/// whole set; the layer offers no others.</summary>
 public enum GrepGranularity
 {
     /// <summary>Every matching line, with its path and line number.</summary>
