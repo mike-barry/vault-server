@@ -3,22 +3,29 @@ using System.Text.Json;
 namespace VaultCli;
 
 /// <summary>
-/// The CLI's own configuration: a settings file beside the executable, following the retained
-/// configuration idioms - the same key names the server's <c>appsettings.json</c> uses for the same
-/// three files, plus the grant id that is this front-end's alone.
-///
-/// <b>It is not <c>vaults.json</c>.</b> The grant setting has to live in a file that cannot be read
-/// as governing the server too, and the three config paths have to be nameable by a CLI deployed
-/// somewhere other than beside the server.
-///
-/// <b>Relative paths resolve against the directory holding this file</b>, never the process's
-/// working directory - a CLI is run from wherever the operator happens to be standing, and a
-/// configuration that moved with them would be a different configuration per invocation.
+/// Represents the CLI's own configuration, read from a settings file beside the executable. It uses
+/// the same key names the server's <c>appsettings.json</c> uses for the same three configuration
+/// files, plus a grant id that belongs to this front-end alone.
 /// </summary>
-/// <param name="SettingsPath">The file this was read from, reported in a failure so an operator
-/// knows which file to fix.</param>
+/// <remarks>
+/// This is a separate file from <c>vaults.json</c> so that the grant setting cannot be read as
+/// governing the server as well, and so that a CLI deployed somewhere other than beside the server
+/// can still name the three configuration files.
+///
+/// Relative paths resolve against the directory holding the settings file, never the process's
+/// working directory. A CLI is run from wherever the operator happens to be, so resolving against
+/// the working directory would give a different configuration per invocation.
+/// </remarks>
+/// <param name="SettingsPath">The file these settings were read from, reported in a failure so an
+/// operator knows which file to fix.</param>
 /// <param name="GrantId">The named grant every invocation runs as, unless <c>--grant</c> overrides
-/// it. No default: absence fails the invocation rather than admitting it unrestricted.</param>
+/// it. There is no default: absence fails the invocation rather than admitting it
+/// unrestricted.</param>
+/// <param name="OpClassesConfigPath">The full path to the op-class configuration file.</param>
+/// <param name="VaultsConfigPath">The full path to the vault configuration file.</param>
+/// <param name="GrantsConfigPath">The full path to the grant configuration file.</param>
+/// <param name="RipgrepPath">The full path to the ripgrep executable, or null to find it on
+/// <c>PATH</c>.</param>
 public sealed record CliSettings(
     string SettingsPath,
     string? GrantId,
@@ -27,13 +34,13 @@ public sealed record CliSettings(
     string GrantsConfigPath,
     string? RipgrepPath)
 {
-    /// <summary>The file name looked for beside the executable.</summary>
+    /// <summary>The settings file name looked for beside the executable.</summary>
     public const string FileName = "vault.settings.json";
 
     /// <summary>
-    /// Comments and trailing commas are read, so the shipped file can explain what each setting is
-    /// for. Nothing else about the parse is lenient: an unreadable or malformed file fails the
-    /// invocation.
+    /// The JSON reader options. Comments and trailing commas are allowed so the shipped file can
+    /// explain what each setting is for. Nothing else about the parse is lenient: an unreadable or
+    /// malformed file fails the invocation.
     /// </summary>
     private static readonly JsonSerializerOptions ReadOptions = new()
     {
@@ -41,14 +48,17 @@ public sealed record CliSettings(
         AllowTrailingCommas = true,
     };
 
-    /// <summary>The settings file beside the running executable.</summary>
+    /// <summary>Gets the path to the settings file beside the running executable.</summary>
     public static string DefaultPath => Path.Combine(AppContext.BaseDirectory, FileName);
 
     /// <summary>
-    /// Reads <paramref name="path"/>. Every failure here is fatal: this file names where the
-    /// authority configuration lives, so a process that cannot read it has no way to establish the
-    /// grant every invocation carries.
+    /// Reads the settings from <paramref name="path"/>. Every failure here is fatal: this file names
+    /// where the authority configuration lives, so a process that cannot read it has no way to
+    /// establish the grant every invocation carries.
     /// </summary>
+    /// <param name="path">The settings file to read. It may be relative to the working
+    /// directory.</param>
+    /// <returns>The settings, with every configured path resolved to a full path.</returns>
     /// <exception cref="CliFailure">The file is absent, unreadable, or not a JSON object of
     /// settings.</exception>
     public static CliSettings Load(string path)
@@ -75,9 +85,9 @@ public sealed record CliSettings(
         return new CliSettings(
             full,
             GrantId: Text(values, "GrantId"),
-            // The three defaults are the deployment shape: vault.exe and the configuration it reads
-            // sitting in one folder. The shipped file overrides them for the development tree, where
-            // they sit at the repository root instead.
+            // The three defaults assume the deployed shape: the executable and the configuration it
+            // reads in one folder. The shipped settings file overrides them for the development
+            // tree, where those files sit at the repository root instead.
             OpClassesConfigPath: Resolve(directory, Text(values, "OpClassesConfigPath") ?? "op-classes.json"),
             VaultsConfigPath: Resolve(directory, Text(values, "VaultsConfigPath") ?? "vaults.json"),
             GrantsConfigPath: Resolve(directory, Text(values, "GrantsConfigPath") ?? "grants.json"),

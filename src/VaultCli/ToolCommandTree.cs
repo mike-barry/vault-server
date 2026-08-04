@@ -7,19 +7,19 @@ using VaultShared.Tools;
 namespace VaultCli;
 
 /// <summary>
-/// The command tree, generated from the tool registry: one subcommand per projected declaration,
-/// named for the declared tool name, with one option per member of its argument record. <b>Neither
-/// is authored per tool</b> - this front-end holds no per-tool file, and a tool added to the registry
-/// arrives here with its options, its help text and its schema already stated once in its
-/// declaration.
-///
-/// <b>Declarations requiring a client session are not listed.</b> That filter is cosmetic on top of
-/// the real enforcement: the shared execute path refuses such a call whatever route reached it, and
-/// <c>--args</c> reaches a tool by name without needing the tree at all.
+/// Builds the command tree from the tool registry: one subcommand per declaration, named for the
+/// declared tool name, with one option per member of its argument record. Nothing here is authored
+/// per tool, so a tool added to the registry appears with the options, help text and schema its
+/// declaration already states.
 /// </summary>
+/// <remarks>
+/// Declarations that require a client session are left out of the tree. That is presentation only:
+/// the shared execute path refuses such a call by whatever route it arrived, including <c>--args</c>,
+/// which names a tool without going through the tree.
+/// </remarks>
 public sealed class ToolCommandTree
 {
-    /// <summary>The global options, recursive so they may be spelled before or after the
+    /// <summary>The global options. They are recursive so they can be given before or after the
     /// subcommand.</summary>
     private readonly Option<string> _grant = new("--grant")
     {
@@ -60,10 +60,10 @@ public sealed class ToolCommandTree
             foreach (var option in options.Symbols)
                 command.Options.Add(option);
 
-            // Supplying both is a statement about the command line rather than about a tool, so the
-            // parser refuses it and the exit code says usage. --args is whole-record: an option
-            // beside it could only be a second, partial statement of the same record, and which one
-            // won would be a rule this build invented.
+            // Supplying both --args and an option-form argument is a mistake about the command line
+            // rather than about a tool, so the parser refuses it and the exit code says usage.
+            // --args carries the whole record, so an option beside it would be a second, partial
+            // statement of the same record with no defined precedence between them.
             command.Validators.Add(result =>
             {
                 if (result.GetResult(_args) is { Implicit: false } && options.AnySupplied(result.GetResult))
@@ -76,19 +76,30 @@ public sealed class ToolCommandTree
     }
 
     /// <summary>
-    /// The tree over <paramref name="tools"/>, ready to parse. The registry is a parameter rather
-    /// than read off <paramref name="host"/> because the tree is a projection of a registry and
-    /// nothing else: what it takes from the host is the grant and the execute path, which are what a
-    /// front-end supplies.
+    /// Builds the command tree over <paramref name="tools"/>, ready to parse. The registry is a
+    /// parameter rather than read from <paramref name="host"/> so that the tree is a projection of a
+    /// registry and nothing else; all it takes from the host is the grant and the execute path.
     /// </summary>
+    /// <param name="tools">The tools to expose as subcommands.</param>
+    /// <param name="host">The host supplying the grant and the shared execute path.</param>
+    /// <param name="output">Where a tool's answer is written.</param>
+    /// <param name="error">Where refusal envelopes are written.</param>
+    /// <returns>The root command to parse against.</returns>
     public static RootCommand Build(ToolRegistry tools, CliHost host, TextWriter output, TextWriter error) =>
         new ToolCommandTree(tools, host, output, error)._root;
 
     /// <summary>
-    /// One tool, once, synchronously. Everything a call is gated by - the session, the floor, the
-    /// arguments, the vault, the lock - is the shared execute path's, so what is decided here is
-    /// only what a front-end supplies: which grant, which arguments, and how the answer is written.
+    /// Runs one tool synchronously. The shared execute path applies every gate on the call - the
+    /// session, the floor, argument validation, vault resolution and the lock - so all this decides
+    /// is what a front-end supplies: which grant, which arguments, and how the answer is written.
     /// </summary>
+    /// <param name="host">The host supplying the grant and the execute path.</param>
+    /// <param name="registration">The tool to run and its declaration.</param>
+    /// <param name="options">The generated options for that tool's argument record.</param>
+    /// <param name="parsed">The parsed command line.</param>
+    /// <param name="output">Where the answer is written.</param>
+    /// <param name="error">Where a refusal envelope is written.</param>
+    /// <returns>One of <see cref="ExitCodes"/>.</returns>
     private int Invoke(
         CliHost host,
         ToolRegistry.Registration registration,
@@ -97,8 +108,8 @@ public sealed class ToolCommandTree
         TextWriter output,
         TextWriter error)
     {
-        // The format is resolved before the answer, because rendering one needs it - so its own
-        // refusal cannot go through the renderer and is written directly.
+        // The format has to be resolved before anything is rendered, so a bad --output value cannot
+        // be reported through the renderer and is written directly instead.
         OutputFormat format;
         try
         {
@@ -117,9 +128,9 @@ public sealed class ToolCommandTree
                     ? Record(parsed.GetValue(_args) ?? string.Empty)
                     : options.Supplied(parsed);
 
-                // No session: this process exits when its one command finishes, so there is no
-                // caller whose authority could be rebound. The execute path refuses the two
-                // declarations that need one.
+                // There is no session: the process exits when its one command finishes, so there is
+                // no caller whose authority could be rebound. The execute path refuses the two
+                // declarations that require one.
                 return host.Execution.Invoke(registration, arguments, grant, session: null);
             },
             format,
@@ -128,10 +139,13 @@ public sealed class ToolCommandTree
     }
 
     /// <summary>
-    /// The argument record as sent whole. It is general rather than one tool's escape hatch: an
-    /// ordered list of operations with nested anchors has no flat option surface, and inventing an
-    /// encoding for it would be a second statement of the argument contract.
+    /// Reads the whole argument record from JSON. This is available on every tool rather than on one
+    /// of them, because some arguments - an ordered list of operations with nested anchors, for
+    /// instance - have no flat option form, and a bespoke encoding for them would restate the
+    /// argument contract a second time.
     /// </summary>
+    /// <param name="json">The <c>--args</c> value.</param>
+    /// <returns>The arguments, keyed by the wire names the tool advertises.</returns>
     /// <exception cref="CliFailure">The text is not a JSON object of arguments.</exception>
     private static IReadOnlyDictionary<string, JsonElement> Record(string json)
     {
@@ -154,7 +168,10 @@ public sealed class ToolCommandTree
             StringComparer.Ordinal);
     }
 
-    /// <exception cref="CliFailure">A format nothing renders.</exception>
+    /// <summary>Resolves the output format from <c>--output</c>, defaulting to text.</summary>
+    /// <param name="parsed">The parsed command line.</param>
+    /// <returns>The format to render the answer in.</returns>
+    /// <exception cref="CliFailure">The value names a format nothing renders.</exception>
     private OutputFormat Format(ParseResult parsed) => parsed.GetValue(_output) switch
     {
         null or "" or "text" => OutputFormat.Text,

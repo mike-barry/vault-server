@@ -3,40 +3,48 @@ using VaultShared.Health;
 namespace VaultCli;
 
 /// <summary>
-/// This invocation's health picture: what its own load cascade recorded, and nothing else.
-///
-/// It answers both halves of the seam - <see cref="IConfigProblemSink"/> for the loaders, which
-/// record rather than throw, and <see cref="IHealthState"/> for <c>health_check</c>, which reports.
-/// The server's equivalent carries a logger, a cached <c>initialize</c> summary and per-source sets
-/// a runtime re-scan can retract; a process that runs one command needs none of them, and there is
-/// nothing here that re-scans.
-///
-/// <b>Fatal is checked by the caller, not enforced here.</b> The loaders record and carry on by
-/// design, so what a fatal problem means is the front-end's: <see cref="CliHost"/> fails the
-/// invocation at the first one, which is why an invocation that reaches a tool at all reports
-/// <see cref="IsFatallyDegraded"/> false.
-///
-/// Single-threaded: one invocation, one cascade, on the thread that started.
+/// Collects the problems this invocation's load cascade recorded, and reports them to
+/// <c>health_check</c>. It implements both halves of the seam: <see cref="IConfigProblemSink"/> for
+/// the loaders, which record rather than throw, and <see cref="IHealthState"/> for the tool, which
+/// reports. Unlike the server's equivalent it holds no logger, no cached summary and no per-source
+/// sets, because nothing re-scans configuration within a single command.
 /// </summary>
+/// <remarks>
+/// Recording a fatal problem does not stop the cascade. The loaders record and carry on, and
+/// <see cref="CliHost"/> is what fails the invocation at the first fatal problem, so an invocation
+/// that reaches a tool at all reports <see cref="IsFatallyDegraded"/> as false.
+///
+/// This type is not thread-safe. One invocation runs one cascade on the thread that started it.
+/// </remarks>
+/// <param name="timeProvider">The clock used to stamp recorded problems, or null for
+/// <see cref="TimeProvider.System"/>.</param>
 public sealed class CliHealthState(TimeProvider? timeProvider = null) : IConfigProblemSink, IHealthState
 {
     private readonly TimeProvider _timeProvider = timeProvider ?? TimeProvider.System;
     private readonly List<HealthProblem> _problems = [];
 
+    /// <summary>Gets a value indicating whether any fatal problem has been recorded.</summary>
     public bool IsFatallyDegraded { get; private set; }
 
+    /// <summary>Gets the problems recorded so far, in the order they were recorded.</summary>
     public IReadOnlyCollection<HealthProblem> Problems => _problems;
 
+    /// <summary>Records a fatal problem and sets <see cref="IsFatallyDegraded"/>.</summary>
+    /// <param name="source">The configuration source the problem came from.</param>
+    /// <param name="detail">What went wrong.</param>
     public void RecordFatal(string source, string detail)
     {
         IsFatallyDegraded = true;
         Record(ProblemSeverity.Fatal, source, detail);
     }
 
+    /// <summary>Records a non-fatal problem.</summary>
+    /// <param name="source">The configuration source the problem came from.</param>
+    /// <param name="detail">What went wrong.</param>
     public void RecordDegraded(string source, string detail) => Record(ProblemSeverity.Degraded, source, detail);
 
-    /// <summary>Every fatal problem recorded so far, as one message. What the operator has to fix is
-    /// the whole set a single load produced, not the first line of it.</summary>
+    /// <summary>Gets every fatal problem recorded so far as one message. An operator has to fix the
+    /// whole set a single load produced, not just the first of them.</summary>
     public string FatalSummary =>
         string.Join(" ", _problems.Where(p => p.Severity == ProblemSeverity.Fatal).Select(p => $"[{p.Source}] {p.Detail}"));
 

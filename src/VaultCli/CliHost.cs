@@ -7,16 +7,17 @@ using VaultShared.Tools;
 namespace VaultCli;
 
 /// <summary>
-/// Everything this invocation needs, constructed exactly as the server constructs it: the same load
-/// cascade over the same three files, the same frontmatter registries, the same tool registry, and
-/// the same shared execute path. What differs is what a failure means and where authority comes
-/// from, which is the whole of what a front-end supplies.
-///
-/// <b>The cascade fails at the first fatal problem.</b> The loaders record rather than throw so that
-/// a host can decide; this host has one command to run and nothing to stay up for, so it stops. That
-/// also makes the server's cascade-avoidance skip unnecessary here - grants are never validated
-/// against an empty op-class registry, because the invocation is already over by then.
+/// Holds everything one invocation needs, built the same way the server builds it: the same load
+/// cascade over the same three configuration files, the same frontmatter registries, the same tool
+/// registry and the same shared execute path. Only what a failure means and where authority comes
+/// from differ, and those are what a front-end supplies.
 /// </summary>
+/// <remarks>
+/// The cascade stops at the first fatal problem. The loaders record rather than throw so the host
+/// can decide, and this host has one command to run, so it fails the invocation. That is also why
+/// the server's skip for an already-failed cascade is not needed here: grants are never validated
+/// against an empty op-class registry, because the invocation has already ended.
+/// </remarks>
 public sealed class CliHost
 {
     private CliHost(
@@ -35,23 +36,31 @@ public sealed class CliHost
         Execution = execution;
     }
 
+    /// <summary>Gets the settings this host was built from.</summary>
     public CliSettings Settings { get; }
 
+    /// <summary>Gets the problems the load cascade recorded.</summary>
     public CliHealthState Health { get; }
 
+    /// <summary>Gets the loaded vault configuration.</summary>
     public VaultConfig VaultConfig { get; }
 
+    /// <summary>Gets the loaded grants.</summary>
     public GrantStore Grants { get; }
 
+    /// <summary>Gets the tools this front-end exposes.</summary>
     public ToolRegistry Tools { get; }
 
+    /// <summary>Gets the shared execute path every tool call goes through.</summary>
     public ToolExecution Execution { get; }
 
     /// <summary>
-    /// Runs the cascade and builds the tool registry.
+    /// Runs the load cascade and builds the tool registry.
     /// </summary>
-    /// <param name="diagnostics">Where the execute path's inherited-lock signal goes - the standard
-    /// error stream, so it never mixes into the answer on standard output.</param>
+    /// <param name="settings">The CLI settings naming the configuration files to load.</param>
+    /// <param name="diagnostics">Where the execute path's inherited-lock message is written. Pass
+    /// the standard error stream so it never mixes into the answer on standard output.</param>
+    /// <returns>The host for this invocation.</returns>
     /// <exception cref="CliFailure">Any of the three configuration files failed to load.</exception>
     public static CliHost Load(CliSettings settings, TextWriter diagnostics)
     {
@@ -63,24 +72,24 @@ public sealed class CliHost
         var vaultConfig = VaultConfigLoader.Load(settings.VaultsConfigPath, opClasses, health);
         Fail(health, settings, settings.VaultsConfigPath);
 
-        // No LocalhostAuthOptions is constructed, and that absence is the design rather than an
-        // omission: the localhost resolution path is built never to error, because a floor is safer
-        // than a rejection on a server that only listens to localhost. The CLI's equivalent
-        // condition must error, so it resolves a named grant by id instead - see Grant below.
+        // No LocalhostAuthOptions is constructed here on purpose. The server's localhost resolution
+        // never errors, because falling back to a floor grant is safer than rejecting a caller on a
+        // server that only listens to localhost. The CLI must error instead, so it resolves a named
+        // grant by id - see Grant below.
         var grants = GrantStore.Load(settings.GrantsConfigPath, opClasses, vaultConfig, health);
         Fail(health, settings, settings.GrantsConfigPath);
 
-        // Resolved against the directory holding vaults.json, which is where each vault's
-        // declaration is named from - the same seam the server loads them through.
+        // Frontmatter declaration paths resolve against the directory holding vaults.json, because
+        // that is where each vault names its declaration from. The server loads them the same way.
         var frontmatter = FrontmatterRegistries.Load(
             vaultConfig, Path.GetDirectoryName(settings.VaultsConfigPath)!, opClasses, health);
 
         var engine = settings.RipgrepPath is { Length: > 0 } path ? new SearchEngine(path) : SearchEngine.OnPath;
 
-        // The order is the order the command tree lists subcommands in. The two tools declaring
-        // RequiresClientSession are not here at all: they mutate per-process authority state keyed to
-        // a live caller's token, and they are the server's own besides. What keeps them off this
-        // front-end is the execute path's session check, which a tree filter only reflects.
+        // This order is the order the command tree lists its subcommands in. The two tools that
+        // declare RequiresClientSession are not registered here: they change per-process authority
+        // state keyed to a live caller's token, which only the server has. Their real enforcement is
+        // the execute path's session check; leaving them out of the registry only reflects it.
         var tools = new ToolRegistry()
             .Add(HealthCheckTool.Declaration, new HealthCheckTool(health, vaultConfig))
             .Add(ReadTool.Declaration, new ReadTool())
@@ -100,15 +109,18 @@ public sealed class CliHost
     }
 
     /// <summary>
-    /// The grant this invocation runs as: the id <c>--grant</c> named, else the one the settings
-    /// file names. It authenticates nothing - it selects - and the operator's choice of a wider
-    /// grant is what elevation is at this front-end.
-    ///
-    /// <b>Absence fails, and so does an id nothing defines.</b> No path through here turns a missing
-    /// value into authority, and a token-bearing row is not selectable by id: only the token-less
-    /// named grants are, which is what <see cref="GrantStore.TryGetNamedGrant"/> answers for.
+    /// Resolves the grant this invocation runs as: the id <c>--grant</c> gave, otherwise the id the
+    /// settings file names. This selects a grant rather than authenticating one, so choosing a wider
+    /// grant is how an operator elevates at this front-end.
     /// </summary>
-    /// <param name="requested">The <c>--grant</c> value, or null.</param>
+    /// <remarks>
+    /// Both a missing id and an id nothing defines fail the invocation, so no path here turns a
+    /// missing value into authority. Only token-less named grants are selectable by id, which is
+    /// what <see cref="GrantStore.TryGetNamedGrant"/> checks; a token-bearing row cannot be chosen
+    /// this way.
+    /// </remarks>
+    /// <param name="requested">The <c>--grant</c> value, or null when it was not supplied.</param>
+    /// <returns>The grant every tool call in this invocation runs under.</returns>
     /// <exception cref="CliFailure">No id was named, or the named id is not a named grant.</exception>
     public Grant Grant(string? requested)
     {
@@ -132,8 +144,12 @@ public sealed class CliHost
         return grant;
     }
 
-    /// <summary>Stops the invocation on the first load that went fatal, naming the file and
-    /// everything that load recorded about it.</summary>
+    /// <summary>Stops the invocation if the load so far recorded a fatal problem, naming the file
+    /// and everything recorded about it.</summary>
+    /// <param name="health">The problems recorded by the cascade so far.</param>
+    /// <param name="settings">The settings that named the configuration files.</param>
+    /// <param name="path">The configuration file that was just loaded.</param>
+    /// <exception cref="CliFailure">A fatal problem was recorded.</exception>
     private static void Fail(CliHealthState health, CliSettings settings, string path)
     {
         if (!health.IsFatallyDegraded)

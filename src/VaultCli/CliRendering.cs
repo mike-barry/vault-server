@@ -3,51 +3,56 @@ using VaultShared.Tools;
 
 namespace VaultCli;
 
-/// <summary>How an answer is rendered on standard output.</summary>
+/// <summary>Specifies how an answer is rendered on standard output.</summary>
 public enum OutputFormat
 {
-    /// <summary>A content result as it is; a structured result as JSON, there being no text
-    /// rendering of a mutation result that is not a second statement of it.</summary>
+    /// <summary>Writes a content result as it is, and a structured result as JSON. There is no text
+    /// rendering of a mutation result that would not restate it.</summary>
     Text,
 
-    /// <summary>Both tiers as a JSON document, so a script consuming this never has to sniff which
-    /// tier answered before it can parse.</summary>
+    /// <summary>Writes both result tiers as a JSON document, so a script never has to detect which
+    /// tier answered before parsing.</summary>
     Json,
 }
 
 /// <summary>
-/// The CLI's three exit codes. <b>The machine-readable vocabulary is the <c>code</c> in the refusal
-/// envelope</b>, not this - an exit code per error class would be a second, coarser copy of the
-/// catalogue that cannot represent it and drifts from it.
+/// Defines the CLI's three exit codes. The machine-readable vocabulary is the <c>code</c> in the
+/// refusal envelope, not the exit code: an exit code per error class would be a coarser second copy
+/// of that catalogue and would drift from it.
 /// </summary>
 public static class ExitCodes
 {
     /// <summary>The tool answered.</summary>
     public const int Success = 0;
 
-    /// <summary>The invocation was refused, and the envelope on standard error says by what. A
-    /// refusal from a tool and one from this front-end's own fail-closed checks are the same answer
-    /// to the caller: nothing ran, and <c>code</c> says why.</summary>
+    /// <summary>The invocation was refused, and the envelope on standard error says why. A refusal
+    /// from a tool and one from this front-end's own checks mean the same thing to a caller: nothing
+    /// ran, and <c>code</c> says why.</summary>
     public const int Refused = 1;
 
     /// <summary>The parser refused the command line itself - an unknown subcommand, an unknown
-    /// option, a missing option value. Nothing about a tool was reached.</summary>
+    /// option, or a missing option value. No tool was reached.</summary>
     public const int UsageError = 2;
 }
 
 /// <summary>
-/// The CLI's rendering of the neutral result and of every refusal that can reach it. Neither shape
-/// knows this front-end exists, and the envelope itself is
-/// <see cref="ToolRefusalEnvelope"/>'s - shared with the MCP server, so the same refusal is
-/// byte-identical whichever front-end a caller reached the tool through.
+/// Renders a tool result and every refusal that can reach this front-end. Neither shape knows the
+/// CLI exists, and the refusal envelope comes from <see cref="ToolRefusalEnvelope"/>, which is
+/// shared with the MCP server, so the same refusal is byte-identical whichever front-end a caller
+/// used.
 /// </summary>
 public static class CliRendering
 {
     /// <summary>
-    /// Runs <paramref name="invoke"/> and renders whatever comes back: the result on standard
-    /// output, a refusal envelope on standard error. Standard output carries the answer and nothing
-    /// else, so a caller can pipe it.
+    /// Runs <paramref name="invoke"/> and renders what comes back: the result on standard output, a
+    /// refusal envelope on standard error. Standard output carries the answer and nothing else, so a
+    /// caller can pipe it.
     /// </summary>
+    /// <param name="invoke">Runs the tool and returns its result.</param>
+    /// <param name="format">How to render a successful result.</param>
+    /// <param name="output">Where the result is written.</param>
+    /// <param name="error">Where a refusal envelope is written.</param>
+    /// <returns><see cref="ExitCodes.Success"/> or <see cref="ExitCodes.Refused"/>.</returns>
     public static int Answer(Func<ToolResult> invoke, OutputFormat format, TextWriter output, TextWriter error)
     {
         try
@@ -65,26 +70,35 @@ public static class CliRendering
         }
     }
 
-    /// <summary>The envelope on standard error, and the refusal exit code.</summary>
+    /// <summary>Writes the refusal envelope to standard error.</summary>
+    /// <param name="refusal">The refusal to render.</param>
+    /// <param name="error">Where the envelope is written.</param>
+    /// <returns><see cref="ExitCodes.Refused"/>.</returns>
     public static int Refuse(ToolRefusal refusal, TextWriter error)
     {
         error.WriteLine(ToolRefusalEnvelope.Json(refusal));
         return ExitCodes.Refused;
     }
 
+    /// <summary>Writes a successful result in the requested format.</summary>
+    /// <param name="result">The tool's result.</param>
+    /// <param name="format">How to render it.</param>
+    /// <param name="output">Where the result is written.</param>
+    /// <exception cref="InvalidOperationException">The result is of a kind this does not
+    /// render.</exception>
     private static void Render(ToolResult result, OutputFormat format, TextWriter output)
     {
         switch (result)
         {
-            // The text is written unchanged; the line terminator is the shell's convention for the
-            // end of an answer, not part of it.
+            // The text is written unchanged. The line terminator marks the end of the answer for the
+            // shell and is not part of it.
             case ToolResult.Content content when format is OutputFormat.Text:
                 output.WriteLine(content.Text);
                 break;
 
             // Under --output json the content tier is wrapped so that standard output is a JSON
-            // document whichever tier answered. The structured tier already is one and is left
-            // alone rather than wrapped a second time.
+            // document whichever tier answered. The structured tier already is one, so it is written
+            // as it is rather than wrapped a second time.
             case ToolResult.Content content:
                 output.WriteLine(JsonSerializer.Serialize(new ContentEnvelope(content.Text), NativeToolArguments.Options));
                 break;
@@ -98,7 +112,9 @@ public static class CliRendering
         }
     }
 
-    /// <summary>The content tier as a JSON document. A record rather than an anonymous type, so its
-    /// one wire name comes from the shared naming policy exactly as a result's members do.</summary>
+    /// <summary>Wraps the content tier so it can be written as a JSON document. It is a record
+    /// rather than an anonymous type so that its wire name comes from the shared naming policy, as a
+    /// result's own members do.</summary>
+    /// <param name="Content">The tool's text answer.</param>
     private sealed record ContentEnvelope(string Content);
 }
