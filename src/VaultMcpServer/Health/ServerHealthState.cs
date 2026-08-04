@@ -27,7 +27,7 @@ public sealed record DegradedProblem(string Detail, string? SubjectPath = null);
 /// vaults.json, op-classes.json, and grants.json load exactly once per process, so their
 /// problems never need to be retracted. Sources that re-scan at runtime - today only the
 /// script-tool loader - use the keyed, replaceable per-source sets of
-/// <see cref="ReplaceDegraded"/>, so a fixed script stops appearing as a problem and a
+/// <c>ReplaceDegraded</c>, so a fixed script stops appearing as a problem and a
 /// newly-broken one appears. A replaceable set is always Degraded, so it can never affect
 /// <see cref="IsFatallyDegraded"/>.
 /// </para>
@@ -60,7 +60,7 @@ public sealed class ServerHealthState(TimeProvider? timeProvider = null) : IConf
 
     /// <summary>
     /// Gets a value indicating whether at least one <see cref="ProblemSeverity.Fatal"/> problem
-    /// has been recorded. The count is read with <see cref="Volatile.Read(ref int)"/> so a
+    /// has been recorded. The count is read with <c>Volatile.Read</c> so a
     /// concurrent <see cref="RecordFatal"/> on another thread is observed without a lock.
     /// Replaceable per-source sets never contribute, because they are always Degraded.
     /// </summary>
@@ -69,7 +69,7 @@ public sealed class ServerHealthState(TimeProvider? timeProvider = null) : IConf
     /// <summary>
     /// Gets a point-in-time snapshot of the current problems: every append-only startup problem
     /// oldest first, then each replaceable source's current problem set, with sources in ordinal
-    /// order. A source whose last <see cref="ReplaceDegraded"/> call passed an empty set
+    /// order. A source whose last <c>ReplaceDegraded</c> call passed an empty set
     /// contributes nothing.
     /// </summary>
     public IReadOnlyCollection<HealthProblem> Problems =>
@@ -111,7 +111,7 @@ public sealed class ServerHealthState(TimeProvider? timeProvider = null) : IConf
     /// Records a skipped entry that does not invalidate the rest of the file it came from. The
     /// record is append-only, so this suits startup-only loads such as vaults.json entries and
     /// grants.json rows. A source that re-scans at runtime should call
-    /// <see cref="ReplaceDegraded"/> instead, so a later scan can retract a fixed problem.
+    /// <c>ReplaceDegraded</c> instead, so a later scan can retract a fixed problem.
     /// </summary>
     /// <param name="source">The subsystem the problem belongs to.</param>
     /// <param name="detail">The human-readable description of what was skipped.</param>

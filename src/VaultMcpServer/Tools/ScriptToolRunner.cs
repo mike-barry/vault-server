@@ -117,7 +117,7 @@ public sealed class ScriptToolRunner : IDisposable
     /// <param name="scopeRoots">
     /// The calling grant's per-vault folder-prefix scope roots. Null or empty means the grant is
     /// unscoped everywhere, and a vault absent from the map is unscoped for that vault (see
-    /// <see cref="Auth.Grant.ScopeRoots"/>). This is injected as the global runspace variable
+    /// <see cref="VaultShared.Auth.Grant.ScopeRoots"/>). This is injected as the global runspace variable
     /// <c>VaultMcpScopeRoots</c>, a hashtable keyed by vault name, rather than passed as a script
     /// parameter: a tool script's <c>param()</c> block is its MCP input schema verbatim, so a
     /// client-controllable "ScopeRoots" argument would let a caller override its own grant's
@@ -125,7 +125,7 @@ public sealed class ScriptToolRunner : IDisposable
     /// enforcing the roots against the paths it touches is the script's own job.
     /// </param>
     /// <param name="opClasses">
-    /// The calling grant's op classes (see <see cref="Auth.Grant.OpClasses"/>), injected as the
+    /// The calling grant's op classes (see <see cref="VaultShared.Auth.Grant.OpClasses"/>), injected as the
     /// global runspace variable <c>VaultMcpOpClasses</c> so a script can gate an operation
     /// needing more authority than the class it declares, which the dispatcher's floor check
     /// already admitted the call by. It is not a script parameter for the same reason as

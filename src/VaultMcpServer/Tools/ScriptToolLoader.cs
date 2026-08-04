@@ -41,7 +41,7 @@ namespace VaultMcpServer.Tools;
 /// </para>
 /// <para>
 /// This runs on every scan, at startup and on each refresh the watcher triggers, so problems are
-/// recorded through <see cref="ServerHealthState.ReplaceDegraded"/> under
+/// recorded through <c>ServerHealthState.ReplaceDegraded</c> under
 /// <see cref="HealthSource"/>. Each scan replaces the previous scan's set, so a fixed script
 /// stops appearing as a problem and a newly-broken one appears.
 /// </para>
@@ -81,7 +81,7 @@ public static partial class ScriptToolLoader
     /// declares.</param>
     /// <param name="healthState">
     /// Receives this scan's per-script problem set through
-    /// <see cref="ServerHealthState.ReplaceDegraded"/>, replaced wholesale on every call
+    /// <c>ServerHealthState.ReplaceDegraded</c>, replaced wholesale on every call
     /// including with an empty set when every script is clean, so a previous scan's problems do
     /// not outlive the scripts that caused them. It has no default, like the other loaders'
     /// equivalent parameter, because a throwaway default instance would discard the recorded

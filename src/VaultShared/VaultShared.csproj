@@ -4,6 +4,11 @@
     <TargetFramework>net10.0</TargetFramework>
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
+    <!-- Generating the documentation file turns on the XML doc warnings. CS1591 stays off, because
+         an undocumented member is not the concern; CS1573, which fires when a documented member
+         leaves one of its parameters undocumented, is, and so is malformed XML. -->
+    <GenerateDocumentationFile>true</GenerateDocumentationFile>
+    <NoWarn>$(NoWarn);CS1591</NoWarn>
   </PropertyGroup>
 
   <ItemGroup>
@@ -13,8 +18,8 @@
 
     <!-- YamlDotNet parses and emits frontmatter, at its representation-model layer - the mutable
          node tree, never its object serializer. Only the node layer preserves key order and
-         per-node quoting style. A chosen dependency, settled by measurement against the real
-         corpus (Spec-Vault-Access-Design.md:Fixed Constraints). -->
+         per-node quoting style. A chosen dependency, settled by measuring the candidate libraries
+         against the real vault's existing notes. -->
     <PackageReference Include="YamlDotNet" Version="18.1.0" />
   </ItemGroup>
 

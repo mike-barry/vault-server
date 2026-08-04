@@ -10,6 +10,11 @@
     <AssemblyName>vault</AssemblyName>
     <!-- Without this, RootNamespace follows AssemblyName and every file would default to `vault`. -->
     <RootNamespace>VaultCli</RootNamespace>
+    <!-- Generating the documentation file turns on the XML doc warnings. CS1591 stays off, because
+         an undocumented member is not the concern; CS1573, which fires when a documented member
+         leaves one of its parameters undocumented, is, and so is malformed XML. -->
+    <GenerateDocumentationFile>true</GenerateDocumentationFile>
+    <NoWarn>$(NoWarn);CS1591</NoWarn>
   </PropertyGroup>
 
   <ItemGroup>
