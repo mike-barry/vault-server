@@ -3,26 +3,29 @@ using VaultShared.Access;
 namespace VaultShared.Links;
 
 /// <summary>
-/// The set of notes a bare wikilink is resolved against, indexed by the names that can name them.
-/// Every question the three passes ask about a bare link is asked here: which note a target opens,
-/// and whether a basename has one bearer or several.
-///
-/// It exists in pairs. A relocation and a creation each have a universe before the change and a
-/// universe after it, and the whole of "never re-aim" is comparing one against the other for the
-/// same link. Positions are the currency rather than paths, so a note keeps its identity across the
-/// pair even though its path may differ between them.
+/// Indexes a set of notes by the names that can name them, and resolves bare wikilinks against it.
+/// Answers which note a target opens and how many notes share a basename.
 /// </summary>
+/// <remarks>
+/// A relocation or a creation builds two of these, one for the vault before the change and one for
+/// after it, and decides each link by comparing the two answers. A note is identified by its
+/// position in the list rather than by its path, so it keeps the same identity across the pair even
+/// though its path may differ between them. Both universes must therefore be built from lists in
+/// the same order.
+/// </remarks>
 internal sealed class WikilinkUniverse
 {
     private readonly IReadOnlyList<VaultPath> _paths;
 
     /// <summary>
     /// Every name that names a note, mapped to the positions bearing it. A note is registered under
-    /// its final segment and under that segment's stem, because the target's extension is the
-    /// target's to omit and both spellings name the same file.
+    /// its final segment and under that segment's stem, because a link target may omit the
+    /// extension and both spellings name the same file.
     /// </summary>
     private readonly Dictionary<string, List<int>> _byName = new(StringComparer.OrdinalIgnoreCase);
 
+    /// <summary>Initializes a universe over the given notes, indexed by position.</summary>
+    /// <param name="paths">The notes to resolve against. Positions index into this list.</param>
     public WikilinkUniverse(IReadOnlyList<VaultPath> paths)
     {
         _paths = paths;
@@ -37,23 +40,35 @@ internal sealed class WikilinkUniverse
         }
     }
 
+    /// <summary>Gets the note at the given position.</summary>
+    /// <param name="position">A position produced by <see cref="Resolve"/> or by construction order.</param>
     public VaultPath this[int position] => _paths[position];
 
     /// <summary>
-    /// How many notes a bare target of this text names. One is what makes an emitted link short:
-    /// emission is canonical rather than minimal, so a unique basename is written bare and a
-    /// duplicated one is written as the full vault path.
+    /// Returns how many notes a bare target of this text names.
     /// </summary>
+    /// <remarks>
+    /// A count of one is what lets a link be emitted in its short form. Emission is canonical, not
+    /// minimal: a unique basename is written bare and a duplicated one is written as the full vault
+    /// path.
+    /// </remarks>
+    /// <param name="name">The bare name to count, with or without the note extension.</param>
+    /// <returns>The number of notes bearing the name, or zero when none do.</returns>
     public int Bearers(string name) => _byName.TryGetValue(name, out var found) ? found.Count : 0;
 
     /// <summary>
-    /// Which note a bare <paramref name="target"/> written in <paramref name="linkingNote"/> opens,
-    /// as a position, or null where nothing carries the name. Resolution is deterministic rather
-    /// than ambiguous, which is what lets a pass decide a bare link's fate without a gate.
-    ///
-    /// The linking note is passed rather than taken from a position, because a relocation moves it
-    /// too and the answer is measured from where it will be.
+    /// Returns the position of the note a bare <paramref name="target"/> opens when written in
+    /// <paramref name="linkingNote"/>, or null when nothing carries the name. The answer is always
+    /// deterministic, so a pass can decide a bare link without treating ambiguity as a failure.
     /// </summary>
+    /// <remarks>
+    /// The linking note is a parameter rather than a position in this universe because a relocation
+    /// moves the linking note as well, and the answer must be measured from where that note will be
+    /// rather than from where it is.
+    /// </remarks>
+    /// <param name="linkingNote">The note the link is written in. Ranking distance is measured from it.</param>
+    /// <param name="target">The bare target text as the note carries it.</param>
+    /// <returns>The position of the note the target opens, or null when no note bears the name.</returns>
     public int? Resolve(VaultPath linkingNote, string target)
     {
         if (!_byName.TryGetValue(target, out var candidates))
@@ -64,8 +79,8 @@ internal sealed class WikilinkUniverse
 
         var winner = WikilinkRanking.Resolve(linkingNote, candidates.Select(i => _paths[i]));
 
-        // Carried back by reference: ranking hands back the instances it was given, and positions
-        // are the currency because two universes are compared on them.
+        // Matched by reference because ranking hands back one of the instances it was given, and
+        // the caller needs a position rather than a path.
         foreach (var position in candidates)
             if (ReferenceEquals(_paths[position], winner))
                 return position;
@@ -82,24 +97,30 @@ internal sealed class WikilinkUniverse
 }
 
 /// <summary>
-/// How a path is written inside a wikilink. The editor writes a note's target without its extension
-/// and every other file's with it, so a note's two forms - the bare basename and the full vault
-/// path - are both the path with <c>.md</c> taken off.
+/// Writes a path in the two forms a wikilink target takes. The editor writes a note's target
+/// without its extension and every other file's with it, so both of a note's forms are its path
+/// with the note extension removed.
 /// </summary>
 internal static class WikilinkName
 {
-    /// <summary>The name without a note's extension, or unchanged for anything else.</summary>
+    /// <summary>Returns the name without the note extension, or unchanged when it has none.</summary>
+    /// <param name="name">A path segment or a whole vault path.</param>
+    /// <returns>The name with a trailing note extension removed.</returns>
     public static string StemOf(string name) =>
         name.EndsWith(VaultName.NoteExtension, StringComparison.OrdinalIgnoreCase)
             ? name[..^VaultName.NoteExtension.Length]
             : name;
 
-    /// <summary>The short form: the basename alone. What a unique name is emitted as.</summary>
+    /// <summary>Returns the short form of a target: the basename alone, used when the name is unique.</summary>
+    /// <param name="path">The note being linked to.</param>
+    /// <returns>The note's basename without the note extension.</returns>
     public static string Bare(VaultPath path) => StemOf(path.Segments[^1]);
 
     /// <summary>
-    /// The qualified form: the whole vault path. What a duplicated name is emitted as, and what a
-    /// pin is always written as - a pin's job is to name one file unambiguously.
+    /// Returns the qualified form of a target: the whole vault path. Used when the basename is
+    /// duplicated, and always used for a pin, which has to name one file unambiguously.
     /// </summary>
+    /// <param name="path">The note being linked to.</param>
+    /// <returns>The note's vault-relative path without the note extension.</returns>
     public static string Qualified(VaultPath path) => StemOf(path.Value);
 }

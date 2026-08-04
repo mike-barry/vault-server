@@ -4,76 +4,94 @@ using VaultShared.Access;
 namespace VaultShared.Links;
 
 /// <summary>
-/// The shared wikilink area the three mutating tools consume: relocation maintains the graph,
-/// creation protects it, and removal reports on it - a relocation leaves a new target to point at,
-/// a creation leaves a second candidate for a name, and a removal leaves nothing.
-///
-/// It is one area rather than three because all three read the same grammar, the same matching rule
-/// and the same ranking comparator (<see cref="Wikilink"/>, <see cref="WikilinkTarget"/>,
-/// <see cref="WikilinkRanking"/>). A link one consumer recognizes and another does not is a rewrite
-/// that misses a link or a census that under-reports, and both fail silently.
-///
-/// <b>Every pass runs over every note in the vault</b>, through <see cref="VaultWidePass"/>. Repairing
-/// or reporting only the notes inside the caller's scope leaves the rest of the vault pointing at
-/// nothing, or stops a census exactly where the caller most needs the truth. The domain is note
-/// enumeration for all three, which is what decides whether an emitted link is short or qualified;
-/// the destruction census that asks the file surface is the removing tool's own and is not this.
-///
-/// <b>Nothing here asserts authority.</b> The wikilink dimension is the consumer's to assert, and
-/// the notes this rewrites contribute none of their own: those rewrites are maintenance rather than
-/// authoring, and the substitution reads no key.
-///
-/// <b>Nothing here parses a note.</b> A rewrite is written over the target's extent in the text as
-/// read, so every byte outside a replaced target survives and a note whose frontmatter will not
-/// parse is repaired like any other. Text goes in and text comes out; only
-/// <see cref="Apply"/> writes, and only through the pass.
+/// Maintains the vault's wikilinks for the three mutating tools: relocation repairs links to what
+/// moved, creation pins links a new note would re-aim, and removal reports the links that would be
+/// left dangling.
 /// </summary>
+/// <remarks>
+/// All three share one grammar, one matching rule and one ranking comparator
+/// (<see cref="Wikilink"/>, <see cref="WikilinkTarget"/>, <see cref="WikilinkRanking"/>). Keep them
+/// shared: a link one consumer recognizes and another does not is a rewrite that misses a link or a
+/// census that under-reports, and both fail silently.
+///
+/// Every pass runs over every note in the vault, through <see cref="VaultWidePass"/>, never only
+/// the notes inside the caller's scope. Links to a moved note can be anywhere, so a scoped pass
+/// leaves the rest of the vault pointing at nothing or stops a census short. Note enumeration is
+/// also the domain that decides whether an emitted link is short or qualified. The separate census
+/// a removal runs over the file surface belongs to the removing tool and is not this.
+///
+/// Nothing here asserts authority. The consumer asserts the wikilink dimension; the notes rewritten
+/// here contribute none of their own, because a rewrite is maintenance rather than authoring and
+/// the substitution reads no key.
+///
+/// Nothing here parses a note. A rewrite is written over the target's extent in the text as read,
+/// so every byte outside a replaced target survives and a note whose frontmatter will not parse is
+/// repaired like any other. Only <see cref="Apply"/> writes, and only through the pass.
+/// </remarks>
 public static class WikilinkMaintenance
 {
     /// <summary>
-    /// The repair one note's relocation causes, planned against the vault as it is now.
-    ///
-    /// Every link naming the note is re-emitted canonically rather than minimally - bare where the
-    /// basename is unique after the move, the full vault path where it is not - so a deliberately
-    /// path-qualified link to a unique name collapses to bare, which is the editor's own emit rule
-    /// and not a form this preserves. A path-qualified target matches on a suffix of whole path
-    /// components; a bare one is rewritten only where it resolves to the relocated note.
-    ///
-    /// Where the move would change what another bare link resolves to, that link is pinned to the
-    /// target it has now and the plan proceeds. Protection extends to bystanders, and nothing ever
-    /// fails on ambiguity: a gate that could trip will trip in the middle of a hundred-note pass.
+    /// Plans the link repair one note's relocation causes, against the vault as it is now.
     /// </summary>
+    /// <remarks>
+    /// Every link naming the note is re-emitted in its canonical form: bare when the basename is
+    /// unique after the move, the full vault path when it is not. A deliberately path-qualified link
+    /// to a unique name therefore collapses to bare. That is the editor's own emit rule, and the
+    /// author's chosen form is not preserved. A path-qualified target matches on a suffix of whole
+    /// path components; a bare one is rewritten only where it resolves to the relocated note.
+    ///
+    /// Where the move would change what some other bare link resolves to, that link is rewritten to
+    /// name the target it has now and planning continues. Ambiguity never fails the pass, because a
+    /// failure part-way through a hundred-note pass is worse than a pinned link.
+    /// </remarks>
+    /// <param name="pass">The vault-wide pass to enumerate and read through.</param>
+    /// <param name="from">Where the note is now.</param>
+    /// <param name="to">Where the note will be.</param>
+    /// <returns>The plan, or the failure that stopped the pass.</returns>
     public static LinkPassOutcome<WikilinkPlan> PlanNoteRelocation(VaultWidePass pass, VaultPath from, VaultPath to) =>
         Relocate(pass, _ => new RelocationMap([new NoteRelocation(from, to)], null));
 
     /// <summary>
-    /// The repair a folder's relocation causes. Contained names do not change, so the map is a
-    /// single prefix substitution over every note under the folder, and the folder note is the only
-    /// name event: it is renamed to match its new folder, and a folder that has none gets none
-    /// created.
-    ///
-    /// The rename is derived here because the emitted form of every link depends on where each note
-    /// ends up, and a repair computed against the folder note's old name would leave every link to
-    /// it wrong. <see cref="WikilinkPlan.Relocated"/> and <see cref="WikilinkPlan.FolderNote"/> carry
-    /// the map out, so the relocating tool moves what this planned against.
+    /// Plans the link repair a folder's relocation causes, against the vault as it is now.
     /// </summary>
+    /// <remarks>
+    /// Contained names do not change, so the map is a single prefix substitution over every note
+    /// under the folder. The folder note is the one exception: it is renamed to match its new
+    /// folder, and a folder without one does not get one created.
+    ///
+    /// That rename is derived here because a link's emitted form depends on where each note ends up,
+    /// and a repair computed against the folder note's old name would leave every link to it wrong.
+    /// <see cref="WikilinkPlan.Relocated"/> and <see cref="WikilinkPlan.FolderNote"/> carry the map
+    /// out so the relocating tool moves exactly what this planned against.
+    /// </remarks>
+    /// <param name="pass">The vault-wide pass to enumerate and read through.</param>
+    /// <param name="from">Where the folder is now.</param>
+    /// <param name="to">Where the folder will be.</param>
+    /// <returns>The plan, or the failure that stopped the pass.</returns>
     public static LinkPassOutcome<WikilinkPlan> PlanFolderRelocation(VaultWidePass pass, VaultPath from, VaultPath to) =>
         Relocate(pass, notes => ContainedBy(notes, from, to));
 
     /// <summary>
-    /// The pins a note's creation requires, planned against the vault as it is now and before the
-    /// note is written. Interrupted after pinning, the vault holds links naming a target that is
-    /// still correct; interrupted after writing, it holds bare links that have silently changed
-    /// meaning - which is why the order is the consumer's to keep and this only reads.
+    /// Plans the pins a note's creation requires, against the vault as it is now and before the new
+    /// note is written.
+    /// </summary>
+    /// <remarks>
+    /// The consumer must pin before it writes the note. Interrupted after pinning, the vault holds
+    /// links naming a target that is still correct; interrupted after writing, it holds bare links
+    /// whose meaning has silently changed.
     ///
-    /// A basename already in use triggers the pass and nothing else does. Where the name is unique
-    /// the answer is <see cref="LinkPassOutcome{TResult}.NotNeeded"/>: no pass ran, and no wikilink
-    /// authority is required.
+    /// Only a basename already in use triggers the pass. Where the name is unique the result is
+    /// <see cref="LinkPassOutcome{TResult}.NotNeeded"/>: no pass ran, and no wikilink authority is
+    /// required.
     ///
     /// Every bare link whose resolution the new note would change is rewritten to the qualified form
     /// naming the target it resolves to now. Every other link is left alone, and no link is ever
     /// aimed at the new note.
-    /// </summary>
+    /// </remarks>
+    /// <param name="pass">The vault-wide pass to enumerate and read through.</param>
+    /// <param name="creating">The note about to be created.</param>
+    /// <returns>The plan, <see cref="LinkPassOutcome{TResult}.NotNeeded"/> when the basename is
+    /// unique, or the failure that stopped the pass.</returns>
     public static LinkPassOutcome<WikilinkPlan> PlanCreation(VaultWidePass pass, VaultPath creating)
     {
         var listed = pass.EnumerateNotes();
@@ -83,8 +101,8 @@ public static class WikilinkMaintenance
         var notes = results.Items;
         var before = new WikilinkUniverse(notes);
 
-        // The basename census, asked before anything is read. A name nothing else carries cannot
-        // change what any link resolves to, so there is nothing for a pass to find.
+        // Asked before any note is read. A basename nothing else carries cannot change what any
+        // link resolves to, so there is nothing for a pass to find.
         if (before.Bearers(WikilinkName.Bare(creating)) == 0)
             return new LinkPassOutcome<WikilinkPlan>.NotNeeded();
 
@@ -103,13 +121,13 @@ public static class WikilinkMaintenance
             var linking = notes[i];
             if (Rewritten(linking, text, target =>
                 {
-                    // Only bare links can change meaning: a new file leaves every path-qualified
+                    // Only bare links can change meaning. Adding a file leaves every path-qualified
                     // target naming exactly what it named before.
                     if (WikilinkTarget.IsPathQualified(target) || before.Resolve(linking, target) is not { } held)
                         return null;
 
-                    // Every rewrite a creation plans is a pin: nothing moved, so no link is ever
-                    // re-aimed and no link is ever aimed at the new note.
+                    // Every rewrite a creation plans is a pin. Nothing moved, so the replacement
+                    // always names the note the link already resolved to, never the new note.
                     return after.Resolve(linking, target) == held
                         ? null
                         : new Replacement(WikilinkName.Qualified(before[held]), Pinned: true);
@@ -121,21 +139,26 @@ public static class WikilinkMaintenance
     }
 
     /// <summary>
-    /// Every surviving link into the set a removal destroys. Nothing is rewritten and nothing is
-    /// pinned: deleting one of two same-named notes leaves bare links resolving to the survivor, and
-    /// the caller's intent for them is not knowable here.
-    ///
-    /// A path-qualified link is reported where its target names something in the set on the suffix
-    /// rule. A bare link is reported only where it resolves to something in the set, since a
-    /// same-named bystander elsewhere is that link's real target. Links inside the removed set are
-    /// not reported, and each surviving occurrence is reported individually, because a caller fixing
-    /// them visits each one.
+    /// Finds every surviving link into the set a removal destroys. Nothing is rewritten and nothing
+    /// is pinned; the caller decides what to do with each occurrence.
     /// </summary>
+    /// <remarks>
+    /// Removing one of two same-named notes does re-aim bare links onto the survivor, but they are
+    /// still deliberately not pinned, because what the caller wants for them is not knowable here.
+    ///
+    /// A path-qualified link is reported when its target names something in the set under the suffix
+    /// rule. A bare link is reported only when it resolves to something in the set, because a
+    /// same-named note elsewhere is that link's real target. Links inside the removed set are not
+    /// reported. Each surviving occurrence is reported individually, since a caller fixing them
+    /// visits each one.
+    /// </remarks>
+    /// <param name="pass">The vault-wide pass to enumerate and read through.</param>
     /// <param name="removing">
     /// What the removal destroys, as its own plan lists it. Paths that are not notes are matched by
-    /// a path-qualified target like any other; bare resolution ranks notes, which is the domain the
-    /// editor resolves a bare link against.
+    /// a path-qualified target like any other; bare resolution ranks notes only, which is the domain
+    /// the editor resolves a bare link against.
     /// </param>
+    /// <returns>Every surviving occurrence, or the failure that stopped the pass.</returns>
     public static LinkPassOutcome<IReadOnlyList<LinkOccurrence>> Census(
         VaultWidePass pass, IReadOnlyCollection<VaultPath> removing)
     {
@@ -180,16 +203,21 @@ public static class WikilinkMaintenance
     }
 
     /// <summary>
-    /// Writes a plan's notes back, through the pass: merely-contained paths, no scope check, and no
-    /// authority contribution.
-    ///
-    /// <b>The plan names every note by the path it has now</b>, so a relocation applies this before
-    /// it moves anything and a creation applies it before it writes the note. Applying after the
-    /// mutation would address notes that are no longer where the plan found them.
-    ///
-    /// A failure stops the pass and names what landed and what did not. The mutex lock means no
-    /// other tool interleaved; it does not mean rollback.
+    /// Writes a plan's notes back through the pass, using merely-contained paths, with no scope
+    /// check and no authority contribution.
     /// </summary>
+    /// <remarks>
+    /// The plan names every note by the path it has now, so a relocation must call this before it
+    /// moves anything and a creation before it writes the new note. Applying after the mutation
+    /// would address notes that are no longer where the plan found them.
+    ///
+    /// A failure stops the pass and names what landed and what did not. Nothing is rolled back: the
+    /// mutex lock means no other tool interleaved, not that the writes already made are undone.
+    /// </remarks>
+    /// <param name="pass">The vault-wide pass to write through.</param>
+    /// <param name="plan">The plan to write.</param>
+    /// <returns>What was written, or the first write failure with the split of landed and unlanded
+    /// changes.</returns>
     public static LinkApplyOutcome Apply(VaultWidePass pass, WikilinkPlan plan)
     {
         var written = new List<LinkRewrite>();
@@ -208,13 +236,19 @@ public static class WikilinkMaintenance
     }
 
     /// <summary>
-    /// The relocation pass both entry points share. The two differ only in which notes move, so the
-    /// map is expanded from the enumeration and everything after it is one piece of reasoning.
-    ///
-    /// Two universes are built, before the move and after it, and every link is decided by comparing
-    /// one against the other. Resolution depends on where files are rather than on what other links
-    /// say, so the rewrites do not interact: every answer is computed against the same pair.
+    /// Runs the relocation pass both entry points share. A note relocation and a folder relocation
+    /// differ only in which notes move, so the caller supplies that map and everything after it is
+    /// the same.
     /// </summary>
+    /// <remarks>
+    /// Two universes are built, one for the vault before the move and one for after it, and every
+    /// link is decided by comparing the two. Resolution depends only on where files are, not on what
+    /// other links say, so the rewrites do not interact and every answer is computed against the
+    /// same pair.
+    /// </remarks>
+    /// <param name="pass">The vault-wide pass to enumerate and read through.</param>
+    /// <param name="expand">Produces the relocation map from the enumerated notes.</param>
+    /// <returns>The plan, or the failure that stopped the pass.</returns>
     private static LinkPassOutcome<WikilinkPlan> Relocate(
         VaultWidePass pass, Func<IReadOnlyList<VaultPath>, RelocationMap> expand)
     {
@@ -261,14 +295,15 @@ public static class WikilinkMaintenance
                     if (before.Resolve(wasAt, target) is not { } held)
                         return null;
 
-                    // The link named the relocated note: re-emit it at the destination. A repair,
-                    // which is the maintenance the relocation owed.
+                    // The link named the relocated note, so re-emit it at the destination. This is
+                    // a repair.
                     if (moved.Contains(held))
                         return new Replacement(Emit(after, destinations[held]), Pinned: false);
 
-                    // A bystander. Its target did not move, but the move may have put a nearer
-                    // same-named candidate in its way - or moved the linking note itself. Where the
-                    // answer would change, the link is pinned to what it opens today.
+                    // A bystander link. Its target did not move, but the move may have put a nearer
+                    // same-named candidate in its way, or moved the linking note itself. Resolution
+                    // after the move is measured from willBe, not wasAt, for exactly that reason.
+                    // Where the answer would change, pin the link to what it opens today.
                     return after.Resolve(willBe, target) == held
                         ? null
                         : new Replacement(WikilinkName.Qualified(destinations[held]), Pinned: true);
@@ -280,9 +315,13 @@ public static class WikilinkMaintenance
     }
 
     /// <summary>
-    /// The prefix substitution a folder's relocation is, over the notes the enumeration found under
-    /// it, with the folder note's rename overriding its own prefix mapping.
+    /// Builds a folder relocation's map as a prefix substitution over the enumerated notes under the
+    /// folder, with the folder note's rename overriding its own prefix mapping.
     /// </summary>
+    /// <param name="notes">Every note the enumeration found.</param>
+    /// <param name="from">Where the folder is now.</param>
+    /// <param name="to">Where the folder will be.</param>
+    /// <returns>The contained notes' before and after paths, and where the folder note lands.</returns>
     private static RelocationMap ContainedBy(IReadOnlyList<VaultPath> notes, VaultPath from, VaultPath to)
     {
         var prefix = from.Value + '/';
@@ -310,30 +349,49 @@ public static class WikilinkMaintenance
     }
 
     /// <summary>
-    /// A path composed from segments this layer already produced. It is well-formed by construction,
-    /// so text that is not is a defect here rather than a caller's malformed input.
+    /// Creates a path from segments this layer already produced. The value is well-formed by
+    /// construction, so a rejection is a defect here rather than malformed caller input.
     /// </summary>
+    /// <param name="vault">The vault the path belongs to.</param>
+    /// <param name="value">The composed vault-relative path.</param>
+    /// <returns>The path.</returns>
+    /// <exception cref="InvalidOperationException">The composed value is not a valid vault path.</exception>
     private static VaultPath At(Vault vault, string value) =>
         VaultPath.TryCreate(vault, value, out var path, out var reason)
             ? path
             : throw new InvalidOperationException($"Composed relocation target \"{value}\" is not a vault path: {reason}");
 
     /// <summary>
-    /// Canonical emission, which is what the editor writes and therefore what will survive its next
-    /// touch: the short form where the name is unique in the vault, the full vault path where it is
-    /// not. A shortest sufficient suffix would be minimal instead, and the editor would rewrite it.
+    /// Returns the canonical form of a link to <paramref name="target"/>: the bare basename when the
+    /// name is unique in the vault, the full vault path when it is not.
     /// </summary>
+    /// <remarks>
+    /// This matches what the editor itself writes, so the emitted link survives the editor's next
+    /// touch. Emitting the shortest sufficient suffix instead would be minimal rather than
+    /// canonical, and the editor would rewrite it.
+    /// </remarks>
+    /// <param name="universe">The universe to count bearers in, normally the one after the change.</param>
+    /// <param name="target">The note being linked to.</param>
+    /// <returns>The target text to write into the link.</returns>
     private static string Emit(WikilinkUniverse universe, VaultPath target) =>
         universe.Bearers(WikilinkName.Bare(target)) == 1
             ? WikilinkName.Bare(target)
             : WikilinkName.Qualified(target);
 
     /// <summary>
-    /// One note's text with every replaced target written over its extent, or null where nothing in
-    /// it changed. Extents index the text exactly as <see cref="VaultWidePass.Read"/> decoded it, and
-    /// the splice happens in that same string: normalizing anything first would shift every offset
-    /// past a two-character terminator and write over the wrong bytes.
+    /// Returns one note's text with every replaced target written over its extent, or null when
+    /// nothing in it changed.
     /// </summary>
+    /// <remarks>
+    /// Do not normalize or re-encode the text before splicing. Extents index the string exactly as
+    /// <see cref="VaultWidePass.Read"/> decoded it, and rewriting line terminators first would shift
+    /// every offset past a two-character terminator so the splice would write over the wrong
+    /// characters.
+    /// </remarks>
+    /// <param name="note">The note the text was read from.</param>
+    /// <param name="text">The note's text, exactly as read.</param>
+    /// <param name="replacement">Decides each target's replacement, or null to leave it alone.</param>
+    /// <returns>The composed rewrite, or null when no target changed.</returns>
     private static NoteRewrite? Rewritten(VaultPath note, string text, Func<string, Replacement?> replacement)
     {
         StringBuilder? composed = null;
@@ -364,19 +422,29 @@ public static class WikilinkMaintenance
     }
 
     /// <summary>
-    /// What one link's target becomes, and which of the pass's two jobs produced it. The
-    /// discrimination is made where the decision is - a repair and a pin are indistinguishable from
-    /// the emitted text afterwards, and the relocating tool reports them apart.
+    /// Represents what one link's target becomes and which of the pass's two jobs produced it. The
+    /// distinction is recorded here, at the point of decision, because a repair and a pin cannot be
+    /// told apart from the emitted text afterwards and the relocating tool reports them separately.
     /// </summary>
+    /// <param name="Emitted">The target text to write in place of the old one.</param>
+    /// <param name="Pinned">True for a pin, false for a repair.</param>
     private readonly record struct Replacement(string Emitted, bool Pinned);
 
     /// <summary>
-    /// Every note's text, positionally, or the first failure that was not a note with nothing left
-    /// to read. A note that enumerated and is now gone is skipped and its position stays null - what
-    /// may be skipped is a file with nothing left to read. A note that is there and will not open
-    /// fails the whole pass, because skipping it would turn a failed operation into a silent
-    /// success.
+    /// Reads every requested note's text into a positional array, stopping at the first read
+    /// failure.
     /// </summary>
+    /// <remarks>
+    /// A note that the enumeration listed but that has since disappeared is skipped and its position
+    /// stays null, because there is nothing left in it to read. A note that is still present and
+    /// will not open fails the whole pass instead, because skipping it would turn a failed operation
+    /// into a silent success.
+    /// </remarks>
+    /// <param name="pass">The vault-wide pass to read through.</param>
+    /// <param name="notes">Every enumerated note. Positions index into this list.</param>
+    /// <param name="positions">Which notes to read, or null to read them all.</param>
+    /// <returns>The texts by position, and the failure that stopped the read, or null when none
+    /// did.</returns>
     private static (string?[] Texts, ReadOutcome.Failed? Unreadable) ReadAll(
         VaultWidePass pass, IReadOnlyList<VaultPath> notes, IReadOnlyList<int>? positions = null)
     {
@@ -394,22 +462,30 @@ public static class WikilinkMaintenance
         return (texts, null);
     }
 
-    /// <summary>Which notes a relocation moves, and where its folder note lands.</summary>
+    /// <summary>Represents which notes a relocation moves, and where its folder note lands.</summary>
+    /// <param name="Pairs">Each moved note's path before and after.</param>
+    /// <param name="FolderNote">Where the folder note lands, or null when there is none.</param>
     private sealed record RelocationMap(IReadOnlyList<NoteRelocation> Pairs, VaultPath? FolderNote);
 
     /// <summary>
-    /// One-based line numbers from character offsets, walked forward once. Offsets arrive in order,
-    /// because occurrences do.
-    ///
-    /// It counts <c>\n</c> alone, which is correct for both terminator conventions a note is stored
-    /// in: the carriage return of a two-character terminator sits before the newline it belongs to
-    /// and contributes no line of its own.
+    /// Converts character offsets into one-based line numbers, scanning the text forward only once.
+    /// Offsets must be requested in increasing order, which they are because occurrences are found
+    /// in order.
     /// </summary>
+    /// <remarks>
+    /// Counts <c>\n</c> alone, which is correct for both line terminators a note may be stored with:
+    /// the carriage return of a two-character terminator sits before the newline it belongs to and
+    /// starts no line of its own.
+    /// </remarks>
+    /// <param name="text">The text the offsets index into.</param>
     private sealed class LineCounter(string text)
     {
         private int _scanned;
         private int _line = 1;
 
+        /// <summary>Returns the one-based line the given offset falls on.</summary>
+        /// <param name="offset">A character offset, not less than any previously requested.</param>
+        /// <returns>The line number.</returns>
         public int At(int offset)
         {
             while (_scanned < offset)
