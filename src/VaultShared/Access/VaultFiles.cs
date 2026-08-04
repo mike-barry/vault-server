@@ -4,40 +4,44 @@ using System.Text;
 namespace VaultShared.Access;
 
 /// <summary>
-/// The file primitives: read one note, write one note either form, create one folder, move one
-/// entry, remove one entry. Every one of them answers rather than throwing, because callers must
-/// tell the outcomes apart structurally.
+/// Provides the file primitives: read one note, write one note in either form, create one folder,
+/// move one entry, remove one entry. Each returns a classified outcome rather than throwing,
+/// because callers must tell the outcomes apart structurally.
+/// </summary>
+/// <remarks>
+/// Moving and removing each have a file form and a folder form, because a path does not say which
+/// it names and neither form may guess. Inspecting the target to choose would be the kind of
+/// preliminary check every primitive here avoids.
 ///
-/// Moving and removing are each two operations rather than one - a file form and a folder form -
-/// because a path does not say which it names and neither may guess. Inspecting the target to
-/// choose would be the probe every primitive here avoids.
-///
-/// Static, and holding nothing: a primitive's authority is the type of the path it is handed -
-/// <see cref="ReadPath"/> to read, <see cref="WritePath"/> to write, create, move, or remove - so
-/// there is no per-call state for an object to carry. The scope check happened where those proofs
+/// The class is static and holds nothing. A primitive's authority is the type of the path it is
+/// handed - <see cref="ReadPath"/> to read, <see cref="WritePath"/> to write, create, move, or
+/// remove - so there is no per-call state to carry. The scope check happened where those proofs
 /// were produced, and no operation here can be reached without one.
 ///
-/// Nothing here acquires the mutex lock. The shared execute path holds it around a whole tool
+/// Nothing here acquires the write mutex. The shared execute path holds it around a whole tool
 /// invocation, so a primitive called outside a tool runs with no lock held.
-/// </summary>
+/// </remarks>
 public static class VaultFiles
 {
     /// <summary>
-    /// The composing seam, stated once: UTF-8 with no byte-order mark. The editor and the
-    /// repository own these files jointly, and a byte-order mark appearing on rewritten notes is a
-    /// diff on every file the tooling touches - invisible per file and unmistakable across a sync.
+    /// The encoding every write uses: UTF-8 with no byte-order mark. The editor and the repository
+    /// own these files jointly, so a byte-order mark appearing on rewritten notes would show up as
+    /// a diff on every file the tooling touches.
     /// </summary>
     private static readonly UTF8Encoding Utf8NoBom = new(encoderShouldEmitUTF8Identifier: false);
 
     /// <summary>
-    /// Reads a note's content, classifying a failure from the failure itself.
+    /// Reads a note's content, classifying a failure from the exception itself.
     /// <see cref="ReadOutcome.NotFound"/> covers a missing note and a missing folder along the way;
-    /// everything else the platform raises is <see cref="ReadOutcome.Failed"/>.
-    ///
-    /// The bytes are taken once and both answers derive from them: the decoded text, and the digest
-    /// the staleness guard is carried by. Hashing from a second read would describe bytes the
-    /// returned text may no longer be a decoding of.
+    /// every other failure the platform raises is <see cref="ReadOutcome.Failed"/>.
     /// </summary>
+    /// <remarks>
+    /// The bytes are read once and both results derive from them: the decoded text, and the digest
+    /// the staleness guard uses. Hashing a second read could describe different bytes from the
+    /// ones the returned text was decoded from.
+    /// </remarks>
+    /// <param name="path">The note to read.</param>
+    /// <returns>The content and its digest, or a classified failure.</returns>
     public static ReadOutcome Read(ReadPath path)
     {
         var target = path.Path;
@@ -57,18 +61,21 @@ public static class VaultFiles
     }
 
     /// <summary>
-    /// Replaces an existing note's content wholesale. Nothing there to replace is
-    /// <see cref="WriteOutcome.NotFound"/>, from the open rather than from a probe; a missing folder
-    /// is <see cref="WriteOutcome.MissingParent"/>. This form brings no name into existence, so the
-    /// name grammar does not apply to it and a note predating the grammar stays writable.
+    /// Replaces an existing note's content wholesale. A note that is not there is
+    /// <see cref="WriteOutcome.NotFound"/>, reported by the open rather than by a check made first;
+    /// a missing folder is <see cref="WriteOutcome.MissingParent"/>. This form creates no name, so
+    /// the name grammar does not apply and a note predating the grammar stays writable.
     /// </summary>
+    /// <param name="path">The note to overwrite.</param>
+    /// <param name="content">The content to store.</param>
+    /// <returns>The digest of what landed, or a classified failure.</returns>
     public static WriteOutcome Replace(WritePath path, string content)
     {
         var target = path.Path;
         try
         {
             // Truncate rather than Create: only this mode refuses a target that is not already
-            // there, which is what keeps replacing and creating two different operations.
+            // there, which is what keeps replacing and creating different operations.
             using var stream = new FileStream(target.Absolute, FileMode.Truncate, FileAccess.Write, FileShare.None);
             return new WriteOutcome.Written(Emit(stream, content));
         }
@@ -83,14 +90,17 @@ public static class VaultFiles
     }
 
     /// <summary>
-    /// Creates a note that must not already exist. The refusal is the filesystem's answer to an
-    /// atomic create - <see cref="WriteOutcome.AlreadyExists"/>, distinguishable from every other
-    /// write failure - never a check the layer runs first, which would leave a window in which
-    /// something else creates the file and the write then destroys it.
-    ///
-    /// The note's own name is the one segment this call brings into existence, so it is checked
-    /// against the name grammar; nothing else in the path is.
+    /// Creates a note that must not already exist. <see cref="WriteOutcome.AlreadyExists"/> comes
+    /// from the filesystem's atomic create, never from a check made first, because a check would
+    /// leave a window in which something else creates the file and this write then destroys it.
     /// </summary>
+    /// <remarks>
+    /// The note's own name is the one segment this call creates, so it is the only one checked
+    /// against the name grammar.
+    /// </remarks>
+    /// <param name="path">The note to create.</param>
+    /// <param name="content">The content to store.</param>
+    /// <returns>The digest of what landed, or a classified failure.</returns>
     public static WriteOutcome Create(WritePath path, string content)
     {
         var target = path.Path;
@@ -114,13 +124,20 @@ public static class VaultFiles
     }
 
     /// <summary>
-    /// Creates one folder under a parent that already exists, and refuses a missing parent as a
-    /// write does. Its own primitive, so materializing a path is a deliberate call rather than a
-    /// side effect of writing, and the folder's name is checked against the name grammar.
-    ///
-    /// A folder already there is not an error: the platform's directory creation is idempotent and
-    /// cannot report the difference without the probe every other primitive here avoids.
+    /// Creates one folder under a parent that already exists, refusing a missing parent as a write
+    /// does. It is its own primitive, so materializing a path is a deliberate call rather than a
+    /// side effect of writing. The folder's name is checked against the name grammar.
     /// </summary>
+    /// <remarks>
+    /// A folder that is already there is not an error. The platform's directory creation is
+    /// idempotent and cannot report the difference without a preliminary check, which every
+    /// primitive here avoids.
+    /// </remarks>
+    /// <param name="path">The folder to create.</param>
+    /// <returns>
+    /// <see cref="WriteOutcome.Written"/> with a null hash, since a folder has no content, or a
+    /// classified failure.
+    /// </returns>
     public static WriteOutcome CreateFolder(WritePath path)
     {
         var target = path.Path;
@@ -128,9 +145,9 @@ public static class VaultFiles
         if (!VaultName.IsFolderName(name))
             return new WriteOutcome.InvalidName(name);
 
-        // The platform offers no non-recursive directory creation, so the parent is established
-        // here: without this the call would materialize every missing folder above the target,
-        // which is exactly what nothing may do on the way past.
+        // The platform offers no non-recursive directory creation, so the parent is checked here.
+        // Without this check the call would create every missing folder above the target, which no
+        // operation may do on the way past.
         var parent = Directory.GetParent(target.Absolute);
         if (parent is null || !parent.Exists)
             return MissingParent(target);
@@ -138,8 +155,7 @@ public static class VaultFiles
         try
         {
             Directory.CreateDirectory(target.Absolute);
-            // No file to describe, so no hash: a folder is the one thing this hierarchy reports
-            // written that has no content.
+            // A folder has no content, so there is no hash to report.
             return new WriteOutcome.Written(null);
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
@@ -149,30 +165,33 @@ public static class VaultFiles
     }
 
     /// <summary>
-    /// The name of the placeholder that makes an empty folder exist in the repository. It is the
-    /// tooling's own file: no caller can name it, because the operand perimeter refuses a
-    /// dot-prefixed segment and the name grammar refuses the spelling, both deliberately.
+    /// The name of the placeholder that makes an empty folder exist in the repository. No caller
+    /// can name this file: a dot-prefixed segment is refused as a path, and the name grammar
+    /// refuses the spelling. Both refusals are deliberate.
     /// </summary>
     public const string GitKeepName = ".gitkeep";
 
     /// <summary>
-    /// Seeds <see cref="GitKeepName"/> inside a folder, so a folder expected to exist while empty
+    /// Creates <see cref="GitKeepName"/> inside a folder, so a folder expected to exist while empty
     /// survives a repository round trip.
-    ///
-    /// <b>This is the one producer of that file, and naming it is the whole point.</b> Nothing else
-    /// in the build can create a dot-prefixed path: <see cref="VaultAccess.ForWrite"/> refuses one
-    /// as outside the operand perimeter and <see cref="Create"/> refuses the name as outside the
-    /// grammar. Both refusals are right for caller text, and the placeholder is not caller text -
-    /// so rather than weakening either, the file has a member of its own, greppable by name, whose
-    /// only argument is the folder. The child path is composed here and never handed in, which is
-    /// what keeps "a caller can ask for a .gitkeep but cannot name one" true by construction.
-    ///
-    /// The folder's own write proof carries admission for everything under it: scope roots are
-    /// whole-segment prefixes, so a child of an admitted folder is admitted by the same root.
-    ///
-    /// An existing placeholder answers <see cref="WriteOutcome.AlreadyExists"/> from the atomic
-    /// create, like every other creating write.
     /// </summary>
+    /// <remarks>
+    /// This is the only code that can create that file. Nothing else in the build can create a
+    /// dot-prefixed path at all: <see cref="VaultAccess.ForWrite"/> refuses one and
+    /// <see cref="Create"/> refuses the name. Both refusals are correct for text a caller supplied,
+    /// and the placeholder is not caller text, so it has a member of its own instead of either
+    /// refusal being weakened. Keep the child path composed here rather than passed in - that is
+    /// what makes it true by construction that a caller can ask for a placeholder but cannot name
+    /// one.
+    ///
+    /// The folder's own write proof carries admission for everything under it, because scope roots
+    /// are whole-segment prefixes.
+    /// </remarks>
+    /// <param name="folder">The folder to create the placeholder in.</param>
+    /// <returns>
+    /// The digest of the empty file, <see cref="WriteOutcome.AlreadyExists"/> when a placeholder is
+    /// already there, or a classified failure.
+    /// </returns>
     public static WriteOutcome CreateGitKeep(WritePath folder)
     {
         var target = folder.Path;
@@ -195,18 +214,22 @@ public static class VaultFiles
     }
 
     /// <summary>
-    /// Moves one file. Move is the operation taking two paths, and both must carry the same vault -
-    /// a pair that does not is a layer defect and throws rather than being answered.
-    ///
-    /// Occupancy is decided against the resolved source ordinally, so a case-only rename is not a
-    /// collision; the outcome reports that the move was case-only, because git does not see such a
-    /// change and staging it is above this layer. The destination's name is the one segment brought
-    /// into existence and is checked against the name grammar, as a note or as a folder.
-    ///
-    /// A folder named as the source answers <see cref="MoveOutcome.SourceMissing"/>:
-    /// <see cref="MoveFolder"/> is the folder form.
+    /// Moves one file. Both paths must be in the same vault; a pair that is not is a defect in the
+    /// calling code and throws rather than being answered.
     /// </summary>
-    /// <exception cref="ArgumentException">The two paths carry different vaults.</exception>
+    /// <remarks>
+    /// Occupancy is compared against the resolved source ordinally, so a case-only rename is not a
+    /// collision. The outcome reports that the move was case-only, because git does not see such a
+    /// change and staging it happens above this layer.
+    ///
+    /// The destination's name is the one segment this call creates, and is checked against the name
+    /// grammar as either a note or a folder. A source that names a folder answers
+    /// <see cref="MoveOutcome.SourceMissing"/>; <see cref="MoveFolder"/> is the folder form.
+    /// </remarks>
+    /// <param name="source">The file to move.</param>
+    /// <param name="destination">Where it should end up.</param>
+    /// <returns>The result of the move.</returns>
+    /// <exception cref="ArgumentException">The two paths are in different vaults.</exception>
     public static MoveOutcome MoveFile(WritePath source, WritePath destination)
     {
         var from = source.Path;
@@ -220,16 +243,16 @@ public static class VaultFiles
         if (!VaultName.IsNoteName(name) && !VaultName.IsFolderName(name))
             return new MoveOutcome.InvalidName(name);
 
-        // Equality is case-insensitive and spelling is ordinal, so the two questions together say
-        // whether the destination is the source under another spelling.
+        // Equality is case-insensitive and spelling is ordinal, so the two together say whether the
+        // destination is the source under another spelling.
         var sameEntry = from.Equals(to);
         var caseOnly = sameEntry && !from.HasSameSpellingAs(to);
 
         try
         {
-            // The destination may be replaced only when it is the source itself: on a
-            // case-insensitive filesystem the rename otherwise refuses its own target. Every other
-            // occupant is refused below.
+            // Overwrite only when the destination is the source itself: on a case-insensitive
+            // filesystem the rename would otherwise refuse its own target. Every other occupant is
+            // refused by the catch below.
             File.Move(from.Absolute, to.Absolute, overwrite: sameEntry);
             return new MoveOutcome.Moved(caseOnly);
         }
@@ -239,8 +262,8 @@ public static class VaultFiles
         }
         catch (DirectoryNotFoundException)
         {
-            // The source is established by the move's own first step, so a missing folder here is
-            // the destination's.
+            // A missing source is reported as FileNotFoundException above, so a missing directory
+            // here is the destination's parent.
             return to.ParentValue is { } parent
                 ? new MoveOutcome.MissingParent(parent)
                 : new MoveOutcome.Failed(to.Value, RootMissing);
@@ -256,19 +279,22 @@ public static class VaultFiles
     }
 
     /// <summary>
-    /// Moves one folder, with everything inside it, as a single directory rename.
-    ///
-    /// <b>One filesystem operation, not a walk.</b> The contents keep their names and their
-    /// positions relative to the folder, so nothing under it has to be named, created or removed -
-    /// which is what keeps a relocation from having a half-moved state of its own, and what keeps
-    /// this primitive from creating the folders a per-file relocation would need on the far side.
-    /// The rule against walking a tree is the same one <see cref="RemoveEmptyFolder"/> obeys; here
-    /// it is the platform's rename that makes the walk unnecessary rather than the caller's plan.
-    ///
-    /// The destination's own name is the one segment brought into existence and is checked against
-    /// the folder grammar. A case-only rename is permitted and reported, exactly as for a file.
+    /// Moves one folder and everything inside it, as a single directory rename.
     /// </summary>
-    /// <exception cref="ArgumentException">The two paths carry different vaults.</exception>
+    /// <remarks>
+    /// This is one filesystem operation and never a walk. The contents keep their names and their
+    /// positions relative to the folder, so nothing under it has to be named, created or removed.
+    /// That is what keeps a relocation from having a half-moved state of its own, and what keeps
+    /// this primitive from creating the folders a per-file relocation would need on the far side.
+    /// <see cref="RemoveEmptyFolder"/> obeys the same rule against walking a tree.
+    ///
+    /// The destination's own name is the one segment this call creates, and is checked against the
+    /// folder grammar. A case-only rename is permitted and reported, exactly as for a file.
+    /// </remarks>
+    /// <param name="source">The folder to move.</param>
+    /// <param name="destination">Where it should end up.</param>
+    /// <returns>The result of the move.</returns>
+    /// <exception cref="ArgumentException">The two paths are in different vaults.</exception>
     public static MoveOutcome MoveFolder(WritePath source, WritePath destination)
     {
         var from = source.Path;
@@ -285,11 +311,10 @@ public static class VaultFiles
         var sameEntry = from.Equals(to);
         var caseOnly = sameEntry && !from.HasSameSpellingAs(to);
 
-        // The destination's parent is established here rather than left to the failure, for the
-        // reason folder creation establishes it: a directory rename reports a missing source and a
-        // missing destination parent as the same platform failure, and the two are different
-        // answers. Only the destination side is inspected - the source's existence still comes from
-        // the attempt.
+        // The destination's parent is checked here rather than left to the failure, because a
+        // directory rename reports a missing source and a missing destination parent as the same
+        // platform exception, and those are different answers. Only the destination side is
+        // checked; the source's existence still comes from the attempt.
         var parent = Directory.GetParent(to.Absolute);
         if (parent is null || !parent.Exists)
             return to.ParentValue is { } missing
@@ -317,15 +342,18 @@ public static class VaultFiles
 
     /// <summary>
     /// Removes one file. The refusal comes from the attempt: the open fails when nothing is there,
-    /// and the entry is unlinked as the handle closes, so no probe stands between the two.
+    /// and the entry is unlinked as the handle closes, so no check stands between the two.
     /// </summary>
+    /// <param name="path">The file to remove.</param>
+    /// <returns>The result of the removal.</returns>
     public static RemovalOutcome RemoveFile(WritePath path)
     {
         var target = path.Path;
         try
         {
-            // Opening with delete-on-close is the removal: the platform's delete answers nothing
-            // when the file was already gone, which is the one distinction this operation owes.
+            // Opening with delete-on-close is the removal. The platform's own delete reports
+            // nothing when the file was already gone, and that is the one distinction this
+            // operation owes its caller.
             using var stream = new FileStream(
                 target.Absolute, FileMode.Open, FileAccess.ReadWrite, FileShare.None, bufferSize: 1, FileOptions.DeleteOnClose);
             return new RemovalOutcome.Removed();
@@ -341,9 +369,12 @@ public static class VaultFiles
     }
 
     /// <summary>
-    /// Removes one folder with nothing in it. Never walks a tree, and the emptiness refusal is the
-    /// platform's answer to the removal rather than a check the layer runs first.
+    /// Removes one folder that has nothing in it. It never walks a tree, and
+    /// <see cref="RemovalOutcome.NotEmpty"/> comes from the platform's answer to the removal rather
+    /// than from a check made first.
     /// </summary>
+    /// <param name="path">The folder to remove.</param>
+    /// <returns>The result of the removal.</returns>
     public static RemovalOutcome RemoveEmptyFolder(WritePath path)
     {
         var target = path.Path;
@@ -367,10 +398,12 @@ public static class VaultFiles
     }
 
     /// <summary>
-    /// The reading half of the composing seam: UTF-8, with a byte-order mark recognized and dropped
-    /// rather than surfacing as a leading character. A mark naming another encoding is honoured, so
-    /// a note the editor wrote as UTF-16 still decodes to its own text instead of to mojibake.
+    /// Decodes stored bytes as UTF-8, recognizing a byte-order mark and dropping it rather than
+    /// letting it surface as a leading character. A mark naming another encoding is honoured, so a
+    /// note the editor wrote as UTF-16 decodes to its own text instead of to mojibake.
     /// </summary>
+    /// <param name="bytes">The file's bytes as stored.</param>
+    /// <returns>The decoded text.</returns>
     private static string Decode(byte[] bytes)
     {
         using var stream = new MemoryStream(bytes, writable: false);
@@ -379,22 +412,31 @@ public static class VaultFiles
     }
 
     /// <summary>
-    /// The staleness guard's value: SHA-256 of the bytes as stored, lowercase hex. Over the stored
-    /// bytes rather than the decoded or composed text, which is what makes a hash from a read and a
-    /// hash from a write the same value and lets a chain run in either direction.
+    /// Computes the staleness guard's value: SHA-256 of the bytes as stored, lowercase hex. It is
+    /// taken over the stored bytes rather than the decoded or composed text, so a hash from a read
+    /// and a hash from a write of the same file are the same value.
     /// </summary>
+    /// <param name="bytes">The file's bytes as stored.</param>
+    /// <returns>The digest, lowercase hex.</returns>
     private static string Digest(byte[] bytes) => Convert.ToHexStringLower(SHA256.HashData(bytes));
 
     /// <summary>
-    /// The bytes a write of <paramref name="content"/> stores: the other half of the composing seam -
-    /// LF line terminators, UTF-8, no byte-order mark. Notes are stored that way, and nothing detects
-    /// what was there or preserves another convention.
+    /// Encodes content as the bytes a write stores: LF line terminators, UTF-8, no byte-order mark.
+    /// Notes are always stored that way; nothing detects what was there before or preserves another
+    /// convention.
     /// </summary>
+    /// <param name="content">The text to store.</param>
+    /// <returns>The bytes to write.</returns>
     private static byte[] Bytes(string content) =>
         Utf8NoBom.GetBytes(content.Replace("\r\n", "\n", StringComparison.Ordinal));
 
-    /// <summary>Writes the content and answers the digest of the bytes that landed, so a write's
-    /// hash comes from the write rather than from a read afterwards.</summary>
+    /// <summary>
+    /// Writes the content and returns the digest of the bytes that landed, so a write's hash comes
+    /// from the write rather than from a read afterwards.
+    /// </summary>
+    /// <param name="stream">The open stream to write to.</param>
+    /// <param name="content">The text to store.</param>
+    /// <returns>The digest of the bytes written, lowercase hex.</returns>
     private static string Emit(Stream stream, string content)
     {
         var bytes = Bytes(content);
@@ -403,26 +445,34 @@ public static class VaultFiles
     }
 
     /// <summary>
-    /// The digest a write of <paramref name="content"/> would store, without storing it. What lets a
-    /// caller holding both a read's hash and a composed result tell an outcome that changes the file
-    /// from one that would rewrite it byte-identically - the two are the same value exactly when the
-    /// write would change nothing.
+    /// Returns the digest a write of this content would store, without storing it. A caller holding
+    /// both a read's hash and a composed result can compare the two: they are equal exactly when
+    /// the write would change nothing.
     /// </summary>
+    /// <param name="content">The text a write would store.</param>
+    /// <returns>The digest, lowercase hex.</returns>
     public static string DigestOf(string content) => Digest(Bytes(content));
 
     /// <summary>
-    /// The failures a write shares with folder creation. A missing folder is named in vault-relative
-    /// terms; everything else is operational.
+    /// Classifies a write failure. A missing folder becomes
+    /// <see cref="WriteOutcome.MissingParent"/>; everything else is
+    /// <see cref="WriteOutcome.Failed"/>.
     /// </summary>
+    /// <param name="ex">The exception the platform raised.</param>
+    /// <param name="target">The path the write was aimed at.</param>
+    /// <returns>The classified outcome.</returns>
     private static WriteOutcome Classify(Exception ex, VaultPath target) =>
         ex is DirectoryNotFoundException
             ? MissingParent(target)
             : new WriteOutcome.Failed(target.Value, Describe(ex, target));
 
     /// <summary>
-    /// A path directly under the root has no parent to name - the root is a vault rather than a
-    /// path - so a root that is not there is operational, and vault resolution is what reports it.
+    /// Names the missing containing folder. A path directly under the vault root has no parent to
+    /// name, so a root that is not there is reported as an operational failure instead; vault
+    /// resolution is what reports a missing root properly.
     /// </summary>
+    /// <param name="target">The path the write was aimed at.</param>
+    /// <returns>The missing-parent outcome, or a failure when the root itself is gone.</returns>
     private static WriteOutcome MissingParent(VaultPath target) =>
         target.ParentValue is { } parent
             ? new WriteOutcome.MissingParent(parent)
@@ -431,9 +481,13 @@ public static class VaultFiles
     private const string RootMissing = "The vault root directory is not present.";
 
     /// <summary>
-    /// What the platform said, with every location it names rendered vault-relative. A message
-    /// carrying an absolute path would take one out of the layer.
+    /// Returns what the platform said, with every location it names rendered vault-relative. An
+    /// absolute path must never leave this layer, and an exception message is one of the ways it
+    /// could.
     /// </summary>
+    /// <param name="ex">The exception the platform raised.</param>
+    /// <param name="paths">The paths whose absolute forms may appear in the message.</param>
+    /// <returns>The message, with locations rendered vault-relative.</returns>
     private static string Describe(Exception ex, params VaultPath[] paths)
     {
         var text = ex.Message;
@@ -444,9 +498,9 @@ public static class VaultFiles
             : text.Replace(paths[0].Vault.Root, paths[0].Vault.Name, StringComparison.OrdinalIgnoreCase);
     }
 
-    // The platform reports "already there" and "not empty" as a plain IOException, so the code the
-    // OS set is the only thing that tells them from a sharing conflict or a device error. Windows
-    // codes carry the 0x8007 facility; the bare values are the POSIX errnos.
+    // The platform reports "already exists" and "not empty" as a plain IOException, so the code the
+    // OS set is the only thing distinguishing them from a sharing conflict or a device error. The
+    // Windows codes carry the 0x8007 facility; the bare values are the POSIX errnos.
     private const int ErrorFileExists = unchecked((int)0x80070050);
     private const int ErrorAlreadyExists = unchecked((int)0x800700B7);
     private const int ErrorDirNotEmpty = unchecked((int)0x80070091);

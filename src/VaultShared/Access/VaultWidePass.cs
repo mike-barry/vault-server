@@ -1,25 +1,24 @@
 namespace VaultShared.Access;
 
 /// <summary>
-/// The one pass scope does not bound. Moving a note changes what every link to it must say, and
-/// creating a note whose basename already exists changes what bare links to that basename resolve
-/// to; either set of links can be anywhere, so the pass must reach notes the grant can neither read
-/// nor write.
-///
-/// The separate object is the whole of the mechanism. Its operations are ordinary - enumerate every
-/// note, read one, write one - so a consumer composes what it needs rather than asking for a new
-/// primitive each time. What the seam buys is that bypassing scope is a deliberate call
-/// (<see cref="VaultAccess.BypassingScope"/>) rather than a method within reach on an object every
-/// caller already holds, and that every site doing it is one grep away.
-///
-/// Its operations take merely-contained paths: a <see cref="VaultPath"/> is proof of containment,
-/// which is all this pass has and all it needs. It is the one producer of an admitted path besides
-/// <see cref="VaultAccess"/>, and it is deliberately not reachable without naming what it is.
-///
-/// What may be <em>reported</em> out of such a pass - how much of an out-of-scope note reaches a
-/// result, a preview, or a log - is a constraint on the report rather than on these primitives, and
-/// belongs to the tool vocabulary with the rest of the result tiers.
+/// Enumerates, reads and writes notes across the whole vault, ignoring the caller's scope. Wikilink
+/// maintenance is the only work that needs this: moving a note changes what every link to it must
+/// say, and creating a note whose basename already exists changes what bare links to that basename
+/// resolve to. Either set of links can be anywhere, so the pass must reach notes the grant can
+/// neither read nor write.
 /// </summary>
+/// <remarks>
+/// Being a separate object is the whole of the mechanism. Reach it only through
+/// <see cref="VaultAccess.BypassingScope"/>, so that bypassing scope reads as a deliberate act at
+/// the call site and every site doing it can be found with one search. Do not expose these
+/// operations on <see cref="VaultAccess"/> itself.
+///
+/// Its operations take a <see cref="VaultPath"/>, which is proof of containment and nothing more.
+/// That is all this pass has and all it needs.
+///
+/// How much of an out-of-scope note may appear in a result, a preview, or a log is a separate
+/// constraint on the report, decided above this type.
+/// </remarks>
 public sealed class VaultWidePass
 {
     private readonly SearchEngine _engine;
@@ -30,39 +29,53 @@ public sealed class VaultWidePass
         _engine = engine;
     }
 
+    /// <summary>Gets the vault this pass runs over.</summary>
     public Vault Vault { get; }
 
     /// <summary>
-    /// Every note in the vault, whatever the grant's scope admits. Dot entries are the one thing
-    /// left out, because no path under a dot-directory is reachable by the tool set at all - a
-    /// narrowing this pass shares with every other surface rather than one scope imposes.
-    ///
-    /// The markdown restriction cannot ride the engine's glob - positive globs union rather than
-    /// intersect, which <see cref="VaultAccess"/> states in full at its own filter - while the dot
-    /// rule prunes the walk through a negative one and is kept in the predicate beside it.
+    /// Returns every note in the vault, whatever the grant's scope admits. Dot entries are left
+    /// out, because no path under a dot-directory is reachable by any surface in the build.
     /// </summary>
+    /// <remarks>
+    /// The markdown restriction is in the predicate rather than in a glob passed to the engine,
+    /// because positive globs union rather than intersect. <see cref="VaultAccess"/> states that
+    /// hazard in full at its own filter. The dot rule prunes the engine's walk through a negative
+    /// glob and is also kept in the predicate beside it.
+    /// </remarks>
+    /// <returns>The notes, or a search failure.</returns>
     public SearchOutcome<VaultPath> EnumerateNotes() =>
         VaultSearch.Enumerate(Vault, _engine, pattern: null, pruneDotEntries: true, path =>
             !path.HasDotSegment && path.Value.EndsWith(VaultName.NoteExtension, StringComparison.OrdinalIgnoreCase));
 
     /// <summary>
-    /// Reads one note, classifying a failure exactly as the scoped read does. A pass that runs over
-    /// every note in the vault meets content a write would refuse, and must survive it.
+    /// Reads one note, classifying a failure exactly as the scoped read does. A pass over every
+    /// note in the vault meets content a write would refuse and has to survive it.
     /// </summary>
+    /// <param name="note">The note to read. Must be in this pass's vault.</param>
+    /// <returns>The note's content, or a classified failure.</returns>
+    /// <exception cref="ArgumentException"><paramref name="note"/> belongs to another vault.</exception>
     public ReadOutcome Read(VaultPath note) => VaultFiles.Read(new ReadPath(Contained(note)));
 
     /// <summary>
-    /// Replaces one note's content. There is no creating form here: bringing a note into existence
-    /// is the caller's own operation and is scope-checked normally, and this pass exists to rewrite
-    /// what already links.
+    /// Replaces one note's content. There is no creating form here, because this pass exists to
+    /// rewrite notes that already link, and bringing a note into existence is the caller's own
+    /// operation and is scope-checked normally.
     /// </summary>
+    /// <param name="note">The note to rewrite. Must be in this pass's vault.</param>
+    /// <param name="content">The content to store.</param>
+    /// <returns>The result of the write.</returns>
+    /// <exception cref="ArgumentException"><paramref name="note"/> belongs to another vault.</exception>
     public WriteOutcome Replace(VaultPath note, string content) =>
         VaultFiles.Replace(new WritePath(Contained(note)), content);
 
     /// <summary>
-    /// A path from another vault is a layer defect rather than a scope answer, the same posture
-    /// <see cref="VaultAccess.Admits"/> takes.
+    /// Returns the note when it is in this vault. A path from another vault is a defect in the
+    /// calling code rather than a scope answer, so it throws, as <see cref="VaultAccess.Admits"/>
+    /// also does.
     /// </summary>
+    /// <param name="note">The note to check.</param>
+    /// <returns>The same note.</returns>
+    /// <exception cref="ArgumentException"><paramref name="note"/> belongs to another vault.</exception>
     private VaultPath Contained(VaultPath note) =>
         note.Vault == Vault
             ? note

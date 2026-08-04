@@ -1,38 +1,40 @@
 namespace VaultShared.Access;
 
 /// <summary>
-/// The answer to a read: the content, or a classified failure. "Nothing there to read" and "there
-/// and something went wrong" are separate cases because every enumerate-then-read pass in the
-/// system depends on one definition of the first, and a caller cannot be left to recover it from
-/// message text.
-///
-/// The classification comes from the failure the filesystem raised, never from an existence probe
-/// the layer runs first, and it is part of the read rather than a second operation a caller may
-/// skip or redo. The hierarchy is closed by a private constructor.
+/// Represents the result of reading a note: its content, or a classified failure. The private
+/// constructor closes the hierarchy, so a caller that handles every nested record has handled every
+/// case.
 /// </summary>
+/// <remarks>
+/// "Nothing there" and "there, and the read failed" are separate cases so a caller does not have to
+/// recover the difference from message text. The classification comes from the exception the
+/// filesystem raised, never from an existence check made first.
+/// </remarks>
 public abstract record ReadOutcome
 {
     private ReadOutcome() { }
 
-    /// <summary>
-    /// The note's text, decoded as UTF-8 with any byte-order mark dropped, and the digest of the
-    /// bytes it was decoded from.
-    /// </summary>
+    /// <summary>The note was read.</summary>
+    /// <param name="Text">The note's text, decoded as UTF-8 with any byte-order mark dropped.</param>
     /// <param name="ContentHash">
-    /// SHA-256 of the file's bytes as stored, lowercase hex. It comes from this read rather than
-    /// from a second one, so it describes exactly the bytes <paramref name="Text"/> was decoded
-    /// from - a later read would hash bytes the returned text may no longer describe. It covers the
-    /// whole file whatever a caller then takes out of the text, which is what stops a partial read
-    /// from authorizing a write.
+    /// SHA-256 of the file's bytes as stored, lowercase hex. It is computed from this read, so it
+    /// describes exactly the bytes <paramref name="Text"/> was decoded from; a second read could
+    /// hash different bytes. It covers the whole file whatever the caller then takes out of the
+    /// text, which is what stops a partial read from authorizing a write.
     /// </param>
     public sealed record Content(string Text, string ContentHash) : ReadOutcome;
 
-    /// <summary>Nothing at that path, or nothing at a folder along the way.</summary>
+    /// <summary>Nothing is at that path, or a folder along the way is missing.</summary>
+    /// <param name="Path">The note that was read, vault-relative.</param>
     public sealed record NotFound(string Path) : ReadOutcome;
 
     /// <summary>
-    /// There, and the read failed anyway - a permission, a sharing conflict, a device error.
-    /// <paramref name="Reason"/> is what the platform said, with locations rendered vault-relative.
+    /// The note is there and the read failed anyway - a permission problem, a sharing conflict, a
+    /// device error.
     /// </summary>
+    /// <param name="Path">The note that was read, vault-relative.</param>
+    /// <param name="Reason">
+    /// What the platform reported, with any locations in it rendered vault-relative.
+    /// </param>
     public sealed record Failed(string Path, string Reason) : ReadOutcome;
 }

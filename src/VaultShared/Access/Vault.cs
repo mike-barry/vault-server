@@ -6,29 +6,31 @@ using VaultShared.Scope;
 namespace VaultShared.Access;
 
 /// <summary>
-/// One usable vault: the configuration's spelling of its name, its existing root directory, and
-/// the path policy declared for it. The operand of every whole-vault operation - enumeration, the
-/// census, search, and the mutex lock's identity - and the only thing that can produce a
-/// <see cref="VaultPath"/>.
-///
-/// The root is a vault rather than a path, so nothing denotes it as a path with no segments. Such
-/// a value would be admitted under every scope, which is an exception inside the one property the
-/// layer depends on, and it is why the retained grammar's refusal to normalize the root
-/// (<see cref="ScopePath.Normalize"/>) needs no carve-out.
+/// Represents one usable vault: the configuration's spelling of its name, its existing root
+/// directory, and the path policy declared for it. It is the operand of every whole-vault operation
+/// and the only thing that can produce a <see cref="VaultPath"/>.
 /// </summary>
+/// <remarks>
+/// The root is represented by this type rather than by a path with no segments. Such a path would
+/// be admitted under every scope, and avoiding it is why <see cref="ScopePath.Normalize"/> can
+/// refuse to normalize the root without a carve-out here.
+/// </remarks>
+/// <param name="Name">The vault's name, as configuration spells it.</param>
+/// <param name="Root">The absolute path of the vault's root directory, which exists.</param>
+/// <param name="Policy">The path policy declared for this vault.</param>
 public sealed record Vault(string Name, string Root, PathPolicy Policy)
 {
     /// <summary>
-    /// Resolves <paramref name="name"/> - or <see cref="VaultConfig.DefaultVault"/> when it is
-    /// null or blank - against <paramref name="config"/>. Total: it answers rather than throwing,
-    /// and its three cases come from configuration state rather than from message text, so a vault
-    /// nobody configured (a caller error) and a vault configured but unusable (operational, and
-    /// worth retrying) are told apart structurally.
-    ///
-    /// Resolution lives here rather than on <see cref="VaultConfig"/> because its product is this
-    /// layer's type: configuration holds which vaults exist, and the layer decides what a usable
-    /// one is.
+    /// Resolves a vault name against configuration, returning a usable vault or one of two
+    /// failures. It returns rather than throws, and the two failures are separate cases rather than
+    /// one message, so a name nobody configured (a caller error) is told from a configured vault
+    /// that is not usable right now (operational, and worth retrying).
     /// </summary>
+    /// <param name="config">The loaded vault configuration.</param>
+    /// <param name="name">
+    /// The vault to resolve, or null or blank for <see cref="VaultConfig.DefaultVault"/>.
+    /// </param>
+    /// <returns>The resolution: resolved, unknown, or unavailable.</returns>
     public static VaultResolution Resolve(VaultConfig config, string? name)
     {
         var requested = string.IsNullOrWhiteSpace(name) ? config.DefaultVault : name;
@@ -39,20 +41,25 @@ public sealed record Vault(string Name, string Root, PathPolicy Policy)
         if (config.SkippedVaults.TryGetValue(requested, out var reason))
             return new VaultResolution.Unavailable(Canonical(config.SkippedVaults.Keys, requested), reason);
 
-        // Nothing configured under this name, so the only spelling that exists is the caller's.
+        // Nothing is configured under this name, so the caller's spelling is the only one that exists.
         return new VaultResolution.Unknown(requested);
     }
 
     /// <summary>
-    /// The cross-process mutex name for this vault, derived from the root's location so two
-    /// configurations naming one directory contend. Nothing here acquires it.
-    ///
-    /// The derivation is a contract with <c>VaultWatcher</c>, which takes it as code: any change
-    /// breaks both processes at once. Hashed because a mutex name is capped at 260 characters and
-    /// cannot contain a backslash outside the reserved prefix; lowercased on every platform, or a
-    /// case-only difference in configuration gives two processes different locks over the same
-    /// files; <c>Global\</c>, which is Windows-only, so the mutex spans sessions.
+    /// Gets the name of the cross-process write mutex for this vault. It is derived from the root
+    /// directory's location, so two configurations naming one directory contend for the same mutex.
+    /// Nothing here acquires it.
     /// </summary>
+    /// <remarks>
+    /// Do not change this derivation. The separate <c>VaultWatcher</c> process reimplements it in
+    /// its own code, so any change here silently gives the two processes different locks over the
+    /// same files.
+    ///
+    /// Each step is load-bearing. The location is hashed because a mutex name is capped at 260
+    /// characters and cannot contain a backslash outside the reserved prefix. It is lowercased on
+    /// every platform, or a case-only difference between two configurations produces two names. The
+    /// <c>Global\</c> prefix, which only Windows understands, makes the mutex span sessions.
+    /// </remarks>
     public string LockName
     {
         get
@@ -66,10 +73,13 @@ public sealed record Vault(string Name, string Root, PathPolicy Policy)
     }
 
     /// <summary>
-    /// The configured spelling of a name matched case-insensitively. Results are quoted back into
-    /// later calls, so echoing the caller's spelling as though it were canonical would make the
-    /// round trip lossy in a way nothing detects.
+    /// Returns the configured spelling of a name the caller matched case-insensitively. Results are
+    /// quoted back into later calls, so echoing the caller's spelling as though it were canonical
+    /// would make that round trip lossy.
     /// </summary>
+    /// <param name="configured">The names configuration holds.</param>
+    /// <param name="requested">The name the caller spelled, which matches one of them.</param>
+    /// <returns>The configured spelling.</returns>
     private static string Canonical(IEnumerable<string> configured, string requested) =>
         configured.First(k => k.Equals(requested, StringComparison.OrdinalIgnoreCase));
 }

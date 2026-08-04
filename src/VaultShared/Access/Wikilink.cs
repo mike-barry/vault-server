@@ -1,30 +1,34 @@
 namespace VaultShared.Access;
 
 /// <summary>
-/// Wikilink recognition: the one definition of what a link is, over a note's whole text. Four
-/// consumers read link text - repair on move, bystander pinning on create, the census on delete, and
-/// link linting - and a link one of them sees and another misses is a rewrite that silently misses a
-/// link or a census that silently under-reports, which is why this is one piece rather than four.
-///
-/// It takes text and answers occurrences. No path goes in and none comes back: the consumer's
-/// enumeration already holds the path, and is what carries it to ranking.
+/// Recognizes wikilinks in a note's text. This is the one definition of what a link is. Four
+/// consumers read link text - repair on move, bystander pinning on create, the census on delete,
+/// and link linting - and they must all see the same links, or a rewrite silently misses one and a
+/// census silently under-reports.
 /// </summary>
+/// <remarks>
+/// It takes text and returns occurrences. No path goes in and none comes back: the consumer's own
+/// enumeration holds the path and is what carries it to ranking.
+/// </remarks>
 public static class Wikilink
 {
     /// <summary>
-    /// Every occurrence in <paramref name="text"/>, in the order they appear, over the whole text
-    /// including the frontmatter block - the vault's navigation graph lives in frontmatter values,
-    /// so a grammar stopping at the body would under-report to every consumer.
-    ///
-    /// The grammar is deliberately small and knows no markdown structure. It cannot: it runs over
-    /// frontmatter as well as body, and tracking fences would mean parsing the note, which is the
-    /// one thing every consumer here is built to avoid. A wikilink inside a code fence is therefore
-    /// an occurrence like any other - which over-reports to the census and rewrites a name inside a
-    /// code sample, both of which are the loud direction of being wrong.
-    ///
-    /// One link never crosses a line boundary, so a substitution cannot create or move a frontmatter
-    /// fence, and a link's inner text holds no bracket.
+    /// Returns every wikilink occurrence in the text, in the order they appear. The whole text is
+    /// scanned, including the frontmatter block, because the vault's navigation graph lives in
+    /// frontmatter values and a scan stopping at the body would under-report to every consumer.
     /// </summary>
+    /// <remarks>
+    /// The grammar is small and knows nothing of markdown structure. Tracking code fences would
+    /// mean parsing the note, which every consumer here is built to avoid, and the scan runs over
+    /// frontmatter as well as the body in any case. A wikilink inside a code fence is therefore an
+    /// occurrence like any other: the census over-reports it, and a rename rewrites a name inside a
+    /// code sample. Both are visible when they happen, unlike the opposite error.
+    ///
+    /// One link never crosses a line boundary, so a substitution can neither create nor move a
+    /// frontmatter fence, and a link's inner text contains no bracket.
+    /// </remarks>
+    /// <param name="text">The note's whole text.</param>
+    /// <returns>The occurrences, in the order they appear.</returns>
     public static IReadOnlyList<WikilinkOccurrence> Recognize(string text)
     {
         var found = new List<WikilinkOccurrence>();
@@ -39,9 +43,9 @@ public static class Wikilink
             var end = Close(text, open + 2);
             if (end < 0)
             {
-                // Not a link opening here. Advancing by one rather than two, because the second
-                // bracket may be the first of a link that does close: `[[[Name]]` is a stray
-                // bracket followed by a link.
+                // No link opens here. Advance by one rather than two: the second bracket may be
+                // the first of a link that does close, as in `[[[Name]]`, which is a stray bracket
+                // followed by a link.
                 at = open + 1;
                 continue;
             }
@@ -56,10 +60,13 @@ public static class Wikilink
     }
 
     /// <summary>
-    /// Where the link opened at <paramref name="from"/> closes, or -1 when it does not close on this
-    /// line. A second <c>[[</c> before the close means the outer one was never an opening, and the
-    /// scan restarts from it; any other bracket is not inner text a link may hold.
+    /// Returns where a link closes, or -1 when it does not close on this line. A second <c>[[</c>
+    /// before the close means the outer one was never an opening, so the scan restarts from it. Any
+    /// other bracket is not text a link may contain.
     /// </summary>
+    /// <param name="text">The note's whole text.</param>
+    /// <param name="from">The index just past the opening <c>[[</c>.</param>
+    /// <returns>The index of the closing <c>]]</c>, or -1.</returns>
     private static int Close(string text, int from)
     {
         for (var i = from; i < text.Length - 1; i++)
@@ -75,15 +82,20 @@ public static class Wikilink
     }
 
     /// <summary>
-    /// The two extents for a link whose delimiters are known, or null when it names nothing - an
-    /// empty target, as in a link to a heading within the same note, is not a reference to a file
-    /// and has no target range a rewrite could be written over.
-    ///
-    /// The whole-link extent covers the embedding form's leading <c>!</c>. The target extent stops
-    /// at the first decoration, an alias after <c>|</c> or a subpath after <c>#</c>, and excludes
-    /// padding around the name, so what it covers is exactly the name the link denotes and every
-    /// byte outside it survives a substitution verbatim.
+    /// Returns the two extents for a link whose delimiters are known, or null when the link names
+    /// nothing. A link with an empty target, such as one to a heading within the same note, is not
+    /// a reference to a file and has no target range for a rewrite to write over.
     /// </summary>
+    /// <remarks>
+    /// The whole-link extent covers the embedding form's leading <c>!</c>. The target extent stops
+    /// at the first decoration - an alias after <c>|</c> or a subpath after <c>#</c> - and excludes
+    /// padding around the name, so it covers exactly the name the link denotes and everything
+    /// outside it survives a substitution unchanged.
+    /// </remarks>
+    /// <param name="text">The note's whole text.</param>
+    /// <param name="open">The index of the opening <c>[[</c>.</param>
+    /// <param name="end">The index of the closing <c>]]</c>.</param>
+    /// <returns>The occurrence, or null when the link names nothing.</returns>
     private static WikilinkOccurrence? Occurrence(string text, int open, int end)
     {
         var start = open > 0 && text[open - 1] == '!' ? open - 1 : open;
@@ -111,19 +123,22 @@ public static class Wikilink
 }
 
 /// <summary>
-/// One link occurrence, as two extents into the text it was recognized in: the whole link, and the
-/// target inside it. In <c>![[Notes/Old-Name|Alias]]</c> one covers the whole link and the other
-/// covers <c>Notes/Old-Name</c>.
-///
+/// Represents one link occurrence as two extents into the text it was recognized in: the whole
+/// link, and the target inside it. In <c>![[Notes/Old-Name|Alias]]</c> the first covers the whole
+/// link and the second covers <c>Notes/Old-Name</c>.
+/// </summary>
+/// <remarks>
 /// A consumer replaces a target by writing over its extent, so it never parses the note, re-emits
 /// it, or splits it into frontmatter and body.
-/// </summary>
+/// </remarks>
 /// <param name="Start">Where the whole link begins, including an embedding form's <c>!</c>.</param>
 /// <param name="Length">How far the whole link runs, through its closing <c>]]</c>.</param>
 /// <param name="TargetStart">Where the target begins.</param>
 /// <param name="TargetLength">How far the target runs. Never zero.</param>
 public sealed record WikilinkOccurrence(int Start, int Length, int TargetStart, int TargetLength)
 {
-    /// <summary>The target this occurrence names, sliced from the text it was recognized in.</summary>
+    /// <summary>Returns the target this occurrence names, sliced from the text it was recognized in.</summary>
+    /// <param name="text">The text this occurrence was recognized in.</param>
+    /// <returns>The target text.</returns>
     public string TargetIn(string text) => text.Substring(TargetStart, TargetLength);
 }

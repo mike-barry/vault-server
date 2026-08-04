@@ -4,19 +4,20 @@ using VaultShared.Scope;
 namespace VaultShared.Access;
 
 /// <summary>
-/// Proof of containment and nothing else: a well-formed, vault-relative path inside
-/// <see cref="Vault"/>, held as segments and rendered with one separator convention on every
-/// platform. It carries its vault so an operation taking two paths can require them to agree.
-///
-/// Containment is decided textually and touches no filesystem, which is what makes the check cheap,
-/// applicable to every path, and identical for a path that does not exist yet. Nothing here asserts
-/// existence, a conforming name, or whether the path names a file or a folder - each of those is
-/// checked by the operation that needs it, where it needs it.
-///
-/// Containment is not admission. A <see cref="VaultPath"/> says a path is inside its vault; only
-/// <see cref="VaultAccess"/> turns one into a <see cref="ReadPath"/> or a <see cref="WritePath"/>,
-/// and only those reach an operation.
+/// Represents a well-formed, vault-relative path inside a <see cref="Vault"/>, held as segments and
+/// rendered with one separator convention on every platform. It carries its vault so an operation
+/// taking two paths can require them to agree.
 /// </summary>
+/// <remarks>
+/// Containment is decided textually and touches no filesystem. That keeps the check cheap,
+/// applicable to every path, and identical for a path that does not exist yet. This type asserts
+/// nothing about existence, about the name grammar, or about whether the path names a file or a
+/// folder; each operation checks what it needs where it needs it.
+///
+/// Containment is not admission. This type says a path is inside its vault, and only
+/// <see cref="VaultAccess"/> turns one into a <see cref="ReadPath"/> or a <see cref="WritePath"/>,
+/// which are what operations take.
+/// </remarks>
 public sealed record VaultPath
 {
     private VaultPath(Vault vault, string[] segments)
@@ -26,46 +27,57 @@ public sealed record VaultPath
         Value = string.Join('/', segments);
     }
 
-    /// <summary>The vault this path is contained by.</summary>
+    /// <summary>Gets the vault this path is contained by.</summary>
     public Vault Vault { get; }
 
-    /// <summary>The normalized, case-preserved segments. Never empty: the vault root is not a path.</summary>
+    /// <summary>
+    /// Gets the normalized, case-preserved segments. Never empty, because the vault root is
+    /// represented by <see cref="Access.Vault"/> rather than by a path with no segments.
+    /// </summary>
     public IReadOnlyList<string> Segments { get; }
 
-    /// <summary>The vault-relative rendering, forward-slash separated, quotable back into a later call.</summary>
+    /// <summary>
+    /// Gets the vault-relative rendering, forward-slash separated and quotable back into a later
+    /// call.
+    /// </summary>
     public string Value { get; }
 
     /// <summary>
-    /// Where this path is on disk, composed from the vault root and the segments. Internal, because
-    /// an absolute path never leaves the layer: it exists only between a primitive and the
-    /// filesystem call it makes.
+    /// Gets where this path is on disk, composed from the vault root and the segments. Internal,
+    /// because an absolute path must not leave this layer; it exists only between a primitive and
+    /// the filesystem call it makes.
     /// </summary>
     internal string Absolute => System.IO.Path.Combine([Vault.Root, .. Segments]);
 
     /// <summary>
-    /// The vault-relative rendering of the containing folder, or null when this path sits directly
-    /// under the root. The root is a vault rather than a path, so it has no rendering here, and an
-    /// operation that finds it missing reports that as operational rather than as a missing parent.
+    /// Gets the vault-relative rendering of the containing folder, or null when this path sits
+    /// directly under the root. The root has no rendering here, so an operation that finds it
+    /// missing reports that as an operational failure rather than as a missing parent.
     /// </summary>
     internal string? ParentValue =>
         Segments.Count > 1 ? string.Join('/', Segments.Take(Segments.Count - 1)) : null;
 
     /// <summary>
-    /// True when any segment is dot-prefixed, at any depth. The operand perimeter and enumeration's
-    /// default both turn on this, and they use it differently: no caller may name such a path, while
-    /// a census asked for dot entries reports them. That is why the answer is a query here rather
-    /// than a refusal at construction.
+    /// Gets whether any segment is dot-prefixed, at any depth.
     /// </summary>
+    /// <remarks>
+    /// This is a query rather than a refusal at construction because two callers use it
+    /// differently: no caller may name such a path, while a whole-vault census asked for dot
+    /// entries reports them.
+    /// </remarks>
     public bool HasDotSegment => Segments.Any(s => s.StartsWith('.'));
 
     /// <summary>
-    /// Builds a path inside <paramref name="vault"/> from <paramref name="relativePath"/>, or
-    /// answers false with the rule the text broke. Rooted, escaping, empty, and root-denoting text
-    /// are all malformed; <c>.</c> and <c>..</c> segments resolve, and both separator conventions
-    /// are accepted on input.
-    ///
-    /// A dot-prefixed segment is not malformed - see <see cref="HasDotSegment"/>.
+    /// Builds a path inside a vault from vault-relative text, or reports which rule the text broke.
+    /// Rooted, escaping, empty, and root-denoting text are all malformed. <c>.</c> and <c>..</c>
+    /// segments are resolved, and both separator conventions are accepted on input.
     /// </summary>
+    /// <remarks>A dot-prefixed segment is not malformed. See <see cref="HasDotSegment"/>.</remarks>
+    /// <param name="vault">The vault the path must be inside.</param>
+    /// <param name="relativePath">The vault-relative text to build from.</param>
+    /// <param name="path">The built path, or null when the text is malformed.</param>
+    /// <param name="malformedReason">Which rule the text broke, or null when it is well-formed.</param>
+    /// <returns>True when the path was built.</returns>
     public static bool TryCreate(Vault vault, string relativePath, [NotNullWhen(true)] out VaultPath? path, [NotNullWhen(false)] out string? malformedReason)
     {
         try
@@ -77,8 +89,8 @@ public sealed record VaultPath
         catch (ArgumentException ex)
         {
             // ScopePath.Normalize is the one grammar every vault-relative path is read by, so its
-            // message is the statement of which rule the text broke. The parameter suffix
-            // ArgumentException appends is not part of that statement.
+            // message states which rule the text broke. The parameter suffix ArgumentException
+            // appends is not part of that statement and is trimmed off.
             var suffix = ex.Message.LastIndexOf(" (Parameter", StringComparison.Ordinal);
             path = null;
             malformedReason = suffix < 0 ? ex.Message : ex.Message[..suffix];
@@ -87,23 +99,31 @@ public sealed record VaultPath
     }
 
     /// <summary>
-    /// Case-insensitive, matching scope semantics: two spellings name one file. Move asks the other
-    /// question through <see cref="HasSameSpellingAs"/>.
+    /// Determines whether two paths name the same entry in the same vault. The comparison is
+    /// case-insensitive, matching scope semantics, so two spellings name one file. Move asks the
+    /// other question through <see cref="HasSameSpellingAs"/>.
     /// </summary>
+    /// <param name="other">The path to compare with.</param>
+    /// <returns>True when both paths are in the same vault and name the same entry.</returns>
     public bool Equals(VaultPath? other) =>
         other is not null && Vault == other.Vault && string.Equals(Value, other.Value, StringComparison.OrdinalIgnoreCase);
 
+    /// <summary>Returns a hash code consistent with the case-insensitive equality above.</summary>
+    /// <returns>A hash code combining the vault and the case-insensitive path.</returns>
     public override int GetHashCode() =>
         HashCode.Combine(Vault, StringComparer.OrdinalIgnoreCase.GetHashCode(Value));
 
     /// <summary>
-    /// Ordinal comparison, for the one caller that needs it: a case-only rename names a destination
-    /// that already exists, and only a case-sensitive comparison against the resolved source tells
-    /// that from a collision. Explicit rather than the default, so the carve-out is visible at its
-    /// call site.
+    /// Determines whether two paths are spelled identically, comparing ordinally. Move needs this:
+    /// a case-only rename names a destination that already exists, and only a case-sensitive
+    /// comparison against the resolved source tells that from a collision. It is a named method
+    /// rather than the default equality so the exception is visible at its call site.
     /// </summary>
+    /// <param name="other">The path to compare with.</param>
+    /// <returns>True when both paths are in the same vault and spelled identically.</returns>
     public bool HasSameSpellingAs(VaultPath other) =>
         Vault == other.Vault && string.Equals(Value, other.Value, StringComparison.Ordinal);
 
+    /// <summary>Returns the vault-relative path.</summary>
     public override string ToString() => Value;
 }

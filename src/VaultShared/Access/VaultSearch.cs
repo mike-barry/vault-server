@@ -3,39 +3,47 @@ using System.Text.Json;
 namespace VaultShared.Access;
 
 /// <summary>
-/// How the engine is driven: the arguments each surface is asked for, the classification of what
-/// came back, and the parse of the shapes the engine emits. The scope, dot-rule and markdown
-/// predicates are the caller's - <see cref="VaultAccess"/> composes them and hands one in - because
-/// they are properties of the caller's authority rather than of the engine.
-///
-/// Every surface here invokes the engine once and reads both its streams whole before answering.
+/// Drives the search engine: the arguments each surface asks for, the classification of what came
+/// back, and the parse of the shapes the engine emits. Scope, the dot rule and the markdown
+/// restriction arrive as a predicate <see cref="VaultAccess"/> composes and hands in, because they
+/// are properties of the caller's authority rather than of the engine.
 /// </summary>
+/// <remarks>
+/// Every surface here runs the engine once and reads both of its streams whole before returning.
+/// </remarks>
 internal static class VaultSearch
 {
     /// <summary>
-    /// What every invocation carries. <c>--no-config</c> because the engine otherwise takes options
-    /// from a file named by an environment variable, which is exactly the ambient state nothing
-    /// here reads. <c>--hidden</c> because the engine's hidden-file skipping is not the dot rule -
-    /// hidden on Windows is a file attribute, which a dot-prefixed directory does not carry, so
-    /// leaving it on would drop dot entries the census must see while still admitting hidden ones.
-    /// <c>--no-ignore</c> because a gitignored file is still on disk and still destroyed, so no
-    /// ignore-file behaviour is inherited.
+    /// The arguments every invocation carries. Each is required. <c>--no-config</c>, or the engine
+    /// takes options from a file named by an environment variable, which is ambient state nothing
+    /// here may read. <c>--hidden</c>, because the engine's hidden-file skipping is not the dot
+    /// rule: hidden on Windows is a file attribute, which a dot-prefixed directory does not carry,
+    /// so leaving it off would drop dot entries the file census must see while still admitting
+    /// hidden ones. <c>--no-ignore</c>, because a gitignored file is still on disk and can still be
+    /// destroyed, so no ignore-file behaviour is inherited.
     /// </summary>
     private static readonly string[] Always = ["--no-config", "--hidden", "--no-ignore"];
 
     /// <summary>
-    /// The operand every invocation ends with, naming the working directory the engine was started
-    /// in - the vault root, which is what makes every emitted path vault-relative. Stated rather
-    /// than left implicit: with nothing to search named, the engine searches standard input whenever
-    /// standard input is redirected, and a process started as a child always has it redirected. The
-    /// answer would then be a search of nothing, reported as a successful empty result.
+    /// The operand every invocation ends with, naming the directory the engine was started in. That
+    /// is the vault root, which is what makes every emitted path vault-relative.
+    ///
+    /// It must be stated explicitly. With nothing to search named, the engine searches standard
+    /// input whenever standard input is redirected, and a process started as a child always has it
+    /// redirected. The result would be a search of nothing, reported as a successful empty result.
     /// </summary>
     private static readonly string[] Here = ["--", "."];
 
     /// <summary>
-    /// Every file the engine walks, filtered by <paramref name="admit"/>. Both enumeration surfaces
-    /// come through here; what separates them is the predicate.
+    /// Returns every file the engine walks, filtered by the caller's predicate. Both enumeration
+    /// surfaces come through here, and the predicate is what separates them.
     /// </summary>
+    /// <param name="vault">The vault to search.</param>
+    /// <param name="engine">The engine to run.</param>
+    /// <param name="pattern">An optional glob narrowing which files are walked.</param>
+    /// <param name="pruneDotEntries">Whether to exclude dot-prefixed entries from the walk.</param>
+    /// <param name="admit">Decides which emitted paths the caller may see.</param>
+    /// <returns>The admitted paths, or a search failure.</returns>
     internal static SearchOutcome<VaultPath> Enumerate(
         Vault vault, SearchEngine engine, string? pattern, bool pruneDotEntries, Func<VaultPath, bool> admit)
     {
@@ -43,23 +51,32 @@ internal static class VaultSearch
         return Read(run, vault, output => Paths(vault, Split(output, trailing: false), admit));
     }
 
-    /// <summary>Matching lines with their locations: the richest granularity.</summary>
+    /// <summary>Returns each matching line with its location: the richest granularity.</summary>
+    /// <param name="vault">The vault to search.</param>
+    /// <param name="engine">The engine to run.</param>
+    /// <param name="regex">The engine's regex syntax.</param>
+    /// <param name="pattern">An optional glob narrowing which files are searched.</param>
+    /// <param name="pruneDotEntries">Whether to exclude dot-prefixed entries from the walk.</param>
+    /// <param name="admit">Decides which emitted paths the caller may see.</param>
+    /// <returns>The matching lines, or a search failure.</returns>
     internal static SearchOutcome<MatchLine> Lines(
         Vault vault, SearchEngine engine, string regex, string? pattern, bool pruneDotEntries, Func<VaultPath, bool> admit)
     {
-        // --json is the one output shape that carries the path, the line number and the line's text
-        // as separate fields, so none of them has to be recovered from a rendering that a path
-        // holding a colon would make ambiguous. Its summary event doubles as the completion marker
-        // Read below turns on.
+        // --json is the only output shape carrying the path, the line number and the line's text as
+        // separate fields, so none of them has to be recovered from a rendering that a path
+        // containing a colon would make ambiguous. Its summary event is also the completion marker
+        // Read below relies on.
         var run = engine.Run(vault.Root, [.. Always, .. Glob(pattern, pruneDotEntries), "--json", "--regexp", regex, .. Here]);
         return Read(run, vault, output => Matches(vault, output, admit));
     }
 
     /// <summary>
-    /// The set of files containing a match. Its own invocation rather than the line granularity with
-    /// the lines dropped: a caller wanting a file list must not pay to materialize every match, and
-    /// on a whole-vault search that difference is the whole cost of the operation.
+    /// Returns the files containing a match. It is its own invocation rather than the line
+    /// granularity with the lines dropped, so a caller wanting a file list does not pay to
+    /// materialize every match.
     /// </summary>
+    /// <inheritdoc cref="Lines" path="/param"/>
+    /// <returns>The matching files, or a search failure.</returns>
     internal static SearchOutcome<VaultPath> Containing(
         Vault vault, SearchEngine engine, string regex, string? pattern, bool pruneDotEntries, Func<VaultPath, bool> admit)
     {
@@ -68,7 +85,12 @@ internal static class VaultSearch
         return Read(run, vault, output => Paths(vault, Split(output, trailing: true), admit));
     }
 
-    /// <summary>How many lines matched per file, again as its own invocation for the same reason.</summary>
+    /// <summary>
+    /// Returns how many lines matched in each file, again as its own invocation for the same reason
+    /// as <see cref="Containing"/>.
+    /// </summary>
+    /// <inheritdoc cref="Lines" path="/param"/>
+    /// <returns>The per-file counts, or a search failure.</returns>
     internal static SearchOutcome<MatchCount> Counts(
         Vault vault, SearchEngine engine, string regex, string? pattern, bool pruneDotEntries, Func<VaultPath, bool> admit)
     {
@@ -78,19 +100,24 @@ internal static class VaultSearch
     }
 
     /// <summary>
-    /// The caller's pattern reaches the engine as <c>--iglob</c>, which is what supplies both
-    /// <c>**</c> and case-insensitivity, and whose anchoring is the required one: a pattern with no
-    /// separator matches a path's final segment at any depth, one with a separator is anchored at
-    /// the vault root.
-    ///
-    /// With dot entries off, the dot rule also prunes the walk: a negative glob intersects where a
+    /// Builds the glob arguments. The caller's pattern reaches the engine as <c>--iglob</c>, which
+    /// supplies both <c>**</c> and case-insensitivity, and whose anchoring is the one required: a
+    /// pattern with no separator matches a path's final segment at any depth, and one with a
+    /// separator is anchored at the vault root.
+    /// </summary>
+    /// <remarks>
+    /// With dot entries off, the dot rule also prunes the walk. A negative glob intersects where a
     /// positive one unions, and a directory it excludes is never entered, so a default search does
     /// not read the object store under <c>.git</c> and cannot fail on a file in there that a
-    /// concurrent git operation holds locked. It is stated after the caller's own glob because the
-    /// engine gives the last matching glob precedence, and no caller pattern may reach past the dot
-    /// rule while the switch is off. The caller's predicate keeps the rule as well, so nothing
-    /// depends on the engine's glob semantics alone.
-    /// </summary>
+    /// concurrent git operation holds locked.
+    ///
+    /// Keep the dot glob after the caller's own. The engine gives the last matching glob
+    /// precedence, and no caller pattern may reach past the dot rule while it is on. The caller's
+    /// predicate applies the rule as well, so nothing depends on the engine's glob semantics alone.
+    /// </remarks>
+    /// <param name="pattern">The caller's glob, or null or empty for none.</param>
+    /// <param name="pruneDotEntries">Whether to exclude dot-prefixed entries from the walk.</param>
+    /// <returns>The glob arguments, in order.</returns>
     private static string[] Glob(string? pattern, bool pruneDotEntries)
     {
         string[] caller = string.IsNullOrEmpty(pattern) ? [] : ["--iglob", pattern];
@@ -98,20 +125,29 @@ internal static class VaultSearch
     }
 
     /// <summary>
-    /// The four outcomes, decided from the run rather than from message text wherever it can be.
-    ///
-    /// The engine refuses a malformed glob or regex before it walks anything, so such a run produces
-    /// no output at all; every other exit tells us it ran - it either completed (0 or 1) or it
-    /// completed and also reported something (2, with the output it had already produced). That is
-    /// the whole discriminator between a caller's bad pattern and a failure during the search, and
-    /// it is why the search granularities ask for a completion marker they do not otherwise need:
-    /// the JSON summary event and the <c>--stats</c> block are printed even when the run also
-    /// failed, so "produced no output" cannot be confused with "matched nothing".
-    ///
-    /// Anything on the error stream fails the call whole. A search that cannot read a file must not
-    /// answer with the files it could read: that turns a permissions problem into a wrong answer the
-    /// caller cannot tell from a correct one.
+    /// Classifies a completed run into one of the four outcomes, from the exit code and the streams
+    /// rather than from message text wherever possible.
     /// </summary>
+    /// <remarks>
+    /// The engine refuses a malformed glob or regex before it walks anything, so such a run
+    /// produces no output at all. Every other exit tells us it ran: it either completed (0 or 1) or
+    /// completed and also reported a problem (2, with the output it had already produced). That is
+    /// the only discriminator between a caller's bad pattern and a failure during the search.
+    ///
+    /// It is why the search granularities ask the engine for a completion marker they do not
+    /// otherwise need. The JSON summary event and the <c>--stats</c> block are printed even when
+    /// the run also failed, so "produced no output" cannot be confused with "matched nothing". Do
+    /// not drop those flags.
+    ///
+    /// Anything on the error stream fails the whole call. A search that cannot read a file must not
+    /// answer with the files it could read, because that turns a permissions problem into a wrong
+    /// answer the caller cannot tell from a correct one.
+    /// </remarks>
+    /// <typeparam name="TResult">What one result is.</typeparam>
+    /// <param name="run">The completed run.</param>
+    /// <param name="vault">The vault that was searched.</param>
+    /// <param name="parse">Parses the engine's output into results.</param>
+    /// <returns>The parsed results, or a classified failure.</returns>
     private static SearchOutcome<TResult> Read<TResult>(
         EngineRun run, Vault vault, Func<string, SearchOutcome<TResult>> parse)
     {
@@ -137,11 +173,15 @@ internal static class VaultSearch
     }
 
     /// <summary>
-    /// The entry a diagnostic is about, when it is about one. The engine attributes a failure it
-    /// hit during the walk to the entry it hit it on - <c>rg: &lt;path&gt;: &lt;reason&gt;</c> - and
-    /// says nothing that reads as a path when the failure is its own. Paths here are already
-    /// vault-relative, the engine having been rooted at the vault directory.
+    /// Returns the entry a diagnostic is about, when it is about one. The engine attributes a
+    /// failure it hit during the walk to the entry it hit it on, as
+    /// <c>rg: &lt;path&gt;: &lt;reason&gt;</c>, and writes nothing that parses as a path when the
+    /// failure is its own. The paths are already vault-relative, since the engine was started in
+    /// the vault directory.
     /// </summary>
+    /// <param name="vault">The vault that was searched.</param>
+    /// <param name="diagnostics">Everything the run wrote to standard error.</param>
+    /// <returns>The entry, vault-relative, or null when the diagnostic names none.</returns>
     private static string? Entry(Vault vault, string diagnostics)
     {
         foreach (var line in diagnostics.Split('\n'))
@@ -160,10 +200,15 @@ internal static class VaultSearch
     }
 
     /// <summary>
-    /// NUL-separated paths, so a path holding a colon, a space or a newline still parses. With
-    /// <paramref name="trailing"/> the engine appends its statistics after the last separator, and
-    /// that remainder is not a path.
+    /// Splits NUL-separated output into paths, so a path containing a colon, a space or a newline
+    /// still parses.
     /// </summary>
+    /// <param name="output">Everything the run wrote to standard output.</param>
+    /// <param name="trailing">
+    /// True when the engine appended its statistics block after the last separator, so the final
+    /// chunk is not a path.
+    /// </param>
+    /// <returns>The non-empty paths, as the engine emitted them.</returns>
     private static IEnumerable<string> Split(string output, bool trailing)
     {
         var parts = output.Split('\0');
@@ -173,6 +218,11 @@ internal static class VaultSearch
                 yield return parts[i];
     }
 
+    /// <summary>Turns the paths the engine emitted into vault paths, keeping those the caller may see.</summary>
+    /// <param name="vault">The vault that was searched.</param>
+    /// <param name="emitted">The paths the engine emitted.</param>
+    /// <param name="admit">Decides which paths the caller may see.</param>
+    /// <returns>The admitted paths, or a failure when the engine emitted something that is not a path.</returns>
     private static SearchOutcome<VaultPath> Paths(Vault vault, IEnumerable<string> emitted, Func<VaultPath, bool> admit)
     {
         var results = new List<VaultPath>();
@@ -189,10 +239,15 @@ internal static class VaultSearch
     }
 
     /// <summary>
-    /// <c>path\0count</c> per file, one per line, with the statistics block after the last of them.
-    /// Reading it as a stream of NUL-separated fields keeps every path intact: the count and the
-    /// next path share a chunk, split at the newline between them.
+    /// Parses the count output, which is <c>path\0count</c> per file, one per line, with the
+    /// statistics block after the last of them. Reading it as a stream of NUL-separated fields
+    /// keeps every path intact: a count and the next path share a chunk and are split at the
+    /// newline between them.
     /// </summary>
+    /// <param name="vault">The vault that was searched.</param>
+    /// <param name="output">Everything the run wrote to standard output.</param>
+    /// <param name="admit">Decides which paths the caller may see.</param>
+    /// <returns>The admitted counts, or a failure when the output does not parse.</returns>
     private static SearchOutcome<MatchCount> Counted(Vault vault, string output, Func<VaultPath, bool> admit)
     {
         var parts = output.Split('\0');
@@ -220,6 +275,11 @@ internal static class VaultSearch
         return new SearchOutcome<MatchCount>.Results(results);
     }
 
+    /// <summary>Parses the JSON output, keeping the match events for paths the caller may see.</summary>
+    /// <param name="vault">The vault that was searched.</param>
+    /// <param name="output">Everything the run wrote to standard output.</param>
+    /// <param name="admit">Decides which paths the caller may see.</param>
+    /// <returns>The admitted matching lines, or a failure when the output does not parse.</returns>
     private static SearchOutcome<MatchLine> Matches(Vault vault, string output, Func<VaultPath, bool> admit)
     {
         var results = new List<MatchLine>();
@@ -253,10 +313,12 @@ internal static class VaultSearch
     }
 
     /// <summary>
-    /// The engine states text it could not decode as UTF-8 in base64 instead. Both forms are read
-    /// here, so a note whose bytes are not valid UTF-8 still reports its matches rather than
-    /// failing the search over content nothing was going to write back.
+    /// Reads a JSON node's text. The engine emits text it could not decode as UTF-8 as base64
+    /// instead, and both forms are read here, so a note whose bytes are not valid UTF-8 still
+    /// reports its matches rather than failing the whole search.
     /// </summary>
+    /// <param name="node">A JSON node carrying either a <c>text</c> or a <c>bytes</c> property.</param>
+    /// <returns>The node's text.</returns>
     private static string Text(JsonElement node) =>
         node.TryGetProperty("text", out var text)
             ? text.GetString() ?? string.Empty

@@ -3,47 +3,59 @@ using System.Text.RegularExpressions;
 namespace VaultShared.Access;
 
 /// <summary>
-/// The one grammar every name this layer brings into existence must satisfy: a creation target, a
-/// folder, or a move destination. It is checked on that single segment and nowhere else - every
-/// other segment of a path already exists, and names already on disk are never checked, so a file
-/// predating the grammar stays readable, searchable, and movable from.
-///
-/// The grammar exists for containment, not style. A name is substituted into note text and into
-/// quoted frontmatter values without parsing either, so a name holding a quote, a bracket, or a
-/// line break could end the construct around it and corrupt the note. A conforming name cannot,
-/// which is what lets the substitution skip escaping.
+/// Defines the grammar every name this layer creates must satisfy: a note being created, a folder,
+/// or a move destination. Only that one new segment is checked. Names already on disk are never
+/// checked, so a file predating the grammar stays readable, searchable, and movable.
 /// </summary>
+/// <remarks>
+/// The grammar exists to keep substitution safe, not to enforce a house style. A name is
+/// substituted into note text and into quoted frontmatter values without either being parsed, so a
+/// name containing a quote, a bracket, or a line break could terminate the construct around it and
+/// corrupt the note. A conforming name cannot, which is what lets the substitution skip escaping.
+/// </remarks>
 public static partial class VaultName
 {
-    /// <summary>The extension a note carries. Lower-case and ordinal: this is a name being created.</summary>
+    /// <summary>The extension a note carries. Lower-case, because this is a name being created.</summary>
     public const string NoteExtension = ".md";
 
     /// <summary>
-    /// A folder's name: the grammar alone - one or more groups joined by single dashes, each group
-    /// one or more ASCII letters, digits, <c>+</c> or <c>&amp;</c>, with an upper-case letter or a
-    /// digit first. Nothing else: no spaces, no underscores, no other punctuation, no non-ASCII, no
-    /// leading or trailing dash.
+    /// Returns whether a name is a valid folder name: one or more groups joined by single dashes,
+    /// each group one or more ASCII letters, digits, <c>+</c> or <c>&amp;</c>, starting with an
+    /// upper-case letter or a digit. No spaces, underscores, other punctuation, non-ASCII
+    /// characters, or leading or trailing dashes.
     /// </summary>
+    /// <param name="name">The single path segment to check.</param>
+    /// <returns>True when the name satisfies the grammar.</returns>
     public static bool IsFolderName(string name) => Grammar().IsMatch(name);
 
-    /// <summary>A note's name: the grammar as the stem, then <see cref="NoteExtension"/>.</summary>
+    /// <summary>
+    /// Returns whether a name is a valid note name: the folder grammar as the stem, followed by
+    /// <see cref="NoteExtension"/>.
+    /// </summary>
+    /// <param name="name">The single path segment to check.</param>
+    /// <returns>True when the name satisfies the grammar and carries the note extension.</returns>
     public static bool IsNoteName(string name) =>
         name.EndsWith(NoteExtension, StringComparison.Ordinal)
         && Grammar().IsMatch(name[..^NoteExtension.Length]);
 
     /// <summary>
-    /// A conforming spelling derived from what the caller sent, or null where none can be. A
-    /// refusal names it so the miss costs one retry rather than a reading of the grammar; choosing
-    /// among conforming names stays the caller's, which is why this offers exactly one and offers
-    /// nothing where the text carries no conforming characters at all.
-    ///
+    /// Derives one conforming spelling from a name the grammar refuses, so a refusal can name it
+    /// and the caller can retry without reading the grammar. Exactly one suggestion is offered;
+    /// choosing among conforming names stays the caller's decision.
+    /// </summary>
+    /// <remarks>
     /// The derivation is mechanical: every run of characters the grammar does not admit becomes a
     /// single dash, dashes at either end are dropped, and a leading lower-case letter is raised.
-    /// Nothing is transliterated - a name that is entirely non-ASCII has no derivation, and
-    /// inventing one would be this build choosing what a note is called.
-    /// </summary>
-    /// <param name="name">The final segment as the caller spelled it, with the note extension where
-    /// it is a note's.</param>
+    /// Nothing is transliterated, so a name that is entirely non-ASCII has no suggestion rather
+    /// than one this code invented.
+    /// </remarks>
+    /// <param name="name">
+    /// The final path segment as the caller spelled it, carrying the note extension where it names
+    /// a note.
+    /// </param>
+    /// <returns>
+    /// A conforming name, or null when none can be derived or when the name already conforms.
+    /// </returns>
     public static string? Suggest(string name)
     {
         var isNote = name.EndsWith(NoteExtension, StringComparison.OrdinalIgnoreCase);

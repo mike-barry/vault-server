@@ -6,32 +6,40 @@ using CliWrap.Buffered;
 namespace VaultShared.Access;
 
 /// <summary>
-/// Where the search engine is. Ripgrep backs both enumeration surfaces and content search, and this
-/// type is how its location reaches the layer: handed to <see cref="VaultAccess"/> by the caller
-/// that constructed it. The layer never
-/// reads the location from an environment variable, a configuration file, or anything else it could
-/// reach unhanded - the same rule scope is held to, for the same reason.
-///
-/// <see cref="Executable"/> unset means the engine is found on <c>PATH</c>, which is what a host
-/// that configures no explicit path falls back to.
+/// Locates the ripgrep executable that backs both enumeration surfaces and content search. The
+/// caller that constructs <see cref="VaultAccess"/> hands one of these in.
 /// </summary>
+/// <remarks>
+/// The location must be passed in. This layer never reads it from an environment variable, a
+/// configuration file, or any other ambient source, for the same reason it never reads scope from
+/// one.
+/// </remarks>
+/// <param name="Executable">
+/// The engine's location, or null to find it on <c>PATH</c>. Null is what a host that configures no
+/// explicit path falls back to.
+/// </param>
 public sealed record SearchEngine(string? Executable = null)
 {
-    /// <summary>The engine as <c>PATH</c> resolves it.</summary>
+    /// <summary>Gets the engine as <c>PATH</c> resolves it.</summary>
     public static SearchEngine OnPath { get; } = new();
 
     private string Command => Executable is { Length: > 0 } path ? path : "rg";
 
     /// <summary>
-    /// Runs the engine once, in <paramref name="workingDirectory"/>, and reads both streams to
-    /// completion before answering. Rooted at the vault directory is what makes every path the
-    /// engine emits vault-relative; reading to completion is what makes "this search could not read
-    /// a file" decidable, which streaming results would not be.
+    /// Runs the engine once and reads both of its streams to completion before returning.
+    /// </summary>
+    /// <remarks>
+    /// Starting the engine in the vault directory is what makes every path it emits vault-relative.
+    /// Reading both streams to completion is what makes "this search could not read a file"
+    /// decidable; streaming results would not be.
     ///
-    /// Synchronous, because the tool surface above is: a mutating invocation holds a thread-affine
+    /// The call is synchronous on purpose. A mutating tool invocation above holds a thread-affine
     /// mutex across the whole call, so nothing below it may suspend. Neither front-end installs a
     /// synchronization context, so blocking here cannot deadlock.
-    /// </summary>
+    /// </remarks>
+    /// <param name="workingDirectory">The directory to start the engine in, always the vault root.</param>
+    /// <param name="arguments">The engine's command-line arguments.</param>
+    /// <returns>The exit code and both streams of the completed run.</returns>
     internal EngineRun Run(string workingDirectory, IReadOnlyList<string> arguments)
     {
         try
@@ -39,8 +47,8 @@ public sealed record SearchEngine(string? Executable = null)
             var result = Cli.Wrap(Command)
                 .WithArguments(arguments)
                 .WithWorkingDirectory(workingDirectory)
-                // The engine's own exit codes are the classification, so a non-zero one is an
-                // answer to read rather than an exception to raise.
+                // The engine's exit codes are how a run is classified, so a non-zero code must be
+                // returned for the caller to read rather than thrown.
                 .WithValidation(CommandResultValidation.None)
                 .ExecuteBufferedAsync(Encoding.UTF8)
                 .GetAwaiter()
@@ -55,9 +63,12 @@ public sealed record SearchEngine(string? Executable = null)
         }
     }
 
-    /// <summary>Not an exit code the engine produces; it marks a run that never started.</summary>
+    /// <summary>Marks a run that never started. The engine itself never produces this exit code.</summary>
     internal const int LaunchFailed = -1;
 }
 
-/// <summary>One completed run of the engine, both streams whole.</summary>
+/// <summary>Represents one completed run of the engine, with both streams read whole.</summary>
+/// <param name="ExitCode">The engine's exit code, or <see cref="SearchEngine.LaunchFailed"/>.</param>
+/// <param name="StandardOutput">Everything the run wrote to standard output.</param>
+/// <param name="StandardError">Everything the run wrote to standard error.</param>
 internal sealed record EngineRun(int ExitCode, string StandardOutput, string StandardError);
