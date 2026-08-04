@@ -10,19 +10,22 @@ using VaultShared.Tests;
 namespace VaultMcpServer.Tests;
 
 /// <summary>
-/// Covers the <c>tools/</c> file watcher: that create/change events re-scan the folder via
-/// <see cref="ScriptToolRegistry.Refresh"/>, that a burst of rapid-fire events debounces down
-/// to one refresh, that a refresh is followed by a call into
-/// <see cref="ScriptToolDispatcher.NotifyToolsListChangedAsync"/>, and that a missing
-/// directory is tolerated. Uses <see cref="ScriptToolRegistry.RefreshCount"/> and
-/// <see cref="ScriptToolDispatcher.NotifyCount"/> as test-only counters rather than
-/// asserting actual notification delivery: under the host's stateless HTTP transport a
-/// session's <c>McpServer</c> is gone by the time an async filesystem event fires, so there
-/// is nothing at the unit level to receive a push - see the caveats documented on
-/// <see cref="ScriptToolDispatcher"/>.
+/// Covers the <c>tools/</c> file watcher: that create and change events re-scan the folder through
+/// <see cref="ScriptToolRegistry.Refresh"/>, that a burst of rapid events debounces to one refresh,
+/// that a refresh is followed by a call into
+/// <see cref="ScriptToolDispatcher.NotifyToolsListChangedAsync"/>, and that a missing directory is
+/// tolerated.
 /// </summary>
+/// <remarks>
+/// These tests read <see cref="ScriptToolRegistry.RefreshCount"/> and
+/// <see cref="ScriptToolDispatcher.NotifyCount"/> rather than asserting that a notification was
+/// delivered. Under the host's stateless HTTP transport a session's <c>McpServer</c> is gone by the
+/// time an asynchronous filesystem event fires, so there is nothing here to receive a push. See the
+/// remarks on <see cref="ScriptToolDispatcher"/>.
+/// </remarks>
 public sealed class ScriptToolsWatcherTests : IDisposable, IClassFixture<ScriptToolsWatcherTests.RunnerFixture>
 {
+    /// <summary>Holds one runner shared by every test in the class, and disposes it at the end.</summary>
     public sealed class RunnerFixture : IDisposable
     {
         public ScriptToolRunner Runner { get; } = new();
@@ -51,6 +54,10 @@ public sealed class ScriptToolsWatcherTests : IDisposable, IClassFixture<ScriptT
 
     public void Dispose() => Directory.Delete(_tempDir, recursive: true);
 
+    /// <summary>Builds a registry and dispatcher over a tools directory, sharing one health
+    /// state.</summary>
+    /// <param name="toolsDir">The directory the registry scans. It need not exist.</param>
+    /// <returns>The registry, the dispatcher over it, and the health state they both record to.</returns>
     private (ScriptToolRegistry Registry, ScriptToolDispatcher Dispatcher, ServerHealthState HealthState) MakeRegistryAndDispatcher(string toolsDir)
     {
         var healthState = new ServerHealthState();
@@ -61,6 +68,9 @@ public sealed class ScriptToolsWatcherTests : IDisposable, IClassFixture<ScriptT
         return (registry, dispatcher, healthState);
     }
 
+    /// <summary>Polls until a condition holds, failing the test if it never does.</summary>
+    /// <param name="condition">The condition to wait for.</param>
+    /// <param name="timeout">How long to keep polling before failing.</param>
     private static async Task WaitUntilAsync(Func<bool> condition, TimeSpan timeout)
     {
         var deadline = DateTime.UtcNow + timeout;
@@ -104,10 +114,9 @@ public sealed class ScriptToolsWatcherTests : IDisposable, IClassFixture<ScriptT
     [Fact]
     public async Task BreakingThenFixingScript_ReplacesTheRecordedProblemSetAtRuntime()
     {
-        // End-to-end through the watcher: a script broken by an edit shows up as a Degraded
-        // ScriptTools problem after the triggered re-scan (while the rest of the folder
-        // keeps its tools), and fixing it clears the problem on the next re-scan - the
-        // replaceable-per-source behavior health_check reports over.
+        // Through the watcher: a script broken by an edit shows up as a Degraded ScriptTools
+        // problem after the re-scan it triggers, while the rest of the folder keeps its tools, and
+        // fixing it clears the problem on the next re-scan. This is what health_check reports on.
         var scriptPath = Path.Combine(_tempDir, "greet.ps1");
         await File.WriteAllTextAsync(scriptPath, ValidScript);
         await File.WriteAllTextAsync(Path.Combine(_tempDir, "other.ps1"), ValidScript);
@@ -160,7 +169,7 @@ public sealed class ScriptToolsWatcherTests : IDisposable, IClassFixture<ScriptT
         }
 
         await WaitUntilAsync(() => registry.Tools is [{ Description: "Greets someone. Take 4." }], TimeSpan.FromSeconds(5));
-        // Give any further (unexpected) debounce firings a chance to land before asserting the count.
+        // Give any further debounce firings a chance to land before asserting the count.
         await Task.Delay(500);
         Assert.Equal(1, registry.RefreshCount);
         Assert.Equal(1, dispatcher.NotifyCount);

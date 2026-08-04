@@ -12,12 +12,10 @@ using static VaultMcpServer.Tests.DeclaredToolHarness;
 namespace VaultMcpServer.Tests;
 
 /// <summary>
-/// Unit coverage for <see cref="ElevationRequestTool"/>: the deny-by-default opt-in gate, the
-/// per-principal rate limit, the auto-deny stub path, and a successful approval that rebinds the
-/// caller's token via the <see cref="GrantStore"/> binding table. Each test builds its own store
-/// (elevation mutates the binding table), a fake <see cref="IElevationApprover"/>, and an
-/// <see cref="IHttpContextAccessor"/> carrying the principal token-hash the middleware would have
-/// stashed.
+/// Covers <see cref="ElevationRequestTool"/>: the deny-by-default opt-in gate, the per-principal
+/// rate limit, the auto-deny approver, and a successful approval that rebinds the caller's token
+/// through the <see cref="GrantStore"/> binding table. Each test builds its own store, because
+/// elevation mutates that table, along with its own approver and session.
 /// </summary>
 public sealed class ElevationRequestToolTests(TestVaultFixture fixture) : IClassFixture<TestVaultFixture>, IDisposable
 {
@@ -46,8 +44,10 @@ public sealed class ElevationRequestToolTests(TestVaultFixture fixture) : IClass
         return GrantStore.Load(path, OpClasses, _vaultConfig, new ServerHealthState(), timeProvider);
     }
 
-    /// <summary>The session the execute path would hand in: the principal identity the middleware
-    /// derives for the caller's token.</summary>
+    /// <summary>Builds the session the execute path would supply, carrying the principal identity
+    /// the middleware derives from the caller's token.</summary>
+    /// <param name="token">The caller's bearer token.</param>
+    /// <returns>A session whose principal is the hash of that token.</returns>
     private static ClientSession SessionFor(string token) => new(GrantStore.HashKey(token));
 
     private ElevationRequestTool MakeTool(GrantStore store, IElevationApprover approver, TimeProvider? timeProvider = null, ElevationOptions? options = null) =>
@@ -85,8 +85,8 @@ public sealed class ElevationRequestToolTests(TestVaultFixture fixture) : IClass
         // carries the op-class shortfall's code.
         Assert.Equal("authority_required", Code(result));
         Assert.Contains("not permitted to request elevation", Text(result));
-        // No-oracle: an op-class-exempt tool reachable from the minimum-access floor must not hand
-        // back anything about the grant that called it.
+        // This tool is reachable from the minimum-access floor without an op class, so its refusal
+        // must not disclose anything about the calling grant.
         Assert.Null(Data(result));
         Assert.Equal(0, approver.Calls); // never reaches the approver
         Assert.Equal("no-elevate", store.Authenticate("no-elevate-token")!.Id); // unchanged
@@ -149,9 +149,8 @@ public sealed class ElevationRequestToolTests(TestVaultFixture fixture) : IClass
         var result = Elevate(tool, store, CallerToken, Args(new { grant = "does-not-exist" }));
 
         Assert.True(IsError(result));
-        // Distinct from the approver's authority_required denial, preserving the distinction this
-        // tool's prose already drew. The rate limit is consumed before this check, so the resulting
-        // existence probe stays bounded at MaxRequestsPerMinute.
+        // Distinct from the approver's authority_required denial. The rate limit is consumed before
+        // this check, so probing for grant names stays bounded at MaxRequestsPerMinute.
         Assert.Equal("not_found", Code(result));
         Assert.Contains("Unknown named grant", Text(result));
         Assert.Equal("does-not-exist", Data(result)!["grant"]); // the caller's own argument, echoed
@@ -171,8 +170,8 @@ public sealed class ElevationRequestToolTests(TestVaultFixture fixture) : IClass
 
         Assert.Equal("authority_required", Code(first));   // auto-deny, but not rate-limited
         Assert.Equal("authority_required", Code(second));
-        // rate_limited is the core code for a transient throttle: coding it as a capability or
-        // argument failure would route a retryable condition into a branch that never retries.
+        // rate_limited is the code for a transient throttle. A capability or argument code would
+        // tell the caller a retryable condition was permanent.
         Assert.Equal("rate_limited", Code(third));
         Assert.Equal("2", Data(third)!["limit_per_minute"]);
 
@@ -183,13 +182,14 @@ public sealed class ElevationRequestToolTests(TestVaultFixture fixture) : IClass
     }
 
     /// <summary>
-    /// Pins the invariant that licenses keeping <c>not_found</c> distinct from
-    /// <c>authority_required</c>: the per-principal throttle is consumed <b>before</b> the
-    /// requested target is resolved, so a mistyped/unknown grant id still spends rate-limit budget.
-    /// Without this ordering the <c>not_found</c> code would be an unthrottled oracle for
-    /// enumerating which named grants are configured. This is a security property, not an incidental
-    /// statement order - a refactor that moves resolution ahead of the throttle must fail here.
+    /// Verifies that the per-principal throttle is consumed before the requested target is
+    /// resolved, so a request naming an unknown grant still spends rate-limit budget.
     /// </summary>
+    /// <remarks>
+    /// Do not move target resolution ahead of the throttle. That ordering is what keeps the
+    /// <c>not_found</c> code from being an unthrottled way to enumerate the configured named
+    /// grants, and it is why <c>not_found</c> can stay distinct from <c>authority_required</c>.
+    /// </remarks>
     [Fact]
     public void Invoke_UnknownNamedGrant_ConsumesRateLimitBudget()
     {
@@ -203,15 +203,15 @@ public sealed class ElevationRequestToolTests(TestVaultFixture fixture) : IClass
         Assert.Equal("not_found", Code(firstProbe));
         Assert.Equal("not_found", Code(secondProbe));
 
-        // (a) Those not_found responses consumed the budget: a well-formed request for a target that
-        // really exists is now throttled, which is only possible if the throttle ran first.
+        // Those not_found responses consumed the budget: a request for a target that really exists
+        // is now throttled, which is only possible if the throttle ran first.
         var afterExhaustion = Elevate(tool, store, CallerToken, Args(new { grant = "elevated" }));
         Assert.True(IsError(afterExhaustion));
         Assert.Equal("rate_limited", Code(afterExhaustion));
         Assert.Equal("2", Data(afterExhaustion)!["limit_per_minute"]);
 
-        // (b) And enumeration stops with the budget: a further unknown target answers rate_limited,
-        // not not_found, so the probe rate is capped at MaxRequestsPerMinute.
+        // Enumeration stops with the budget: a further unknown target answers rate_limited rather
+        // than not_found, so the probe rate is capped at MaxRequestsPerMinute.
         var throttledProbe = Elevate(tool, store, CallerToken, Args(new { grant = "does-not-exist-3" }));
         Assert.Equal("rate_limited", Code(throttledProbe));
         // No target-existence datum leaks past the throttle - only the caller's configured limit.
@@ -262,8 +262,8 @@ public sealed class ElevationRequestToolTests(TestVaultFixture fixture) : IClass
         var result = Elevate(tool, store, CallerToken, Args(new { scope_roots = new[] { "no-such-vault/Projects" }, op_class = new[] { "content:read" } }));
 
         Assert.True(IsError(result));
-        // Classified by which config map holds the name. Discloses nothing new: the
-        // configured vault set is already public to any grant through health_check.
+        // Naming the vault here discloses nothing new: the configured vault set is already
+        // readable by any grant through health_check.
         Assert.Equal("unknown_vault", Code(result));
         Assert.Equal("no-such-vault", Data(result)!["vault"]);
     }
@@ -275,8 +275,8 @@ public sealed class ElevationRequestToolTests(TestVaultFixture fixture) : IClass
         var registry = new ToolRegistry().Add(
             ElevationRequestTool.Declaration, MakeTool(store, new FakeApprover(ElevationDecision.Approve())));
 
-        // A "*" ttl fails binding rather than the tool's own range check, so this drives the execute
-        // path - the single site that turns a binding failure into a coded refusal.
+        // A "*" ttl fails argument binding rather than the tool's own range check, so this goes
+        // through the execute path, which is where a binding failure becomes a coded refusal.
         var refusal = Assert.Throws<ToolRefusal>(() => new ToolExecution(_vaultConfig).Invoke(
             registry.Find("request_elevation")!.Value,
             Args(new { grant = "elevated", ttl = "*" }),

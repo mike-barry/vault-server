@@ -11,10 +11,9 @@ using static VaultMcpServer.Tests.DeclaredToolHarness;
 namespace VaultMcpServer.Tests;
 
 /// <summary>
-/// Unit-level coverage for <see cref="MintTokenTool"/>'s own logic - how it groups the
-/// flat, vault-prefixed <c>scope_roots</c> strings into <see cref="Grant.ScopeRoots"/>'s
-/// per-vault dictionary shape - as distinct from <c>MintTokenDispatchTests</c>' HTTP-level,
-/// end-to-end coverage of the same tool.
+/// Covers <see cref="MintTokenTool"/>'s own logic at the unit level, in particular how it groups
+/// the flat vault-prefixed <c>scope_roots</c> strings into the per-vault dictionary shape of
+/// <see cref="Grant.ScopeRoots"/>. <c>MintTokenDispatchTests</c> covers the same tool over HTTP.
 /// </summary>
 public sealed class MintTokenToolTests(TestVaultFixture fixture) : IClassFixture<TestVaultFixture>, IDisposable
 {
@@ -34,9 +33,14 @@ public sealed class MintTokenToolTests(TestVaultFixture fixture) : IClassFixture
         return GrantStore.Load(path, OpClasses, _vaultConfig, new ServerHealthState());
     }
 
-    /// <summary>Builds a store from an arbitrary grants.json body - used by the attenuation tests
-    /// below, whose caller grants need shapes (scoped, restricted op classes, finite ttl) that
-    /// <see cref="MakeStore"/>'s fixed unscoped/infinite admin row doesn't cover.</summary>
+    /// <summary>
+    /// Builds a store from an arbitrary grants.json body. The attenuation tests need caller grants
+    /// that are scoped, hold restricted op classes or expire, none of which the fixed admin row in
+    /// the other overload covers.
+    /// </summary>
+    /// <param name="grantsJson">The grants.json body to load.</param>
+    /// <param name="timeProvider">The clock the store uses for expiry, or null for the system clock.</param>
+    /// <returns>A store loaded from that body.</returns>
     private GrantStore MakeStore(string grantsJson, TimeProvider? timeProvider = null)
     {
         var path = Path.Combine(_tempDir, "grants.json");
@@ -52,9 +56,14 @@ public sealed class MintTokenToolTests(TestVaultFixture fixture) : IClassFixture
         JsonSerializer.Deserialize<Dictionary<string, JsonElement>>(
             JsonSerializer.Serialize(new { scope_roots = scopeRoots, op_class = opClass, ttl }))!;
 
-    /// <summary>Runs the tool's own body over bound arguments - the execute path's checks are not
-    /// this class's subject, and several cases below use a caller whose grant deliberately lacks the
-    /// tool's own floor.</summary>
+    /// <summary>
+    /// Runs the tool's own body over bound arguments. The execute path's checks are not this class's
+    /// subject, and several tests use a caller whose grant lacks the tool's floor.
+    /// </summary>
+    /// <param name="store">The grant store the tool mints into.</param>
+    /// <param name="arguments">The bound tool arguments.</param>
+    /// <param name="token">The caller's token, looked up in <paramref name="store"/>.</param>
+    /// <returns>The tool's result or the refusal it raised.</returns>
     private Outcome Mint(GrantStore store, IReadOnlyDictionary<string, JsonElement> arguments, string token = "admin-token") =>
         Run(new MintTokenTool(store, OpClasses, _vaultConfig), MintTokenTool.Declaration, arguments, store.Authenticate(token)!);
 
@@ -108,9 +117,8 @@ public sealed class MintTokenToolTests(TestVaultFixture fixture) : IClassFixture
         var store = MakeStore();
         var result = Mint(store, Arguments([scopeRoot], ["content:read"]), "admin-token");
 
-        // Normalized at mint time (matching GrantStore.Load), so a malformed subtree fails the
-        // mint call cleanly instead of producing an unusable grant that only fails - confusingly -
-        // on some later, unrelated tool call.
+        // Subtrees are normalized at mint time, as GrantStore.Load does, so a malformed subtree
+        // fails this call rather than producing a grant that fails on some later tool call.
         Assert.True(result.IsError);
         Assert.Equal("invalid_argument", result.Code);
         Assert.Contains("invalid subtree", result.ErrorText);
@@ -168,8 +176,8 @@ public sealed class MintTokenToolTests(TestVaultFixture fixture) : IClassFixture
         var result = Mint(store, Arguments(["test"], ["content:write"]), "scoped-token");
 
         Assert.True(result.IsError);
-        // authority_required, not invalid_argument: minting is attenuation-only, so a request
-        // exceeding the caller's authority is refused rather than intersected, and the fix is
+        // authority_required rather than invalid_argument: minting can only attenuate, so a request
+        // beyond the caller's authority is refused rather than narrowed, and the caller's remedy is
         // elevation rather than a different argument.
         Assert.Equal("authority_required", result.Code);
         var text = result.ErrorText;
@@ -177,8 +185,8 @@ public sealed class MintTokenToolTests(TestVaultFixture fixture) : IClassFixture
         Assert.Contains("content:write", text);
         Assert.Contains("scoped", text); // names the caller's own grant id
 
-        // No-oracle: data names the refused dimension and nothing computed from the caller's held
-        // authority - not the missing subset, not the grant's class set, not its id.
+        // The data object names the refused argument and nothing derived from the caller's own
+        // authority: not the missing classes, not the grant's class set, not its id.
         var data = result.Data!;
         Assert.Equal("op_class", data["argument"]);
         Assert.Equal(["argument"], data.Keys.ToArray());
@@ -204,8 +212,8 @@ public sealed class MintTokenToolTests(TestVaultFixture fixture) : IClassFixture
         var result = Mint(store, Arguments(["scratch"], ["content:read"]), "scoped-token");
 
         Assert.True(result.IsError);
-        // out_of_scope, the same code the dispatcher's vault-membership denial uses - one code per
-        // condition regardless of which layer refused.
+        // out_of_scope is the same code the dispatcher's vault-membership denial uses: one code per
+        // condition, whichever layer refused.
         Assert.Equal("out_of_scope", result.Code);
         var text = result.ErrorText;
         Assert.Contains("scope_roots", text);
@@ -231,7 +239,8 @@ public sealed class MintTokenToolTests(TestVaultFixture fixture) : IClassFixture
         Assert.Contains("test/Projects/Bar", text);
         Assert.Contains("scoped", text);
 
-        // data names the vault the caller itself addressed; the caller's roots for it stay out.
+        // The data object names the vault the caller itself addressed. The caller's own roots for
+        // that vault stay out of it.
         var data = result.Data!;
         Assert.Equal("test", data["vault"]);
         Assert.Equal(["argument", "vault"], data.Keys.Order().ToArray());
@@ -327,8 +336,8 @@ public sealed class MintTokenToolTests(TestVaultFixture fixture) : IClassFixture
         var result = Mint(store, Arguments(["no-such-vault/Projects"], ["content:read"]), "admin-token");
 
         Assert.True(result.IsError);
-        // The code for a name in no configured map, so a caller routes an unknown vault
-        // identically whichever tier saw it.
+        // unknown_vault is the code for a name that is not configured anywhere, so a caller handles
+        // it the same way whichever layer saw it.
         Assert.Equal("unknown_vault", result.Code);
         var data = result.Data!;
         Assert.Equal("no-such-vault", data["vault"]);
@@ -355,8 +364,8 @@ public sealed class MintTokenToolTests(TestVaultFixture fixture) : IClassFixture
         var result = Mint(store, Arguments(["test"], ["not:a-class"]), "admin-token");
 
         Assert.True(result.IsError);
-        // No elevation could ever satisfy a name that is not in the registry, so this must not be
-        // coded as the capability shortfall the attenuation check raises.
+        // No elevation can satisfy a class name that is not in the registry, so this must not carry
+        // the capability-shortfall code the attenuation check raises.
         Assert.Equal("invalid_argument", result.Code);
         Assert.Equal("not:a-class", result.Data!["op_class"]);
     }
@@ -368,8 +377,8 @@ public sealed class MintTokenToolTests(TestVaultFixture fixture) : IClassFixture
         var registry = new ToolRegistry().Add(MintTokenTool.Declaration, new MintTokenTool(store, OpClasses, _vaultConfig));
         var arguments = Args(new { scope_roots = new[] { "test" }, op_class = new[] { "content:read" }, ttl = "*" });
 
-        // A "*" ttl fails binding, not the tool's own range check, so this one drives the execute
-        // path - the single site that turns a binding failure into a coded refusal.
+        // A "*" ttl fails argument binding rather than the tool's own range check, so this goes
+        // through the execute path, which is where a binding failure becomes a coded refusal.
         var refusal = Assert.Throws<ToolRefusal>(() => new ToolExecution(_vaultConfig).Invoke(
             registry.Find("mint_token")!.Value, arguments, store.Authenticate("admin-token")!, new ClientSession("principal")));
 

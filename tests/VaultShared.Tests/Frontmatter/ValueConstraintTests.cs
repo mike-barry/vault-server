@@ -3,9 +3,8 @@ using VaultShared.Frontmatter;
 namespace VaultShared.Tests;
 
 /// <summary>
-/// The closed constraint vocabulary's checking member. What each kind admits, and that a refusal
-/// says what the constraint wanted rather than only that something did not match - which is the
-/// whole reason these are records with a member rather than a table of predicates.
+/// Verifies what each value constraint kind accepts, and that an unsatisfied result describes what
+/// the constraint wanted rather than only reporting a mismatch.
 /// </summary>
 public sealed class ValueConstraintTests
 {
@@ -17,8 +16,8 @@ public sealed class ValueConstraintTests
     [InlineData("not a date", false)]
     public void Date_IsAFormatCheckOnTheTextAsWritten(string text, bool satisfied)
     {
-        // A format check rather than a parse: coercing the value would test something the caller
-        // never wrote, and the round trip could rewrite their text.
+        // The check is on the text as written rather than on a parsed date, because parsing and
+        // reformatting would test a value the caller never wrote.
         Assert.Equal(satisfied, new DateConstraint(DateConstraint.IsoDate).Check(text).IsSatisfied);
     }
 
@@ -63,8 +62,8 @@ public sealed class ValueConstraintTests
     [Fact]
     public void AnUnsatisfiedResultNamesWhatTheConstraintWanted()
     {
-        // A named kind reports what it wanted; the regex kind this vocabulary refuses to have could
-        // only report that something did not match.
+        // Each named kind can describe what it wanted. A raw-regex kind, which the format does not
+        // offer, could only report that something did not match.
         var result = new EnumerationConstraint(["open", "closed"]).Check("ajar");
 
         Assert.False(result.IsSatisfied);

@@ -4,8 +4,8 @@ using VaultShared.Configuration;
 namespace VaultShared.Tests;
 
 /// <summary>
-/// What loading vaults.json produces. Which of those vaults is usable, and what a name resolves
-/// to, is the access layer's - see <c>VaultResolutionTests</c>.
+/// Tests what loading vaults.json produces. <c>VaultResolutionTests</c> covers which of those
+/// vaults is usable and what a vault name resolves to.
 /// </summary>
 public sealed class VaultConfigLoadTests : IDisposable
 {
@@ -62,8 +62,8 @@ public sealed class VaultConfigLoadTests : IDisposable
     [Fact]
     public void Load_NonexistentRoot_SkipsThatVaultNotTheFile()
     {
-        // Two configured vaults, one with a missing root: the load is NOT fatal - the broken
-        // vault is skipped (with a Degraded record) and the healthy vault keeps working.
+        // Two configured vaults, one with a missing root. The load is not fatal: the broken vault
+        // is skipped with a degraded problem recorded, and the healthy vault keeps working.
         var path = WriteConfig($$"""{ "default_vault": "a", "vaults": { "a": {{JsonVault(_tempDir)}}, "b": {{JsonVault(Path.Combine(_tempDir, "no-such-dir"))}} } }""");
         var sink = new RecordingProblemSink();
         var config = VaultConfigLoader.Load(path, TestOpClasses.Repo, sink);
@@ -85,8 +85,8 @@ public sealed class VaultConfigLoadTests : IDisposable
     [Fact]
     public void Load_EveryRootMissing_IsDegradedNotFatal()
     {
-        // Per-entry skip semantics hold even when every entry skips: the server still starts
-        // (nothing resolvable, one Degraded per vault) rather than going fatal.
+        // Skipping is per entry even when every entry skips, so the server still starts, with one
+        // degraded problem per vault and nothing resolvable, rather than failing fatally.
         var path = WriteConfig($$"""{ "default_vault": "a", "vaults": { "a": {{JsonVault(Path.Combine(_tempDir, "gone-a"))}}, "b": {{JsonVault(Path.Combine(_tempDir, "gone-b"))}} } }""");
         var sink = new RecordingProblemSink();
         var config = VaultConfigLoader.Load(path, TestOpClasses.Repo, sink);
@@ -104,8 +104,8 @@ public sealed class VaultConfigLoadTests : IDisposable
     [Fact]
     public void Load_CarriesTheDeclaredFrontmatterRegistryName()
     {
-        // Carried as the entry names it. Resolving it is the registry cascade's, which is what
-        // keeps the file's location a property of the configuration rather than of the vault.
+        // The name is carried exactly as the entry spells it. The registry cascade resolves it,
+        // which keeps the file's location a property of the configuration rather than the vault.
         var path = WriteConfig($$"""
             { "default_vault": "a", "vaults": { "a": { "path": {{JsonPath(_tempDir)}}, "frontmatter_registry": "frontmatter-registry.json" } } }
             """);
@@ -142,9 +142,12 @@ public sealed class VaultConfigLoadTests : IDisposable
         AssertFatalAndEmpty(sink, config);
     }
 
-    /// <summary>Shared assertion for every whole-file-failure case above: the load no
-    /// longer throws - it records a Fatal problem from source "VaultConfig" and returns an
-    /// inert config with no resolvable vaults.</summary>
+    /// <summary>
+    /// Asserts the outcome shared by every whole-file failure case above: the load records one
+    /// fatal problem from source "VaultConfig" and returns an empty config, rather than throwing.
+    /// </summary>
+    /// <param name="sink">The sink the failed load recorded into.</param>
+    /// <param name="config">The config the failed load returned.</param>
     private static void AssertFatalAndEmpty(RecordingProblemSink sink, VaultConfig config)
     {
         Assert.True(sink.IsFatallyDegraded);

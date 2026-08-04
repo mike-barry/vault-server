@@ -3,9 +3,10 @@ using VaultShared.Frontmatter;
 namespace VaultShared.Tests;
 
 /// <summary>
-/// The one thing in the build that writes a fence, and the one site the emitter settings live at.
-/// What is asserted is what the settings were chosen for - key order, indented sequences, LF alone,
-/// no document markers of YamlDotNet's own - and what composing does and does not guarantee.
+/// Verifies <see cref="FrontmatterComposer"/>, the only type that writes a frontmatter fence.
+/// Covers the four emitter settings the composer pins - key order, indented sequences, LF line
+/// endings, and no YamlDotNet document markers - and what composing does and does not preserve
+/// across a parse and re-emit.
 /// </summary>
 public sealed class FrontmatterComposerTests
 {
@@ -17,7 +18,7 @@ public sealed class FrontmatterComposerTests
 
     private static FrontmatterTree Of(string content) => Parsed(NoteSplit.Of(content).InnerText);
 
-    // ---- The fence ----
+    // ---- Fence handling ----
 
     [Fact]
     public void ComposingWrapsTheBlockAndLeavesTheBodyVerbatim()
@@ -62,7 +63,7 @@ public sealed class FrontmatterComposerTests
         Assert.Equal("Body.\n", split.Body);
     }
 
-    // ---- The settings ----
+    // ---- Emitter settings ----
 
     [Fact]
     public void KeyOrderSurvivesParseAndEmit()
@@ -87,8 +88,8 @@ public sealed class FrontmatterComposerTests
     [Fact]
     public void SequenceItemsIndentBeneathTheirKey()
     {
-        // Both forms are valid and the parse cannot tell them apart, so the emitter's default would
-        // reformat every list in the vault on its first write.
+        // Indented and unindented sequences are both valid YAML and the parse cannot tell them
+        // apart, so the emitter's default would reformat every list in the vault on its first write.
         Assert.Equal("tags:\n  - a\n  - b\n", FrontmatterComposer.Emit(Parsed("tags:\n- a\n- b")));
     }
 
@@ -127,7 +128,7 @@ public sealed class FrontmatterComposerTests
         Assert.Equal("---\ndesc: |\n  line one\n  line two\n---\nBody.\n", composed);
     }
 
-    // ---- What composing preserves, and what it does not ----
+    // ---- What composing preserves and what it does not ----
 
     [Fact]
     public void ValuesAndTheirQuotingStyleSurvive()
@@ -148,8 +149,8 @@ public sealed class FrontmatterComposerTests
     [Fact]
     public void BlankLinesAndCommentsAreDroppedOnReserialization()
     {
-        // Artifacts of text with no place in the tree. Keeping them out of a note nobody edited is
-        // the write path's confinement of reserialization, not something composing can do.
+        // Comments and blank lines have no place in the tree, so composing cannot keep them. The
+        // write path avoids reserializing a note nobody edited.
         Assert.Equal(
             "a: 1\nb: 2\n",
             FrontmatterComposer.Emit(Parsed("# leading\na: 1\n\n# between\nb: 2")));
@@ -158,9 +159,9 @@ public sealed class FrontmatterComposerTests
     [Fact]
     public void ALiteralBlockScalarKeepsItsChompingIndicator()
     {
-        // The split hands over the block's text without the final inner line's terminator, which is
-        // where a block scalar reads its trailing newline from. Both indicators have to survive, or
-        // the first operation on such a note rewrites one it never touched.
+        // The split hands over the block's text without the final inner line's terminator, and a
+        // block scalar reads its trailing newline from there. Both chomping indicators have to
+        // survive, or the first operation on such a note rewrites a value it never touched.
         const string kept = "---\ndesc: |\n  line one\n  line two\n---\nBody.\n";
         const string stripped = "---\ndesc: |-\n  line one\n  line two\n---\nBody.\n";
 
@@ -181,9 +182,9 @@ public sealed class FrontmatterComposerTests
     [Fact]
     public void ComposingAnUntouchedTreeReproducesABlockThatWasAlreadyCanonical()
     {
-        // Composing guarantees meaning, not bytes. What it does guarantee is that a block already in
-        // the emitter's own shape comes back byte-identical, so a write that changed nothing about a
-        // canonical block moves no byte.
+        // Composing guarantees meaning, not bytes. A block already in the emitter's own shape does
+        // come back byte-identical, so a write that changes nothing in a canonical block moves no
+        // byte.
         const string content = "---\ntitle: Widget\ntags:\n  - a\n  - b\ncreated: 2024-01-31\n---\nBody text.\n";
         var split = NoteSplit.Of(content);
 
@@ -200,7 +201,7 @@ public sealed class FrontmatterComposerTests
     [Fact]
     public void ACallerValueCannotBecomeStructure()
     {
-        // A value that enters a tree and leaves through an emitter is escaped, never spliced.
+        // A value set on the tree is escaped by the emitter, never spliced into the block as text.
         var tree = Parsed("title: Widget");
         tree.Set("title", "Gizmo\n---\ninjected: true");
 

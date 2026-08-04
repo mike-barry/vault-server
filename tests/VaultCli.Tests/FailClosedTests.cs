@@ -3,17 +3,17 @@ using VaultShared.Tools;
 namespace VaultCli.Tests;
 
 /// <summary>
-/// The fail-closed matrix. Configuration that will not load fails the CLI rather than admitting it
-/// unrestricted, and an untested
-/// fail-closed path is one that quietly becomes fail-open - which is why each case asserts that
-/// nothing was answered on standard output as well as that the exit code refused.
-///
-/// Every case is one deviation from a configuration that works, so what fails is the deviation
-/// rather than the fixture.
+/// Verifies that configuration which will not load fails the invocation rather than admitting it
+/// unrestricted. Each case asserts both that the exit code refused and that nothing was written to
+/// standard output, because an untested fail-closed path is one that can quietly become fail-open.
 /// </summary>
+/// <remarks>
+/// Every case changes exactly one thing about a configuration that works, so the failure is
+/// attributable to that change rather than to the fixture.
+/// </remarks>
 public sealed class FailClosedTests(CliFixture fixture) : IClassFixture<CliFixture>
 {
-    /// <summary>The invocation the matrix deviates from: it succeeds, so every refusal below is
+    /// <summary>The baseline the other cases deviate from. It succeeds, so every refusal below is
     /// attributable to the one thing that case changed.</summary>
     [Fact]
     public void TheFixtureConfiguration_Admits()
@@ -33,8 +33,8 @@ public sealed class FailClosedTests(CliFixture fixture) : IClassFixture<CliFixtu
         AssertRefused(fixture.Run(["glob", "--pattern", "*"], fixture.WriteText("broken.settings.json", "{ not json")));
 
     /// <summary>
-    /// The case the design names outright: absence is not unrestricted. A settings file naming no
-    /// grant fails, rather than falling through to a floor or to full authority.
+    /// An absent grant is not an unrestricted one. A settings file naming no grant fails the
+    /// invocation rather than falling through to a default floor or to full authority.
     /// </summary>
     [Fact]
     public void ASettingNamingNoGrant_FailsRatherThanAdmitting()
@@ -65,8 +65,8 @@ public sealed class FailClosedTests(CliFixture fixture) : IClassFixture<CliFixtu
     }
 
     /// <summary>
-    /// A token-bearing row is not selectable by id. Only the token-less named rows are, so a grant id
-    /// can never be a second way to present a token nobody presented.
+    /// A grant row that carries a token cannot be selected by id. Only token-less named rows can be,
+    /// so a grant id is never a way to obtain authority that a token would otherwise gate.
     /// </summary>
     [Fact]
     public void AGrantIdNamingATokenBearingRow_FailsTheInvocation()
@@ -115,7 +115,7 @@ public sealed class FailClosedTests(CliFixture fixture) : IClassFixture<CliFixtu
     }
 
     /// <summary>
-    /// The cascade stops at the first fatal load, so a broken op-classes.json is reported as itself
+    /// Loading stops at the first fatal failure, so a broken op-classes.json is reported as itself
     /// rather than as every grant row failing validation against an empty registry.
     /// </summary>
     [Fact]
@@ -133,9 +133,9 @@ public sealed class FailClosedTests(CliFixture fixture) : IClassFixture<CliFixtu
     }
 
     /// <summary>
-    /// Fail-closed reaches the configuration itself, not just the tools: even the tool that reports
-    /// on configuration health cannot run in a process whose configuration would not load. A
-    /// front-end that answered it anyway would be reporting on a process it had refused to build.
+    /// Failing closed applies to the configuration load itself, not only to the tools. Even the
+    /// health-check tool does not run when configuration will not load, because its answer would
+    /// describe a process that was never built.
     /// </summary>
     [Fact]
     public void EvenTheHealthTool_DoesNotRunUnderConfigurationThatWillNotLoad()

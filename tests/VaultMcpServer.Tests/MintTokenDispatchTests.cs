@@ -8,15 +8,17 @@ using VaultShared.Tests;
 namespace VaultMcpServer.Tests;
 
 /// <summary>
-/// End-to-end HTTP-level coverage for the native <c>mint_token</c> tool and the
-/// <see cref="VaultMcpServer.Tools.ScriptToolDispatcher"/> native/script merge that serves it:
-/// that it shows up in `tools/list` alongside script tools, that op-class enforcement
-/// (<c>ManageGrants</c>) applies to it the same way as a script tool's declared class, and
-/// that a token it mints actually authenticates a follow-up call scoped to what was granted.
-/// A fresh host per test class (not a shared <c>IClassFixture</c>) since minting mutates the
-/// host's <see cref="VaultMcpServer.Auth.GrantStore"/> in memory: a tool that mutates host state
-/// gets its own host, so no other test class inherits what it changed.
+/// Covers the native <c>mint_token</c> tool over HTTP, along with the native and script tool merge
+/// in <see cref="VaultMcpServer.Tools.ScriptToolDispatcher"/> that serves it: that it appears in
+/// <c>tools/list</c> beside script tools, that the <c>ManageGrants</c> op class is enforced on it
+/// the same way a script tool's declared class is, and that a token it mints authenticates a
+/// follow-up call with exactly the access that was granted.
 /// </summary>
+/// <remarks>
+/// This class has its own host fixture, because minting mutates that host's
+/// <see cref="VaultMcpServer.Auth.GrantStore"/> in memory and no other test class should inherit
+/// the changes.
+/// </remarks>
 [Collection("Program host tests")]
 public sealed class MintTokenDispatchTests : IClassFixture<MintTokenDispatchTests.Fixture>
 {
@@ -58,9 +60,13 @@ public sealed class MintTokenDispatchTests : IClassFixture<MintTokenDispatchTest
     private static string ContentText(JsonElement result) =>
         result.GetProperty("content").EnumerateArray().First().GetProperty("text").GetString()!;
 
-    /// <summary>The <c>code</c> of a refusal's <c>{code, message, data?}</c> JSON. Asserting it here -
-    /// over HTTP, not against the tool object - is what pins that the dispatcher's native-tool path
-    /// hands a native tool's own coded error through unchanged rather than re-wrapping it.</summary>
+    /// <summary>
+    /// Reads the <c>code</c> from a refusal's <c>{code, message, data?}</c> JSON. Asserting it over
+    /// HTTP rather than against the tool object is what shows the dispatcher's native-tool path
+    /// passes a native tool's coded error through unchanged instead of re-wrapping it.
+    /// </summary>
+    /// <param name="result">The <c>result</c> object of a <c>tools/call</c> response.</param>
+    /// <returns>The refusal's error code.</returns>
     private static string ErrorCode(JsonElement result)
     {
         using var doc = JsonDocument.Parse(ContentText(result));
@@ -92,10 +98,10 @@ public sealed class MintTokenDispatchTests : IClassFixture<MintTokenDispatchTest
         var mintedToken = minted.RootElement.GetProperty("token").GetString();
         Assert.False(string.IsNullOrEmpty(mintedToken));
 
-        // The minted token can call a Read tool...
         var readCall = """{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"greet","arguments":{"Name":"Mike"}}}""";
         var readResult = await CallToolAsync(_fixture, mintedToken!, readCall);
-        Assert.True(readResult.GetProperty("isError").GetBoolean()); // greet is a Write-class tool - proves the mint actually scoped to Read only, not "any" access.
+        // greet is a write-class tool, so refusing it shows the mint really scoped to read only.
+        Assert.True(readResult.GetProperty("isError").GetBoolean());
         Assert.Equal("authority_required", ErrorCode(readResult));
     }
 
@@ -106,8 +112,8 @@ public sealed class MintTokenDispatchTests : IClassFixture<MintTokenDispatchTest
         var result = await CallToolAsync(_fixture, Fixture.ReadOnlyToken, body);
 
         Assert.True(result.GetProperty("isError").GetBoolean());
-        // The dispatcher's grants:manage floor refuses before the tool runs - same code the tool's own
-        // attenuation check raises, so a caller routes both identically.
+        // The dispatcher's grants:manage floor refuses before the tool runs, with the same code the
+        // tool's own attenuation check raises, so a caller handles both the same way.
         Assert.Equal("authority_required", ErrorCode(result));
     }
 
@@ -176,11 +182,9 @@ public sealed class MintTokenDispatchTests : IClassFixture<MintTokenDispatchTest
 
         var mintedToken = minted.RootElement.GetProperty("token").GetString();
 
-        // The minted token can access both vaults, proving the grant covers each of them - the
-        // per-vault scope-root grouping itself (that "Projects/Foo" never ends up scoping the
-        // "test" vault or vice versa) is asserted directly against Grant.ScopeRoots in
-        // MintTokenTool's own unit-level coverage; this end-to-end test proves the split
-        // survives the full mint_token round trip without cross-vault leakage in the response.
+        // MintTokenTool's own unit tests assert against Grant.ScopeRoots that "Projects/Foo" never
+        // scopes the "test" vault or vice versa. Here the check is that the split survives the
+        // round trip and the response does not mix the two vaults' roots.
         var scopeRoots = minted.RootElement.GetProperty("scope_roots").EnumerateArray().Select(v => v.GetString()).ToList();
         Assert.Equal(["personal/Projects/Foo", "test/Areas/Bar"], scopeRoots);
     }
@@ -206,9 +210,8 @@ public sealed class MintTokenDispatchTests : IClassFixture<MintTokenDispatchTest
             var grantsPath = Path.Combine(TempDir, "grants.json");
             File.WriteAllText(grantsPath, JsonSerializer.Serialize(new Dictionary<string, object>
             {
-                // True admin (unscoped, every vault, infinite ttl) so attenuation-only minting
-                // never constrains what these dispatch tests can mint - matching the real dev
-                // default binding, which is likewise unscoped/infinite.
+                // A full admin grant - unscoped, every vault, no expiry - so attenuation never
+                // limits what these tests can mint. The real dev default binding is the same.
                 [AdminToken] = new { id = "admin", opClasses = new[] { "*" }, vaults = new[] { "*" }, ttl = "*", scopeRoots = new Dictionary<string, string[]> { ["*"] = new[] { "*" } } },
                 [ReadOnlyToken] = new { id = "read-only", opClasses = new[] { "content:read" }, vaults = new[] { "personal" }, ttl = "*", scopeRoots = new Dictionary<string, string[]> { ["personal"] = new[] { "*" } } },
             }));

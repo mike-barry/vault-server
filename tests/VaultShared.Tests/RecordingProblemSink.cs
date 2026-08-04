@@ -3,25 +3,30 @@ using VaultShared.Health;
 namespace VaultShared.Tests;
 
 /// <summary>
-/// An <see cref="IConfigProblemSink"/> that keeps what it was handed, so a loader test can assert
-/// what a load recorded without standing up a host's health state. The server's own
-/// <c>ServerHealthState</c> is one implementation of the same interface and is tested on its own
-/// terms - thread safety, replaceable per-source sets, the cached instructions summary - none of
-/// which a loader can reach through this seam.
+/// Implements <see cref="IConfigProblemSink"/> by keeping every problem it is handed, so a loader
+/// test can assert what a load recorded without standing up a host's health state.
 /// </summary>
 public sealed class RecordingProblemSink : IConfigProblemSink
 {
     private readonly List<HealthProblem> _problems = [];
 
+    /// <summary>Gets the problems recorded so far, in the order they were recorded.</summary>
     public IReadOnlyList<HealthProblem> Problems => _problems;
 
-    /// <summary>True once any <see cref="ProblemSeverity.Fatal"/> problem has been recorded - the
-    /// question a fail-closed caller asks after a load, and the one the server answers by refusing
-    /// every request.</summary>
+    /// <summary>
+    /// Gets a value indicating whether any <see cref="ProblemSeverity.Fatal"/> problem has been
+    /// recorded. This is the question a fail-closed caller asks after a load.
+    /// </summary>
     public bool IsFatallyDegraded => _problems.Any(p => p.Severity == ProblemSeverity.Fatal);
 
+    /// <summary>Records a fatal problem.</summary>
+    /// <param name="source">The configuration source the problem came from.</param>
+    /// <param name="detail">The description of the problem.</param>
     public void RecordFatal(string source, string detail) => Record(ProblemSeverity.Fatal, source, detail);
 
+    /// <summary>Records a degraded problem.</summary>
+    /// <param name="source">The configuration source the problem came from.</param>
+    /// <param name="detail">The description of the problem.</param>
     public void RecordDegraded(string source, string detail) => Record(ProblemSeverity.Degraded, source, detail);
 
     private void Record(ProblemSeverity severity, string source, string detail) =>

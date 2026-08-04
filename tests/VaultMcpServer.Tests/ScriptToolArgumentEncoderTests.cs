@@ -4,13 +4,15 @@ using VaultMcpServer.Tools;
 namespace VaultMcpServer.Tests;
 
 /// <summary>
-/// The encode signal itself, read off a parameter's side-car schema rather than off any per-tool
-/// table (<see cref="ScriptToolParameter.EncodesStructuredArgument"/>), and the arrival-shape rule
-/// layered on top of it (<see cref="ScriptToolArgumentEncoder"/>). The end-to-end behaviour these
-/// two produce is covered against the real host in <see cref="ScriptToolDispatcherTests"/>; this
-/// file pins the schema shapes a hand-authored <c>.SCHEMA</c> block is allowed to take, several of
-/// which no landed tool writes today but the mechanism permits.
+/// Covers <see cref="ScriptToolParameter.EncodesStructuredArgument"/>, which decides from a
+/// parameter's side-car schema alone whether its argument is encoded, and
+/// <see cref="ScriptToolArgumentEncoder"/>, which decides what to do with the value that arrives.
 /// </summary>
+/// <remarks>
+/// <see cref="ScriptToolDispatcherTests"/> covers the behaviour these two produce against the real
+/// host. These tests pin the schema shapes a hand-written <c>.SCHEMA</c> block is allowed to take,
+/// including several the mechanism permits but no current tool writes.
+/// </remarks>
 public sealed class ScriptToolArgumentEncoderTests
 {
     private static ScriptToolParameter Parameter(string? schemaJson, string jsonType = "string") =>
@@ -30,16 +32,16 @@ public sealed class ScriptToolArgumentEncoderTests
     [InlineData("""{"type":"object"}""", true)]
     // A side-car declaring the type the .NET parameter already has asks for nothing.
     [InlineData("""{"type":"string"}""", false)]
-    // A union declares one if any member is a non-string type. ["string","array"] is coherent under
-    // the arrival-shape rule: a string passes verbatim, an array encodes. "null" is the absence of
-    // a value rather than a shape, so the idiomatic optional-string union reads like plain "string".
+    // A union declares a non-string type if any member is one. ["string","array"] works because a
+    // string arrival passes verbatim and an array arrival encodes. "null" is the absence of a value
+    // rather than a shape, so an optional-string union reads the same as plain "string".
     [InlineData("""{"type":["array","null"]}""", true)]
     [InlineData("""{"type":["string","array"]}""", true)]
     [InlineData("""{"type":["string","null"]}""", false)]
     [InlineData("""{"type":["null"]}""", false)]
-    // No top-level type at all - a bare oneOf, enum, const, or $ref. It declares no type, so it
-    // declares no non-string type: not encoded, which is the recoverable direction (a caller can
-    // always send the already-encoded string).
+    // No top-level type at all - a bare oneOf, enum, const or $ref. It declares no type, so it
+    // declares no non-string type and is not encoded. That is the recoverable direction, because a
+    // caller can always send the already-encoded string.
     [InlineData("""{"oneOf":[{"type":"array"},{"type":"object"}]}""", false)]
     [InlineData("""{"enum":["a","b"]}""", false)]
     [InlineData("""{"$ref":"#/$defs/op"}""", false)]
@@ -47,23 +49,22 @@ public sealed class ScriptToolArgumentEncoderTests
     [InlineData("""{"type":7}""", false)]
     [InlineData("""{"type":{"const":"array"}}""", false)]
     // JSON Schema's type vocabulary is lowercase and case-sensitive, so "Array" is not the keyword.
-    // It is still "not string" and so still encodes - the conservative reading would be to refuse
-    // it, but the arrival-shape rule means the only values affected are ones a [string] parameter
-    // could not have received anyway.
+    // It is still not "string", so it still encodes. The only values affected are ones a [string]
+    // parameter could not have received anyway.
     [InlineData("""{"type":"Array"}""", true)]
     public void EncodesStructuredArgument_ReadsTheTopLevelTypeOfTheSideCar(string schemaJson, bool expected) =>
         Assert.Equal(expected, Parameter(schemaJson).EncodesStructuredArgument);
 
-    /// <summary>No side-car is the overwhelmingly common case and the one that must stay inert.</summary>
+    /// <summary>Verifies that a parameter with no side-car schema never encodes. This is the common
+    /// case and must stay inert.</summary>
     [Fact]
     public void EncodesStructuredArgument_WithNoSideCar_IsFalse() =>
         Assert.False(Parameter(null).EncodesStructuredArgument);
 
     /// <summary>
-    /// The other half of the signal. A parameter declared <c>[string[]]</c> already binds a real
-    /// array through the splat, so encoding it would replace a working binding with a string the
-    /// script has no parse for - the derived .NET type has to be <c>string</c> for the side-car's
-    /// declaration to mean "the script parses this itself".
+    /// Verifies that a parameter whose .NET type is not <c>string</c> never encodes. A
+    /// <c>[string[]]</c> parameter already binds a real array through the splat, and encoding it
+    /// would replace a working binding with a string the script has no code to parse.
     /// </summary>
     [Fact]
     public void EncodesStructuredArgument_WhenTheDotNetTypeIsNotString_IsFalse() =>
@@ -76,8 +77,8 @@ public sealed class ScriptToolArgumentEncoderTests
         Assert.Equal("""[{"op":"set_field"}]""", Assert.IsType<string>(bound));
     }
 
-    /// <summary>The passthrough rule, at the unit level: a string arrival is never touched, so an
-    /// already-encoded payload cannot be encoded twice.</summary>
+    /// <summary>Verifies that a string value is passed through untouched, so an already-encoded
+    /// payload is never encoded twice.</summary>
     [Fact]
     public void BindArgument_StringValueForAnEncodingParameter_PassesThroughVerbatim()
     {
@@ -85,9 +86,8 @@ public sealed class ScriptToolArgumentEncoderTests
         Assert.Equal("""[{"op":"set_field"}]""", Assert.IsType<string>(bound));
     }
 
-    /// <summary>A structured value for a non-encoding parameter converts exactly as it did before
-    /// encoding existed - an <c>object[]</c> / dictionary into the splat, whatever the script then
-    /// makes of it.</summary>
+    /// <summary>Verifies that a structured value for a non-encoding parameter takes the plain
+    /// conversion, becoming an <c>object[]</c> or dictionary passed through the splat.</summary>
     [Fact]
     public void BindArgument_StructuredValueForANonEncodingParameter_ConvertsPlainly()
     {
@@ -95,49 +95,53 @@ public sealed class ScriptToolArgumentEncoderTests
         Assert.Equal(new object?[] { "a", "b" }, (object?[])bound!);
     }
 
-    /// <summary>An argument matching no advertised parameter cannot reach here through the
-    /// dispatcher (it is refused as <c>invalid_argument</c> first), so the null case only has to
-    /// fail safe: convert plainly rather than throw.</summary>
+    /// <summary>
+    /// Verifies that a null parameter converts plainly rather than throwing. The dispatcher refuses
+    /// an argument matching no advertised parameter as <c>invalid_argument</c> before reaching here,
+    /// so this case only has to fail safely.
+    /// </summary>
     [Fact]
     public void BindArgument_WithNoMatchingParameter_ConvertsPlainly() =>
         Assert.Equal("text", ScriptToolArgumentEncoder.BindArgument(null, Value("\"text\"")));
 
-    /// <summary>Only an array or an object arrives structured enough to serialize. A scalar against
-    /// an encoding parameter takes the plain conversion, so a side-car declaring a scalar non-string
-    /// type (<c>"integer"</c>, <c>"boolean"</c>) never turns its value into JSON text.</summary>
+    /// <summary>
+    /// Verifies that a scalar value is never serialized, even for an encoding parameter. Only an
+    /// array or an object is serialized, so a side-car declaring <c>"integer"</c> or
+    /// <c>"boolean"</c> never turns its value into JSON text.
+    /// </summary>
     [Fact]
     public void BindArgument_ScalarForAnEncodingParameter_IsNotSerialized()
     {
         var parameter = Parameter("""{"type":"array"}""");
-        // Pinned to the exact CLR type, because the plain conversion keeps an integral one. A
-        // looser assertion ("not JSON text") would pass just as well against a number branch that
-        // widened every value to double, so it would not hold the conversion to what it does.
+        // Pinned to the exact CLR type, because the plain conversion keeps an integral value
+        // integral. A looser assertion would also pass against a branch that widened every number
+        // to double.
         Assert.IsType<long>(ScriptToolArgumentEncoder.BindArgument(parameter, Value("42")));
         Assert.Equal(true, ScriptToolArgumentEncoder.BindArgument(parameter, Value("true")));
         Assert.Null(ScriptToolArgumentEncoder.BindArgument(parameter, Value("null")));
     }
 
     /// <summary>
-    /// The plain conversion's number branch, which has to preserve integrality rather than send
-    /// everything through <c>double</c>. The branch reads
-    /// <c>TryGetInt64(out var l) ? l : GetDouble()</c>, and a conditional expression takes its
-    /// operands' best common type - <c>double</c>, since <c>long</c> converts implicitly to it and
-    /// not the reverse - so without an explicit <c>object</c> on the integral arm the successful
-    /// <c>TryGetInt64</c> is computed and then thrown away.
-    ///
-    /// Latent while every script-tool parameter is <c>[string]</c>, <c>[bool]</c>, or
-    /// <c>[string[]]</c>, because a whole-valued double stringifies to "1" under invariant
-    /// formatting. It goes live the moment a tool declares <c>[int]</c> or <c>[long]</c>, which
-    /// <c>ScriptToolLoader.MapJsonType</c> already advertises as JSON <c>"integer"</c> - a type the
-    /// binding layer would never have delivered.
+    /// Verifies that an integral JSON number converts to <c>long</c> rather than <c>double</c>.
     /// </summary>
+    /// <param name="json">The JSON number to convert.</param>
+    /// <remarks>
+    /// The conversion reads <c>TryGetInt64(out var l) ? l : GetDouble()</c>. A conditional
+    /// expression takes its operands' best common type, which here is <c>double</c> because
+    /// <c>long</c> converts implicitly to it and not the reverse, so without an explicit
+    /// <c>object</c> on the integral arm the <c>long</c> is widened away.
+    ///
+    /// No current script tool sees the difference, because every parameter is <c>[string]</c>,
+    /// <c>[bool]</c> or <c>[string[]]</c> and a whole-valued double stringifies the same way under
+    /// invariant formatting. It matters as soon as a tool declares <c>[int]</c> or <c>[long]</c>,
+    /// which <c>ScriptToolLoader.MapJsonType</c> advertises as JSON <c>"integer"</c>.
+    /// </remarks>
     [Theory]
     [InlineData("42")]
     [InlineData("-7")]
     [InlineData("0")]
-    // The boundaries of what TryGetInt64 accepts at all, and the reason the distinction is not
-    // cosmetic: past 2^53 a double cannot represent consecutive integers, so widening here is
-    // silent data loss rather than a change of label.
+    // The boundaries of what TryGetInt64 accepts, and why the distinction matters: past 2^53 a
+    // double cannot represent consecutive integers, so widening would silently lose data.
     [InlineData("9007199254740993")]
     [InlineData("9223372036854775807")]
     [InlineData("-9223372036854775808")]
@@ -147,14 +151,18 @@ public sealed class ScriptToolArgumentEncoderTests
         Assert.Equal(long.Parse(json), Assert.IsType<long>(bound));
     }
 
-    /// <summary>The other side of the same branch: a number <c>TryGetInt64</c> refuses still lands
-    /// on <c>double</c>, so nothing about the fix narrows what the conversion accepts.</summary>
+    /// <summary>
+    /// Verifies the other arm of the same branch: a number <c>TryGetInt64</c> refuses still converts
+    /// to <c>double</c>, so the conversion accepts everything it did.
+    /// </summary>
+    /// <param name="json">The JSON number to convert.</param>
+    /// <param name="expected">The value it must convert to.</param>
     [Theory]
     [InlineData("1.5", 1.5)]
     [InlineData("-0.25", -0.25)]
     [InlineData("1e3", 1000d)]
-    // Integral in value but outside Int64's range, so TryGetInt64 refuses it and double is the
-    // only branch left - the case that keeps this from being "integral text means long".
+    // Integral in value but outside Int64's range, so TryGetInt64 refuses it and double is the only
+    // branch left. Without this case the rule would read as "integral text means long".
     [InlineData("9223372036854775808", 9223372036854775808d)]
     public void BindArgument_FractionalOrOutOfRangeJsonNumber_ConvertsToDouble(string json, double expected)
     {
@@ -162,8 +170,9 @@ public sealed class ScriptToolArgumentEncoderTests
         Assert.Equal(expected, Assert.IsType<double>(bound));
     }
 
-    /// <summary>Nested numbers take the same branch, so an array or object argument carries the
-    /// distinction into the <c>object?[]</c> and dictionary the splat hands PowerShell.</summary>
+    /// <summary>Verifies that nested numbers take the same branch, so an array or object argument
+    /// carries the CLR types into the <c>object?[]</c> and dictionary the splat hands
+    /// PowerShell.</summary>
     [Fact]
     public void BindArgument_NumbersNestedInStructure_KeepTheirClrTypes()
     {

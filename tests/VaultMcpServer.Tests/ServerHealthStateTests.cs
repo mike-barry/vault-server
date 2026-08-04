@@ -5,10 +5,9 @@ using VaultShared.Health;
 namespace VaultMcpServer.Tests;
 
 /// <summary>
-/// Unit-level coverage for <see cref="ServerHealthState"/> itself, independent of any
-/// particular loader - the loaders' own tests (<see cref="VaultConfigTests"/>,
-/// <see cref="OpClassRegistryTests"/>, <see cref="GrantStoreTests"/>) cover recording from
-/// a real whole-file failure; this covers the recording/enumeration surface directly.
+/// Covers <see cref="ServerHealthState"/>'s own recording and enumeration surface, independent of
+/// any loader. <see cref="VaultConfigTests"/>, <see cref="OpClassRegistryTests"/> and
+/// <see cref="GrantStoreTests"/> cover recording from a real whole-file failure.
 /// </summary>
 public sealed class ServerHealthStateTests
 {
@@ -158,9 +157,9 @@ public sealed class ServerHealthStateTests
     [Fact]
     public void AttachLogger_ProblemsRecordedAfterAttachAreLogged()
     {
-        // The runtime-logging path: Program.cs flushes startup problems itself, then attaches
-        // the logger; anything recorded after that (watcher re-scans) must reach ILogger at
-        // record time.
+        // Program.cs flushes startup problems itself and then attaches the logger, so anything
+        // recorded after that - a watcher re-scan, for instance - must reach ILogger as it is
+        // recorded.
         var healthState = new ServerHealthState();
         healthState.RecordDegraded("GrantStore", "recorded before attach - flushed by Program.cs, not by us");
         var logger = new CapturingLogger();
@@ -238,6 +237,7 @@ public sealed class ServerHealthStateTests
         Assert.Equal(string.Empty, healthState.InstructionsSummary);
     }
 
+    /// <summary>An <see cref="ILogger"/> that records every formatted entry it is given.</summary>
     private sealed class CapturingLogger : ILogger
     {
         public List<(LogLevel Level, string Message)> Entries { get; } = [];
@@ -249,10 +249,9 @@ public sealed class ServerHealthStateTests
     }
 
     /// <summary>
-    /// Recording happens at startup (the main thread) and at runtime from the tools/
-    /// file-watcher thread - this proves the backing collection tolerates concurrent
-    /// writers without losing entries or throwing, which is what that pair of writers
-    /// depends on.
+    /// Verifies that the backing collection tolerates concurrent writers without losing entries or
+    /// throwing. Problems are recorded from the main thread at startup and from the tools/
+    /// file-watcher thread at runtime.
     /// </summary>
     [Fact]
     public async Task RecordFatal_IsThreadSafeUnderConcurrentWriters()

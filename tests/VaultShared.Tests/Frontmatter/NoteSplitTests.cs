@@ -3,9 +3,10 @@ using VaultShared.Frontmatter;
 namespace VaultShared.Tests;
 
 /// <summary>
-/// The one definition of the split. What is asserted is what a consumer cannot recover for itself:
-/// which shapes are a block at all, that the two facets are exactly the note's bytes, and that
-/// splicing a new body in at the offset leaves every frontmatter byte where it was.
+/// Verifies <see cref="NoteSplit"/>, the single definition of where a note's frontmatter block
+/// ends and its body begins. Covers which shapes count as a block, that the inner text and body
+/// together are exactly the note's bytes, and that splicing a new body in at the reported offset
+/// leaves every frontmatter byte in place.
 /// </summary>
 public sealed class NoteSplitTests
 {
@@ -25,7 +26,7 @@ public sealed class NoteSplitTests
     [Fact]
     public void AnUnclosedOpeningFenceIsNotABlock()
     {
-        // Treating a dangling opener as an unterminated block silently swallows the note's content.
+        // Treating a dangling opener as an unterminated block would swallow the note's content.
         var content = "---\ntitle: Widget\n\nProse that never met a closing fence.\n";
         var split = NoteSplit.Of(content);
 
@@ -147,7 +148,7 @@ public sealed class NoteSplitTests
         Assert.Equal(0, split.BodyOffset);
     }
 
-    // ---- The facets are the note's own bytes ----
+    // ---- Inner text and body are the note's own bytes ----
 
     [Fact]
     public void InnerTextIsRawAndCarriesNeitherFenceNorItsFinalTerminator()
@@ -160,7 +161,7 @@ public sealed class NoteSplitTests
     [Fact]
     public void BlankLinesInsideTheBlockSurviveTheSplit()
     {
-        // The split never parses. What is dropped on reserialization is dropped by the emitter.
+        // The split never parses the block. Blank lines are dropped later, by the emitter.
         var split = NoteSplit.Of("---\n\na: 1\n\n\n---\nBody\n");
 
         Assert.Equal("\na: 1\n\n", split.InnerText);
@@ -210,8 +211,8 @@ public sealed class NoteSplitTests
     [Fact]
     public void TheOffsetComesFromTheClosingFenceLinesTerminatorNotItsText()
     {
-        // Trailing whitespace on the fence belongs to the fence; taking the offset earlier leaks a
-        // fragment into the body facet, which surfaces as a phantom diff on a body-only write.
+        // Trailing whitespace on the closing fence belongs to the fence. Taking the offset before
+        // it would leak that fragment into the body and show up as a spurious body change.
         var content = "---\ntitle: Widget\n---   \nBody.\n";
         var split = NoteSplit.Of(content);
 

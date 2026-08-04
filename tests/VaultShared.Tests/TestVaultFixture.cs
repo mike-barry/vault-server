@@ -4,18 +4,27 @@ using VaultShared.Configuration;
 namespace VaultShared.Tests;
 
 /// <summary>
-/// Copies the committed test-vault fixture into a temp directory twice - "test" (the
-/// default vault) for read-only assertions, with injected dot-directory and
-/// duplicate-name cases the committed fixture deliberately omits, and "scratch" for
-/// mutation tests - then loads a VaultConfig over both.
+/// Copies the committed test-vault fixture into a temp directory twice and loads a
+/// <see cref="VaultConfig"/> over both copies.
 /// </summary>
+/// <remarks>
+/// The "test" copy is the default vault and is used for read-only assertions. It gains a
+/// dot-directory file and a pair of duplicate note names, which the committed fixture omits so
+/// that it stays a realistic vault. The "scratch" copy is the target for mutation tests.
+/// </remarks>
 public sealed class TestVaultFixture : IDisposable
 {
+    /// <summary>Gets the repository root, found by walking up from the test binaries.</summary>
     public static string RepoRoot { get; } = FindRepoRoot();
 
+    /// <summary>Gets the temp directory holding both vault copies and the generated vaults.json.</summary>
     public string TempRoot { get; }
+
+    /// <summary>Gets the configuration loaded over the "test" and "scratch" vaults.</summary>
     public VaultConfig Config { get; }
 
+    /// <summary>Builds both vault copies and loads the configuration over them.</summary>
+    /// <exception cref="InvalidOperationException">The generated vaults.json failed to load.</exception>
     public TestVaultFixture()
     {
         TempRoot = Path.Combine(Path.GetTempPath(), "vault-mcp-tests-" + Guid.NewGuid().ToString("N"));
@@ -35,10 +44,9 @@ public sealed class TestVaultFixture : IDisposable
             default_vault = "test",
             vaults = new { test = new { path = test }, scratch = new { path = scratch } },
         }));
-        // Load records failures into the sink and returns an inert config rather than throwing.
-        // This fixture's config is always expected to be valid, so surface any recorded problem
-        // loudly here rather than letting an empty VaultConfig produce confusing downstream test
-        // failures.
+        // Load records failures into the sink and returns an empty config rather than throwing.
+        // This fixture's config is always expected to be valid, so throw here instead of letting
+        // an empty VaultConfig produce confusing failures further downstream.
         var sink = new RecordingProblemSink();
         Config = VaultConfigLoader.Load(configPath, TestOpClasses.Repo, sink);
         if (sink.IsFatallyDegraded)
@@ -46,6 +54,7 @@ public sealed class TestVaultFixture : IDisposable
                 "TestVaultFixture's vaults.json failed to load: " + string.Join("; ", sink.Problems.Select(p => p.Detail)));
     }
 
+    /// <summary>Deletes the temp directory and verifies the committed fixture is still clean.</summary>
     public void Dispose()
     {
         try
@@ -56,10 +65,8 @@ public sealed class TestVaultFixture : IDisposable
         {
         }
 
-        // Detection half of the test-isolation guard pair (see TestVaultCleanGuard's remarks).
-        // This fixture has no PowerShell config handoff to misfire, but its "scratch" copy is a
-        // real mutation target, so the same cheap check catches any accidental write against
-        // `source` instead of `destination` in CopyDirectory or a bad path elsewhere.
+        // The "scratch" copy is a real mutation target, so this check catches a write that landed
+        // on `source` instead of `destination` in CopyDirectory, or a bad path elsewhere.
         TestVaultCleanGuard.AssertCommittedFixtureUntouched();
     }
 

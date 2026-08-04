@@ -4,15 +4,19 @@ using VaultShared.Scope;
 namespace VaultShared.Tests;
 
 /// <summary>
-/// Obsidian's observed resolution rule, which is a requirement rather than a design choice: the
-/// vault's existing content already depends on which file a bare wikilink opens. These cases are the
-/// measurement written down - taken on 2026-07-23 against Obsidian configured with <i>New link
-/// format = shortest path when possible</i> and <i>Automatically update internal links = on</i> - so
-/// a re-measurement that changes the comparator has something to disagree with.
-///
-/// Ranking finds nothing itself and touches no filesystem, so the vault here is a value rather than
-/// a tree and the candidate sets are handed in.
+/// Tests <see cref="WikilinkRanking"/>, which orders the candidate files a bare wikilink could
+/// resolve to.
 /// </summary>
+/// <remarks>
+/// The ordering reproduces how Obsidian resolves a bare wikilink, which is a requirement rather
+/// than a choice, because the vault's existing content already depends on which file a link opens.
+/// These tests are the record of that behaviour, measured on 2026-07-23 against Obsidian
+/// configured with "New link format" set to "shortest path when possible" and "Automatically
+/// update internal links" turned on. A later measurement that disagrees will fail here.
+///
+/// Ranking finds no files itself and touches no filesystem, so the vault is a value rather than a
+/// real directory tree and the candidates are passed in.
+/// </remarks>
 public sealed class WikilinkRankingTests
 {
     private static readonly Vault Vault = new("test", Path.Combine(Path.GetTempPath(), "no-such-vault"), PathPolicy.None);
@@ -36,9 +40,9 @@ public sealed class WikilinkRankingTests
     [Fact]
     public void TwoShortHopsBeatOneLongOne()
     {
-        // Pure character count: `..` components carry no extra weight, so climbing twice out of a
-        // deep folder beats one long descent. `../../Notes/Dupe.md` is nineteen characters and
-        // `Reference-Material/Dupe.md` is twenty-six.
+        // The comparison is character count alone, with no extra weight for a ".." component, so
+        // climbing twice out of a deep folder beats one long descent. "../../Notes/Dupe.md" is
+        // nineteen characters and "Reference-Material/Dupe.md" is twenty-six.
         Assert.Equal(
             ["Notes/Dupe.md", "Projects/Widget/Reference-Material/Dupe.md"],
             Ranked("Projects/Widget/Note.md", "Projects/Widget/Reference-Material/Dupe.md", "Notes/Dupe.md"));
@@ -54,14 +58,14 @@ public sealed class WikilinkRankingTests
             Ranked("Aa/Bb/Cc/Note.md", "Dupe.md", "Aa/Bb/Cc/Dd/Dupe.md"));
     }
 
-    // ---- The tie-break ----
+    // ---- Breaking a tie ----
 
     [Fact]
     public void ADeadTieIsBrokenByOrdinalComparisonOfTheVaultRelativePaths()
     {
-        // `Bb/Dupe.md` and `../Dupe.md` are both ten characters. Comparing the relative forms would
-        // hand the tie to the parent-folder copy, `..` sorting before letters; the vault-relative
-        // comparison gives it to the subtree copy, which is what the editor does.
+        // "Bb/Dupe.md" and "../Dupe.md" are both ten characters. Comparing the relative forms
+        // would give the tie to the parent-folder copy, since ".." sorts before letters. Comparing
+        // the vault-relative forms gives it to the subtree copy, which is what the editor does.
         Assert.Equal(
             ["Aa/Bb/Dupe.md", "Dupe.md"],
             Ranked("Aa/Note.md", "Dupe.md", "Aa/Bb/Dupe.md"));
@@ -76,7 +80,7 @@ public sealed class WikilinkRankingTests
             Ranked("Note.md", "aa/Dupe.md", "Aa/Dupe.md"));
     }
 
-    // ---- What ranking is ----
+    // ---- What ranking returns ----
 
     [Fact]
     public void EveryCandidateComesBack()
@@ -97,8 +101,8 @@ public sealed class WikilinkRankingTests
     [Fact]
     public void RankingFindsNothingItself()
     {
-        // It orders the candidates it is handed, so an empty set resolves to nothing rather than to
-        // whatever is on disk.
+        // Ranking only orders the candidates it is handed, so an empty set resolves to nothing
+        // rather than to whatever is on disk.
         Assert.Null(WikilinkRanking.Resolve(At("Notes/Note.md"), []));
         Assert.Empty(WikilinkRanking.Rank(At("Notes/Note.md"), []));
     }

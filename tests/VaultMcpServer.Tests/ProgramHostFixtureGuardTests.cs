@@ -3,18 +3,16 @@ using VaultShared.Tests;
 namespace VaultMcpServer.Tests;
 
 /// <summary>
-/// Negative proof for the test-isolation prevention guard
-/// (<see cref="ProgramHostFixtureBase.AssertMutationSandboxed"/>, via the extracted
-/// <see cref="ProgramHostFixtureBase.AssertUnderTempDir"/> helper): demonstrates the guard
-/// actually throws when a resolved config path points outside the fixture's temp sandbox -
-/// exactly the "two env vars" handoff misfire - rather than only ever exercising the
-/// (trivially passing) happy path.
+/// Covers the failure cases of the test-isolation guard,
+/// <see cref="ProgramHostFixtureBase.AssertUnderTempDir"/>. The guard must throw when a resolved
+/// config path points outside the fixture's temp directory, which is what would otherwise let a
+/// mutating test reach the committed vault config.
 /// </summary>
 public sealed class ProgramHostFixtureGuardTests
 {
-    // A minimal concrete fixture so the test can reach the protected helper from within the
-    // class hierarchy - constructing it only creates/deletes a temp dir, it never builds the
-    // ASP.NET Core host (Services is never touched).
+    // A minimal concrete fixture, so the tests can reach the protected helper from inside the class
+    // hierarchy. Constructing it only creates and deletes a temp directory; the ASP.NET Core host is
+    // never built, because Services is never touched.
     private sealed class ProbeFixture : ProgramHostFixtureBase
     {
         public ProbeFixture() : base("vault-mcp-guard-probe-tests-")
@@ -36,8 +34,7 @@ public sealed class ProgramHostFixtureGuardTests
         using var fixture = new ProbeFixture();
         var goodPath = Path.Combine(fixture.TempDirForTest, "vaults.json");
 
-        // No exception expected - this is the happy path the real fixtures hit on every
-        // correctly-configured run.
+        // No exception expected: this is what a correctly configured fixture looks like.
         fixture.Probe(goodPath, goodPath);
     }
 
@@ -45,8 +42,8 @@ public sealed class ProgramHostFixtureGuardTests
     public void AssertUnderTempDir_HostConfigPathOutsideTempDir_Throws()
     {
         using var fixture = new ProbeFixture();
-        // The exact misfire the guard exists to catch: the handoff resolving to the repo's
-        // real, committed vaults.json instead of the fixture's temp copy.
+        // The case the guard exists to catch: the path resolving to the repo's committed
+        // vaults.json instead of the fixture's temp copy.
         var realVaultsJson = Path.Combine(TestVaultFixture.RepoRoot, "vaults.json");
         var goodPath = Path.Combine(fixture.TempDirForTest, "vaults.json");
 

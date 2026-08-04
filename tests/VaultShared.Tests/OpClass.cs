@@ -1,15 +1,20 @@
 namespace VaultShared.Tests;
 
 /// <summary>
-/// Typo-safe constants for the two built-in op-class names, used by tests to build grants and
-/// assert op-class outcomes. Lives in the test project rather than the main assembly because
-/// nothing in production references them: op-class enforcement is string-based against the
-/// data-driven <see cref="Vault.OpClassRegistry"/> (op-classes.json), and a tool declares its
-/// op class as a string literal. A tool needing a compile-time Read/Write constant is the case
-/// for promoting this into the main assembly.
+/// Provides typo-safe constants for the two built-in op-class names, used by tests to build
+/// grants and assert op-class outcomes.
 /// </summary>
+/// <remarks>
+/// These constants belong to the test project because no production code references them.
+/// Op-class enforcement is string-based against the data-driven
+/// <see cref="Vault.OpClassRegistry"/> loaded from op-classes.json, and a tool declares its op
+/// class as a string literal.
+/// </remarks>
 public static class OpClass
 {
+    /// <summary>The op-class name a tool declares to read content.</summary>
     public const string Read = "content:read";
+
+    /// <summary>The op-class name a tool declares to write content.</summary>
     public const string Write = "content:write";
 }

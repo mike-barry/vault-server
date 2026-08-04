@@ -3,10 +3,10 @@ using VaultShared.Frontmatter;
 namespace VaultShared.Tests;
 
 /// <summary>
-/// The single write path as a path: the three call shapes running the same code, the body splice,
-/// the no-op guarantee, the fence guard in both directions, and what the outcome reports. What each
-/// operation means is <c>FrontmatterOperationTests</c>'s; what refuses is
-/// <c>FrontmatterRefusalTests</c>'s.
+/// Verifies <see cref="FrontmatterWrite"/> as a path: the three call shapes that run through the
+/// same code, the body splice, the byte-identical no-op, the fence guard in both directions, and
+/// what the outcome reports. Individual operation semantics are covered by
+/// <see cref="FrontmatterOperationTests"/> and refusals by <see cref="FrontmatterRefusalTests"/>.
 /// </summary>
 public sealed class FrontmatterWritePathTests
 {
@@ -45,7 +45,8 @@ public sealed class FrontmatterWritePathTests
     [Fact]
     public void ComposingANewNote_HasNoOriginalSoEveryKeyPresentIsChanged()
     {
-        // No branch of its own: the diff counts every key because there was nothing to diff against.
+        // There is no separate creation branch. The diff counts every key because there was no
+        // original block to compare against.
         var outcome = FrontmatterWrite.Apply(Synthetic.Write(
             string.Empty, Everything,
             suppliedBlock: "doc.title: Widget\ndoc.type: guide",
@@ -107,8 +108,8 @@ public sealed class FrontmatterWritePathTests
     [Fact]
     public void ABodyOnlyWrite_DoesNotParseABlockNobodyCouldParse()
     {
-        // Reading tolerates what writing refuses, and a body write reads no key: refusing here would
-        // make a malformed block unfixable from the body side.
+        // A body write reads no key, so it does not parse the block. Refusing here would make a
+        // malformed block unfixable from the body side.
         var content = "---\na: b\n  c: d\n\t- x\n---\nOld body.\n";
 
         var outcome = FrontmatterWrite.Apply(Synthetic.Write(content, Everything, newBody: "New body.\n"));
@@ -121,7 +122,8 @@ public sealed class FrontmatterWritePathTests
     [Fact]
     public void ANoOp_ReturnsTheCallersContentByteIdentical()
     {
-        // Not a reserialization of it: the odd quoting and the comment below would not survive one.
+        // The original string is returned, not a reserialization of it: the quoting and the comment
+        // below would not survive one.
         var content = "---\ndoc.title: 'Widget'\n\n# a comment\n---\nBody text.\n";
 
         var outcome = FrontmatterWrite.Apply(Synthetic.Write(
@@ -162,9 +164,8 @@ public sealed class FrontmatterWritePathTests
         var outcome = FrontmatterWrite.Apply(Synthetic.Write(
             content, Everything, operations: [new FrontmatterOperation.SetScalar("doc.type", "guide")]));
 
-        // The comment and the blank line are artifacts of text with no place in the tree, and the
-        // first operation against such a note loses them. A value's own quoting style survives,
-        // because the node layer carries it.
+        // The comment and the blank line have no place in the tree, so the first operation on such
+        // a note loses them. A value's quoting style survives, because the node layer carries it.
         Assert.Equal("---\ndoc.title: 'Widget'\ndoc.type: guide\n---\n" + Body, outcome.Content);
         Assert.Equal(Body, outcome.Split.Body);
     }
@@ -195,7 +196,8 @@ public sealed class FrontmatterWritePathTests
     [Fact]
     public void TheGuard_RefusesABodyWriteThatWouldMintABlock()
     {
-        // A block no operation authored, bypassing validation and the authority assertion.
+        // Otherwise the body would carry in a block that no operation authored, skipping validation
+        // and the authority assertion.
         var refusal = Assert.Throws<FrontmatterRefusal>(() => FrontmatterWrite.Apply(Synthetic.Write(
             "Old body.\n", Everything, newBody: "---\ndoc.title: Widget\n---\nSmuggled.\n")));
 
@@ -205,9 +207,9 @@ public sealed class FrontmatterWritePathTests
     [Fact]
     public void TheGuard_RefusesAWriteThatWouldLeaveTheBodysOwnFencePairAsTheBlock()
     {
-        // The same inequality from the other side. Removing the last key drops the fence, and the
-        // body underneath opens one of its own - so the composed note carries a block nobody
-        // validated, standing where the one that was removed used to be.
+        // The same hazard from the other side. Removing the last key drops the fence, and the body
+        // underneath opens a fence pair of its own, so the composed note would carry an unvalidated
+        // block where the removed one used to be.
         var refusal = Assert.Throws<FrontmatterRefusal>(() => FrontmatterWrite.Apply(Synthetic.Write(
             "---\ndoc.title: Widget\n---\n---\nsmuggled: value\n---\nBody text.\n", Everything,
             operations: [new FrontmatterOperation.RemoveField("doc.title")])));
@@ -218,7 +220,7 @@ public sealed class FrontmatterWritePathTests
     [Fact]
     public void TheGuard_RefusesPrependingABlockToANoteWhoseFirstLineLooksLikeAFence()
     {
-        // An ambiguous shape, worse resolved silently than refused.
+        // The result would be ambiguous, so it is refused rather than resolved silently.
         var refusal = Assert.Throws<FrontmatterRefusal>(() => FrontmatterWrite.Apply(Synthetic.Write(
             "---\nNot a block, because nothing closes it.\n", Everything,
             operations: [new FrontmatterOperation.SetScalar("doc.title", "Widget")])));
@@ -240,8 +242,8 @@ public sealed class FrontmatterWritePathTests
     [Fact]
     public void ViolationsCoverTheKeysTheOperationsTouchedAndNothingElse()
     {
-        // The undeclared key sitting elsewhere in the block is passed through untouched and not
-        // reported: editing one key is never blocked by an unrelated one.
+        // The undeclared key elsewhere in the block is passed through untouched and not reported,
+        // so editing one key is never blocked by an unrelated one.
         var outcome = FrontmatterWrite.Apply(Synthetic.Write(
             Note("undeclared.key: kept\ndoc.notes:\n  - routed: skill-a\n    unknown_field: x"), Everything,
             operations: [new FrontmatterOperation.SetScalar("doc.title", "Widget")]));

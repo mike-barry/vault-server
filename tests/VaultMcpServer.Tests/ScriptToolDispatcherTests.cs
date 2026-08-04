@@ -8,10 +8,9 @@ using VaultShared.Tests;
 namespace VaultMcpServer.Tests;
 
 /// <summary>
-/// End-to-end: boots the real host against a temp tools/ folder and drives tools/list and
-/// tools/call over HTTP, proving script discovery, schema exposure, execution, and
-/// per-tool op-class enforcement against the caller's grant all work together - not just
-/// each piece in isolation.
+/// Covers script tools end to end. Boots the real host against a temporary tools/ folder and drives
+/// tools/list and tools/call over HTTP, so script discovery, schema exposure, execution and
+/// per-tool op-class enforcement are exercised together rather than each in isolation.
 /// </summary>
 [Collection("Program host tests")]
 public sealed class ScriptToolDispatcherTests : IClassFixture<ScriptToolDispatcherTests.Fixture>
@@ -22,9 +21,14 @@ public sealed class ScriptToolDispatcherTests : IClassFixture<ScriptToolDispatch
 
     private static StringContent JsonBody(string json) => new(json, Encoding.UTF8, "application/json");
 
-    /// <summary>A `tools/call` request body, serialized rather than spelled as a literal so an
-    /// argument name or value supplied by the test (a file path, a theory case) is escaped rather
-    /// than pasted into JSON.</summary>
+    /// <summary>
+    /// Builds a <c>tools/call</c> request body. Serialized rather than written as a literal, so an
+    /// argument name or value the test supplies - a file path, a theory case - is escaped rather
+    /// than pasted into JSON.
+    /// </summary>
+    /// <param name="toolName">The tool to call.</param>
+    /// <param name="arguments">The call's arguments, all of them strings.</param>
+    /// <returns>The JSON-RPC request body.</returns>
     private static string ToolCallBody(string toolName, Dictionary<string, string> arguments) =>
         JsonSerializer.Serialize(new
         {
@@ -34,9 +38,13 @@ public sealed class ScriptToolDispatcherTests : IClassFixture<ScriptToolDispatch
             @params = new { name = toolName, arguments },
         });
 
-    /// <summary>The same body, with arguments that are not all strings - a real JSON array or
-    /// object for a structured argument, so the encoding tests drive the wire shape a client
-    /// actually sends rather than a pre-stringified stand-in.</summary>
+    /// <summary>
+    /// Builds the same request body with arguments that need not be strings, so the encoding tests
+    /// send a real JSON array or object rather than a pre-stringified stand-in.
+    /// </summary>
+    /// <param name="toolName">The tool to call.</param>
+    /// <param name="arguments">The call's arguments, of any JSON-serializable type.</param>
+    /// <returns>The JSON-RPC request body.</returns>
     private static string StructuredToolCallBody(string toolName, Dictionary<string, object?> arguments) =>
         JsonSerializer.Serialize(new
         {
@@ -50,15 +58,20 @@ public sealed class ScriptToolDispatcherTests : IClassFixture<ScriptToolDispatch
     {
         var client = fixture.CreateClient();
         client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", token);
-        // Streamable HTTP requires both media types accepted (406 otherwise); the server
-        // replies as an SSE stream when text/event-stream is present, so responses need
-        // ExtractJsonRpcPayload below rather than a direct JsonDocument.Parse.
+        // Streamable HTTP requires both media types, and answers 406 without them. The server
+        // replies as an SSE stream when text/event-stream is accepted, so a response has to go
+        // through ExtractJsonRpcPayload rather than straight into JsonDocument.Parse.
         client.DefaultRequestHeaders.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
         client.DefaultRequestHeaders.Accept.Add(new MediaTypeWithQualityHeaderValue("text/event-stream"));
         return client;
     }
 
-    /// <summary>Extracts the JSON-RPC payload from a response body that may be a single SSE `data:` event rather than a plain JSON object.</summary>
+    /// <summary>Extracts the JSON-RPC payload from a response body that may be a single SSE
+    /// <c>data:</c> event rather than a plain JSON object.</summary>
+    /// <param name="body">The raw response body.</param>
+    /// <returns>The JSON-RPC payload text.</returns>
+    /// <exception cref="InvalidOperationException">The body looks like SSE but carries no
+    /// <c>data:</c> line.</exception>
     private static string ExtractJsonRpcPayload(string body)
     {
         if (!body.TrimStart().StartsWith("event:", StringComparison.Ordinal) && !body.TrimStart().StartsWith("data:", StringComparison.Ordinal))
@@ -113,21 +126,20 @@ public sealed class ScriptToolDispatcherTests : IClassFixture<ScriptToolDispatch
         var result = doc.RootElement.GetProperty("result");
         Assert.True(result.GetProperty("isError").GetBoolean());
 
-        // The floor denial carries the shared {code, message, data?} shape - the same code the
-        // in-script key assertion throws, so one branch covers both layers.
+        // The floor denial carries the shared {code, message, data?} shape, with the same code the
+        // in-script key assertion throws, so a caller handles both layers in one branch.
         var errorText = result.GetProperty("content").EnumerateArray().First().GetProperty("text").GetString()!;
         using var error = JsonDocument.Parse(errorText);
         Assert.Equal("authority_required", error.RootElement.GetProperty("code").GetString());
-        // snake_case on the wire, in both directions: the payload's names come from the same
-        // serializer options the argument binder uses.
+        // The payload's names are snake_case, because they come from the same serializer options
+        // the argument binder uses.
         Assert.Equal("content:write", error.RootElement.GetProperty("data").GetProperty("required_op_class").GetString());
         Assert.Equal("greet", error.RootElement.GetProperty("data").GetProperty("tool").GetString());
     }
 
     /// <summary>
-    /// The denial names the class the tool required - actionable for an elevation request - and
-    /// nothing about the classes the caller's grant actually holds, so a denial never doubles as a
-    /// capability dump.
+    /// Verifies that an op-class denial names the class the tool required, which a caller needs in
+    /// order to request elevation, and says nothing about the classes the caller's grant holds.
     /// </summary>
     [Fact]
     public async Task ToolsCall_OpClassDenial_DoesNotDiscloseTheGrantsHeldClasses()
@@ -146,9 +158,9 @@ public sealed class ScriptToolDispatcherTests : IClassFixture<ScriptToolDispatch
     }
 
     /// <summary>
-    /// End-to-end proof that the `tools/` file watcher is wired into the real host: a
-    /// script dropped onto disk after startup shows up in `tools/list` without a restart,
-    /// once the watcher's debounce window has elapsed.
+    /// Verifies that the <c>tools/</c> file watcher is wired into the real host: a script written to
+    /// disk after startup appears in <c>tools/list</c> without a restart, once the watcher's
+    /// debounce window has elapsed.
     /// </summary>
     [Fact]
     public async Task ToolsList_AfterAddingScriptFileOnDisk_ReflectsTheNewToolOnceDebounced()
@@ -196,8 +208,8 @@ public sealed class ScriptToolDispatcherTests : IClassFixture<ScriptToolDispatch
         var result = doc.RootElement.GetProperty("result");
         Assert.True(result.GetProperty("isError").GetBoolean());
 
-        // An unknown name is refused before any script runs, so it emits the shared shape too -
-        // `not_found` over the caller's own tool name, which discloses nothing about the tool set.
+        // An unknown name is refused before any script runs and still carries the shared shape:
+        // not_found over the caller's own tool name, disclosing nothing about the tool set.
         var errorText = result.GetProperty("content").EnumerateArray().First().GetProperty("text").GetString()!;
         using var error = JsonDocument.Parse(errorText);
         Assert.Equal("not_found", error.RootElement.GetProperty("code").GetString());
@@ -205,9 +217,9 @@ public sealed class ScriptToolDispatcherTests : IClassFixture<ScriptToolDispatch
     }
 
     /// <summary>
-    /// The dispatcher's argument-name check matches case-insensitively because that is how
-    /// PowerShell's binder matches - a name that would have bound must not be refused here, or the
-    /// check becomes stricter than the thing it stands in front of.
+    /// Verifies that the dispatcher's argument-name check matches case-insensitively, as
+    /// PowerShell's binder does. A name that would have bound must not be refused here, or the check
+    /// is stricter than the binder it stands in front of.
     /// </summary>
     [Fact]
     public async Task ToolsCall_KnownArgumentInNonMatchingCase_StillDispatches()
@@ -225,9 +237,9 @@ public sealed class ScriptToolDispatcherTests : IClassFixture<ScriptToolDispatch
     }
 
     /// <summary>
-    /// An argument naming no advertised parameter is refused by the dispatcher as a coded
-    /// <c>invalid_argument</c>, rather than reaching the runspace where <c>[CmdletBinding()]</c>
-    /// would refuse it as a raw PowerShell binding string outside the shared error shape.
+    /// Verifies that an argument naming no advertised parameter is refused by the dispatcher as
+    /// <c>invalid_argument</c>. Left to reach the runspace, <c>[CmdletBinding()]</c> would refuse it
+    /// with a raw PowerShell binding message outside the shared error shape.
     /// </summary>
     [Fact]
     public async Task ToolsCall_UnknownArgumentName_IsRejectedAsInvalidArgument()
@@ -250,10 +262,11 @@ public sealed class ScriptToolDispatcherTests : IClassFixture<ScriptToolDispatch
     }
 
     /// <summary>
-    /// <c>[CmdletBinding()]</c> makes PowerShell's common parameters bindable on every tool script.
-    /// They are not special-cased: they name no entry in the param() block, so the same check
-    /// refuses them, and a tool's param() block stays its entire client-facing argument surface.
+    /// Verifies that PowerShell's common parameters, which <c>[CmdletBinding()]</c> makes bindable
+    /// on every tool script, are refused by the same check as any other unadvertised name. A tool's
+    /// param() block is its entire client-facing argument surface.
     /// </summary>
+    /// <param name="commonParameter">The common parameter name to send.</param>
     [Theory]
     [InlineData("Verbose")]
     [InlineData("ErrorAction")]
@@ -276,9 +289,9 @@ public sealed class ScriptToolDispatcherTests : IClassFixture<ScriptToolDispatch
     }
 
     /// <summary>
-    /// The refusal happens before the runner is invoked, not after the script has already had its
-    /// effect: the same call minus the bogus argument writes the marker file, so the absence of the
-    /// file on the refused call is proof the script never ran.
+    /// Verifies that the refusal happens before the runner is invoked, not after the script has had
+    /// its effect. The same call without the unadvertised argument writes a marker file, so the
+    /// absence of that file on the refused call shows the script never ran.
     /// </summary>
     [Fact]
     public async Task ToolsCall_UnknownArgumentName_RefusesBeforeTheScriptRuns()
@@ -293,7 +306,7 @@ public sealed class ScriptToolDispatcherTests : IClassFixture<ScriptToolDispatch
         Assert.False(File.Exists(refusedMarker));
 
         // Control: the identical call without the unadvertised name does run the script, so the
-        // assertion above is about the check and not about the fixture script being inert.
+        // assertion above is about the check rather than about the fixture script doing nothing.
         using var allowed = await client.PostAsync("/mcp", JsonBody(ToolCallBody("mark", new() { ["Marker"] = allowedMarker })));
         using var allowedDoc = JsonDocument.Parse(ExtractJsonRpcPayload(await allowed.Content.ReadAsStringAsync()));
         var allowedResult = allowedDoc.RootElement.GetProperty("result");
@@ -301,9 +314,13 @@ public sealed class ScriptToolDispatcherTests : IClassFixture<ScriptToolDispatch
         Assert.True(File.Exists(allowedMarker));
     }
 
-    /// <summary>Runs a `shape` call and returns its parsed report - the tool's real output, so
-    /// every encoding assertion below is about what the script actually parsed rather than about
-    /// what the dispatcher put in the splat.</summary>
+    /// <summary>
+    /// Calls the <c>shape</c> fixture tool and returns its report. The report is the script's own
+    /// output, so the encoding tests assert on what the script parsed rather than on what the
+    /// dispatcher put in the splat.
+    /// </summary>
+    /// <param name="arguments">The arguments to send, of any JSON-serializable type.</param>
+    /// <returns>The script's report, parsed.</returns>
     private async Task<JsonElement> CallShapeAsync(Dictionary<string, object?> arguments)
     {
         using var client = AuthedClient(_fixture, Fixture.AdminToken);
@@ -317,11 +334,11 @@ public sealed class ScriptToolDispatcherTests : IClassFixture<ScriptToolDispatch
     }
 
     /// <summary>
-    /// A real JSON array sent for a parameter whose side-car declares <c>type: "array"</c> reaches
-    /// the <c>[string]</c> script parameter as JSON text, which the script's own
-    /// <c>ConvertFrom-Json -NoEnumerate</c> parses back into the array it was. Without the encoding
-    /// the splat hands PowerShell an <c>object[]</c>, which stringifies into a <c>[string]</c>
-    /// parameter as "System.Object[]" and fails to parse at all.
+    /// Verifies that a real JSON array sent for a parameter whose side-car declares
+    /// <c>type: "array"</c> reaches the <c>[string]</c> script parameter as JSON text, which the
+    /// script's own <c>ConvertFrom-Json -NoEnumerate</c> parses back into the same array. Without
+    /// the encoding the splat hands PowerShell an <c>object[]</c>, which stringifies into a
+    /// <c>[string]</c> parameter as "System.Object[]" and does not parse.
     /// </summary>
     [Fact]
     public async Task ToolsCall_StructuredArrayForSideCarArrayParameter_ReachesTheScriptAsParseableJson()
@@ -338,11 +355,10 @@ public sealed class ScriptToolDispatcherTests : IClassFixture<ScriptToolDispatch
     }
 
     /// <summary>
-    /// The rule that makes the encoding safe to switch on: only a <em>structured</em> arrival value
-    /// is serialized. A caller that already encoded its payload - every caller written against the
-    /// contract as it stands today, and every hand-encoded remedy splat - sends a JSON string, and
-    /// it must pass through verbatim. Encoding it a second time would hand the script a JSON string
-    /// literal where it expects an array, which parses as a bare string and is refused.
+    /// Verifies that a caller who already encoded its payload is not encoded again. Only a
+    /// structured arrival value is serialized; a JSON string passes through verbatim. Encoding it a
+    /// second time would hand the script a JSON string literal where it expects an array, which
+    /// parses as a bare string and is refused.
     /// </summary>
     [Fact]
     public async Task ToolsCall_AlreadyEncodedStringForSideCarArrayParameter_IsNotEncodedAgain()
@@ -350,7 +366,7 @@ public sealed class ScriptToolDispatcherTests : IClassFixture<ScriptToolDispatch
         const string encoded = """[{"name":"first"},{"name":"second"}]""";
         var report = await CallShapeAsync(new() { ["items"] = encoded });
 
-        // Verbatim: the same characters the caller sent, not a JSON string literal wrapping them.
+        // The same characters the caller sent, not a JSON string literal wrapping them.
         Assert.Equal(encoded, report.GetProperty("itemsRaw").GetString());
         Assert.True(report.GetProperty("itemsIsArray").GetBoolean());
         Assert.Equal(2, report.GetProperty("itemsCount").GetInt32());
@@ -358,20 +374,19 @@ public sealed class ScriptToolDispatcherTests : IClassFixture<ScriptToolDispatch
     }
 
     /// <summary>
-    /// The plain conversion's number branch, end to end against the real host: a JSON number for a
-    /// numeric parameter has to reach the splat as an integral CLR type, not as a double.
-    ///
-    /// This earns a dispatch test rather than staying a unit assertion because the widening was
-    /// invisible at every layer above it. A whole-valued double binds to <c>[long]</c> without
-    /// complaint and stringifies to the same text, so a small integer would pass this test with the
-    /// bug in place; 2^53+1 is the smallest value where a double cannot hold consecutive integers,
-    /// which turns a CLR-type nicety into visible data loss - the script would receive
-    /// 9007199254740992 for an argument the client sent as 9007199254740993.
-    ///
-    /// No landed tool declares a numeric parameter today, so this is coverage for the contract
-    /// <c>MapJsonType</c> already advertises (<c>[int]</c>/<c>[long]</c> -> JSON "integer") rather
-    /// than for a shipped surface.
+    /// Verifies that a JSON number for a numeric parameter reaches the splat as an integral CLR
+    /// type rather than a double, against the real host.
     /// </summary>
+    /// <remarks>
+    /// The value has to exceed 2^53. A whole-valued double binds to <c>[long]</c> without complaint
+    /// and stringifies to the same text, so a small integer would pass even if the conversion
+    /// widened everything to double. 2^53+1 is the smallest value a double cannot hold exactly: the
+    /// script would receive 9007199254740992 for an argument the client sent as 9007199254740993.
+    ///
+    /// No current tool declares a numeric parameter, so this covers the contract
+    /// <c>MapJsonType</c> advertises - <c>[int]</c> and <c>[long]</c> as JSON "integer" - rather
+    /// than a shipped surface.
+    /// </remarks>
     [Fact]
     public async Task ToolsCall_JsonNumberForANumericParameter_ReachesTheScriptAsAnExactInteger()
     {
@@ -382,8 +397,8 @@ public sealed class ScriptToolDispatcherTests : IClassFixture<ScriptToolDispatch
         Assert.Equal("9007199254740993", report.GetProperty("countValue").GetString());
     }
 
-    /// <summary>The structured-array and already-encoded-string arrivals converge on byte-identical
-    /// script input - the property that lets a caller send either form.</summary>
+    /// <summary>Verifies that a structured array and an already-encoded string reach the script as
+    /// identical text, which is what lets a caller send either form.</summary>
     [Fact]
     public async Task ToolsCall_StructuredAndPreEncodedArrivals_ReachTheScriptIdentically()
     {
@@ -393,8 +408,8 @@ public sealed class ScriptToolDispatcherTests : IClassFixture<ScriptToolDispatch
         Assert.Equal(structured.GetProperty("itemsRaw").GetString(), preEncoded.GetProperty("itemsRaw").GetString());
     }
 
-    /// <summary>The signal is a non-string declared type, not "array" specifically: an object-typed
-    /// side-car encodes a structured object the same way.</summary>
+    /// <summary>Verifies that an object-typed side-car encodes a structured object the same way an
+    /// array-typed one does. What matters is that the declared type is not "string".</summary>
     [Fact]
     public async Task ToolsCall_StructuredObjectForSideCarObjectParameter_ReachesTheScriptAsParseableJson()
     {
@@ -407,9 +422,8 @@ public sealed class ScriptToolDispatcherTests : IClassFixture<ScriptToolDispatch
     }
 
     /// <summary>
-    /// The two non-encoding cases, together so the contrast is in one place: a parameter with no
-    /// side-car at all, and one whose side-car declares <c>type: "string"</c>. Both take exactly
-    /// today's path - a string argument arrives as itself.
+    /// Verifies the two non-encoding cases together: a parameter with no side-car, and one whose
+    /// side-car declares <c>type: "string"</c>. A string argument arrives as itself in both.
     /// </summary>
     [Fact]
     public async Task ToolsCall_ParametersWithNoSideCarOrAStringSideCar_PassStringsThroughUnchanged()
@@ -420,21 +434,23 @@ public sealed class ScriptToolDispatcherTests : IClassFixture<ScriptToolDispatch
             ["declared_string"] = "just text",
         });
 
-        // A JSON-looking string against a parameter with no side-car is still just a string: the
-        // dispatcher has no schema to read, so it does nothing to it in either direction.
+        // A JSON-looking string against a parameter with no side-car is still just a string. The
+        // dispatcher has no schema to read, so it neither encodes nor decodes it.
         Assert.Equal("""[{"name":"first"}]""", report.GetProperty("plain").GetString());
         Assert.Equal("just text", report.GetProperty("declaredString").GetString());
     }
 
     /// <summary>
-    /// Round-trip fidelity through the encoder's chosen options. The payload carries non-ASCII and
-    /// the characters <c>System.Text.Json</c>'s <em>default</em> encoder escapes for HTML safety
-    /// (<c>&lt;</c>, <c>&gt;</c>, <c>&amp;</c>, <c>+</c>, <c>'</c>) - a vault path or a frontmatter
-    /// value can hold every one of them. The relaxed encoder writes them as themselves, so the
-    /// script sees the bytes the caller sent; the default encoder would still produce valid JSON
-    /// that parses back to the same value, but the payload text - which a tool echoes into its own
-    /// error data and its logs - would be an unreadable escape run.
+    /// Verifies that a payload round-trips verbatim through the encoder, characters and all. The
+    /// test payload carries non-ASCII text plus the characters <c>System.Text.Json</c>'s default
+    /// encoder escapes for HTML safety (<c>&lt;</c>, <c>&gt;</c>, <c>&amp;</c>, <c>+</c>,
+    /// <c>'</c>), any of which can appear in a vault path or a frontmatter value.
     /// </summary>
+    /// <remarks>
+    /// The relaxed encoder writes those characters as themselves. The default encoder would still
+    /// produce valid JSON that parses back to the same value, but the payload text - which a tool
+    /// echoes into its error data and its logs - would be a run of escapes.
+    /// </remarks>
     [Fact]
     public async Task ToolsCall_PayloadWithNonAsciiAndDefaultEscapeSetCharacters_RoundTripsVerbatim()
     {
@@ -444,14 +460,13 @@ public sealed class ScriptToolDispatcherTests : IClassFixture<ScriptToolDispatch
             ["items"] = new[] { new { name = awkward } },
         });
 
-        // Survives encode -> ConvertFrom-Json -> the script's own output.
+        // Survives encoding, the script's ConvertFrom-Json, and the script's own output.
         Assert.Equal(awkward, report.GetProperty("itemsFirstName").GetString());
 
-        // And survives as the characters themselves. System.Text.Json's default encoder would have
-        // rewritten every one of them as a six-character backslash-u escape - still valid JSON,
-        // still parsing back to the same value, which is why the assertion above cannot tell the
-        // two encoders apart. The absence of any such escape run in the text the script actually
-        // received is what pins the choice.
+        // And survives as the characters themselves. The default encoder would rewrite each of them
+        // as a six-character \u escape - still valid JSON parsing back to the same value, which is
+        // why the assertion above cannot tell the two encoders apart. The absence of escapes in the
+        // text the script received is what distinguishes them.
         var raw = report.GetProperty("itemsRaw").GetString()!;
         Assert.Equal("""[{"name":"café — 日本語 <tag> & 'quoted' a+b"}]""", raw);
         Assert.DoesNotContain("\\u", raw, StringComparison.OrdinalIgnoreCase);
@@ -464,8 +479,8 @@ public sealed class ScriptToolDispatcherTests : IClassFixture<ScriptToolDispatch
 
         public string ToolsDir { get; }
 
-        /// <summary>Where the <c>mark</c> fixture tool writes its marker files - the observable side
-        /// effect a test uses to tell whether a script actually ran.</summary>
+        /// <summary>The directory the <c>mark</c> fixture tool writes its marker files to. Their
+        /// presence is how a test tells whether a script actually ran.</summary>
         public string MarkerDir { get; }
 
         public Fixture() : base("vault-mcp-tools-dispatch-tests-")
@@ -502,10 +517,10 @@ public sealed class ScriptToolDispatcherTests : IClassFixture<ScriptToolDispatch
                 Write-Output "hello $Name"
                 """);
 
-            // The argument-encoding fixture. Every parameter is [string] - exactly like the real
-            // tools, whose standalone `pwsh -File` invariant is what keeps them that way - and the
-            // `.SCHEMA` side-cars are the only thing that differs between them, so a test that
-            // varies only which parameter it sends a structured value to isolates the signal.
+            // The argument-encoding fixture tool. Every parameter is [string], as the real tools are
+            // so they can still be run standalone with `pwsh -File`, and the .SCHEMA side-cars are
+            // the only difference between them. A test that varies only which parameter it sends a
+            // structured value to therefore isolates the encoding signal.
             File.WriteAllText(Path.Combine(toolsDir, "shape.ps1"), """
                 <#
                 .SYNOPSIS
@@ -570,9 +585,9 @@ public sealed class ScriptToolDispatcherTests : IClassFixture<ScriptToolDispatch
 
             MarkerDir = Path.Combine(TempDir, "markers");
             Directory.CreateDirectory(MarkerDir);
-            // Carries [CmdletBinding()] like the real tool scripts, so a call that reaches the
-            // runspace with an unadvertised name would be refused by the binder - which is exactly
-            // what the dispatcher's own check has to get in front of.
+            // Carries [CmdletBinding()] like the real tool scripts, so a call reaching the runspace
+            // with an unadvertised name would be refused by the binder, which is what the
+            // dispatcher's own check has to get in front of.
             File.WriteAllText(Path.Combine(toolsDir, "mark.ps1"), """
                 <#
                 .SYNOPSIS

@@ -11,29 +11,34 @@ using VaultShared.Tests;
 namespace VaultMcpServer.Tests;
 
 /// <summary>
-/// Shared base for every <see cref="WebApplicationFactory{Program}"/>-based fixture that boots
-/// the real host (Program.cs) against per-fixture temp config. Program.cs reads
-/// VaultsConfigPath/OpClassesConfigPath/GrantsConfigPath/ToolsDirectory/LogsDirectory from
-/// IConfiguration before builder.Build(), so a ConfigureWebHost/ConfigureAppConfiguration
-/// override lands too late - WebApplicationFactory doesn't guarantee it's applied before the
-/// entry point's own top-level code runs. Environment variables are folded into
-/// WebApplicationBuilder.Configuration synchronously inside CreateBuilder() itself, so setting
-/// them here (before the host is lazily built on first client/server access) reliably overrides
-/// both paths.
-///
-/// Each derived fixture creates its own temp directory (isolating it from every other fixture
-/// and from the committed repo config), writes whatever vaults.json/grants.json/tools/ it needs
-/// under that directory, then calls <see cref="ConfigureEnvironment"/> once to point Program.cs
-/// at them. Disposal clears every env var this fixture set and deletes the temp directory.
+/// Provides the shared base for every <see cref="WebApplicationFactory{Program}"/> fixture that
+/// boots the real host (Program.cs) against per-fixture temporary config.
 /// </summary>
+/// <remarks>
+/// Config paths must be supplied as environment variables. Program.cs reads
+/// VaultsConfigPath, OpClassesConfigPath, GrantsConfigPath, ToolsDirectory and LogsDirectory from
+/// IConfiguration before builder.Build(), and a ConfigureWebHost or ConfigureAppConfiguration
+/// override is not guaranteed to be applied before the entry point's top-level code runs.
+/// Environment variables are folded into WebApplicationBuilder.Configuration synchronously inside
+/// CreateBuilder(), so setting them here - before the host is lazily built on first client or
+/// server access - reliably takes effect.
+///
+/// Each derived fixture creates its own temp directory, writes whatever vaults.json, grants.json
+/// or tools/ it needs under that directory, then calls <see cref="ConfigureEnvironment"/> once to
+/// point Program.cs at them. That keeps a fixture isolated from every other fixture and from the
+/// committed repo config. Disposal clears every environment variable this fixture set and deletes
+/// the temp directory.
+/// </remarks>
 public abstract class ProgramHostFixtureBase : WebApplicationFactory<Program>
 {
     private readonly List<string> _envVarsSet = [];
 
     protected string TempDir { get; }
 
-    /// <summary>The header a test can set to simulate a specific client remote address (see
-    /// <see cref="RemoteIpStartupFilter"/>); absent means the request is presented as loopback.</summary>
+    /// <summary>
+    /// The request header a test sets to simulate a specific client remote address. When the
+    /// header is absent the request is presented as coming from loopback.
+    /// </summary>
     public const string RemoteIpHeader = "X-Test-Remote-Ip";
 
     protected ProgramHostFixtureBase(string tempDirPrefix)
@@ -42,14 +47,16 @@ public abstract class ProgramHostFixtureBase : WebApplicationFactory<Program>
     }
 
     /// <summary>
-    /// TestServer does not populate <c>HttpContext.Connection.RemoteIpAddress</c> - it is null
-    /// unless something sets it - but <see cref="Auth.BearerGrantMiddleware"/>'s loopback gate
-    /// treats null as non-loopback (fail closed), which would make every hosted request a
-    /// non-loopback 401. Register a startup filter that stamps a loopback address by default (so
-    /// the E2E suite exercises the localhost model the real server runs under), letting a test
-    /// override it to a specific address via the <see cref="RemoteIpHeader"/> header to drive the
-    /// non-loopback path over HTTP.
+    /// Registers the startup filter that gives every test request a concrete remote IP address.
     /// </summary>
+    /// <param name="builder">The web host builder supplied by <see cref="WebApplicationFactory{TEntryPoint}"/>.</param>
+    /// <remarks>
+    /// TestServer leaves <c>HttpContext.Connection.RemoteIpAddress</c> null unless something sets
+    /// it, and <see cref="Auth.BearerGrantMiddleware"/>'s loopback gate fails closed on null, so
+    /// without this filter every hosted request would be treated as non-loopback and rejected with
+    /// 401. The filter stamps loopback by default and honours the <see cref="RemoteIpHeader"/>
+    /// header when a test needs to drive the non-loopback path.
+    /// </remarks>
     protected override void ConfigureWebHost(IWebHostBuilder builder)
     {
         builder.ConfigureTestServices(services =>
@@ -57,8 +64,7 @@ public abstract class ProgramHostFixtureBase : WebApplicationFactory<Program>
     }
 
     /// <summary>
-    /// Runs ahead of the app's own middleware (it wraps the whole pipeline) and sets
-    /// <c>RemoteIpAddress</c> so <see cref="Auth.BearerGrantMiddleware"/> sees a concrete remote:
+    /// Wraps the whole pipeline and sets <c>RemoteIpAddress</c> before any app middleware runs:
     /// loopback by default, or the <see cref="RemoteIpHeader"/> value when a test supplies one.
     /// </summary>
     private sealed class RemoteIpStartupFilter : IStartupFilter
@@ -79,17 +85,26 @@ public abstract class ProgramHostFixtureBase : WebApplicationFactory<Program>
     }
 
     /// <summary>
-    /// Points Program.cs's config loaders at this fixture's temp files/directories.
-    /// VaultsConfigPath, GrantsConfigPath, and LogsDirectory are always set - LogsDirectory is
-    /// redirected into <c>TempDir/logs</c> so test runs never litter the repo-root
-    /// <c>logs/</c> directory with timestamped files. ToolsDirectory, OpClassesConfigPath, and
-    /// the PowerShell-side VAULT_MCP_VAULTS_JSON variable are optional: several fixtures point
-    /// ToolsDirectory at the real repo <c>tools/</c> directory (so a script's own relative
-    /// Import-Module resolves) and also need VAULT_MCP_VAULTS_JSON so that in-process script
-    /// sees the same vaults.json the C# host does; others use a throwaway temp tools/ folder
-    /// and need neither the real path nor the PowerShell-side variable. Leaving an optional
-    /// parameter null leaves Program.cs's own default for that setting in place.
+    /// Points Program.cs's config loaders at this fixture's temporary files and directories.
     /// </summary>
+    /// <param name="vaultsConfigPath">Path written to the <c>VaultsConfigPath</c> setting.</param>
+    /// <param name="grantsConfigPath">Path written to the <c>GrantsConfigPath</c> setting.</param>
+    /// <param name="toolsDirectory">Path written to the <c>ToolsDirectory</c> setting, or null to
+    /// leave Program.cs's default in place.</param>
+    /// <param name="opClassesConfigPath">Path written to the <c>OpClassesConfigPath</c> setting,
+    /// or null to leave Program.cs's default in place.</param>
+    /// <param name="vaultMcpVaultsJsonPath">Path written to the <c>VAULT_MCP_VAULTS_JSON</c>
+    /// variable that PowerShell tool scripts read, or null to leave it unset.</param>
+    /// <remarks>
+    /// LogsDirectory is always redirected into <c>TempDir/logs</c> so test runs never write
+    /// timestamped files into the repo-root <c>logs/</c> directory.
+    ///
+    /// A fixture that points <paramref name="toolsDirectory"/> at the real repo <c>tools/</c>
+    /// directory - so a script's relative Import-Module resolves - must also pass
+    /// <paramref name="vaultMcpVaultsJsonPath"/>, because the script reads its vault list from
+    /// that variable rather than from the host's configuration. A fixture using a throwaway temp
+    /// tools folder needs neither.
+    /// </remarks>
     protected void ConfigureEnvironment(
         string vaultsConfigPath,
         string grantsConfigPath,
@@ -108,11 +123,13 @@ public abstract class ProgramHostFixtureBase : WebApplicationFactory<Program>
             SetEnvironmentVariable("VAULT_MCP_VAULTS_JSON", vaultMcpVaultsJsonPath);
     }
 
-    /// <summary>Sets a process-global env var and tracks it for disposal cleanup. Derived
-    /// fixtures use it for extra settings beyond the config paths (e.g. the
-    /// <c>LocalhostAuth__*</c> / <c>Elevation__*</c> sections), which ASP.NET Core folds into
-    /// <c>WebApplicationBuilder.Configuration</c> synchronously - the same reason the config paths
-    /// are set this way rather than via ConfigureAppConfiguration.</summary>
+    /// <summary>
+    /// Sets a process-global environment variable and tracks it so disposal clears it. Derived
+    /// fixtures use this for settings beyond the config paths, such as the <c>LocalhostAuth__*</c>
+    /// and <c>Elevation__*</c> sections.
+    /// </summary>
+    /// <param name="name">Name of the environment variable to set.</param>
+    /// <param name="value">Value to set it to.</param>
     protected void SetEnvironmentVariable(string name, string value)
     {
         Environment.SetEnvironmentVariable(name, value);
@@ -120,16 +137,18 @@ public abstract class ProgramHostFixtureBase : WebApplicationFactory<Program>
     }
 
     /// <summary>
-    /// Prevention half of the test-isolation guard pair (detection half is
-    /// <see cref="TestVaultCleanGuard"/>, run from <see cref="Dispose"/> below). Targets a
-    /// specific observed failure mode, the "two env vars" gotcha: a mutating dispatch test
-    /// relies entirely on the host's resolved
-    /// <c>VaultsConfigPath</c> and the script runspace's <c>$env:VAULT_MCP_VAULTS_JSON</c>
-    /// both pointing under this fixture's temp directory, and when that handoff misfires, the
-    /// tool operates on the repo's real, committed <c>vaults.json</c> instead. Call this
-    /// immediately before invoking a mutating tool call, so a misfire fails fast with a clear
-    /// message rather than quietly mutating the committed fixture.
+    /// Throws unless both the host's resolved <c>VaultsConfigPath</c> and the script runspace's
+    /// <c>VAULT_MCP_VAULTS_JSON</c> point under this fixture's temp directory.
     /// </summary>
+    /// <exception cref="InvalidOperationException">Either path is unset or resolves outside the
+    /// temp directory.</exception>
+    /// <remarks>
+    /// Call this immediately before a mutating tool call. A mutating test depends on both
+    /// variables, and if either one is missed the tool operates on the repo's real committed
+    /// <c>vaults.json</c>. Failing here reports that clearly instead of letting the mutation
+    /// happen. The matching check after the fact is
+    /// <see cref="TestVaultCleanGuard"/>, run from <see cref="Dispose"/>.
+    /// </remarks>
     protected void AssertMutationSandboxed()
     {
         var config = Services.GetRequiredService<IConfiguration>();
@@ -142,11 +161,18 @@ public abstract class ProgramHostFixtureBase : WebApplicationFactory<Program>
     }
 
     /// <summary>
-    /// Extracted as an internal static helper (rather than inlined in
-    /// <see cref="AssertMutationSandboxed"/>) so it has a unit-testable negative case - see
-    /// <c>ProgramHostFixtureGuardTests</c>, which proves the guard actually throws when a
-    /// resolved path points outside the fixture's temp directory.
+    /// Throws unless <paramref name="actualPath"/> is set and resolves to
+    /// <paramref name="tempDir"/> or somewhere beneath it.
     /// </summary>
+    /// <param name="actualPath">The path to check. Null or empty is a failure.</param>
+    /// <param name="label">Name of the setting the path came from, used in the failure message.</param>
+    /// <param name="tempDir">The fixture temp directory the path must be under.</param>
+    /// <exception cref="InvalidOperationException">The path is unset or falls outside
+    /// <paramref name="tempDir"/>.</exception>
+    /// <remarks>
+    /// Separate from <see cref="AssertMutationSandboxed"/> so its failure case can be tested
+    /// directly; see <c>ProgramHostFixtureGuardTests</c>.
+    /// </remarks>
     protected internal static void AssertUnderTempDir(string? actualPath, string label, string tempDir)
     {
         if (string.IsNullOrEmpty(actualPath))
@@ -195,9 +221,8 @@ public abstract class ProgramHostFixtureBase : WebApplicationFactory<Program>
             {
             }
 
-            // Detection half of the test-isolation guard pair - runs after this fixture's own
-            // cleanup so a dirty test-vault/ is reported clearly rather than buried under other
-            // teardown noise. See TestVaultCleanGuard's remarks.
+            // Runs after this fixture's own cleanup so a dirty test-vault/ is reported clearly
+            // rather than buried under other teardown noise.
             TestVaultCleanGuard.AssertCommittedFixtureUntouched();
         }
     }

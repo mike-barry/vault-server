@@ -6,14 +6,14 @@ using VaultShared.Tools;
 namespace VaultMcpServer.Tests;
 
 /// <summary>
-/// This front-end's half of the parity contract (<see cref="FrontEndParity"/>): every refusal
-/// vocabulary arrives in the text of an <c>isError</c> result as exactly the bytes the contract
-/// names.
-///
-/// The CLI's suite asserts the same values against standard error, which is what makes
-/// "byte-identical whichever front-end answered" a checked claim rather than an intention. Result
-/// rendering over this transport is <c>VaultToolDispatchTests</c>', where a real call produces it.
+/// Checks this front-end's half of the parity contract in <see cref="FrontEndParity"/>: every
+/// refusal arrives in the text of an <c>isError</c> result as exactly the bytes the contract names.
 /// </summary>
+/// <remarks>
+/// The CLI test suite asserts the same values against standard error, so the two front-ends are
+/// held to byte-identical refusals. Rendering of successful results over this transport is covered
+/// by <c>VaultToolDispatchTests</c>, where a real call produces one.
+/// </remarks>
 public sealed class FrontEndParityTests
 {
     public static TheoryData<string> RefusalNames() => [.. FrontEndParity.Refusals.Select(c => c.Name)];

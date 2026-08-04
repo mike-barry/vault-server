@@ -4,12 +4,14 @@ using VaultShared.Links;
 namespace VaultShared.Tests.Links;
 
 /// <summary>
-/// Repair on relocation: every link naming the relocated item is re-emitted canonically, every link
-/// the move would have re-aimed is pinned instead, and nothing else in any note changes.
-///
-/// Real trees, because the pass enumerates and reads for real and the cases are about what it finds.
-/// Each builds its own, since what is on disk is the case.
+/// Verifies the repair pass a relocation runs: every link naming the moved item is re-emitted in
+/// canonical form, every link the move would otherwise re-aim is pinned to its current target, and
+/// nothing else in any note changes.
 /// </summary>
+/// <remarks>
+/// Each test builds a real directory tree, because the pass enumerates and reads files and what is
+/// on disk is what the test is about.
+/// </remarks>
 public sealed class WikilinkRepairTests : IDisposable
 {
     private readonly ScratchVault _vault = new();
@@ -22,12 +24,13 @@ public sealed class WikilinkRepairTests : IDisposable
     private LinkPassOutcome<WikilinkPlan> MoveFolder(string from, string to) =>
         WikilinkMaintenance.PlanFolderRelocation(_vault.Access.BypassingScope(), _vault.At(from), _vault.At(to));
 
-    // ---- Emission is canonical rather than minimal ----
+    // ---- Canonical emission ----
 
     [Fact]
     public void APathQualifiedLinkToAUniqueNameCollapsesToBare()
     {
-        // The editor's own emit rule: a deliberately qualified form is not preserved.
+        // The canonical form follows the editor's emit rule, so a deliberately qualified link is
+        // not preserved when the name is unique.
         _vault
             .WithNote("Projects/Widget.md", "# Widget\n")
             .WithNote("Notes/Bare.md", "See [[Widget]].\n")
@@ -85,14 +88,14 @@ public sealed class WikilinkRepairTests : IDisposable
         Assert.Equal("See [[box/Widget]].\n", _vault.TextOf("Notes/MidComponent.md"));
     }
 
-    // ---- Never re-aim ----
+    // ---- Links are never re-aimed ----
 
     [Fact]
     public void ABystandersBareLinkIsPinnedWhereTheMoveWouldChangeWhatItOpens()
     {
-        // Moving a same-named file closer to the linking note is the shape the editor protects
-        // against. The bystander link is frozen on what it opens today; it is never redirected, and
-        // nothing fails on the ambiguity.
+        // Moving a same-named file closer to the linking note would change what a bare link opens.
+        // The link is pinned to the note it opens today rather than redirected, and the ambiguity
+        // does not fail the pass.
         _vault
             .WithNote("Far/Widget.md", "# The bystander\n")
             .WithNote("Other/Widget.md", "# The one that moves\n")
@@ -128,8 +131,8 @@ public sealed class WikilinkRepairTests : IDisposable
     [Fact]
     public void ABareLinkIsRewrittenOnlyWhereItResolvesToTheRelocatedNote()
     {
-        // Two notes carry the same bare link and it means different files in each, which is what
-        // makes bare matching a resolution question rather than a name question.
+        // The same bare link text means a different file in each note, so matching a bare link is
+        // a question of resolution rather than of the name alone.
         _vault
             .WithNote("Aa/Bb/Dupe.md", "# Subtree copy\n")
             .WithNote("Zz/Dupe.md", "# Elsewhere\n")
@@ -145,7 +148,7 @@ public sealed class WikilinkRepairTests : IDisposable
     [Fact]
     public void TheSubtreeCopyWinsADeadTieAsTheEditorRanksIt()
     {
-        // `Aa/Bb/Dupe.md` and `Dupe.md` are both ten characters from `Aa/Note.md`, and the ordinal
+        // `Aa/Bb/Dupe.md` and `Dupe.md` are the same distance from `Aa/Note.md`, and the ordinal
         // tie-break on the vault-relative paths gives it to the subtree copy.
         _vault
             .WithNote("Aa/Bb/Dupe.md", "# Subtree copy\n")
@@ -157,7 +160,7 @@ public sealed class WikilinkRepairTests : IDisposable
         Assert.Equal(["Aa/Note.md:1 Dupe -> Renamed"], LinkPass.Apply(_vault, plan));
     }
 
-    // ---- A folder relocation ----
+    // ---- Folder relocation ----
 
     [Fact]
     public void AFolderRelocationIsOnePrefixSubstitutionAndRenamesItsFolderNote()
@@ -201,8 +204,8 @@ public sealed class WikilinkRepairTests : IDisposable
     [Fact]
     public void AContainedNotesOwnLinksAreMeasuredFromWhereItWillBe()
     {
-        // The linking note moves too, so a link to a note that did not move can still be re-aimed
-        // by the folder's own relocation. It is pinned like any other bystander.
+        // The linking note moves too, so a bare link to a note that did not move can still change
+        // what it opens. It is pinned like any other bystander.
         _vault
             .WithNote("Old/Note.md", "See [[Dupe]].\n")
             .WithNote("Aa/Dupe.md", "# The one it opens today\n")
@@ -213,7 +216,7 @@ public sealed class WikilinkRepairTests : IDisposable
         Assert.Equal(["Old/Note.md:1 Dupe -> Aa/Dupe"], LinkPass.Apply(_vault, plan));
     }
 
-    // ---- What the substitution does not touch ----
+    // ---- Rewriting the note text ----
 
     [Fact]
     public void ANoteWhoseFrontmatterWillNotParseIsStillRepaired()
@@ -232,9 +235,9 @@ public sealed class WikilinkRepairTests : IDisposable
     [Fact]
     public void ANoteStoredWithTwoCharacterTerminatorsIsRepairedWithoutCorruption()
     {
-        // Extents index the text as the pass decoded it, terminators included, and the splice
-        // happens in that same string - so no offset drifts past a carriage return. The stored
-        // bytes come back with the layer's own line terminator, which is what every write does.
+        // Link extents index the text as the pass decoded it, terminators included, and the splice
+        // happens in that same string, so no offset drifts past a carriage return. The note is
+        // stored back with LF terminators, as every write in the access layer does.
         _vault
             .WithNote("A/Dupe.md", "# One\n")
             .WithNote("B/Dupe.md", "# Two\n")
@@ -259,20 +262,20 @@ public sealed class WikilinkRepairTests : IDisposable
 
         var plan = LinkPass.Plan(Move("Projects/Widget.md", "Archive/Widget.md"));
 
-        // Nothing in the plan means nothing for the apply to write. A pass that ran and changed no
-        // link is still a finding, which is why emptiness is a property rather than an absence.
+        // An empty plan gives the apply nothing to write. A pass that ran and changed no link is
+        // still reported, so emptiness is a property of the plan rather than a missing plan.
         Assert.True(plan.IsEmpty);
         Assert.Empty(LinkPass.Apply(_vault, plan));
         Assert.Equal("Nothing to see.\n", _vault.TextOf("Notes/Untouched.md"));
     }
 
-    // ---- The pass writes through the vault-wide pass ----
+    // ---- Applying a plan ----
 
     [Fact]
     public void APlanNamesEveryNoteByThePathItHasNow()
     {
-        // Which is why the consumer applies before it relocates: a note inside a moved folder is
-        // written where the plan found it.
+        // A note inside a moved folder is written where the plan found it, so the caller must apply
+        // the plan before it performs the relocation.
         _vault
             .WithNote("Old/Inner.md", "# Contained\n")
             .WithNote("Old/Ref.md", "See [[Old/Inner]].\n");
@@ -287,8 +290,8 @@ public sealed class WikilinkRepairTests : IDisposable
     [Fact]
     public void AWriteThatFailsNamesWhatLandedAndWhatDidNot()
     {
-        // The lock means no other tool interleaved; it does not mean rollback, so the outcome is
-        // what a partial-mutation refusal is composed from.
+        // The lock keeps other tools from interleaving but does not roll anything back, so the
+        // outcome lists what was written and what was not for the caller to report.
         _vault
             .WithNote("A/Dupe.md", "# One\n")
             .WithNote("B/Dupe.md", "# Two\n")
@@ -307,10 +310,9 @@ public sealed class WikilinkRepairTests : IDisposable
     }
 
     /// <summary>
-    /// A relocation does two different things to the graph, and the plan says which each rewrite
-    /// was: a repair re-aims a link at where its target went, a pin freezes a link nobody asked
-    /// about. The two are indistinguishable from the emitted text afterwards, so the discrimination
-    /// is made where the decision is and carried out on the plan.
+    /// Checks that a plan separates its two kinds of rewrite. A repair re-aims a link at where its
+    /// target went; a pin holds a bystander's link on the note it already opens. The emitted text
+    /// looks the same either way, so the plan records which is which at the point of decision.
     /// </summary>
     [Fact]
     public void APlanSaysWhichOfItsRewritesWereRepairsAndWhichWerePins()
@@ -327,8 +329,9 @@ public sealed class WikilinkRepairTests : IDisposable
         Assert.Equal(plan.Rewrites.Count, plan.Repairs.Count + plan.Pins.Count);
     }
 
-    /// <summary>Everything a creation plans is a pin: nothing moved, so no link is ever
-    /// re-aimed.</summary>
+    /// <summary>
+    /// Checks that a creation plans only pins. Nothing has moved, so no link is re-aimed.
+    /// </summary>
     [Fact]
     public void ACreationsPlanIsAllPinsAndNoRepairs()
     {

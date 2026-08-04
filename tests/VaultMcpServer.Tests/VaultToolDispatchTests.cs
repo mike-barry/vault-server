@@ -7,15 +7,16 @@ using Microsoft.AspNetCore.Mvc.Testing;
 namespace VaultMcpServer.Tests;
 
 /// <summary>
-/// End-to-end HTTP coverage that <c>read</c>, <c>glob</c> and <c>grep</c> are advertised and
-/// dispatched like every other declaration: listed with their derived schemas, routed through the
-/// shared execute path, and answering in the content tier over a real vault on disk.
-///
-/// The tools' own behaviour is asserted in <c>VaultShared.Tests</c>, against the layer rather than
-/// the transport. What is only observable here is the wiring - that the registry carries them, that
-/// the execute path's floor, argument, vault and access-object steps run in front of them, and that
-/// a refusal arrives as the shared <c>{code, message, data?}</c> envelope.
+/// Covers over HTTP that <c>read</c>, <c>glob</c> and <c>grep</c> are advertised and dispatched
+/// like every other declaration: listed with their derived schemas, routed through the shared
+/// execute path, and answering in the content tier over a real vault on disk.
 /// </summary>
+/// <remarks>
+/// The tools' own behaviour is asserted in <c>VaultShared.Tests</c>, against the layer rather than
+/// the transport. Only the wiring is observable here: the registry carries them, the execute path's
+/// floor, argument, vault and access-object steps run before them, and a refusal arrives as the
+/// shared <c>{code, message, data?}</c> envelope.
+/// </remarks>
 [Collection("Program host tests")]
 public sealed class VaultToolDispatchTests(VaultToolDispatchTests.Fixture fixture) : IClassFixture<VaultToolDispatchTests.Fixture>
 {
@@ -93,8 +94,10 @@ public sealed class VaultToolDispatchTests(VaultToolDispatchTests.Fixture fixtur
         Assert.Equal(Fixture.WidgetNote, text);
     }
 
-    /// <summary>The one structured content-tier result, serialized under the shared naming policy -
-    /// so the member a caller reads back is <c>content_hash</c>, not a camelCase spelling.</summary>
+    /// <summary>
+    /// Verifies that the one structured content-tier result serializes under the shared naming
+    /// policy, so a caller reads back <c>content_hash</c> rather than a camelCase spelling.
+    /// </summary>
     [Fact]
     public async Task Read_WithContentHash_AnswersTheStructuredResultUnderTheSharedNamingPolicy()
     {
@@ -127,10 +130,12 @@ public sealed class VaultToolDispatchTests(VaultToolDispatchTests.Fixture fixtur
         Assert.Equal("Projects/Widget.md:1", counts);
     }
 
-    // ---- The execute path in front of them ----
+    // ---- The shared execute path ----
 
-    /// <summary>The vault argument is optional, and an omitted one resolves to the configured
-    /// default above the tool rather than reaching it.</summary>
+    /// <summary>
+    /// Verifies that the vault argument is optional and that an omitted one resolves to the
+    /// configured default in the execute path, before the tool runs.
+    /// </summary>
     [Fact]
     public async Task AnOmittedVault_ResolvesToTheConfiguredDefault()
     {
@@ -141,8 +146,11 @@ public sealed class VaultToolDispatchTests(VaultToolDispatchTests.Fixture fixtur
         Assert.Equal(text, defaulted);
     }
 
-    /// <summary>The floor is checked before arguments are bound, so a grant holding no read class
-    /// cannot use a malformed call to probe the argument surface of a tool it may not run.</summary>
+    /// <summary>
+    /// Verifies that the op-class floor is checked before arguments are bound, so a grant holding
+    /// no read class cannot use a malformed call to probe the argument surface of a tool it is not
+    /// allowed to run.
+    /// </summary>
     [Fact]
     public async Task AGrantWithoutTheReadClass_IsRefusedBeforeItsArgumentsAreEvenLookedAt()
     {
@@ -183,11 +191,20 @@ public sealed class VaultToolDispatchTests(VaultToolDispatchTests.Fixture fixtur
         Assert.Equal("path_not_found", Code(text));
     }
 
+    /// <summary>
+    /// Hosts the server over a single-note vault of the fixture's own making, with one grant that
+    /// holds the read class and one that does not.
+    /// </summary>
     public sealed class Fixture : ProgramHostFixtureBase
     {
+        /// <summary>A grant holding <c>content:read</c> over the whole vault.</summary>
         public const string ReadToken = "test-vault-tools-read-token";
+
+        /// <summary>A grant over the same vault that holds no content class, so a content-tier call
+        /// is refused by the op-class floor.</summary>
         public const string NoReadClassToken = "test-vault-tools-no-read-class-token";
 
+        /// <summary>The text of the only note in the fixture's vault.</summary>
         public const string WidgetNote = "---\ntype: note\n---\n# Widget\n\nA needle in it.\n";
 
         public Fixture() : base("vault-mcp-vault-tools-tests-")

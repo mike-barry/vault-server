@@ -3,8 +3,8 @@ using VaultShared.Access;
 namespace VaultShared.Tests;
 
 /// <summary>
-/// The grammar every name the layer brings into existence must satisfy. It is checked on one
-/// segment and nowhere else, so these cases are about the segment alone.
+/// Tests <see cref="VaultName"/>, the grammar every name this layer brings into existence must
+/// satisfy. The grammar applies to a single path segment, so every test here is about one segment.
 /// </summary>
 public sealed class VaultNameTests
 {
@@ -48,8 +48,9 @@ public sealed class VaultNameTests
     [InlineData("Widget\r")]
     public void IsFolderName_RefusesWhatCouldEndTheConstructAroundASubstitutedName(string name)
     {
-        // The grammar exists for containment: a name is written into note text and into quoted
-        // frontmatter values without parsing either, so a conforming name needs no escaping.
+        // A name is substituted into note text and into quoted frontmatter values without either
+        // being parsed, so the grammar excludes every character that could end the surrounding
+        // construct. A conforming name needs no escaping.
         Assert.False(VaultName.IsFolderName(name));
         Assert.False(VaultName.IsNoteName(name + VaultName.NoteExtension));
     }
@@ -78,20 +79,20 @@ public sealed class VaultNameTests
     [Fact]
     public void AFolderNameIsNotANoteNameAndTheReverse()
     {
-        // Folders share the operand space with notes, so the two are separate questions rather than
-        // one with an inferred extension.
+        // A path can name either a folder or a note, so the two are separate checks rather than one
+        // check with an inferred extension.
         Assert.True(VaultName.IsFolderName("Widget"));
         Assert.False(VaultName.IsNoteName("Widget"));
         Assert.True(VaultName.IsNoteName("Widget.md"));
         Assert.False(VaultName.IsFolderName("Widget.md"));
     }
 
-    // ---- The derived spelling ----
+    // ---- Suggesting a conforming spelling ----
 
     /// <summary>
-    /// Where a conforming spelling can be derived from what the caller sent, the refusal names it,
-    /// so a miss costs one retry rather than a reading of the grammar. Every run of characters the
-    /// grammar does not admit becomes a single dash, and a leading lower-case letter is raised.
+    /// Checks the spelling <c>Suggest</c> derives from a name the caller sent, which a refusal
+    /// includes so the caller can retry without reading the grammar. Every run of characters the
+    /// grammar does not admit becomes a single dash, and a leading lower-case letter is upper-cased.
     /// </summary>
     [Theory]
     [InlineData("new thought", "New-thought")]
@@ -109,9 +110,11 @@ public sealed class VaultNameTests
             : VaultName.IsFolderName(expected));
     }
 
-    /// <summary>Nothing is transliterated and nothing is invented: a name carrying no conforming
-    /// character has no derivation, and choosing one would be this build deciding what a note is
-    /// called.</summary>
+    /// <summary>
+    /// Checks that a name with no conforming characters gets no suggestion. Nothing is
+    /// transliterated or invented, because inventing one would mean choosing what a note is called
+    /// on the caller's behalf.
+    /// </summary>
     [Theory]
     [InlineData("...")]
     [InlineData("中文")]
@@ -121,8 +124,10 @@ public sealed class VaultNameTests
         Assert.Null(VaultName.Suggest(sent));
     }
 
-    /// <summary>A name that already conforms has nothing to suggest, so the refusal carries no
-    /// payload rather than echoing the caller's own text back.</summary>
+    /// <summary>
+    /// Checks that a name which already conforms gets no suggestion, so a refusal never echoes the
+    /// caller's own text back at it.
+    /// </summary>
     [Fact]
     public void Suggest_OffersNothingForANameThatAlreadyConforms()
     {

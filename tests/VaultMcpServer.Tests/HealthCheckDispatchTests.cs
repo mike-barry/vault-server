@@ -8,16 +8,17 @@ using VaultShared.Tests;
 namespace VaultMcpServer.Tests;
 
 /// <summary>
-/// End-to-end HTTP-level coverage for the server's diagnostics surfaces: the
-/// <c>health_check</c> tool (listed for everyone, callable by any authenticated grant
-/// regardless of op class), the <c>BROKEN:</c> prefix synthesized for a script that failed to
-/// load, and the <c>initialize</c> response's <c>instructions</c> field reflecting the
-/// server's current degraded state. Boots the real host against a temp <c>tools/</c>
-/// directory containing one good script and two broken ones (a missing <c>.SYNOPSIS</c> and a
-/// malformed <c>.SCHEMA</c> side-car), so the fixture itself puts the server into a real
-/// (non-fatal) Degraded state - as distinct from
-/// <see cref="HealthCheckToolTests"/>' unit-level coverage of the tool's own output shape.
+/// Covers the server's diagnostic surfaces over HTTP: the <c>health_check</c> tool, which is listed
+/// for everyone and callable by any authenticated grant regardless of op class; the <c>BROKEN:</c>
+/// prefix synthesized for a script that failed to load; and the <c>instructions</c> field of the
+/// <c>initialize</c> response reflecting the server's degraded state.
 /// </summary>
+/// <remarks>
+/// The fixture boots the real host against a temporary <c>tools/</c> directory holding one good
+/// script and two broken ones - a missing <c>.SYNOPSIS</c> and a malformed <c>.SCHEMA</c> side-car
+/// - so the server really is in a non-fatal Degraded state. <see cref="HealthCheckToolTests"/>
+/// covers the tool's own output shape at the unit level.
+/// </remarks>
 [Collection("Program host tests")]
 public sealed class HealthCheckDispatchTests : IClassFixture<HealthCheckDispatchTests.Fixture>
 {
@@ -67,11 +68,10 @@ public sealed class HealthCheckDispatchTests : IClassFixture<HealthCheckDispatch
     [Fact]
     public async Task HealthCheck_CallableByReadOnlyGrant_BypassingItsOwnOpClass()
     {
-        // ReadOnlyToken's grant only allows "content:read" - health_check's own OpClass is
-        // deliberately never a real, matchable class (see HealthCheckTool.OpClass), so a
-        // normal grant.Allows(tool.OpClass) check would reject this call. Succeeding here
-        // proves ScriptToolDispatcher's health_check special case actually bypasses that
-        // check rather than merely relying on a permissive grant.
+        // ReadOnlyToken's grant only allows "content:read", and health_check's own OpClass is not a
+        // real matchable class (see HealthCheckTool.OpClass), so a normal grant.Allows(tool.OpClass)
+        // check would reject this call. Succeeding here shows ScriptToolDispatcher's health_check
+        // special case bypasses that check rather than the grant simply being permissive.
         var result = await SendAsync(
             _fixture, Fixture.ReadOnlyToken,
             """{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"health_check","arguments":{}}}""");
@@ -111,10 +111,10 @@ public sealed class HealthCheckDispatchTests : IClassFixture<HealthCheckDispatch
     }
 
     /// <summary>
-    /// A malformed <c>.SCHEMA</c> side-car takes the same route over the wire as any other
-    /// per-script refusal: zero tools from that file, and a synthesized <c>BROKEN:</c> entry
-    /// rather than a silent disappearance or - the failure this rule exists to prevent - a
-    /// quiet fallback to the <c>MapJsonType</c>-derived schema.
+    /// Verifies that a malformed <c>.SCHEMA</c> side-car is reported like any other per-script
+    /// load failure: no tools load from that file and a synthesized <c>BROKEN:</c> entry is
+    /// advertised. It must not disappear silently, and it must not fall back to the
+    /// <c>MapJsonType</c>-derived schema.
     /// </summary>
     [Fact]
     public async Task ToolsList_ScriptWithMalformedSchemaSideCar_ShowsUpAsBrokenSynthesizedEntry()
@@ -127,7 +127,7 @@ public sealed class HealthCheckDispatchTests : IClassFixture<HealthCheckDispatch
         Assert.StartsWith("BROKEN:", description);
         Assert.Contains(".SCHEMA", description);
         // The listed entry carries the placeholder empty-object schema, so the parameter is not
-        // advertised at all - as opposed to being advertised with a fallback-derived node.
+        // advertised at all rather than advertised with a fallback-derived schema.
         Assert.Empty(broken.GetProperty("inputSchema").GetProperty("properties").EnumerateObject());
     }
 
@@ -181,9 +181,9 @@ public sealed class HealthCheckDispatchTests : IClassFixture<HealthCheckDispatch
                 param([Parameter(Mandatory=$true)] [string]$Name)
                 Write-Output "hello $Name"
                 """);
-            // No .SYNOPSIS - fails ScriptToolLoader validation, loads zero tools from this
-            // file, and records a Degraded "ScriptTools" problem naming it - the fixture's
-            // deliberate source of the non-fatal Degraded state this whole test class needs.
+            // No .SYNOPSIS. This fails ScriptToolLoader validation, loads zero tools from the file,
+            // and records a Degraded "ScriptTools" problem naming it. This is what puts the server
+            // into the non-fatal Degraded state the tests below need.
             File.WriteAllText(Path.Combine(toolsDir, "broken.ps1"), """
                 <#
                 .NOTES
@@ -191,9 +191,8 @@ public sealed class HealthCheckDispatchTests : IClassFixture<HealthCheckDispatch
                 #>
                 param()
                 """);
-            // A second, differently-broken script: the .SCHEMA side-car body is not valid JSON.
-            // It refuses through the same loader path as broken.ps1, which is the point - the
-            // side-car's refusal is not a special case with its own reporting.
+            // A second, differently broken script: the .SCHEMA side-car body is not valid JSON. It
+            // fails through the same loader path as broken.ps1, with no separate reporting.
             File.WriteAllText(Path.Combine(toolsDir, "schema_broken.ps1"), """
                 <#
                 .SYNOPSIS

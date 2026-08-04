@@ -4,10 +4,13 @@ using VaultShared.Scope;
 namespace VaultShared.Tests;
 
 /// <summary>
-/// Containment as a property of the type: what text becomes a path, what it renders as, and how two
-/// paths compare. Every case here runs against a root that does not exist, which is the point -
-/// containment is decided textually and touches no filesystem.
+/// Tests <see cref="VaultPath"/>: which text becomes a path, how a path renders, and how two paths
+/// compare.
 /// </summary>
+/// <remarks>
+/// Every test runs against a vault root that does not exist, which is deliberate. Containment is
+/// decided textually and touches no filesystem.
+/// </remarks>
 public sealed class VaultPathTests
 {
     private static readonly Vault TestVault =
@@ -23,9 +26,8 @@ public sealed class VaultPathTests
     [Fact]
     public void TryCreate_TouchesNoFilesystem()
     {
-        // The vault root and everything under it are absent, and resolution answers anyway. This is
-        // what makes the check cheap, applicable to every path, and identical for a path that does
-        // not exist yet - which creation depends on.
+        // The vault root and everything under it are absent, and creation succeeds anyway. Creating
+        // a note depends on this, since its path does not exist yet.
         Assert.False(Directory.Exists(TestVault.Root));
 
         Assert.Equal("Projects/Widget/Widget.md", Create("Projects/Widget/Widget.md").Value);
@@ -39,8 +41,8 @@ public sealed class VaultPathTests
     [InlineData("Projects//Widget/Widget.md")]
     public void TryCreate_RendersOneSeparatorConventionWhateverTheInput(string input)
     {
-        // Emitted paths are quoted back into later calls, so every spelling of one path renders the
-        // same way on every platform.
+        // A caller quotes an emitted path back into a later call, so every spelling of one path
+        // must render the same way on every platform.
         var path = Create(input);
 
         Assert.Equal("Projects/Widget/Widget.md", path.Value);
@@ -58,8 +60,8 @@ public sealed class VaultPathTests
     [InlineData("Projects/..", "denoting the vault root after normalizing")]
     public void TryCreate_RefusesTextThatIsNotAContainedPath(string input, string why)
     {
-        // Escaping text is refused, never clamped or normalized into something else. The root is not
-        // a path either: a value with no segments would be admitted under every scope.
+        // Escaping text is refused, never clamped or normalized into something else. The vault root
+        // is refused too, because a path with no segments would be admitted under every scope.
         Assert.False(VaultPath.TryCreate(TestVault, input, out var path, out var reason), why);
         Assert.Null(path);
         Assert.NotNull(reason);
@@ -87,8 +89,9 @@ public sealed class VaultPathTests
     [InlineData("Projects/Widget/.gitkeep")]
     public void TryCreate_DotSegmentsAreRepresentable(string input)
     {
-        // The census reports what a removal destroys, including dot entries, so these must exist as
-        // paths. Refusing to name one is the operand perimeter's job, not containment's.
+        // A removal preview reports dot entries among the files it would destroy, so a dot path has
+        // to be representable. Refusing to let a caller name one is the perimeter's job, not this
+        // type's.
         Assert.True(Create(input).HasDotSegment);
     }
 

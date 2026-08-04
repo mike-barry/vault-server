@@ -9,14 +9,15 @@ using VaultShared.Tools;
 namespace VaultMcpServer.Tests;
 
 /// <summary>
-/// Every declared tool's <c>inputSchema</c> literal, pinned verbatim. Each is derived from the
-/// tool's argument record, and the derivation may change how a schema is <em>produced</em> and
-/// nothing about what it <em>says</em>: this text is the wire contract every caller reads.
-///
-/// Shared with the dispatch-level test that asserts the same text arrives over HTTP - so the
-/// pinned form is checked against the tool object here and against the real <c>tools/list</c>
-/// response there, and neither can drift alone.
+/// Holds every declared tool's <c>inputSchema</c>, pinned verbatim. Each schema is derived from the
+/// tool's argument record; the derivation may change how a schema is produced but not what it says,
+/// because this text is the wire contract every caller reads.
 /// </summary>
+/// <remarks>
+/// These literals are shared with the dispatch-level tests that assert the same text arrives over
+/// HTTP, so each one is checked both against the tool object and against a real <c>tools/list</c>
+/// response and neither can drift on its own.
+/// </remarks>
 public static class NativeToolSchemas
 {
     public const string MintToken = """
@@ -76,8 +77,8 @@ public static class NativeToolSchemas
         { "type": "object", "properties": {} }
         """;
 
-    // The vault tools follow. What their pins guard is what the three above guard: the argument
-    // record is the only statement of the surface, and a member renamed, reordered, made required,
+    // The vault tools follow. These pins guard the same thing the three above do: the argument
+    // record is the only statement of the surface, and a member renamed, reordered, made required
     // or dropped from an enumeration is a change every caller sees.
 
     public const string Read = """
@@ -358,29 +359,40 @@ public static class NativeToolSchemas
         }
         """;
 
-    /// <summary>Compact re-serialization, so whitespace and <c>\u</c>-escaping differences between a
-    /// literal here and a serializer's output do not read as a schema difference. Member order is
-    /// deliberately <em>not</em> normalized - the derived schema follows constructor-parameter order,
-    /// and a reordering is a real change to what a model reads first.</summary>
+    /// <summary>
+    /// Re-serializes a schema compactly, so whitespace and <c>\u</c> escaping differences between a
+    /// literal here and a serializer's output do not read as a schema difference.
+    /// </summary>
+    /// <param name="json">The schema text to normalize.</param>
+    /// <returns>The same schema, compactly serialized.</returns>
+    /// <remarks>
+    /// Member order is not normalized. The derived schema follows constructor-parameter order, and
+    /// reordering members changes what a model reads first.
+    /// </remarks>
     public static string Canonical(string json)
     {
         using var document = JsonDocument.Parse(json);
         return JsonSerializer.Serialize(document.RootElement);
     }
 
+    /// <summary>Re-serializes a parsed schema compactly, matching the string overload.</summary>
+    /// <param name="element">The parsed schema to normalize.</param>
+    /// <returns>The same schema, compactly serialized.</returns>
     public static string Canonical(JsonElement element) => JsonSerializer.Serialize(element);
 }
 
 /// <summary>
-/// Pins what each declared tool advertises: <see cref="NativeToolArguments"/> derives it from
-/// the argument record the declaration names, rather than from a hand-authored
-/// <c>Dictionary&lt;string, object&gt;</c> literal, and the derivation may change how the schema is
-/// <em>produced</em> and nothing about what it <em>says</em>.
-///
-/// The binding boundary sits outside the tool: a binding failure is not a
-/// <c>{code, message, data?}</c> error until it is re-raised as one, and the shared execute path is
-/// the single site that does that, so the cases below drive it rather than a tool.
+/// Pins what each declared tool advertises. <see cref="NativeToolArguments"/> derives the schema
+/// from the argument record the declaration names rather than from a hand-written
+/// <c>Dictionary&lt;string, object&gt;</c>, and the derivation may change how the schema is produced
+/// but not what it says.
 /// </summary>
+/// <remarks>
+/// Argument binding happens outside the tool. A binding failure is not a
+/// <c>{code, message, data?}</c> error until the shared execute path re-raises it as one, and that
+/// is the only place it happens, so the binding tests below drive the execute path rather than a
+/// tool.
+/// </remarks>
 public sealed class NativeToolSchemaTests(TestVaultFixture fixture) : IClassFixture<TestVaultFixture>
 {
     public static TheoryData<string, string> Pinned() => new()
@@ -412,10 +424,12 @@ public sealed class NativeToolSchemaTests(TestVaultFixture fixture) : IClassFixt
     });
 
     /// <summary>
-    /// The whole conversion in one assertion: the derived schema is byte-for-byte what the
-    /// hand-authored literal said. Property names, order, types, <c>items</c>, descriptions, and the
-    /// <c>required</c> set all have to survive, since every one of them is already on the wire.
+    /// Verifies that the derived schema matches the pinned literal exactly. Property names, order,
+    /// types, <c>items</c>, descriptions and the <c>required</c> set all have to match, because
+    /// every one of them is on the wire.
     /// </summary>
+    /// <param name="toolName">The tool whose schema is derived.</param>
+    /// <param name="expected">The pinned schema text for that tool.</param>
     [Theory]
     [MemberData(nameof(Pinned))]
     public void InputSchema_MatchesTheHandAuthoredContractItReplaced(string toolName, string expected)
@@ -424,12 +438,16 @@ public sealed class NativeToolSchemaTests(TestVaultFixture fixture) : IClassFixt
     }
 
     /// <summary>
-    /// The naming-policy guard, stated on its own so it fails legibly. The exporter and the binder
-    /// share one <see cref="JsonSerializerOptions"/>; dropping
-    /// <see cref="JsonNamingPolicy.SnakeCaseLower"/> from it renames every multi-word argument to
-    /// camelCase on both sides at once, which leaves schema and binding agreeing with each other
-    /// while breaking every existing caller. Nothing else in the suite would notice.
+    /// Verifies that arguments are advertised under their snake_case wire names.
     /// </summary>
+    /// <param name="toolName">The tool whose schema is derived.</param>
+    /// <param name="expected">The argument names the schema must advertise, in order.</param>
+    /// <remarks>
+    /// The exporter and the binder share one <see cref="JsonSerializerOptions"/>. Dropping
+    /// <see cref="JsonNamingPolicy.SnakeCaseLower"/> from it renames every multi-word argument to
+    /// camelCase on both sides at once, leaving schema and binding agreeing with each other while
+    /// breaking every existing caller. Nothing else in the suite would catch that.
+    /// </remarks>
     [Theory]
     [InlineData("mint_token", "scope_roots", "op_class", "ttl")]
     [InlineData("request_elevation", "grant", "scope_roots", "op_class", "ttl", "session_context")]
@@ -442,15 +460,16 @@ public sealed class NativeToolSchemaTests(TestVaultFixture fixture) : IClassFixt
     }
 
     /// <summary>
-    /// C# nullability must not leak onto the wire. The exporter emits <c>["string","null"]</c>-style
-    /// unions for every optional member and a <c>"default": null</c> beside them; the shared
-    /// <c>TransformSchemaNode</c> collapses both, and an added argument gets that treatment for free.
+    /// Verifies that C# nullability does not reach the wire. The exporter emits
+    /// <c>["string","null"]</c> unions for optional members with a <c>"default": null</c> beside
+    /// them, and the shared <c>TransformSchemaNode</c> removes both.
     /// </summary>
+    /// <param name="toolName">The tool whose schema is derived.</param>
     [Theory]
     [InlineData("mint_token")]
     [InlineData("request_elevation")]
-    // glob, not read or grep: those two declare real non-null defaults, which are not the leak this
-    // guards, and the pinned literals above already state them exactly.
+    // glob rather than read or grep: those two declare real non-null defaults, which are not what
+    // this checks, and the pinned literals above already state them exactly.
     [InlineData("glob")]
     public void InputSchema_CarriesNoNullUnionsOrNullDefaults(string toolName)
     {
@@ -483,12 +502,15 @@ public sealed class NativeToolSchemaTests(TestVaultFixture fixture) : IClassFixt
     }
 
     /// <summary>
-    /// <c>JsonSerializer.Deserialize</c> raises <see cref="JsonException"/>, which is not the
-    /// <c>{code, message, data?}</c> shape every other refusal on this server carries. The execute
-    /// path re-raises it as <c>invalid_argument</c> naming the argument - one site rather than one
-    /// per tool - so a caller that sends the wrong type branches on <c>code</c> exactly as it does
-    /// for a semantic refusal, rather than getting a bare serializer message.
+    /// Verifies that an argument of the wrong type is refused as <c>invalid_argument</c> naming that
+    /// argument.
     /// </summary>
+    /// <remarks>
+    /// <c>JsonSerializer.Deserialize</c> raises <see cref="JsonException"/>, which is not the
+    /// <c>{code, message, data?}</c> shape every other refusal carries. The execute path re-raises
+    /// it in one place rather than each tool doing so, and a caller branching on <c>code</c> handles
+    /// it exactly like a semantic refusal instead of receiving a bare serializer message.
+    /// </remarks>
     [Fact]
     public void MintToken_ArgumentOfTheWrongType_IsReRaisedAsInvalidArgumentNamingIt()
     {
@@ -498,8 +520,10 @@ public sealed class NativeToolSchemaTests(TestVaultFixture fixture) : IClassFixt
         Assert.Equal(("invalid_argument", "scope_roots"), Refusal(refusal));
     }
 
-    /// <summary>An element of the wrong type is attributed to the argument, not to <c>$</c>: the
-    /// binder reports the path <c>$.op_class[0]</c> and the index is trimmed off.</summary>
+    /// <summary>
+    /// Verifies that a wrongly typed array element is attributed to the argument rather than to
+    /// <c>$</c>. The binder reports the path <c>$.op_class[0]</c>, and the index is trimmed off.
+    /// </summary>
     [Fact]
     public void MintToken_ArrayElementOfTheWrongType_IsAttributedToTheArgumentNotTheIndex()
     {

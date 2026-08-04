@@ -3,12 +3,15 @@ using VaultShared.Access;
 namespace VaultShared.Tests;
 
 /// <summary>
-/// The two primitives taking two paths - the file form and the folder form, split for the same
-/// reason removal is, because a path does not say which it names. What is load-bearing: an occupied destination refused rather
-/// than overwritten, the carve-out that keeps a case-only rename from reading as a collision and
-/// reports it so a later git pickup can stage it, a destination parent that must already be there,
-/// and the name grammar on the one segment the move brings into existence.
+/// Tests <c>VaultFiles.MoveFile</c> and <c>VaultFiles.MoveFolder</c>, which are separate because a
+/// path does not say whether it names a file or a folder.
 /// </summary>
+/// <remarks>
+/// The behaviour these tests pin: an occupied destination is refused rather than overwritten; a
+/// case-only rename is allowed rather than read as a collision, and is reported so a caller can
+/// stage it in git; a destination parent must already exist; and the name grammar is checked on
+/// the one segment the move brings into existence.
+/// </remarks>
 public sealed class VaultFilesMoveTests : IDisposable
 {
     private readonly ScratchVault _vault = new();
@@ -107,8 +110,8 @@ public sealed class VaultFilesMoveTests : IDisposable
     [Fact]
     public void Move_TakesADestinationNamedAsANoteOrAsAFolder()
     {
-        // A path does not say which of the two it names, so both spellings satisfy the grammar and
-        // the caller's own kind assertion is what decides above.
+        // A path does not say whether it names a file or a folder, so both spellings satisfy the
+        // grammar here and the caller decides which it meant at a higher layer.
         _vault.WithNote("Inbox/Widget.md", "# Widget\n").WithFolder("Projects");
 
         Assert.IsType<MoveOutcome.Moved>(
@@ -118,7 +121,7 @@ public sealed class VaultFilesMoveTests : IDisposable
     [Fact]
     public void Move_DoesNotCheckTheSourceName()
     {
-        // A file predating the grammar can be renamed into conformance.
+        // A file whose name predates the grammar can be renamed into conformance.
         _vault.WithNote("Inbox/old widget.md", "# Widget\n").WithFolder("Projects");
 
         Assert.IsType<MoveOutcome.Moved>(
@@ -128,7 +131,8 @@ public sealed class VaultFilesMoveTests : IDisposable
     [Fact]
     public void Move_RefusesTwoPathsFromDifferentVaults()
     {
-        // A pair that does not agree is a layer defect rather than a caller's answer.
+        // Two paths from different vaults is a defect in the calling layer, not an answer a caller
+        // can be given, so it throws.
         _vault.WithNote("Inbox/Widget.md", "# Widget\n");
         using var elsewhere = new ScratchVault();
 
@@ -139,7 +143,7 @@ public sealed class VaultFilesMoveTests : IDisposable
     [Fact]
     public void Move_RelocatesDirectlyUnderTheRoot()
     {
-        // A path with one segment has no parent to name, the root being a vault rather than a path.
+        // A path with one segment has no parent to check, because the vault root is not a path.
         _vault.WithNote("Widget.md", "# Widget\n");
 
         Assert.IsType<MoveOutcome.Moved>(
@@ -148,13 +152,12 @@ public sealed class VaultFilesMoveTests : IDisposable
         Assert.True(_vault.HasFile("Gizmo.md"));
     }
 
-    // ---- The folder form ----
+    // ---- Moving a folder ----
 
     /// <summary>
-    /// One directory rename, with everything inside carried across under names that do not change.
-    /// That is what keeps a folder relocation from having a half-moved state of its own, and what
-    /// keeps this primitive from having to create the folders a per-file relocation would need on
-    /// the far side.
+    /// Checks that a folder move is one directory rename, carrying everything inside across
+    /// unchanged. A single rename has no half-moved state, and it does not have to create the
+    /// destination folders a file-by-file relocation would need.
     /// </summary>
     [Fact]
     public void MoveFolder_RelocatesTheFolderAndEverythingUnderIt()
@@ -183,9 +186,11 @@ public sealed class VaultFilesMoveTests : IDisposable
         Assert.True(_vault.HasFolder("Projects/Widget"));
     }
 
-    /// <summary>The destination side is established before the attempt, because a directory rename
-    /// reports a missing source and a missing destination parent as the same platform failure and
-    /// the two are different answers.</summary>
+    /// <summary>
+    /// Checks that a missing source and a missing destination parent give different outcomes. The
+    /// platform reports both as the same failure from a directory rename, so the destination
+    /// parent is checked before the rename is attempted.
+    /// </summary>
     [Fact]
     public void MoveFolder_TellsAMissingSourceFromAMissingDestinationParent()
     {
@@ -198,8 +203,10 @@ public sealed class VaultFilesMoveTests : IDisposable
             VaultFiles.MoveFolder(_vault.ToWrite("Projects/Absent"), _vault.ToWrite("Projects/Gizmo")));
     }
 
-    /// <summary>A case-only folder rename is allowed and reported, exactly as a file's is: git does
-    /// not see it under the platform's default case handling.</summary>
+    /// <summary>
+    /// Checks that a case-only folder rename is allowed and reported, the same as for a file,
+    /// because git does not see the change under the platform's default case handling.
+    /// </summary>
     [Fact]
     public void MoveFolder_ReportsACaseOnlyRename()
     {
@@ -212,9 +219,10 @@ public sealed class VaultFilesMoveTests : IDisposable
         Assert.Equal("WIDGET", _vault.SpellingOf("Projects/Widget"));
     }
 
-    /// <summary>The destination is the one segment brought into existence, and a folder's name is the
-    /// grammar alone - so a note-shaped destination is refused rather than creating a folder that
-    /// carries an extension.</summary>
+    /// <summary>
+    /// Checks that the destination segment is validated as a folder name, so a destination spelled
+    /// like a note is refused rather than creating a folder with an extension.
+    /// </summary>
     [Fact]
     public void MoveFolder_ChecksTheDestinationAgainstTheFolderGrammar()
     {
@@ -224,12 +232,13 @@ public sealed class VaultFilesMoveTests : IDisposable
             VaultFiles.MoveFolder(_vault.ToWrite("Projects/Widget"), _vault.ToWrite("Projects/Gizmo.md")));
     }
 
-    // ---- The placeholder ----
+    // ---- The .gitkeep placeholder ----
 
     /// <summary>
-    /// The one producer of the file no caller can name: the perimeter refuses a dot segment and the
-    /// grammar refuses the spelling, both deliberately, so the placeholder is composed from the
-    /// folder's own write proof rather than from caller text.
+    /// Checks that <c>CreateGitKeep</c> writes an empty .gitkeep inside the folder. No caller can
+    /// name that file, because the perimeter refuses a dot segment and the name grammar refuses
+    /// the spelling, so this method derives the path from the folder's own write path instead of
+    /// from caller text.
     /// </summary>
     [Fact]
     public void CreateGitKeep_SeedsAnEmptyPlaceholderInsideTheFolder()
@@ -242,8 +251,10 @@ public sealed class VaultFilesMoveTests : IDisposable
         Assert.Empty(_vault.BytesOf("Projects/Held/.gitkeep"));
     }
 
-    /// <summary>It is a creating write like any other, so an existing placeholder is the filesystem's
-    /// own answer rather than a check run first.</summary>
+    /// <summary>
+    /// Checks that an existing .gitkeep is refused. This is a creating write like any other, so
+    /// the refusal comes from the atomic create rather than from an existence check run first.
+    /// </summary>
     [Fact]
     public void CreateGitKeep_RefusesAnExistingPlaceholderFromTheAtomicCreate()
     {

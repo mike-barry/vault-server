@@ -5,13 +5,12 @@ using VaultShared.Tools;
 namespace VaultShared.Tests.Tools;
 
 /// <summary>
-/// <c>edit</c>'s advertised argument surface, and the seam where a vault's own entry vocabulary
-/// reaches it.
+/// Tests the JSON schema <c>edit</c> advertises, and the point where a vault's own entry vocabulary
+/// enters it.
 ///
-/// One record is the whole statement of the argument surface, so everything but the entry branch is
-/// derived from it. The branch is the one part that is per vault, because the declaration is - and
-/// it advertises rather than enforces: what a payload satisfying it may still be refused for is the
-/// write path's.
+/// Every part of the schema except the entry branches is derived from the <see cref="EditArguments"/>
+/// record. The entry branches vary per vault, because the frontmatter declaration does. The schema
+/// only advertises: a payload that satisfies it can still be refused by the write path.
 /// </summary>
 public sealed class EditSchemaTests
 {
@@ -20,7 +19,7 @@ public sealed class EditSchemaTests
     private static JsonElement Entry(JsonElement schema) =>
         schema.GetProperty("properties").GetProperty("operations").GetProperty("items").GetProperty("properties").GetProperty("entry");
 
-    // ---- Derived from the record ----
+    // ---- Derived from the arguments record ----
 
     [Fact]
     public void EveryArgumentIsAdvertisedUnderItsWireName()
@@ -31,16 +30,16 @@ public sealed class EditSchemaTests
             Assert.True(properties.TryGetProperty(name, out _), name);
     }
 
-    /// <summary>The operand alone. Everything else carries a default, and requiredness in the
-    /// derived schema is a member carrying none.</summary>
+    /// <summary>Only <c>path</c> is required. A member is advertised as required when it has no
+    /// default, and every other member has one.</summary>
     [Fact]
     public void OnlyTheOperandIsAdvertisedRequired()
     {
         Assert.Equal(["path"], Plain().GetProperty("required").EnumerateArray().Select(v => v.GetString()));
     }
 
-    /// <summary>A structured argument stays structured: the operations are an array of objects on
-    /// the wire, not a caller-encoded string and not flattened into siblings.</summary>
+    /// <summary>The operations are advertised as an array of objects, not as an encoded string and
+    /// not flattened into sibling arguments.</summary>
     [Fact]
     public void TheOperationsAreAdvertisedAsAnArrayOfObjects()
     {
@@ -51,8 +50,8 @@ public sealed class EditSchemaTests
         Assert.Equal(["op"], operations.GetProperty("items").GetProperty("required").EnumerateArray().Select(v => v.GetString()));
     }
 
-    /// <summary>An anchor reuses the operation's own shape, so the schema carries it as a nested
-    /// object rather than as a second statement of the same members.</summary>
+    /// <summary>An anchor reuses the operation's own shape, so it is advertised as a nested object
+    /// on the operation rather than as a second copy of the same members.</summary>
     [Fact]
     public void TheAnchorIsAdvertisedOnTheOperation()
     {
@@ -63,9 +62,9 @@ public sealed class EditSchemaTests
     // ---- The per-vault branch ----
 
     /// <summary>
-    /// A vault whose declaration did not load advertises the ordinary argument surface with its
-    /// variant branches simply absent. Advertising was never permission: what refuses a frontmatter
-    /// write with no declaration is the write, and the listing does not change with the failure.
+    /// A vault whose declaration failed to load advertises the ordinary argument surface with the
+    /// entry variant branches absent. The rest of the schema is unchanged, because the refusal of a
+    /// frontmatter write with no declaration comes from the write path, not from the schema.
     /// </summary>
     [Fact]
     public void WithNoLoadedDeclaration_TheEntryBranchesAreSimplyAbsent()
@@ -88,9 +87,8 @@ public sealed class EditSchemaTests
             branches.EnumerateArray().Select(b => b.GetProperty("title").GetString()));
     }
 
-    /// <summary>Discrimination is by a field's presence, so the discriminating field is pinned by
-    /// being required on its branch - which is what presence-based discrimination becomes in a
-    /// client-facing schema.</summary>
+    /// <summary>A variant is recognized by the presence of one field, and the schema expresses that
+    /// by listing the field as required on its branch.</summary>
     [Fact]
     public void TheDiscriminatingFieldIsRequiredOnItsBranch()
     {
@@ -100,16 +98,16 @@ public sealed class EditSchemaTests
         Assert.True(routed.GetProperty("properties").TryGetProperty("when", out _));
     }
 
-    /// <summary>A variant that is a bare value is one branch of the alternation like any other,
-    /// rather than a shape a client has to know to spell differently.</summary>
+    /// <summary>A variant that is a bare scalar appears as a branch of type <c>string</c>, alongside
+    /// the object branches.</summary>
     [Fact]
     public void AScalarVariantIsABranchThatIsNotAnObject()
     {
         Assert.Equal("string", Branch("hint").GetProperty("type").GetString());
     }
 
-    /// <summary>Two keys naming one schema hold one object, so the branch is one branch that both
-    /// keys accept rather than two a client has to reconcile.</summary>
+    /// <summary>Two keys that share an entry schema produce a single branch, whose description names
+    /// both keys.</summary>
     [Fact]
     public void ABranchNamesEveryKeyThatAcceptsIt()
     {
@@ -119,9 +117,10 @@ public sealed class EditSchemaTests
         Assert.Contains("nav.see_also", description, StringComparison.Ordinal);
     }
 
-    /// <summary>What no client-facing schema expresses cleanly rides the description: the exclusive
-    /// group, what addresses an entry and how it compares, and whether the variant clears
-    /// wholesale. Each is enforced at the write path whatever a client makes of the sentence.</summary>
+    /// <summary>Rules JSON Schema cannot express are stated in the branch description instead: which
+    /// fields are mutually exclusive, what identifies an entry and how it is compared, and whether
+    /// the variant is cleared as a whole. The write path enforces each of them regardless of what a
+    /// client does with the description.</summary>
     [Fact]
     public void WhatTheSchemaCannotExpressIsCarriedInTheDescription()
     {
@@ -129,8 +128,8 @@ public sealed class EditSchemaTests
         Assert.Contains("cleared at once", Branch("routed").GetProperty("description").GetString()!, StringComparison.Ordinal);
     }
 
-    /// <summary>A field's constraint reaches the client where it has a clean expression, and its
-    /// wording is the one a violation would use.</summary>
+    /// <summary>A declared constraint on a field reaches the client in that field's description,
+    /// worded as the refusal for violating it would word it.</summary>
     [Fact]
     public void AFieldsValueConstraintIsCarriedAcross()
     {

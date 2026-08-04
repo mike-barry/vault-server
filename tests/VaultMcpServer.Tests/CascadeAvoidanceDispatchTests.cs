@@ -12,17 +12,19 @@ using VaultShared.Tests;
 namespace VaultMcpServer.Tests;
 
 /// <summary>
-/// End-to-end coverage for Program.cs's cascade-avoidance path (see the comment above its
-/// <c>GrantStore</c> load): when vaults.json OR op-classes.json fails to load entirely
-/// (Fatal), Program.cs skips the real <see cref="GrantStore.Load"/> call - which would
-/// otherwise validate every grants.json row's opClasses/vaults against an already-empty
-/// registry/vault config and fail each one, piling a wall of confusing row-level
-/// "unknown opClass"/"unknown vault" Degraded problems on top of the real root cause - and
-/// substitutes <see cref="GrantStore.Empty"/> plus a single Degraded breadcrumb instead. This
-/// path had zero prior automated coverage. Both fixtures supply a grants.json that would
-/// otherwise load cleanly, proving the skip happens because of the upstream Fatal rather than
-/// because grants.json itself is broken.
+/// Covers end to end what Program.cs does when vaults.json or op-classes.json fails to load at
+/// all. On a Fatal from either file it skips <see cref="GrantStore.Load"/> and substitutes
+/// <see cref="GrantStore.Empty"/> plus one Degraded problem recording the skip.
 /// </summary>
+/// <remarks>
+/// Running the real load in that state would validate every grants.json row against an empty
+/// registry or vault config and fail each one, burying the root cause under row-level "unknown
+/// opClass" and "unknown vault" problems.
+///
+/// Both fixtures supply a grants.json that would load cleanly on its own, so the absence of
+/// row-level problems shows the skip happened because of the upstream Fatal rather than because
+/// grants.json was itself broken.
+/// </remarks>
 [Collection("Program host tests")]
 public sealed class CascadeAvoidanceDispatchTests
 {
@@ -62,13 +64,17 @@ public sealed class CascadeAvoidanceDispatchTests
         AssertOnlyRootCauseAndBreadcrumb(healthState, rootCauseSource: "OpClassRegistry");
     }
 
+    /// <summary>Asserts that health state holds exactly the root-cause Fatal and the one Degraded
+    /// problem recording the skipped grant load.</summary>
+    /// <param name="healthState">The booted host's health state.</param>
+    /// <param name="rootCauseSource">The source name expected on the Fatal problem.</param>
     private static void AssertOnlyRootCauseAndBreadcrumb(ServerHealthState healthState, string rootCauseSource)
     {
         Assert.True(healthState.IsFatallyDegraded);
         var problems = healthState.Problems.ToList();
 
-        // Exactly two problems: the root-cause Fatal and the single GrantStore breadcrumb -
-        // proving the real (per-row) grants.json load never ran.
+        // Exactly two problems: the root-cause Fatal and the single GrantStore problem. Any more
+        // would mean the per-row grants.json load ran.
         Assert.True(problems.Count == 2, "Expected exactly 2 problems (root cause + breadcrumb), got: " +
             string.Join(" | ", problems.Select(p => $"[{p.Severity}] {p.Source}: {p.Detail}")));
 
@@ -80,29 +86,29 @@ public sealed class CascadeAvoidanceDispatchTests
         Assert.Contains("Skipped loading", breadcrumb.Detail);
         Assert.Contains("a prior fatal error", breadcrumb.Detail);
 
-        // No row-level grant problems ("Grant row skipped - ...") anywhere in the set - the
-        // whole point of the cascade-avoidance path.
+        // No row-level grant problems ("Grant row skipped - ...") anywhere in the set.
         Assert.DoesNotContain(problems, p => p.Detail.Contains("Grant row skipped"));
     }
 
+    /// <summary>Boots the host with exactly one config file broken badly enough to be Fatal.</summary>
     public sealed class Fixture : ProgramHostFixtureBase
     {
+        /// <param name="vaultsFatal">True to break vaults.json; false to break op-classes.json
+        /// instead and leave vaults.json valid.</param>
         public Fixture(bool vaultsFatal) : base("vault-mcp-cascade-avoidance-tests-")
         {
             var vaultRoot = Path.Combine(TempDir, "personal");
             Directory.CreateDirectory(vaultRoot);
 
-            // An empty tools/ directory - this cascade is entirely about the
-            // vaults.json/op-classes.json -> GrantStore skip; pointing at the real repo
-            // tools/ directory here would layer unrelated ScriptTools Degraded problems on
-            // top (every real script fails OpClass validation against the empty registry in
-            // the op-classes-fatal case) and muddy the exact-count assertions below.
+            // An empty tools/ directory. Pointing at the real repo tools/ directory would add
+            // unrelated ScriptTools problems - in the op-classes-fatal case every real script
+            // fails OpClass validation against the empty registry - and break the exact-count
+            // assertions.
             var toolsDir = Path.Combine(TempDir, "tools");
             Directory.CreateDirectory(toolsDir);
 
-            // A grants.json that would load cleanly on its own - proving any absence of
-            // row-level problems below is because the real load was skipped, not because
-            // this file happens to be trivially valid or empty.
+            // A grants.json that would load cleanly on its own, so an absence of row-level
+            // problems means the load was skipped rather than that this file was empty.
             var grantsPath = Path.Combine(TempDir, "grants.json");
             File.WriteAllText(grantsPath, JsonSerializer.Serialize(new Dictionary<string, object>
             {
@@ -121,8 +127,8 @@ public sealed class CascadeAvoidanceDispatchTests
             if (vaultsFatal)
             {
                 // Missing "default_vault" - VaultConfigLoader records a whole-file Fatal.
-                // op-classes.json is left at Program.cs's own default
-                // (the real, valid repo file), so this is the only Fatal in the picture.
+                // op-classes.json is left at Program.cs's default, the real and valid repo file,
+                // so this is the only Fatal.
                 File.WriteAllText(vaultsPath, JsonSerializer.Serialize(new
                 {
                     vaults = new Dictionary<string, object>{ ["personal"] = new { path = vaultRoot } },

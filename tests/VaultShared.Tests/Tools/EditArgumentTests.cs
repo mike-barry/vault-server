@@ -5,12 +5,11 @@ using VaultShared.Tools;
 namespace VaultShared.Tests.Tools;
 
 /// <summary>
-/// <c>edit</c>'s argument surface: what <c>Validate</c> refuses before a vault is resolved or
-/// anything is locked, and what the one decode site turns the wire projection into.
+/// Tests the <c>edit</c> tool's argument surface: what <c>Validate</c> refuses before a vault is
+/// resolved or anything is locked, and what the decode step turns the wire arguments into.
 ///
-/// Everything here is pure. That is the point of the phase: the whole argument surface is refusable
-/// with no note, no declaration and no lock, which is what makes the failure ordering structural
-/// rather than a claim about where the checks happen to sit.
+/// Every check here is pure. The whole argument surface can be refused with no note, no frontmatter
+/// declaration and no lock, so no test in this class needs a vault.
 /// </summary>
 public sealed class EditArgumentTests
 {
@@ -29,7 +28,7 @@ public sealed class EditArgumentTests
         return Assert.Single(arguments.Ordered).Decode();
     }
 
-    // ---- The operand and the call's own shape ----
+    // ---- The operand and the overall call shape ----
 
     [Fact]
     public void AnAbsentPath_IsAFaultNamingIt()
@@ -37,8 +36,8 @@ public sealed class EditArgumentTests
         Assert.Equal("path", Fault(new { operations = new[] { new { op = "remove", key = "doc.title" } } }).Argument);
     }
 
-    /// <summary>An edit naming nothing to change is a read spelled as a mutation: it takes the
-    /// lock, asserts nothing, and answers a hash.</summary>
+    /// <summary>An edit that names nothing to change is refused. It would take the write lock and
+    /// change nothing.</summary>
     [Fact]
     public void AnEditCarryingNeitherAnOperationNorABodyChange_IsRefused()
     {
@@ -71,22 +70,23 @@ public sealed class EditArgumentTests
         Assert.Equal("body", Fault(new { path = "Note.md", body = new { replace = "b" } }).Argument);
     }
 
-    /// <summary>Empty text anchors nothing - it occurs everywhere, so "exactly once" could never
-    /// hold.</summary>
+    /// <summary>Blank search text is refused. It matches at every position, so the substitution's
+    /// exactly-once requirement could never hold.</summary>
     [Fact]
     public void AnEmptyFind_IsRefused()
     {
         Assert.Equal("body", Fault(new { path = "Note.md", body = new { find = "   ", replace = "b" } }).Argument);
     }
 
-    /// <summary>An empty replacement deletes what was matched, which is a change a caller means.</summary>
+    /// <summary>An empty replacement is accepted. It deletes the matched text, which is a change a
+    /// caller can intend.</summary>
     [Fact]
     public void AnEmptyReplace_HoldsUp()
     {
         Holds(new { path = "Note.md", body = new { find = "a", replace = "" } });
     }
 
-    // ---- The staleness guard, as a shape rule ----
+    // ---- The staleness guard, as an argument-shape rule ----
 
     [Fact]
     public void AWholesaleReplacementWithNoContentHash_IsRefusedNamingTheHash()
@@ -94,8 +94,9 @@ public sealed class EditArgumentTests
         Assert.Equal("expected_content_hash", Fault(new { path = "Note.md", body = new { content = "new body" } }).Argument);
     }
 
-    /// <summary>Inert rather than ignored: a substitution self-verifies through its own anchor, so
-    /// a hash beside one cannot change an outcome.</summary>
+    /// <summary>A content hash sent without a wholesale replacement is refused rather than ignored.
+    /// A substitution already verifies itself through the text it matches, so the hash could not
+    /// change the outcome.</summary>
     [Theory]
     [InlineData("""{"find":"a","replace":"b"}""")]
     [InlineData("null")]
@@ -126,7 +127,7 @@ public sealed class EditArgumentTests
         Assert.Contains("upsert", fault.Message, StringComparison.Ordinal);
     }
 
-    /// <summary>Trimmed and case-folded before comparison, as every operation name is.</summary>
+    /// <summary>An operation name is trimmed and compared without regard to case.</summary>
     [Theory]
     [InlineData("  set  ")]
     [InlineData("SET")]
@@ -142,8 +143,7 @@ public sealed class EditArgumentTests
         Assert.Equal("operations[0]", Fault(new { path = "Note.md", operations = new[] { new { op = "remove" } } }).Argument);
     }
 
-    /// <summary>The position is the caller's own index, so a fault in a long batch names the
-    /// operation it can find.</summary>
+    /// <summary>The fault names the operation by its index in the array the caller sent.</summary>
     [Fact]
     public void AFaultNamesThePositionOfTheOperationItIsAbout()
     {
@@ -182,8 +182,8 @@ public sealed class EditArgumentTests
         Assert.Equal("operations[0]", Fault(new { path = "Note.md", operations = new[] { new { op = "set", key = "doc.title" } } }).Argument);
     }
 
-    /// <summary>An empty string is a legitimate scalar value - what bounds it is the declared
-    /// constraint, not this phase.</summary>
+    /// <summary>An empty string is a valid scalar value here. Whether the key accepts it is decided
+    /// by the declared constraint later, not by argument validation.</summary>
     [Fact]
     public void ASetOfEmptyText_HoldsUp()
     {
@@ -206,8 +206,8 @@ public sealed class EditArgumentTests
         }).Argument);
     }
 
-    /// <summary>A removal addresses one entry by identity or one variant wholesale. Both is a
-    /// contradiction, and neither addresses nothing.</summary>
+    /// <summary>An entry removal addresses either one entry by identity or one variant as a whole.
+    /// Naming both contradicts itself.</summary>
     [Fact]
     public void ARemoveEntryNamingBothATargetAndAVariant_IsRefused()
     {
@@ -260,8 +260,8 @@ public sealed class EditArgumentTests
         }).Argument);
     }
 
-    /// <summary>An anchor addresses an entry under its operation's own key, so a key on it could
-    /// only disagree with that one.</summary>
+    /// <summary>An anchor always addresses an entry under its operation's key, so carrying a key of
+    /// its own could only contradict that.</summary>
     [Fact]
     public void AnAnchorCarryingAKey_IsRefused()
     {
@@ -275,14 +275,14 @@ public sealed class EditArgumentTests
         }).Argument);
     }
 
-    // ---- The one decode site ----
+    // ---- Decoding wire arguments into operations ----
 
     [Fact]
     public void ASetDecodesToTheScalarCapability()
     {
         var operation = Assert.IsType<FrontmatterOperation.SetScalar>(Decoded(new { op = "set", key = " doc.title ", value = " Widget " }));
 
-        // Trimming happens where an operation is constructed, so every capability sees the same text.
+        // Trimming happens at construction, so every operation type sees the same text.
         Assert.Equal("doc.title", operation.Key);
         Assert.Equal("Widget", operation.Value);
     }
@@ -293,8 +293,8 @@ public sealed class EditArgumentTests
         Assert.Equal("doc.title", Assert.IsType<FrontmatterOperation.RemoveField>(Decoded(new { op = "remove", key = "doc.title" })).Key);
     }
 
-    /// <summary>Fields keep the order they were sent in, because that is the order the emitter
-    /// writes and a caller composing an entry chose it.</summary>
+    /// <summary>An entry's fields keep the order the caller sent them in, which is the order the
+    /// emitter writes them.</summary>
     [Fact]
     public void AnAddOfAMappingEntryDecodesItsFieldsInOrder()
     {
@@ -307,8 +307,8 @@ public sealed class EditArgumentTests
         Assert.Null(add.Anchor);
     }
 
-    /// <summary>A bare value is a variant a schema may declare, so the wire carries one as a plain
-    /// value rather than as an object with a conventional field inside it.</summary>
+    /// <summary>A schema may declare a bare scalar as one of a key's entry variants, so the wire
+    /// carries it as a plain value rather than as an object with a single field.</summary>
     [Fact]
     public void AnAddOfABareScalarEntryDecodesToTheScalarPayload()
     {
@@ -318,8 +318,8 @@ public sealed class EditArgumentTests
         Assert.Equal("Keep the torque table current.", Assert.IsType<EntryPayload.Scalar>(add.Entry).Value);
     }
 
-    /// <summary>The parse leaves every frontmatter scalar as text, so a value that is a number in a
-    /// client's eyes is that literal's own text in the note.</summary>
+    /// <summary>Every frontmatter scalar is held as text, so a JSON number arrives as the literal
+    /// text it was written with.</summary>
     [Fact]
     public void ANonStringEntryValueDecodesToItsOwnLiteralText()
     {

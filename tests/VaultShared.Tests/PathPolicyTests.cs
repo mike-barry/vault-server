@@ -5,23 +5,33 @@ using VaultShared.Scope;
 namespace VaultShared.Tests;
 
 /// <summary>
-/// The union a read-class caller runs against: a grant's own scope in a vault widened by that
-/// vault's always-readable roots. <c>VaultAccess</c> is what composes these two in production, and
-/// composes them once per call rather than per path; here the pair is asserted directly, so a
-/// change to the union is a failure in these cases rather than only in the layer's.
+/// Provides a shorthand for the scope a read-class caller runs against: a grant's own scope in a
+/// vault, widened by that vault's always-readable roots.
 /// </summary>
+/// <remarks>
+/// <c>VaultAccess</c> composes the same two parts in production, once per call rather than once
+/// per path. Testing the pair directly means a change to the union fails here as well as in the
+/// access layer's own tests.
+/// </remarks>
 internal static class ReadScopeExtensions
 {
+    /// <summary>Determines whether the effective read scope admits a path.</summary>
+    /// <param name="policy">The vault's path policy.</param>
+    /// <param name="relativePath">The vault-relative path to test.</param>
+    /// <param name="grantScope">The grant's own scope in the vault.</param>
+    /// <returns><see langword="true"/> if the path is admitted; otherwise <see langword="false"/>.</returns>
     internal static bool ReadAdmits(this PathPolicy policy, string relativePath, VaultScope grantScope) =>
         policy.EffectiveReadScope(grantScope).Admits(relativePath);
 }
 
 /// <summary>
-/// A vault's path policy: what survives load validation, what it reports, and the read-scope
-/// union its <c>always_readable</c> modifier performs. Writes its own vaults.json over temp
-/// directories rather than using the committed fixture, because most of these cases turn on a
-/// declared target existing or not existing on disk.
+/// Tests a vault's path policy: which entries survive load validation, what problems a load
+/// reports, and the read-scope union the <c>always_readable</c> modifier performs.
 /// </summary>
+/// <remarks>
+/// These tests write their own vaults.json over temp directories rather than using the committed
+/// fixture, because most cases turn on whether a declared target exists on disk.
+/// </remarks>
 public sealed class PathPolicyTests : IDisposable
 {
     private const string Guides = "Resources/Vault/Guides";
@@ -30,9 +40,20 @@ public sealed class PathPolicyTests : IDisposable
 
     public void Dispose() => Directory.Delete(_tempDir, recursive: true);
 
-    /// <summary>Writes a vaults.json for one vault rooted at a fresh temp directory, creating
-    /// <paramref name="contents"/> inside it (".md" entries become files, everything else a
-    /// directory) and giving it <paramref name="policyJson"/> as its path_policy.</summary>
+    /// <summary>
+    /// Writes a vaults.json for one vault rooted at a temp directory, seeds that directory, and
+    /// loads the configuration.
+    /// </summary>
+    /// <param name="sink">The sink the load records problems into.</param>
+    /// <param name="policyJson">
+    /// The JSON array to use as the vault's path_policy, or <see langword="null"/> to declare no
+    /// policy at all.
+    /// </param>
+    /// <param name="contents">
+    /// Vault-relative entries to create first. An entry with a file extension becomes a file;
+    /// everything else becomes a directory.
+    /// </param>
+    /// <returns>The loaded configuration.</returns>
     private VaultConfig Load(RecordingProblemSink sink, string? policyJson, params string[] contents)
     {
         var root = Path.Combine(_tempDir, "test");
@@ -134,8 +155,9 @@ public sealed class PathPolicyTests : IDisposable
     [Fact]
     public void Load_CarriesAStructuralRuleTarget()
     {
-        // A shape a path has rather than a place it is, which a prefix target cannot express. The
-        // rule is code; the declaration decides whether it applies and at what price.
+        // A structural rule targets a shape a path has rather than a place it sits, which a path
+        // prefix cannot express. The rule itself is code; the declaration only decides whether it
+        // applies and which op class it requires.
         var sink = new RecordingProblemSink();
 
         var config = Load(sink, """[ { "rule": "folder_note", "mutation_requires": "content:write" } ]""");
@@ -160,8 +182,8 @@ public sealed class PathPolicyTests : IDisposable
     [Fact]
     public void Load_MutationEntriesDoNotWidenTheReadFloor()
     {
-        // Two modifiers, two effects. Naming a path's mutation price says nothing about who may
-        // read it.
+        // The two modifiers are independent: naming the op class a path's mutation requires says
+        // nothing about who may read it.
         var config = Load(new RecordingProblemSink(), """[ { "path": "Areas", "mutation_requires": "agentic:write" } ]""", "Areas");
 
         var policy = config.Vaults["test"].PathPolicy;
@@ -172,10 +194,10 @@ public sealed class PathPolicyTests : IDisposable
     [Fact]
     public void Load_AnUndefinedOpClassDropsTheEntryAndSaysWhichClass()
     {
-        // The same cross-file check grants and the frontmatter declaration run, for the same
-        // reason: a policy naming an authority nothing defines is a protection nobody can satisfy
-        // and nothing can enforce, which reads as working right up until it matters. Dropped rather
-        // than fatal, like every other malformed entry - the rest of the policy still applies.
+        // Grants and the frontmatter declaration run the same check against the op-class registry.
+        // An entry requiring an op class nothing defines can never be satisfied, so it protects
+        // nothing while appearing to. It is dropped rather than fatal, like every other malformed
+        // entry, so the rest of the policy still applies.
         var sink = new RecordingProblemSink();
 
         var config = Load(sink, $$"""
@@ -205,8 +227,8 @@ public sealed class PathPolicyTests : IDisposable
     [Fact]
     public void Load_ContributionsFromSeveralEntriesAreAllKept()
     {
-        // Contributions union - no entry can clear one another contributed - so every matching
-        // entry has to survive the load for the union to be over all of them.
+        // A match unions the contributions of every matching entry, so each entry has to survive
+        // the load for the union to be complete.
         var config = Load(new RecordingProblemSink(), """
             [
               { "path": "Areas", "mutation_requires": "agentic:write" },
@@ -243,8 +265,8 @@ public sealed class PathPolicyTests : IDisposable
     [Fact]
     public void Load_PolicyIsPerVaultAndAnotherVaultIsUnaffected()
     {
-        // The property the flat, every-vault shape could not have: a vault that keeps no such
-        // material declares none, and nothing is checked against it or reported for it.
+        // A policy belongs to one vault. A vault that declares none has no policy checked against
+        // it and no problem reported for it.
         var sink = new RecordingProblemSink();
         var withGuides = Path.Combine(_tempDir, "primary");
         var without = Path.Combine(_tempDir, "scratch");
@@ -289,9 +311,9 @@ public sealed class PathPolicyTests : IDisposable
     [InlineData("frontmatter_regstry", "unrecognized key")]
     public void Load_BadVaultEntryKeyIsFatal(string key, string expectedFragment)
     {
-        // Unrecognized at the vault level rather than dropped: unlike a path_policy entry there
-        // is no rest-of-the-list to preserve, and a vault carrying a key nobody reads is a
-        // configuration someone believes is in effect.
+        // An unrecognized key on a vault entry is fatal rather than dropped. There is no rest of a
+        // list to preserve as there is for a path_policy entry, and a key nobody reads is a
+        // setting the operator believes is in effect.
         var sink = new RecordingProblemSink();
         var configPath = Path.Combine(_tempDir, "vaults.json");
         File.WriteAllText(configPath, $$"""
@@ -359,8 +381,8 @@ public sealed class PathPolicyTests : IDisposable
     }
 
     /// <summary>
-    /// The write path is untouched by the floor. This is the property that makes the floor safe:
-    /// every agent reads the material it is instructed to obey, and none of them can author it.
+    /// Checks that always-readable roots do not widen the write scope. A caller can read the
+    /// material it is instructed to obey without being able to author it.
     /// </summary>
     [Fact]
     public void Admits_TheWritePathDoesNotSeeTheFloor()
@@ -369,9 +391,9 @@ public sealed class PathPolicyTests : IDisposable
     }
 
     /// <summary>
-    /// Attenuation cannot remove the floor. A narrowed scope - the shape a minted token carries -
-    /// still reaches the guides, because the union happens at check time rather than being copied
-    /// into a grant's own roots where a later mint could drop it.
+    /// Checks that narrowing a scope, as minting a token does, cannot remove the always-readable
+    /// roots. The union happens at check time rather than being copied into a grant's own roots,
+    /// where a later mint could drop it.
     /// </summary>
     [Fact]
     public void ReadAdmits_AttenuatedScopeStillReachesTheFloor()
@@ -383,11 +405,14 @@ public sealed class PathPolicyTests : IDisposable
 }
 
 /// <summary>
-/// The floor against the committed fixture: the declared target names a folder that really exists
-/// in <c>test-vault/</c>, in both of the fixture's vaults, and the files under it are real. Keeps
-/// the repo's own vaults.json honest - a target pointed at a folder nobody seeded would pass every
-/// case above and still be wrong.
+/// Tests the always-readable roots against the committed fixture, checking that the declared
+/// target names a folder that really exists in both of the fixture's vaults and that the files
+/// under it are real.
 /// </summary>
+/// <remarks>
+/// A target pointing at a folder nobody seeded would pass every test above and still be wrong,
+/// so these tests keep the repository's own vaults.json honest.
+/// </remarks>
 public sealed class PathPolicyFixtureTests(TestVaultFixture fixture) : IClassFixture<TestVaultFixture>
 {
     private const string Guides = "Resources/Vault/Guides";
@@ -395,8 +420,13 @@ public sealed class PathPolicyFixtureTests(TestVaultFixture fixture) : IClassFix
 
     private static readonly VaultScope Narrow = VaultScope.Of(new HashSet<string>(["Projects/Widget"], StringComparer.OrdinalIgnoreCase));
 
-    /// <summary>Parses the repo's own policy against one of the fixture's vaults, asserting it
-    /// reports nothing - which is only true if that vault really carries the folder.</summary>
+    /// <summary>
+    /// Parses the repository's own policy against one of the fixture's vaults and asserts that the
+    /// parse reported nothing, which holds only if that vault really contains the guides folder.
+    /// </summary>
+    /// <param name="config">The fixture's loaded configuration.</param>
+    /// <param name="vault">The name of the vault to parse the policy against.</param>
+    /// <returns>The parsed policy.</returns>
     private static PathPolicy GuidesPolicy(VaultConfig config, string vault)
     {
         var sink = new RecordingProblemSink();

@@ -7,9 +7,11 @@ using VaultShared.Tools;
 namespace VaultShared.Tests.Tools;
 
 /// <summary>
-/// The six steps every invocation takes, and the ordering guarantee that makes them worth stating
-/// as steps: <b>a refusal from an earlier step wins over one from a later</b>. Each case here puts
-/// two steps in violation at once and asserts which one answers.
+/// Tests the shared execute path every tool invocation goes through: the client session check, the
+/// op class floor, argument validation, vault resolution and membership, the vault lock, and the
+/// access object handed to the tool. Those checks run in that order, and a refusal from an earlier
+/// one wins over a refusal from a later one. Several cases here break two of them at once and assert
+/// which refusal comes back.
 /// </summary>
 public sealed class ToolExecutionTests : IDisposable
 {
@@ -57,7 +59,7 @@ public sealed class ToolExecutionTests : IDisposable
         return new ToolExecution(_config).Invoke(registry.Find(declaration.Name)!.Value, Args(arguments), grant, session);
     }
 
-    // --- 1. Session ------------------------------------------------------------------------
+    // --- The client session -----------------------------------------------------------------
 
     [Fact]
     public void SessionRequiringTool_WithNoSession_IsToolUnavailable()
@@ -81,9 +83,9 @@ public sealed class ToolExecutionTests : IDisposable
         Assert.Same(SyntheticTools.Session, tool.LastCall!.Session);
     }
 
-    /// <summary>Step 1 beats step 2: a caller with neither a session nor the floor is told the thing
-    /// this front-end can never supply, rather than being sent to ask for authority that would still
-    /// not let the call through.</summary>
+    /// <summary>The session check runs before the floor check. A caller with neither a session nor
+    /// the required op class is told the tool is unavailable, rather than being sent to ask for
+    /// authority that still would not let the call through.</summary>
     [Fact]
     public void MissingSessionAndMissingFloor_AnswersTheSessionRefusal()
     {
@@ -94,7 +96,7 @@ public sealed class ToolExecutionTests : IDisposable
         Assert.Equal(ToolCodes.ToolUnavailable, refusal.Code);
     }
 
-    // --- 2. The op-class floor ---------------------------------------------------------------
+    // --- The op class floor ------------------------------------------------------------------
 
     [Fact]
     public void FloorNotHeld_IsAuthorityRequiredNamingTheRequiredClass()
@@ -108,14 +110,14 @@ public sealed class ToolExecutionTests : IDisposable
         using var envelope = JsonDocument.Parse(ToolRefusalEnvelope.Json(refusal));
         var data = envelope.RootElement.GetProperty("data");
         Assert.Equal(OpClass.Write, data.GetProperty("required_op_class").GetString());
-        // No-oracle: the class the tool requires is a property of the tool; the classes the grant
-        // holds are not.
+        // The refusal may name the class the tool requires, which is a property of the tool, but
+        // must not reveal which classes the grant holds.
         Assert.DoesNotContain(OpClass.Read, data.GetRawText(), StringComparison.Ordinal);
         Assert.Equal(0, tool.Invocations);
     }
 
-    /// <summary>The exemption is a declared property, not a name on a list. A self-gated tool runs
-    /// under a grant holding nothing at all.</summary>
+    /// <summary>A tool declares that it gates itself; there is no list of exempt tool names. A
+    /// self-gated tool runs under a grant holding no op classes at all.</summary>
     [Fact]
     public void SelfGatedTool_RunsUnderAGrantHoldingNoOpClasses()
     {
@@ -126,7 +128,7 @@ public sealed class ToolExecutionTests : IDisposable
         Assert.Equal(1, tool.Invocations);
     }
 
-    // --- 3. Arguments -----------------------------------------------------------------------
+    // --- Arguments ---------------------------------------------------------------------------
 
     [Fact]
     public void ArgumentFault_IsInvalidArgumentCarryingTheArgument()
@@ -138,8 +140,8 @@ public sealed class ToolExecutionTests : IDisposable
         Assert.Equal("note", envelope.RootElement.GetProperty("data").GetProperty("argument").GetString());
     }
 
-    /// <summary>A binding failure is not a coded refusal until this one site makes it one, so nothing
-    /// downstream re-derives it from a serializer message.</summary>
+    /// <summary>A binding failure is turned into a coded refusal here, so nothing downstream has to
+    /// interpret a serializer message.</summary>
     [Fact]
     public void ArgumentOfTheWrongType_IsInvalidArgumentNamingIt()
     {
@@ -151,9 +153,9 @@ public sealed class ToolExecutionTests : IDisposable
     }
 
     /// <summary>
-    /// The reason authorization precedes argument feedback: a caller holding no authority over a
-    /// tool must not be able to use a malformed call to learn what the tool's arguments are called or
-    /// what they refuse.
+    /// Authorization runs before argument validation so that a caller without authority over a tool
+    /// cannot use a malformed call to learn what the tool's arguments are named or what they
+    /// reject.
     /// </summary>
     [Fact]
     public void CallerWithoutTheFloor_CannotProbeTheArgumentSurface()
@@ -166,7 +168,7 @@ public sealed class ToolExecutionTests : IDisposable
         Assert.DoesNotContain("note", ToolRefusalEnvelope.Json(refusal), StringComparison.OrdinalIgnoreCase);
     }
 
-    /// <summary>And the same for a session-less caller, which is one step earlier still.</summary>
+    /// <summary>The same holds for a caller with no session, whose check runs earlier still.</summary>
     [Fact]
     public void SessionLessCaller_CannotProbeTheArgumentSurfaceOfAFloorGatedTool()
     {
@@ -177,10 +179,11 @@ public sealed class ToolExecutionTests : IDisposable
         Assert.Equal(ToolCodes.ToolUnavailable, refusal.Code);
     }
 
-    // --- 4. Vault resolution and membership --------------------------------------------------
+    // --- Vault resolution and membership ------------------------------------------------------
 
-    /// <summary>Whether a call targets a vault is a type question. A record that does not implement
-    /// <see cref="IVaultArguments"/> reaches no vault at all, however its members are spelled.</summary>
+    /// <summary>Whether a call targets a vault is decided by the arguments type. A record that does
+    /// not implement <see cref="IVaultArguments"/> reaches no vault, whatever its members are
+    /// named.</summary>
     [Fact]
     public void ArgumentsNotImplementingIVaultArguments_ResolveNoVault()
     {
@@ -221,8 +224,8 @@ public sealed class ToolExecutionTests : IDisposable
         Assert.Equal(ToolCodes.VaultUnavailable, refusal.Code);
     }
 
-    /// <summary>Routing precedes authorization: a vault nobody configured is told that, rather than
-    /// refused for a scope that could never have admitted it.</summary>
+    /// <summary>Vault lookup runs before the membership check, so a vault that is not configured is
+    /// reported as unknown rather than as out of scope.</summary>
     [Fact]
     public void UnknownVaultOutsideTheGrant_AnswersRoutingRatherThanScope()
     {
@@ -233,8 +236,8 @@ public sealed class ToolExecutionTests : IDisposable
         Assert.Equal(ToolCodes.UnknownVault, refusal.Code);
     }
 
-    /// <summary>The membership check now reaches a compiled tool, which the retained dispatcher's
-    /// predicate could not.</summary>
+    /// <summary>A vault the grant does not cover is refused as out of scope, and the tool is never
+    /// invoked.</summary>
     [Fact]
     public void VaultOutsideTheGrantsMembership_IsOutOfScope()
     {
@@ -250,12 +253,12 @@ public sealed class ToolExecutionTests : IDisposable
         using var envelope = JsonDocument.Parse(ToolRefusalEnvelope.Json(refusal));
         var data = envelope.RootElement.GetProperty("data");
         Assert.Equal("other", data.GetProperty("vault").GetString());
-        // The denial must not become an enumeration surface for the grant's own vault set.
+        // The refusal must not reveal which vaults the grant does cover.
         Assert.DoesNotContain(SyntheticTools.VaultName, data.GetRawText(), StringComparison.Ordinal);
     }
 
-    /// <summary>Step 3 beats step 4: a malformed argument answers before the vault it names is even
-    /// looked up.</summary>
+    /// <summary>Argument validation runs before vault resolution, so a malformed argument is refused
+    /// before the vault it names is looked up.</summary>
     [Fact]
     public void MalformedArgumentAndUnknownVault_AnswersTheArgumentRefusal()
     {
@@ -266,10 +269,10 @@ public sealed class ToolExecutionTests : IDisposable
         Assert.Equal(ToolCodes.InvalidArgument, refusal.Code);
     }
 
-    // --- 5. The lock, and 6. the access object ------------------------------------------------
+    // --- The vault lock and the access object -------------------------------------------------
 
-    /// <summary>The hold spans the whole invocation, so the tool observes the lock as held - proved
-    /// by a second acquire from another thread failing while the tool is running.</summary>
+    /// <summary>The lock is held for the whole invocation of a mutating tool. The test proves it by
+    /// failing to acquire the same mutex from another thread while the tool is running.</summary>
     [Fact]
     public void MutatingTool_HoldsTheVaultLockAcrossTheWholeInvocation()
     {
@@ -284,7 +287,7 @@ public sealed class ToolExecutionTests : IDisposable
         Run(SyntheticTools.Declaration(arguments: typeof(VaultBearingArguments), mutates: true), tool, new { }, SyntheticTools.Grant(), SyntheticTools.Session);
 
         Assert.True(heldDuringInvocation);
-        // And released afterwards, or the next call would deadlock rather than run.
+        // And released afterwards, or the next call would block instead of running.
         Assert.True(TryAcquireFromAnotherThread(vault.LockName));
     }
 
@@ -304,8 +307,8 @@ public sealed class ToolExecutionTests : IDisposable
         Assert.True(freeDuringInvocation);
     }
 
-    /// <summary>The access object is the execute path's to construct, so no tool holds one it was not
-    /// handed - and it carries the caller's own grant.</summary>
+    /// <summary>The execute path constructs the access object, so a tool only ever holds one it was
+    /// handed, and it carries the caller's own grant.</summary>
     [Fact]
     public void TheAccessObjectIsConstructedFromTheResolvedVaultAndTheCallersGrant()
     {
@@ -322,9 +325,11 @@ public sealed class ToolExecutionTests : IDisposable
         Assert.Throws<Access.AuthorityRefusal>(() => access.AssertKey(OpClass.Write));
     }
 
-    /// <summary>Whether the named mutex can be taken right now, from a thread that releases it
-    /// immediately. Another thread, because a <see cref="Mutex"/> is re-entrant for its owner and the
-    /// question here is whether anyone else could get in.</summary>
+    /// <summary>Reports whether a named mutex can be acquired right now, from a thread that releases
+    /// it immediately. It has to be another thread: a <see cref="Mutex"/> is re-entrant for the
+    /// thread that owns it, and the question is whether anyone else could get in.</summary>
+    /// <param name="lockName">The name of the mutex to try.</param>
+    /// <returns>True if the mutex was acquired; otherwise false.</returns>
     private static bool TryAcquireFromAnotherThread(string lockName)
     {
         bool acquired = false;

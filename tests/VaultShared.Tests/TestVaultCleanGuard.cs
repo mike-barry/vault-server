@@ -3,21 +3,30 @@ using System.Diagnostics;
 namespace VaultShared.Tests;
 
 /// <summary>
-/// Detection half of the test-isolation guard pair covering the "two env vars" gotcha
-/// (prevention half lives in <see cref="ProgramHostFixtureBase.AssertMutationSandboxed"/>). Every fixture that copies
-/// the committed <c>test-vault/</c> into a temp directory calls
-/// <see cref="AssertCommittedFixtureUntouched"/> on dispose, after its own temp-dir cleanup, to
-/// catch any escape prevention didn't anticipate - content changes, renames, and additions in
-/// one check. Fails loudly (throws, with the porcelain output inline) rather than silently
-/// leaving a dirty working tree for the next `git status` to discover cold.
-///
-/// Scoped to `test-vault/` only, so it is safe to run unconditionally even while sibling work
-/// elsewhere in the repo is in flight: nothing but these tests ever writes under
-/// `test-vault/`, so porcelain output there can only mean a real escape, never noise from
-/// concurrent edits to other files.
+/// Verifies after a test run that the committed <c>test-vault/</c> fixture on disk was never
+/// modified, by checking that <c>git status</c> reports it clean.
 /// </summary>
+/// <remarks>
+/// This is the after-the-fact half of a pair of isolation checks; the before-the-fact half is
+/// <see cref="ProgramHostFixtureBase.AssertMutationSandboxed"/>, which refuses to let a mutating
+/// call run unless both config paths point into the fixture's temp directory. Every fixture that
+/// copies <c>test-vault/</c> into a temp directory calls
+/// <see cref="AssertCommittedFixtureUntouched"/> on dispose, after its own temp-dir cleanup. One
+/// check covers content changes, renames, and additions.
+///
+/// The check is limited to <c>test-vault/</c>, so it is safe to run while unrelated work is in
+/// flight elsewhere in the repository. Nothing but these tests writes under that directory, so
+/// any output can only mean a test escaped its sandbox.
+/// </remarks>
 public static class TestVaultCleanGuard
 {
+    /// <summary>
+    /// Throws if <c>git status --porcelain test-vault/</c> reports anything, or if it cannot be
+    /// run at all.
+    /// </summary>
+    /// <exception cref="InvalidOperationException">
+    /// Git could not be started, exited non-zero, or reported the fixture as modified.
+    /// </exception>
     public static void AssertCommittedFixtureUntouched()
     {
         ProcessStartInfo psi = new("git", "status --porcelain test-vault/")

@@ -2,8 +2,13 @@ using VaultMcpServer.Tools;
 
 namespace VaultMcpServer.Tests;
 
+/// <summary>
+/// Covers <see cref="ScriptToolRunner"/>: what it returns for a script's pipeline output, how it
+/// captures errors instead of throwing, and that concurrent invocations stay independent.
+/// </summary>
 public sealed class ScriptToolRunnerTests : IDisposable, IClassFixture<ScriptToolRunnerTests.RunnerFixture>
 {
+    /// <summary>Holds one runner shared by every test in the class, and disposes it at the end.</summary>
     public sealed class RunnerFixture : IDisposable
     {
         public ScriptToolRunner Runner { get; } = new();
@@ -17,6 +22,9 @@ public sealed class ScriptToolRunnerTests : IDisposable, IClassFixture<ScriptToo
 
     public void Dispose() => Directory.Delete(_tempDir, recursive: true);
 
+    /// <summary>Writes a script into this test's temp directory.</summary>
+    /// <param name="content">The script's text.</param>
+    /// <returns>The full path written.</returns>
     private string WriteScript(string content)
     {
         var path = Path.Combine(_tempDir, "script.ps1");

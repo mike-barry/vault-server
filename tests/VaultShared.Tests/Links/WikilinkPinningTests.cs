@@ -3,9 +3,9 @@ using VaultShared.Links;
 namespace VaultShared.Tests.Links;
 
 /// <summary>
-/// Pinning on creation: a basename already in use triggers the pass and nothing else does, every
-/// bare link the new note would re-aim is frozen on what it opens now, and no link is ever aimed at
-/// the new note.
+/// Verifies the pinning pass a creation runs. Only a basename already in use triggers it, every
+/// bare link the new note would re-aim is rewritten to the note it opens today, and no link is
+/// ever aimed at the note being created.
 /// </summary>
 public sealed class WikilinkPinningTests : IDisposable
 {
@@ -21,8 +21,8 @@ public sealed class WikilinkPinningTests : IDisposable
     [Fact]
     public void AUniqueBasenameRunsNoPassAtAll()
     {
-        // Structurally distinct from a pass that ran and pinned nothing, which is the distinction a
-        // creation result's nullable pinned-links member carries.
+        // A different outcome from a pass that ran and pinned nothing, which is what the creation
+        // result's nullable pinned-links member distinguishes.
         _vault
             .WithNote("Zz/Dupe.md", "# Existing\n")
             .WithNote("Aa/Note.md", "See [[Dupe]].\n");
@@ -56,7 +56,8 @@ public sealed class WikilinkPinningTests : IDisposable
 
         var plan = LinkPass.Plan(Creating("Aa/Bb/Dupe.md"));
 
-        // Only the link whose answer would change: `Zz/Other.md` keeps opening its own neighbour.
+        // Only the link whose target would change is pinned; `Zz/Other.md` keeps opening its own
+        // neighbour either way.
         Assert.Equal(["Aa/Note.md:1 Dupe -> Zz/Dupe"], LinkPass.Apply(_vault, plan));
         Assert.Equal("See [[Dupe]].\n", _vault.TextOf("Zz/Other.md"));
     }
@@ -64,8 +65,7 @@ public sealed class WikilinkPinningTests : IDisposable
     [Fact]
     public void APinIsAlwaysTheQualifiedForm()
     {
-        // Protection names one file unambiguously, so it never emits the short form even where the
-        // name would still be unique somewhere.
+        // A pin has to name one file unambiguously, so it always writes the path-qualified form.
         _vault
             .WithNote("Zz/Dupe.md", "# Existing\n")
             .WithNote("Aa/Note.md", "See [[Dupe]].\n");
@@ -97,14 +97,14 @@ public sealed class WikilinkPinningTests : IDisposable
         Assert.True(LinkPass.Plan(Creating("Aa/Bb/Dupe.md")).IsEmpty);
     }
 
-    // ---- The order ----
+    // ---- Ordering against the note's creation ----
 
     [Fact]
     public void PinningIsComputedAndAppliedWithTheNoteStillUnwritten()
     {
-        // Interrupted after pinning, the vault holds links naming a target that is still correct.
-        // The area only reads and rewrites; bringing the note into existence is the tool's own
-        // operation and is scope-checked normally.
+        // Pinning runs before the note is created, so an interruption between the two leaves links
+        // naming a target that still exists. Creating the note is the calling tool's own operation
+        // and is scope-checked there.
         _vault
             .WithNote("Zz/Dupe.md", "# Existing\n")
             .WithNote("Aa/Note.md", "See [[Dupe]].\n");

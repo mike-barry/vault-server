@@ -6,8 +6,8 @@ using VaultShared.Scope;
 namespace VaultShared.Tests;
 
 /// <summary>
-/// Resolving a name against configuration: the canonical spelling, and the two failures told apart
-/// structurally rather than from message text.
+/// Tests resolving a vault name against configuration: the spelling the result carries, and the
+/// failures told apart by their type rather than by their message text.
 /// </summary>
 public sealed class VaultResolutionTests(TestVaultFixture fixture) : IClassFixture<TestVaultFixture>
 {
@@ -31,8 +31,8 @@ public sealed class VaultResolutionTests(TestVaultFixture fixture) : IClassFixtu
     [Fact]
     public void Resolve_AnswersTheConfiguredSpellingNotTheCallersName()
     {
-        // Results are quoted back into later calls, so echoing "TEST" would make the round trip
-        // lossy in a way nothing detects.
+        // A caller quotes the resolved name back into later calls, so echoing "TEST" would make
+        // the round trip lossy with nothing to detect it.
         Assert.Equal("test", Resolved(fixture.Config, "TEST").Name);
     }
 
@@ -55,10 +55,13 @@ public sealed class VaultResolutionTests(TestVaultFixture fixture) : IClassFixtu
 }
 
 /// <summary>
-/// The three cases over a configuration holding a skipped vault. A vault nobody configured is a
-/// caller error and a configured vault that will not load is operational, so the pair has to be
-/// distinguishable from what the layer already holds rather than by reading a message.
+/// Tests resolution against a configuration that holds a skipped vault.
 /// </summary>
+/// <remarks>
+/// A name nobody configured is a caller error, while a configured vault that would not load is an
+/// operational problem. Resolution returns a different result type for each, so a caller tells
+/// them apart without reading a message.
+/// </remarks>
 public sealed class VaultResolutionStateTests : IDisposable
 {
     private readonly string _tempDir = Directory.CreateTempSubdirectory("vault-mcp-vault-resolution-").FullName;
@@ -113,9 +116,13 @@ public sealed class VaultResolutionStateTests : IDisposable
 }
 
 /// <summary>
-/// The mutex name is a cross-process contract with <c>VaultWatcher</c>, which takes this derivation
-/// as code. Every case here is one of the reasons the derivation is what it is.
+/// Tests how <c>Vault.LockName</c> is derived.
 /// </summary>
+/// <remarks>
+/// The mutex name is a cross-process contract with the separate <c>VaultWatcher</c> process, which
+/// reimplements the derivation in its own code. Changing the derivation here without changing it
+/// there leaves the two processes taking different locks over the same files.
+/// </remarks>
 public sealed class VaultLockNameTests
 {
     private static Vault At(string root) => new("test", root, PathPolicy.None);

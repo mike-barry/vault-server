@@ -4,9 +4,9 @@ using VaultShared.Tools;
 namespace VaultShared.Tests.Tools;
 
 /// <summary>
-/// The registry both front-ends project from. It holds declarations, so a type implementing
-/// <see cref="ITool"/> and nothing else has nothing to register - which is what keeps a tool's name,
-/// description, argument record and flags stated exactly once.
+/// Tests the registry both front-ends read their tool list from. A registration pairs a declaration
+/// with a tool instance, so a type that implements <see cref="ITool"/> alone cannot be registered
+/// and a tool's name, description, argument record and flags are stated in one place.
 /// </summary>
 public sealed class ToolRegistryTests
 {
@@ -20,8 +20,8 @@ public sealed class ToolRegistryTests
         Assert.Equal(["first", "second"], registry.Registrations.Select(r => r.Declaration.Name));
     }
 
-    /// <summary>The schema a front-end advertises for an ordinary tool is the one derived from the
-    /// argument record its declaration names.</summary>
+    /// <summary>For an ordinary tool, the advertised schema is the one derived from the argument
+    /// record its declaration names.</summary>
     [Fact]
     public void AdvertisedSchema_OrdinaryTool_IsTheArgumentRecordsSchema()
     {
@@ -34,9 +34,8 @@ public sealed class ToolRegistryTests
     }
 
     /// <summary>
-    /// The vocabulary seam: a tool that renders its own schema over a vault's declaration is asked
-    /// for it, and is handed the vault the projection chose. This is the whole of what keeps a
-    /// front-end from naming <c>edit</c> - the type answers, not a branch on the name.
+    /// A tool that builds its own schema from a vault's frontmatter declaration is asked for it and
+    /// handed the vault name. A front-end therefore never has to special-case a tool by name.
     /// </summary>
     [Fact]
     public void AdvertisedSchema_VocabularyTool_IsTheToolsOwnRenderingForTheNamedVault()
@@ -76,7 +75,8 @@ public sealed class ToolRegistryTests
         Assert.Same(tool, registration.Value.Tool);
     }
 
-    /// <summary>Matched ordinally: a tool name is a wire name, and two spellings are two names.</summary>
+    /// <summary>Names are matched exactly. A tool name is a wire name, so a different case is a
+    /// different name.</summary>
     [Fact]
     public void Find_UnregisteredName_AnswersNull()
     {
@@ -86,7 +86,8 @@ public sealed class ToolRegistryTests
         Assert.Null(registry.Find("Probe"));
     }
 
-    /// <summary>Two tools under one name is a wiring defect, not a precedence rule to invent.</summary>
+    /// <summary>Registering two tools under one name throws. It is a wiring mistake, and there is no
+    /// precedence rule for it.</summary>
     [Fact]
     public void Add_DuplicateName_Throws()
     {

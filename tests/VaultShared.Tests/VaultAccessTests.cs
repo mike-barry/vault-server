@@ -7,13 +7,14 @@ using VaultShared.Scope;
 namespace VaultShared.Tests;
 
 /// <summary>
-/// The one producer of an admitted path. The cases here are the layer's whole admission story: what
-/// a caller may name, which of the three refusals it gets, the read-and-write asymmetry an
-/// always-readable root creates, and the quiet filter that cannot refuse.
-///
-/// The vault it runs against declares <c>Resources/Vault/Guides</c> always-readable and exists only
-/// as an empty directory - no case here needs a file, because admission never consults one.
+/// Tests <see cref="VaultAccess"/>, the only producer of an admitted path: what a caller may name,
+/// which refusal it gets, the difference an always-readable root makes between reading and
+/// writing, and the silent filter used for enumeration.
 /// </summary>
+/// <remarks>
+/// The vault these tests run against declares <c>Resources/Vault/Guides</c> always-readable and is
+/// an empty directory. No test needs a file on disk, because admission never looks at one.
+/// </remarks>
 public sealed class VaultAccessTests : IDisposable
 {
     private const string Guides = "Resources/Vault/Guides";
@@ -91,21 +92,20 @@ public sealed class VaultAccessTests : IDisposable
         Assert.Equal(write.Path, write.AsRead().Path);
     }
 
-    // ---- The read-and-write asymmetry ----
+    // ---- Reading and writing an always-readable root ----
 
     [Fact]
     public void ForRead_ReachesAnAlwaysReadableRootOutsideTheGrantsRoots()
     {
-        // The floor: an agent under any grant reaches the material it is instructed to obey.
+        // A caller under any grant reaches the material it is instructed to obey.
         Assert.Equal(Guide, Admitted(Narrow.ForRead(Guide)).Value);
     }
 
     [Fact]
     public void ForWrite_RefusesAnAlwaysReadableRootOutsideTheGrantsRoots()
     {
-        // The other half of the floor, and what makes it safe: every agent reads that material and
-        // none of them can author it. A write is checked against the grant's own roots and nothing
-        // wider.
+        // A write is checked against the grant's own roots and nothing wider, so a caller can read
+        // that material without being able to author it.
         Assert.IsType<PathResolution<WritePath>.OutOfScope>(Narrow.ForWrite(Guide));
     }
 
@@ -145,8 +145,8 @@ public sealed class VaultAccessTests : IDisposable
     [InlineData("Projects/Widget/.gitkeep")]
     public void ForRead_ADotSegmentIsRefusedAtThePerimeterEvenInsideTheGrantsRoots(string input)
     {
-        // Representable and not nameable: the census reports these, and no caller may name one
-        // whatever its scope. Which is why the perimeter is decided ahead of the scope check.
+        // Enumeration can report a dot path, but no caller may name one whatever its scope, so
+        // the perimeter is checked before the scope check.
         var refusal = Assert.IsType<PathResolution<ReadPath>.Excluded>(Narrow.ForRead(input));
 
         Assert.Equal(input, refusal.Path);
@@ -161,7 +161,8 @@ public sealed class VaultAccessTests : IDisposable
     [Fact]
     public void ARefusalCarriesTheCallersOwnCoordinatesAndNothingElse()
     {
-        // Never whether the target exists, never the grant's roots, never the subset that failed.
+        // A refusal carries the path the caller wrote and nothing else: not whether the target
+        // exists, not the grant's roots, not which check failed.
         var refusal = Assert.IsType<PathResolution<ReadPath>.OutOfScope>(Narrow.ForRead("Inbox/Note-Loose-Thought.md"));
 
         Assert.Equal("Inbox/Note-Loose-Thought.md", refusal.Path);
@@ -179,7 +180,7 @@ public sealed class VaultAccessTests : IDisposable
         Assert.IsType<PathResolution<ReadPath>.OutOfScope>(Narrow.ForRead("Inbox/Present.md"));
     }
 
-    // ---- The quiet filter ----
+    // ---- Silent filtering, used by enumeration ----
 
     [Fact]
     public void Admits_FiltersAgainstTheSameEffectiveReadScopeForReadUses()
@@ -194,8 +195,8 @@ public sealed class VaultAccessTests : IDisposable
     [Fact]
     public void Admits_DoesNotApplyThePerimeter()
     {
-        // A census asked for dot entries still filters them by scope, so the dot rule is not this
-        // member's to apply - it is a property of a path a caller named.
+        // An enumeration asked for dot entries still filters them by scope. The dot rule applies
+        // only to a path a caller named, so this member does not apply it.
         Assert.True(Access(VaultScope.Unscoped).Admits(At(".obsidian/workspace.json")));
     }
 
@@ -227,7 +228,8 @@ public sealed class VaultAccessTests : IDisposable
     [Fact]
     public void Construction_FailsOnAGrantWithNoScopeForThisVault()
     {
-        // An upstream defect fails as one rather than being read as permission.
+        // A grant with no scope entry for this vault is an upstream defect, so it throws rather
+        // than being read as permission.
         var grant = new Grant(
             "test-grant",
             new HashSet<string>(),
@@ -239,10 +241,10 @@ public sealed class VaultAccessTests : IDisposable
     }
 
     /// <summary>
-    /// The derived-target producer, for the one operation whose set is derived rather than named.
-    /// It widens nothing - scope roots are whole-segment prefixes, so everything under an admitted
-    /// folder is admitted by the same root - and it admits the dot paths the operand perimeter
-    /// refuses a caller to name, because a recursive removal really does destroy them.
+    /// Checks <c>Beneath</c>, which admits paths derived from an already-admitted folder rather
+    /// than named by the caller. It widens nothing, because a scope root is a whole-segment prefix
+    /// and everything under an admitted folder is admitted by that same root. It does admit dot
+    /// paths, which a caller may not name, because a recursive removal really does destroy them.
     /// </summary>
     [Fact]
     public void Beneath_AdmitsWhatLiesUnderAnAdmittedFolderIncludingADotEntry()
@@ -256,8 +258,10 @@ public sealed class VaultAccessTests : IDisposable
         Assert.Equal("Projects/Widget", access.Beneath(folder, At("Projects/Widget")).Path.Value);
     }
 
-    /// <summary>A path that is not under the folder is a defect at the call site rather than a scope
-    /// answer, so it throws instead of refusing.</summary>
+    /// <summary>
+    /// Checks that a path outside the folder throws rather than returning a refusal, because it is
+    /// a defect at the call site rather than an answer about scope.
+    /// </summary>
     [Fact]
     public void Beneath_RefusesAPathThatIsNotUnderTheFolder()
     {
@@ -277,11 +281,15 @@ public sealed class VaultAccessTests : IDisposable
 }
 
 /// <summary>
-/// The perimeter against a vault that declares one. No path under a dot-directory is reachable by
-/// the tool set, and that rule is fixed in code rather than declared - so a <c>path_policy</c> entry
-/// naming one cannot open it, and neither can an unscoped grant beside it. Policy and scope compose
-/// as a conjunction and scope only narrows; nothing in either direction widens the perimeter.
+/// Tests that the dot-path perimeter holds against a vault whose <c>path_policy</c> declares a
+/// dot directory as always readable.
 /// </summary>
+/// <remarks>
+/// No path under a dot directory is reachable by the tool set. The rule is fixed in code rather
+/// than configured, so neither a policy entry naming such a directory nor an unscoped grant can
+/// open it. Policy and scope are combined with AND, and scope only narrows, so nothing widens the
+/// perimeter.
+/// </remarks>
 public sealed class VaultAccessDeclaredPerimeterTests : IDisposable
 {
     private readonly string _tempDir = Directory.CreateTempSubdirectory("vault-mcp-vault-access-perimeter-").FullName;
@@ -324,8 +332,10 @@ public sealed class VaultAccessDeclaredPerimeterTests : IDisposable
         Assert.IsType<PathResolution<ReadPath>.Excluded>(Access(VaultScope.Of([".obsidian"])).ForRead(".obsidian/Notes.md"));
     }
 
-    /// <summary>The refusal is the perimeter's rather than the scope check's, which is the
-    /// distinction a caller acts on: exclusion is remedied by nothing a grant changes.</summary>
+    /// <summary>
+    /// Checks that the refusal comes from the perimeter rather than the scope check. The
+    /// distinction matters to a caller, because no change to a grant remedies an exclusion.
+    /// </summary>
     [Fact]
     public void TheRefusalNamesThePerimeterRatherThanScope()
     {

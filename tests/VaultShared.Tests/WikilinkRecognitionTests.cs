@@ -3,24 +3,33 @@ using VaultShared.Access;
 namespace VaultShared.Tests;
 
 /// <summary>
-/// The one grammar four consumers share. What is asserted is what a consumer cannot recover for
-/// itself: which forms are occurrences, where the two extents fall exactly, and that a note whose
-/// target extents are overwritten is a correct note afterwards. Recognition takes text and answers
-/// occurrences, so nothing here needs a vault.
+/// Tests <c>Wikilink.Recognize</c>, the single wikilink grammar every consumer shares.
 /// </summary>
+/// <remarks>
+/// A consumer receives offsets and cannot check them for itself, so these tests pin which forms
+/// are occurrences, exactly where the whole-link and target extents fall, and that overwriting
+/// every target extent leaves a correct note. Recognition takes text and returns occurrences, so
+/// no test here needs a vault.
+/// </remarks>
 public sealed class WikilinkRecognitionTests
 {
-    /// <summary>The whole link and the target, as the text they cover.</summary>
+    /// <summary>Returns the text covered by an occurrence's whole-link and target extents.</summary>
+    /// <param name="text">The text the occurrence was recognized in.</param>
+    /// <param name="occurrence">The occurrence to take the extents from.</param>
+    /// <returns>The whole link and the target, as the text each covers.</returns>
     private static (string Link, string Target) Extents(string text, WikilinkOccurrence occurrence) =>
         (text.Substring(occurrence.Start, occurrence.Length), occurrence.TargetIn(text));
 
+    /// <summary>Recognizes text expected to hold exactly one link and returns its extents.</summary>
+    /// <param name="text">The text to recognize.</param>
+    /// <returns>The whole link and the target, as the text each covers.</returns>
     private static (string Link, string Target) Single(string text)
     {
         var occurrence = Assert.Single(Wikilink.Recognize(text));
         return Extents(text, occurrence);
     }
 
-    // ---- The forms ----
+    // ---- The link forms ----
 
     [Fact]
     public void ABareLinkIsWholeLinkAndTarget()
@@ -49,7 +58,7 @@ public sealed class WikilinkRecognitionTests
     [Fact]
     public void ASubpathIsADecorationOutsideTheTarget()
     {
-        // Only the target portion is rewritten; what a link carries beyond it survives verbatim.
+        // Only the target extent is rewritten, so anything a link carries beyond it survives.
         Assert.Equal(("[[Widget#Design]]", "Widget"), Single("[[Widget#Design]]\n"));
         Assert.Equal(("[[Widget#^a1b2c3|Alias]]", "Widget"), Single("[[Widget#^a1b2c3|Alias]]\n"));
     }
@@ -75,8 +84,8 @@ public sealed class WikilinkRecognitionTests
     [Fact]
     public void RecognitionRunsOverTheFrontmatterBlockToo()
     {
-        // The vault's navigation graph lives in frontmatter values, so a grammar stopping at the
-        // body would under-report to every consumer.
+        // The vault's navigation links live in frontmatter values, so recognizing only the body
+        // would under-report to every consumer.
         var text = "---\nparent: \"[[Projects/Widget]]\"\nrelated:\n  - \"[[Notes/Alpha]]\"\n---\n\n# Body\n\n[[Notes/Beta]]\n";
 
         Assert.Equal(
@@ -89,7 +98,8 @@ public sealed class WikilinkRecognitionTests
     [Fact]
     public void ALinkNeverCrossesALineBoundary()
     {
-        // This is what keeps a substitution from creating or moving a frontmatter fence.
+        // Confining a link to one line is what keeps a rewrite from creating or moving a
+        // frontmatter fence.
         Assert.Empty(Wikilink.Recognize("[[Widget\n]]\n"));
         Assert.Empty(Wikilink.Recognize("---\ntitle: [[Broken\n---\n"));
     }
@@ -109,8 +119,8 @@ public sealed class WikilinkRecognitionTests
     [Fact]
     public void ALinkNamingNothingIsNotAnOccurrence()
     {
-        // A heading reference within the same note names no file, and an empty target has no extent
-        // a rewrite could be written over.
+        // A heading reference within the same note names no file, and an empty target has no
+        // extent for a rewrite to write over.
         Assert.Empty(Wikilink.Recognize("[[#Design]]\n"));
         Assert.Empty(Wikilink.Recognize("[[|Alias]]\n"));
         Assert.Empty(Wikilink.Recognize("[[   ]]\n"));
@@ -131,16 +141,16 @@ public sealed class WikilinkRecognitionTests
     [Fact]
     public void ALinkInsideACodeFenceIsAnOccurrenceLikeAnyOther()
     {
-        // The grammar knows no markdown structure, and cannot: it runs over frontmatter as well as
-        // body, and tracking fences would mean parsing the note - the one thing every consumer here
-        // exists to avoid. Over-reporting to the census and rewriting a name inside a code sample
-        // are both the loud direction of being wrong.
+        // The grammar knows nothing about markdown structure. It runs over frontmatter as well as
+        // the body, and tracking code fences would mean parsing the note, which is what every
+        // consumer relies on not happening. Over-reporting a link, or rewriting a name inside a
+        // code sample, is visible to whoever reads the note; silently missing one is not.
         var text = "```\n[[Widget]]\n```\n";
 
         Assert.Equal("Widget", Assert.Single(Wikilink.Recognize(text)).TargetIn(text));
     }
 
-    // ---- Byte-range exactness ----
+    // ---- Exactness of the extents ----
 
     [Fact]
     public void TheTargetExtentIsExactlyTheTarget()
@@ -158,8 +168,8 @@ public sealed class WikilinkRecognitionTests
     [Fact]
     public void OverwritingEveryTargetExtentProducesACorrectNote()
     {
-        // The consumer's whole contract: it replaces bytes and parses nothing, so every byte outside
-        // a replaced target survives.
+        // A consumer replaces characters and parses nothing, so everything outside a replaced
+        // target survives unchanged.
         const string text =
             "---\nparent: \"[[Old-Name]]\"\n---\n\n# Note\n\nSee [[Notes/Old-Name|the old one]] and ![[Old-Name#Design]].\n";
 
@@ -180,9 +190,12 @@ public sealed class WikilinkRecognitionTests
     }
 
     /// <summary>
-    /// What a consumer does: write over each target extent, last first so the earlier extents still
-    /// describe the text they were taken from.
+    /// Replaces every link target in the text, the way a consumer does: writing over each target
+    /// extent from last to first, so the earlier extents still describe the text they came from.
     /// </summary>
+    /// <param name="text">The text to rewrite.</param>
+    /// <param name="replacement">The target to write in place of each recognized one.</param>
+    /// <returns>The rewritten text.</returns>
     private static string Rewrite(string text, string replacement)
     {
         var rewritten = text;

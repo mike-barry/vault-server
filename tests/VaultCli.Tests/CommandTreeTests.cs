@@ -5,16 +5,16 @@ using VaultShared.Tools;
 namespace VaultCli.Tests;
 
 /// <summary>
-/// The command tree is generated from the registry and from the argument records the declarations
-/// name. Nothing here asserts a hand-written list of subcommands or options: what is under test is
-/// that the generation covers whatever is registered, so a tool added to the registry needs no line
-/// in this front-end and no line in these tests.
+/// Verifies that the command tree is generated from the tool registry and from the argument records
+/// the declarations name. No case asserts a hand-written list of subcommands or options; each
+/// asserts that generation covers whatever is registered, so adding a tool to the registry requires
+/// no change to the CLI or to these tests.
 /// </summary>
 public sealed class CommandTreeTests(CliFixture fixture) : IClassFixture<CliFixture>
 {
-    /// <summary>A declaration that needs a caller whose authority can be rebound - what
-    /// <c>mint_token</c> and <c>request_elevation</c> are, in a shape this suite can register. The
-    /// CLI's own registry holds neither, so the filter has nothing to act on without one.</summary>
+    /// <summary>A stand-in tool declaring <see cref="ToolDeclaration.RequiresClientSession"/>, in
+    /// the shape of <c>mint_token</c> and <c>request_elevation</c>. The CLI's registry holds neither
+    /// of those, so without this the session filter would have nothing to act on.</summary>
     private sealed class SessionTool : ITool
     {
         public static readonly ToolDeclaration Declaration = new()
@@ -55,9 +55,9 @@ public sealed class CommandTreeTests(CliFixture fixture) : IClassFixture<CliFixt
     }
 
     /// <summary>
-    /// The filter above is cosmetic, and this is what makes that safe: the shared execute path
-    /// refuses such a call whatever route reached it, and <c>--args</c> reaches a tool by name
-    /// without the tree.
+    /// Leaving such a tool out of the tree is only presentation. The shared execute path refuses
+    /// the call whatever route reached it, which matters because <c>--args</c> names a tool
+    /// directly rather than through the tree.
     /// </summary>
     [Fact]
     public void ADeclarationRequiringAClientSession_IsRefusedByTheExecutePath()
@@ -74,8 +74,8 @@ public sealed class CommandTreeTests(CliFixture fixture) : IClassFixture<CliFixt
     }
 
     /// <summary>
-    /// Both spellings come from the one declared name. A single-word argument spells the same either
-    /// way and registers one alias, not a duplicate.
+    /// Both spellings are derived from the single declared name. A single-word argument spells the
+    /// same either way, so it registers no alias rather than a duplicate of its own name.
     /// </summary>
     [Theory]
     [InlineData("read", "--with-content-hash", "--with_content_hash")]
@@ -94,9 +94,9 @@ public sealed class CommandTreeTests(CliFixture fixture) : IClassFixture<CliFixt
     public void ASingleWordArgument_RegistersNoAlias() => Assert.Empty(Option("read", "--path").Aliases);
 
     /// <summary>
-    /// One option per member of the argument record, and no member without one. The expected set is
-    /// read off the same contract the binder reads, so this asserts coverage rather than restating
-    /// the record.
+    /// Each subcommand carries exactly one option per member of its argument record, with no member
+    /// left out. The expected set is read from the same type information the binder uses, so this
+    /// asserts coverage rather than restating the record.
     /// </summary>
     [Fact]
     public void EverySubcommand_CarriesOneOptionPerMemberOfItsArgumentRecord()
@@ -125,8 +125,8 @@ public sealed class CommandTreeTests(CliFixture fixture) : IClassFixture<CliFixt
         }
     }
 
-    /// <summary>An argument record with no members - <c>health_check</c>'s - generates no options
-    /// and is still a subcommand.</summary>
+    /// <summary>An argument record with no members, such as <c>health_check</c>'s, generates no
+    /// options and is still a subcommand.</summary>
     [Fact]
     public void ATakingNoArguments_IsStillASubcommand()
     {

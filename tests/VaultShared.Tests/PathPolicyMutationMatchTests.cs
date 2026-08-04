@@ -3,13 +3,15 @@ using VaultShared.Scope;
 namespace VaultShared.Tests;
 
 /// <summary>
-/// Matching a path against a policy's <c>mutation_requires</c> entries - the one matcher every
-/// enforcer shares. The frontmatter write path consults it beside the authority assertion, and the
-/// tools that remove or relocate consult it at their own validate phases, so a second implementation
-/// would be a second answer to the same question.
-///
-/// What a policy entry parses into is <c>PathPolicyTests</c>'s subject; what a match means is here.
+/// Tests <c>PathPolicy.MutationRequires</c>, which matches a path against a policy's
+/// <c>mutation_requires</c> entries.
 /// </summary>
+/// <remarks>
+/// Every enforcer shares this one matcher: the frontmatter write path consults it alongside the
+/// authority assertion, and the tools that remove or relocate consult it during validation.
+/// <c>PathPolicyTests</c> covers how a policy entry is parsed; these tests cover what a match
+/// means.
+/// </remarks>
 public sealed class PathPolicyMutationMatchTests
 {
     private const string Elevated = "agentic:write";
@@ -49,7 +51,7 @@ public sealed class PathPolicyMutationMatchTests
     [Fact]
     public void ContributionsUnionAcrossEveryMatchingEntry()
     {
-        // No entry can clear one another contributed.
+        // Entries only add op classes; none can clear one another entry contributed.
         var policy = Policy($$"""
             [
               { "path": "Areas", "mutation_requires": "{{Content}}" },
@@ -77,10 +79,10 @@ public sealed class PathPolicyMutationMatchTests
     }
 
     /// <summary>
-    /// The two target kinds are askable apart, for the one caller that needs them apart: a
-    /// relocation, where a path entry contributes wherever the move goes and a structural rule
-    /// contributes only where artifact status changes. Every other caller asks for both, which is
-    /// the default.
+    /// Checks that path entries and structural rules can be queried separately. A relocation needs
+    /// them apart, because a path entry applies wherever the move lands while a structural rule
+    /// applies only where the path's structural role changes. Every other caller asks for both,
+    /// which is the default.
     /// </summary>
     [Fact]
     public void TheTwoTargetKindsAreAskableApart()

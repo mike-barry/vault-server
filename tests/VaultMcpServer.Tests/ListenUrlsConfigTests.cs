@@ -5,13 +5,14 @@ using VaultShared.Tests;
 namespace VaultMcpServer.Tests;
 
 /// <summary>
-/// Coverage for the configurable Kestrel listener bind. Program.cs resolves
-/// the bind as <c>Configuration["ListenUrls"] ?? "http://localhost:5111"</c> and passes it to
-/// UseUrls; TestServer replaces Kestrel outright, so the actual bind isn't observable through the
-/// hosted fixtures. These tests pin the two things that are: the resolution rule (unset falls back
-/// to the built-in default, a set value is honored) and that the committed appsettings.json
-/// ships that same default, so a deployment that configures nothing binds where the code says.
+/// Covers the configurable Kestrel listener bind. Program.cs resolves it as
+/// <c>Configuration["ListenUrls"] ?? "http://localhost:5111"</c> and passes the result to UseUrls.
 /// </summary>
+/// <remarks>
+/// TestServer replaces Kestrel, so the actual bind is not observable through the hosted fixtures.
+/// These tests cover what is: the resolution rule, and that the committed appsettings.json ships
+/// the same default, so a deployment that configures nothing binds where the code says.
+/// </remarks>
 public sealed class ListenUrlsConfigTests
 {
     private const string DefaultBind = "http://localhost:5111";

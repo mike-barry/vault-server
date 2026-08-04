@@ -7,6 +7,11 @@ using VaultShared.Tests;
 
 namespace VaultMcpServer.Tests;
 
+/// <summary>
+/// Covers <see cref="ScriptToolLoader"/>: what it derives from a script's comment-help block, which
+/// scripts it refuses, and how a refusal is reported. Each test writes its own scripts into a
+/// temporary directory and loads that directory.
+/// </summary>
 public sealed class ScriptToolLoaderTests : IDisposable
 {
     private static readonly OpClassRegistry OpClasses = OpClassRegistryLoader.Load(Path.Combine(TestVaultFixture.RepoRoot, "op-classes.json"), new ServerHealthState());
@@ -15,6 +20,10 @@ public sealed class ScriptToolLoaderTests : IDisposable
 
     public void Dispose() => Directory.Delete(_tempDir, recursive: true);
 
+    /// <summary>Writes a script into this test's temp tools directory.</summary>
+    /// <param name="fileName">The file name to write, including its extension.</param>
+    /// <param name="content">The script's text.</param>
+    /// <returns>The full path written.</returns>
     private string WriteScript(string fileName, string content)
     {
         var path = Path.Combine(_tempDir, fileName);
@@ -77,12 +86,15 @@ public sealed class ScriptToolLoaderTests : IDisposable
         """;
 
     /// <summary>
-    /// The shape the `.SCHEMA` side-car exists for: `frontmatter_ops` is a typed array of
-    /// objects, which the param() block can only ever derive as a bare `{type: "array"}`, so
-    /// the block carries a real `oneOf` over the op vocabulary with `const` pinning each
-    /// branch's `op`. Also the case where the derived and authored contracts disagree on
-    /// everything - `.PARAMETER` text, JSON type, and structure - so a test can tell which won.
+    /// A script exercising the <c>.SCHEMA</c> side-car. <c>frontmatter_ops</c> is a typed array of
+    /// objects, which a param() block can only derive as a bare <c>{type: "array"}</c>, so the
+    /// side-car carries a <c>oneOf</c> over the op vocabulary with <c>const</c> pinning each
+    /// branch's <c>op</c>.
     /// </summary>
+    /// <remarks>
+    /// The derived and authored contracts disagree on everything here - <c>.PARAMETER</c> text, JSON
+    /// type and structure - so a test can tell which one was used.
+    /// </remarks>
     private const string SideCarSchemaScript = """
         <#
         .SYNOPSIS
@@ -223,9 +235,9 @@ public sealed class ScriptToolLoaderTests : IDisposable
     [Fact]
     public void Load_RegistryBackedNonBuiltInOpClass_ManageGrants_Loads()
     {
-        // grants:manage exists only in op-classes.json, not in the OpClass constants class -
-        // proving the loader validates .NOTES op classes against the registry, not a fixed
-        // enum (the phase-2 change that made mint_token's class declarable at all).
+        // grants:manage exists only in op-classes.json, not in the OpClass constants class, so
+        // loading this script shows the loader validates .NOTES op classes against the registry
+        // rather than against a fixed set.
         WriteScript("admin_thing.ps1", """
             <#
             .SYNOPSIS
@@ -243,8 +255,8 @@ public sealed class ScriptToolLoaderTests : IDisposable
     [Fact]
     public void Load_OpClassIsCanonicalizedCaseInsensitively()
     {
-        // The registry match is case-insensitive but the stored class is the registry's
-        // canonical casing - dispatch-time Grant.Allows comparisons rely on that.
+        // The registry match is case-insensitive, but the stored class is the registry's canonical
+        // casing, which Grant.Allows comparisons at dispatch time rely on.
         WriteScript("lower.ps1", """
             <#
             .SYNOPSIS
@@ -314,9 +326,8 @@ public sealed class ScriptToolLoaderTests : IDisposable
     [Fact]
     public void Load_BrokenScript_SkipsOnlyThatScriptRestOfFolderLoads()
     {
-        // The core per-script skip-and-report behavior: one broken script loads zero tools
-        // from that file, is recorded as a Degraded problem naming it, and every other
-        // script in the folder loads normally.
+        // One broken script loads zero tools from that file and is recorded as a Degraded problem
+        // naming it, while every other script in the folder loads normally.
         WriteScript("good.ps1", ValidScript);
         WriteScript("broken.ps1", "param([string]$X)\nWrite-Output $X\n");
         var healthState = new ServerHealthState();
@@ -335,9 +346,8 @@ public sealed class ScriptToolLoaderTests : IDisposable
     [Fact]
     public void Load_ProblemsAreReplacedPerScan_BrokenThenFixedClears()
     {
-        // Staleness, direction 1: a script that was broken on the previous scan and is fixed
-        // before the next one must stop appearing as a problem - the loader replaces its
-        // whole problem set per scan instead of appending.
+        // A script broken on one scan and fixed before the next must stop appearing as a problem.
+        // The loader replaces its whole problem set on each scan rather than appending.
         var healthState = new ServerHealthState();
         WriteScript("tool.ps1", "param([string]$X)\nWrite-Output $X\n");
 
@@ -354,8 +364,8 @@ public sealed class ScriptToolLoaderTests : IDisposable
     [Fact]
     public void Load_ProblemsAreReplacedPerScan_OkThenBrokenAppears()
     {
-        // Staleness, direction 2: a script valid on the previous scan that breaks before the
-        // next one must appear as a problem on that next scan.
+        // The other direction: a script valid on one scan that breaks before the next must appear
+        // as a problem on that next scan.
         var healthState = new ServerHealthState();
         WriteScript("tool.ps1", ValidScript);
 
@@ -375,8 +385,8 @@ public sealed class ScriptToolLoaderTests : IDisposable
     [Fact]
     public void Registry_Refresh_RecomputesProblemSet()
     {
-        // Same staleness contract exercised through ScriptToolRegistry.Refresh - the entry
-        // point the tools/ watcher actually calls at runtime.
+        // The same rule through ScriptToolRegistry.Refresh, which is the entry point the tools/
+        // watcher calls at runtime.
         var healthState = new ServerHealthState();
         WriteScript("tool.ps1", "param([string]$X)\nWrite-Output $X\n");
         var registry = new ScriptToolRegistry(_tempDir, OpClasses, healthState);
@@ -433,8 +443,8 @@ public sealed class ScriptToolLoaderTests : IDisposable
         var properties = tool.BuildInputSchema().GetProperty("properties");
         var members = properties.GetProperty("Mode").GetProperty("enum").EnumerateArray().Select(e => e.GetString()).ToList();
         Assert.Equal(new string?[] { "read", "elevated" }, members);
-        // A parameter with no ValidateSet omits the key entirely, rather than carrying an
-        // empty array or a null that a client would have to special-case.
+        // A parameter with no ValidateSet omits the key entirely, rather than carrying an empty
+        // array or a null a client would have to special-case.
         Assert.False(properties.GetProperty("Label").TryGetProperty("enum", out _));
     }
 
@@ -446,8 +456,8 @@ public sealed class ScriptToolLoaderTests : IDisposable
 
         var passes = tool.BuildInputSchema().GetProperty("properties").GetProperty("Passes");
         Assert.Equal("array", passes.GetProperty("type").GetString());
-        // A set on an array constrains each element. A property-level enum would demand the
-        // array itself equal a member string, which no array satisfies.
+        // A set on an array constrains each element. A property-level enum would require the array
+        // itself to equal a member string, which no array does.
         Assert.False(passes.TryGetProperty("enum", out _));
         var members = passes.GetProperty("items").GetProperty("enum").EnumerateArray().Select(e => e.GetString()).ToList();
         Assert.Equal(new string?[] { "typography", "whitespace" }, members);
@@ -462,26 +472,26 @@ public sealed class ScriptToolLoaderTests : IDisposable
         Assert.Empty(healthState.Problems);
 
         var ops = Assert.Single(tool.Parameters, p => p.Name == "frontmatter_ops");
-        // The param() block's own facts are still carried - they remain true about the script,
-        // and the encoding item needs the "side-car says non-string, .NET says string" pair.
+        // The param() block's own facts are still carried. They stay true about the script, and the
+        // encoding signal needs both: the side-car says non-string while the .NET type is string.
         Assert.Equal("string", ops.JsonType);
         Assert.NotNull(ops.Schema);
 
         var property = tool.BuildInputSchema().GetProperty("properties").GetProperty("frontmatter_ops");
 
-        // The block replaces the node, so the node's type is the block's, not MapJsonType's...
+        // The side-car replaces the node, so the type is the side-car's rather than MapJsonType's.
         Assert.Equal("array", property.GetProperty("type").GetString());
-        // ...and its description is the block's own, not the .PARAMETER text.
+        // The description is the side-car's own, not the .PARAMETER text.
         Assert.Equal("Ordered frontmatter operations, applied as one transaction.", property.GetProperty("description").GetString());
         Assert.DoesNotContain("DERIVED-DESCRIPTION-THAT-MUST-NOT-SURVIVE", property.GetRawText(), StringComparison.Ordinal);
 
-        // Verbatim: the emitted node is JSON-equal to the block as authored, not a re-derived
-        // node with a couple of keys overwritten - and not double-encoded as a JSON string.
+        // The emitted node is JSON-equal to the side-car as written: not a re-derived node with a
+        // few keys overwritten, and not double-encoded as a JSON string.
         Assert.Equal(JsonValueKind.Object, property.ValueKind);
         Assert.True(JsonElement.DeepEquals(ops.Schema!.Value, property));
 
-        // The oneOf-over-an-op-vocabulary shape survives intact, since that is the whole point
-        // of the mechanism: MapJsonType cannot express items, let alone per-branch const/enum.
+        // The oneOf over the op vocabulary survives intact. MapJsonType cannot express items at
+        // all, let alone a per-branch const or enum.
         var branches = property.GetProperty("items").GetProperty("oneOf").EnumerateArray().ToList();
         Assert.Equal(2, branches.Count);
         Assert.Equal("set", branches[0].GetProperty("properties").GetProperty("op").GetProperty("const").GetString());
@@ -493,13 +503,10 @@ public sealed class ScriptToolLoaderTests : IDisposable
     [Fact]
     public void Load_SideCarSchema_LeavesEveryOtherParameterDerived()
     {
-        // The counterpart to the case above, and the "without a block" case at parameter
-        // granularity: `path` sits in the same script and derives from its param() declaration
-        // exactly as it would with no side-car present - a side-car states one parameter's node
-        // and leaves every other one alone. The unchanged-shape coverage for a script with no
-        // block at all is carried by BuildInputSchema_MatchesJsonSchemaShape and the two
-        // ValidateSet schema tests above; what this adds is that Schema is null where no block
-        // was authored.
+        // A side-car states one parameter's node and leaves the others alone: `path` sits in the
+        // same script and derives from its param() declaration as it would with no side-car
+        // present. What this adds over BuildInputSchema_MatchesJsonSchemaShape and the ValidateSet
+        // tests is that Schema is null on a parameter with no side-car of its own.
         WriteScript("edit_fm.ps1", SideCarSchemaScript);
         var tool = Assert.Single(ScriptToolLoader.Load(_tempDir, OpClasses, new ServerHealthState()));
 
@@ -514,10 +521,10 @@ public sealed class ScriptToolLoaderTests : IDisposable
     [Fact]
     public void BuildInputSchema_SideCarSchema_RequiredStillComesFromParameterMandatory()
     {
-        // `required` is a keyword of the parent object schema, not of a property node, so a
-        // block that replaces the node cannot express it. It stays driven by the param() block,
-        // which is also what the PowerShell binder enforces: frontmatter_ops is optional there
-        // and so optional here, despite its block being the more elaborate contract.
+        // `required` is a keyword of the parent object schema rather than of a property node, so a
+        // side-car that replaces the node cannot express it. It stays driven by the param() block,
+        // which is what the PowerShell binder enforces: frontmatter_ops is optional there and so
+        // optional here.
         WriteScript("edit_fm.ps1", SideCarSchemaScript);
         var tool = Assert.Single(ScriptToolLoader.Load(_tempDir, OpClasses, new ServerHealthState()));
 
@@ -528,9 +535,9 @@ public sealed class ScriptToolLoaderTests : IDisposable
     [Fact]
     public void Load_SideCarSchemaBeatsValidateSet_WithNoMergedEnum()
     {
-        // A [ValidateSet] plus a .SCHEMA on one parameter is a conflict, not a merge: the block
-        // wins outright and the set contributes nothing, so the effective schema is readable
-        // from the block alone rather than from the block plus the param() block.
+        // A [ValidateSet] and a .SCHEMA on the same parameter do not merge. The side-car wins
+        // outright and the set contributes nothing, so the advertised schema is readable from the
+        // side-car alone.
         WriteScript("passes.ps1", """
             <#
             .SYNOPSIS
@@ -557,8 +564,8 @@ public sealed class ScriptToolLoaderTests : IDisposable
             """);
 
         var tool = Assert.Single(ScriptToolLoader.Load(_tempDir, OpClasses, new ServerHealthState()));
-        // The set is still carried on the parameter - it is a true fact about the script - but
-        // nothing of it reaches the advertised node.
+        // The set is still carried on the parameter, since it remains true of the script, but none
+        // of it reaches the advertised node.
         var passes = Assert.Single(tool.Parameters);
         Assert.Equal(new[] { "typography", "whitespace" }, passes.AllowedValues);
 
@@ -590,10 +597,10 @@ public sealed class ScriptToolLoaderTests : IDisposable
             param([string]$frontmatter_ops)
             """);
 
-        // Refusal, not fallback. A fallback would re-advertise frontmatter_ops as a bare
-        // {type: "string"} and - since side-car presence is also the argument-encoding signal -
-        // silently strip its encoding, so a typo would quietly degrade the tool instead of
-        // breaking it visibly.
+        // The script is refused rather than falling back. A fallback would re-advertise
+        // frontmatter_ops as a bare {type: "string"} and, because side-car presence is also the
+        // argument-encoding signal, strip its encoding, so a typo would quietly degrade the tool
+        // instead of breaking it visibly.
         AssertScriptSkipped(expectedDetailFragment: ".SCHEMA");
         AssertListsAsBrokenEntry("bad");
     }
@@ -601,9 +608,9 @@ public sealed class ScriptToolLoaderTests : IDisposable
     [Fact]
     public void Load_SideCarSchemaNamingNoDeclaredParameter_SkipsScript()
     {
-        // Mirrors the refusal of a parameter carrying no .PARAMETER entry. A misspelled name is
-        // otherwise indistinguishable from an absent block: the parameter re-derives through
-        // MapJsonType and loses its encoding with nothing left to read as a signal.
+        // Refused like a parameter carrying no .PARAMETER entry. A misspelled name is otherwise
+        // indistinguishable from an absent side-car: the parameter re-derives through MapJsonType
+        // and loses its encoding, with nothing left to signal that anything went wrong.
         WriteScript("bad.ps1", """
             <#
             .SYNOPSIS
@@ -625,10 +632,9 @@ public sealed class ScriptToolLoaderTests : IDisposable
     [Fact]
     public void Load_SideCarSchemaDoesNotSubstituteForAMissingParameterEntry()
     {
-        // .PARAMETER stays mandatory for every parameter regardless of a side-car. A block
-        // carries its own description, which makes it tempting to read as documenting the
-        // parameter - it does not; it documents the wire shape, and the help entry is still
-        // required. The refusal is the existing .PARAMETER one, not a .SCHEMA-flavored variant.
+        // .PARAMETER stays mandatory for every parameter, side-car or not. A side-car carries its
+        // own description, but that describes the wire shape rather than the parameter, so the
+        // help entry is still required. The refusal is the ordinary .PARAMETER one.
         WriteScript("bad.ps1", """
             <#
             .SYNOPSIS
@@ -647,10 +653,10 @@ public sealed class ScriptToolLoaderTests : IDisposable
     [Fact]
     public void Load_NamelessSideCarSchema_SkipsScript()
     {
-        // A nameless block names no parameter, so it takes the same refusal - deliberately NOT
-        // the silent drop a nameless .PARAMETER gets. Dropping a .PARAMETER is still caught a
-        // line later, when the parameter it was meant to document turns out to have no help
-        // entry; nothing downstream catches a dropped .SCHEMA.
+        // A nameless .SCHEMA names no parameter and is refused, rather than being dropped the way a
+        // nameless .PARAMETER is. A dropped .PARAMETER is caught immediately afterwards, when the
+        // parameter it was meant to document turns out to have no help entry. Nothing downstream
+        // would catch a dropped .SCHEMA.
         WriteScript("bad.ps1", """
             <#
             .SYNOPSIS
@@ -670,27 +676,28 @@ public sealed class ScriptToolLoaderTests : IDisposable
     }
 
     /// <summary>
-    /// The whole comment-help surface against a script saved with CRLF endings. Every `.ps1` in
-    /// `tools/` is LF today, so this is about what an editor can do to one on the way past: the
-    /// section-header regex anchors each line with `$` under `RegexOptions.Multiline`, and in .NET
-    /// that anchor matches only *before* a `\n`, leaving a CRLF's `\r` for the trailing character
-    /// class to absorb. With `\r` outside that class the header does not match, a CRLF script
-    /// parses zero sections, and the loader refuses it for a missing `.SYNOPSIS` it plainly has.
-    ///
-    /// Asserted across all four things the block carries - synopsis, op class, parameters, and the
-    /// `.SCHEMA` side-car - because one regex gates all of them, so a partial fix that recovered
-    /// only the simple headers would still lose the side-car. The side-car matters most: it is the
-    /// largest hand-authored block in any tool script and so the likeliest to be pasted through an
-    /// editor that rewrites line endings.
+    /// Verifies that the whole comment-help block parses from a script saved with CRLF line
+    /// endings.
     /// </summary>
+    /// <remarks>
+    /// Every <c>.ps1</c> in <c>tools/</c> is LF, but an editor can rewrite one. The section-header
+    /// regex anchors each line with <c>$</c> under <c>RegexOptions.Multiline</c>, and in .NET that
+    /// anchor matches only before a <c>\n</c>, so a CRLF's <c>\r</c> has to be absorbed by the
+    /// trailing character class. With <c>\r</c> outside that class no header matches, a CRLF script
+    /// parses zero sections, and the loader refuses it for a missing <c>.SYNOPSIS</c> it has.
+    ///
+    /// All four things the block carries are asserted - synopsis, op class, parameters and the
+    /// <c>.SCHEMA</c> side-car - because one regex gates all of them and a partial fix could
+    /// recover the simple headers while still losing the side-car.
+    /// </remarks>
     [Fact]
     public void Load_ScriptWithCrlfLineEndings_ParsesTheWholeCommentHelpBlock()
     {
         var path = WriteScript("edit_fm.ps1", SideCarSchemaScript.ReplaceLineEndings("\r\n"));
 
-        // The fixture is only a fixture if it really is CRLF on disk. This repo has no
-        // `.gitattributes` and its sources are LF, so a checkout that started translating endings
-        // would otherwise turn this test green by making it test nothing.
+        // The script has to really be CRLF on disk for this test to mean anything. The repo has no
+        // .gitattributes and its sources are LF, so a checkout that started translating line
+        // endings would otherwise leave this test passing while testing nothing.
         var text = File.ReadAllText(path);
         Assert.Contains("\r\n", text, StringComparison.Ordinal);
         Assert.DoesNotContain("\n", text.Replace("\r\n", string.Empty), StringComparison.Ordinal);
@@ -703,7 +710,7 @@ public sealed class ScriptToolLoaderTests : IDisposable
         Assert.Equal(OpClass.Write, tool.OpClass);
         Assert.Equal(2, tool.Parameters.Count);
 
-        // The `.PARAMETER` text must not keep a stray `\r` either: a header match ends before the
+        // The .PARAMETER text must not keep a stray \r either. A header match ends before the line
         // terminator, so the section body starts on it and only the trailing Trim() removes it.
         var pathParameter = Assert.Single(tool.Parameters, p => p.Name == "path");
         Assert.Equal("The note's vault-relative path.", pathParameter.Description);
@@ -713,18 +720,23 @@ public sealed class ScriptToolLoaderTests : IDisposable
         Assert.NotNull(ops.Schema);
         Assert.Equal("array", ops.Schema!.Value.GetProperty("type").GetString());
         Assert.Equal("Ordered frontmatter operations, applied as one transaction.", ops.Schema!.Value.GetProperty("description").GetString());
-        // The side-car body is multi-line JSON, so this is the part CRLF could still break past a
-        // recovered header match: the block terminates at `.NOTES` and its body parses as JSON.
+        // The side-car body is multi-line JSON, so it is what CRLF could still break even with the
+        // header matching: the block has to terminate at .NOTES and its body has to parse.
         Assert.Equal(2, ops.Schema!.Value.GetProperty("items").GetProperty("oneOf").GetArrayLength());
         Assert.True(ops.EncodesStructuredArgument);
     }
 
-    /// <summary>Asserts the refused script surfaces as a <c>BROKEN:</c> entry rather than
-    /// vanishing from `tools/list`. <see cref="ScriptToolDispatcher.ListToolsAsync"/> synthesizes
-    /// that entry from exactly two things - a Degraded problem under
-    /// <see cref="ScriptToolLoader.HealthSource"/>, and its <see cref="DegradedProblem.SubjectPath"/>,
-    /// whose base name becomes the listed tool name - so this asserts the entry by asserting
-    /// both. <c>HealthCheckDispatchTests</c> carries the same case end-to-end over the wire.</summary>
+    /// <summary>
+    /// Asserts that a refused script will surface as a <c>BROKEN:</c> entry rather than vanishing
+    /// from <c>tools/list</c>.
+    /// </summary>
+    /// <param name="expectedToolName">The tool name the broken entry should be listed under.</param>
+    /// <remarks>
+    /// <see cref="ScriptToolDispatcher.ListToolsAsync"/> synthesizes that entry from two things: a
+    /// Degraded problem under <see cref="ScriptToolLoader.HealthSource"/>, and that problem's
+    /// <see cref="DegradedProblem.SubjectPath"/>, whose base name becomes the listed tool name. This
+    /// checks both. <c>HealthCheckDispatchTests</c> covers the same case over the wire.
+    /// </remarks>
     private void AssertListsAsBrokenEntry(string expectedToolName)
     {
         var healthState = new ServerHealthState();
@@ -734,9 +746,13 @@ public sealed class ScriptToolLoaderTests : IDisposable
         Assert.False(string.IsNullOrWhiteSpace(problem.Detail), "The Detail is the listed entry's description text.");
     }
 
-    /// <summary>Shared assertion for every per-script skip case above (single bad.ps1 in the
-    /// folder): the load returns zero tools instead of throwing, is never Fatal, and records
-    /// exactly one Degraded problem from the ScriptTools source naming the script.</summary>
+    /// <summary>
+    /// Asserts that loading a folder holding a single <c>bad.ps1</c> returns no tools instead of
+    /// throwing, is never Fatal, and records exactly one Degraded problem from the ScriptTools
+    /// source naming the script.
+    /// </summary>
+    /// <param name="expectedDetailFragment">Text the problem's detail must contain, or null to
+    /// check only that the script was named.</param>
     private void AssertScriptSkipped(string? expectedDetailFragment = null)
     {
         var healthState = new ServerHealthState();

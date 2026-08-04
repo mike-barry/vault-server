@@ -3,10 +3,10 @@ using VaultShared.Tools;
 namespace VaultCli.Tests;
 
 /// <summary>
-/// What an option's text becomes, and what <c>--args</c> does instead. The rule is that an option's
-/// value is decided by the member's own JSON shape and by nothing this front-end knows about a
-/// particular tool, so a value the shape cannot take is refused by the binder in the tool
-/// vocabulary rather than by the parser as a usage error.
+/// Verifies how an option's text is bound to an argument record, and how <c>--args</c> binds a
+/// whole record instead. An option's value is interpreted from the record member's own JSON shape
+/// alone; the CLI knows nothing tool-specific. A value the shape cannot take is therefore refused
+/// by the binder in the tool's own error vocabulary rather than by the parser as a usage error.
 /// </summary>
 public sealed class ArgumentBindingTests(CliFixture fixture) : IClassFixture<CliFixture>
 {
@@ -21,8 +21,8 @@ public sealed class ArgumentBindingTests(CliFixture fixture) : IClassFixture<Cli
         Assert.Contains("content_hash", run.Output);
     }
 
-    /// <summary>A boolean is a flag, and an omitted one is absent from the argument map rather than
-    /// present as false - so the record's own default is what applies.</summary>
+    /// <summary>A boolean binds as a flag. An omitted flag is absent from the argument map rather
+    /// than present as false, so the record's own default applies.</summary>
     [Fact]
     public void AnOmittedFlag_LeavesTheRecordsOwnDefault()
     {
@@ -33,9 +33,9 @@ public sealed class ArgumentBindingTests(CliFixture fixture) : IClassFixture<Cli
     }
 
     /// <summary>
-    /// An enumerated value is carried across as its wire spelling and never checked here: an
-    /// unrecognized one is refused in the tool's own vocabulary, naming the argument, exactly as it
-    /// is for a caller on the other front-end.
+    /// An enumerated value is passed through as its wire spelling and is not validated by the CLI.
+    /// An unrecognized value is refused in the tool's own error vocabulary, naming the argument,
+    /// just as it is for an MCP caller.
     /// </summary>
     [Fact]
     public void AnUnrecognizedEnumeratedValue_IsAToolRefusalNamingTheArgument()
@@ -56,8 +56,8 @@ public sealed class ArgumentBindingTests(CliFixture fixture) : IClassFixture<Cli
         Assert.DoesNotContain("# Widget.md", run.Output);
     }
 
-    /// <summary>An omitted required argument is the record's own fault, naming the argument - the
-    /// same answer an MCP caller that omitted it gets.</summary>
+    /// <summary>A required argument left out is refused by the record's own validation, naming the
+    /// argument. An MCP caller that omitted it gets the same answer.</summary>
     [Fact]
     public void AnOmittedRequiredArgument_IsRefusedByTheRecord()
     {
@@ -78,15 +78,10 @@ public sealed class ArgumentBindingTests(CliFixture fixture) : IClassFixture<Cli
     }
 
     /// <summary>
-    /// The reason <c>--args</c> is general rather than a convenience: an ordered list of operations
-    /// with nested anchors has no flat option surface, and this is the shape that proves the record
-    /// arrives structured.
-    /// </summary>
-    /// <summary>
-    /// The reason <c>--args</c> is general rather than a convenience: an ordered list of operations
+    /// Shows why <c>--args</c> is general rather than a convenience: an ordered list of operations
     /// with a nested anchor and a per-variant entry payload has no flat option surface. The refusal
-    /// asserted here comes from the anchor, which is the innermost part of that structure - nothing
-    /// but a genuinely nested payload reaches it.
+    /// asserted here comes from the anchor, the innermost part of that structure, so only a
+    /// genuinely nested payload can produce it.
     /// </summary>
     [Fact]
     public void Args_CarriesAStructureNoFlatOptionSurfaceExpresses()
@@ -97,7 +92,7 @@ public sealed class ArgumentBindingTests(CliFixture fixture) : IClassFixture<Cli
         Assert.Equal(ToolCodes.EntryNotFound, run.Code);
     }
 
-    /// <summary>A structured member has the same escape hatch per argument, so the flat surface is
+    /// <summary>A structured member accepts JSON on its own option, so the flat option surface is
     /// never the reason a call cannot be made.</summary>
     [Fact]
     public void AStructuredOption_TakesJson()
@@ -108,8 +103,8 @@ public sealed class ArgumentBindingTests(CliFixture fixture) : IClassFixture<Cli
         Assert.Equal(ToolCodes.EntryNotFound, run.Code);
     }
 
-    /// <summary>An entry of the declared variant's fields, placed by an anchor - the shape whose
-    /// innermost member is what the refusal above names.</summary>
+    /// <summary>An add_entry operation carrying the declared variant's fields and an anchor. The
+    /// anchor names a note that does not exist, which is what the refusals above assert on.</summary>
     private const string AnchoredAdd =
         """{"op":"add_entry","key":"nav.contents","entry":{"link":"[[Gizmo-Reference]]","description":"d","load_when":"w"},"anchor":{"op":"before","target":"[[No-Such-Note]]"}}""";
 
@@ -133,10 +128,10 @@ public sealed class ArgumentBindingTests(CliFixture fixture) : IClassFixture<Cli
     }
 
     /// <summary>
-    /// <c>--args</c> is the whole record, so an option beside it could only be a second, partial
-    /// statement of the same record. Which one won would be a rule this build invented, so the
-    /// combination is refused - and it is refused as a usage error, because it is a statement about
-    /// the command line rather than about a tool.
+    /// <c>--args</c> supplies the whole argument record, so an option alongside it would be a
+    /// second, partial statement of the same record with no defined precedence between them. The
+    /// combination is refused as a usage error, because the fault is in the command line rather
+    /// than in the arguments a tool received.
     /// </summary>
     [Fact]
     public void Args_BesideAnOptionFormArgument_IsAUsageError()
@@ -148,8 +143,8 @@ public sealed class ArgumentBindingTests(CliFixture fixture) : IClassFixture<Cli
         Assert.Contains("--args", run.Error);
     }
 
-    /// <summary>The session filter is cosmetic, and this is what it rests on: a tool reached by name
-    /// through <c>--args</c> still meets the execute path's own check.</summary>
+    /// <summary>Naming a tool through <c>--args</c> does not bypass the command tree's filtering.
+    /// A tool the tree omits is still not reachable this way.</summary>
     [Fact]
     public void Args_DoesNotReachATooNotInTheTree()
     {

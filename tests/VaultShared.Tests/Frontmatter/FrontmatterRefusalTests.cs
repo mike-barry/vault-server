@@ -3,9 +3,9 @@ using VaultShared.Frontmatter;
 namespace VaultShared.Tests;
 
 /// <summary>
-/// Every reason in the closed enumeration, reached through the one entry point and asserted by name.
-/// A reason no case reaches is a distinction the surface claims to draw and does not, and the wire
-/// vocabulary above is built from this set.
+/// Covers every value of <see cref="RefusalReason"/>, each reached through
+/// <see cref="FrontmatterWrite.Apply"/> and asserted by name. The suite includes a test that
+/// checks no reason is left uncovered.
 /// </summary>
 public sealed class FrontmatterRefusalTests
 {
@@ -23,8 +23,10 @@ public sealed class FrontmatterRefusalTests
 
     private static FrontmatterOperation Set(string key, string value) => new FrontmatterOperation.SetScalar(key, value);
 
-    /// <summary>Every reason this suite must reach. The enumeration is closed, so the list is
-    /// checkable rather than aspirational.</summary>
+    /// <summary>
+    /// Checks that every <see cref="RefusalReason"/> value appears in the name of some test in
+    /// this suite.
+    /// </summary>
     [Fact]
     public void EveryReasonIsReachedBySomeCaseInThisSuite()
     {
@@ -84,8 +86,8 @@ public sealed class FrontmatterRefusalTests
     [Fact]
     public void SuppliedBlockInvalid_TextThatWillNotParseIsACallerErrorRatherThanTheNotesProblem()
     {
-        // Malformed frontmatter splits by whose text it is: this is the caller's, so the remedy is
-        // to fix what was sent rather than to fix the note.
+        // Malformed frontmatter is attributed to whoever supplied it. This text came from the
+        // caller, so the reason points at the request rather than at the note.
         var refusal = Refused(string.Empty, suppliedBlock: "a: b\n  c: d\n\t- x", newBody: Body);
 
         Assert.Equal(RefusalReason.SuppliedBlockInvalid, refusal.Reason);
@@ -104,8 +106,8 @@ public sealed class FrontmatterRefusalTests
     [Fact]
     public void PathExcluded_IsDecidedBeforeAnythingElseAboutTheCall()
     {
-        // Distinct from an authorization denial: no grant reaches it, so nothing further is worth
-        // deciding.
+        // The exclusion is decided before the block is parsed or the keys are checked, so neither
+        // an unparsable block nor an unknown key changes the reason.
         var refusal = Refused("---\nnot: [a mapping\n---\n", [Set("no.such.key", "x")], path: "Notes/.hidden/Note.md");
 
         Assert.Equal(RefusalReason.PathExcluded, refusal.Reason);
@@ -114,8 +116,8 @@ public sealed class FrontmatterRefusalTests
     [Fact]
     public void ThePathIsMandatory()
     {
-        // An absent path would read as permission on exactly the files the exclusion protects, so it
-        // is an upstream defect rather than a caller error.
+        // An absent path would read as permission on exactly the files the exclusion protects, so
+        // it throws as an upstream defect instead of refusing as a caller error.
         Assert.Throws<ArgumentException>(() => FrontmatterWrite.Apply(
             Synthetic.Write(Body, Everything, [Set("doc.title", "Widget")], path: "  ")));
     }
@@ -133,7 +135,7 @@ public sealed class FrontmatterRefusalTests
     [Fact]
     public void ControlCharacter_InAnEntryFieldRefusesToo()
     {
-        // The most agent-facing text in the vault lives in block-list entries.
+        // Block-list entries carry the text agents read, so the same check applies there.
         var refusal = Refused(Body,
         [
             new FrontmatterOperation.AddEntry(
@@ -146,8 +148,7 @@ public sealed class FrontmatterRefusalTests
     [Fact]
     public void ControlCharacter_NewlinesAndQuotesAreNotRefused()
     {
-        // The emitter handles both, which keeps hygiene a policy about content rather than an
-        // artifact of a format.
+        // The emitter escapes newlines and quotes, so neither is a hygiene problem.
         var outcome = FrontmatterWrite.Apply(Synthetic.Write(
             Body, Everything, [Set("doc.title", "a \"quoted\" line\nand another")]));
 
@@ -155,7 +156,7 @@ public sealed class FrontmatterRefusalTests
         Assert.Equal("a \"quoted\" line\nand another", FrontmatterTree.Read(outcome.Content).Scalar("doc.title"));
     }
 
-    // ---- The declaration ----
+    // ---- Declaration checks ----
 
     [Fact]
     public void UnknownKey_AnUndeclaredKeyIsRefusedBeforeItsShapeMatters()
@@ -169,7 +170,7 @@ public sealed class FrontmatterRefusalTests
     [Fact]
     public void UnknownKey_ASuppliedBlockAdmitsOnlyDeclaredKeys()
     {
-        // Every path by which a key can enter the vault is closed.
+        // A supplied block is the other way a key can enter a note, and it is checked the same way.
         var refusal = Refused(string.Empty, suppliedBlock: "invented.key: x", newBody: Body);
 
         Assert.Equal(RefusalReason.UnknownKey, refusal.Reason);
@@ -214,7 +215,7 @@ public sealed class FrontmatterRefusalTests
     [Fact]
     public void ValueRefused_AnEmptyAddressingValueIsRefusedOnBothSidesOfTheOperation()
     {
-        // One emptiness test, applied to the same argument by the additive and subtractive forms.
+        // The same emptiness check applies to both the add and the remove form.
         Assert.Equal(
             RefusalReason.ValueRefused,
             Refused(Body, [new FrontmatterOperation.AddEntry("doc.notes", new EntryPayload.Scalar("   "), null)]).Reason);
@@ -296,8 +297,8 @@ public sealed class FrontmatterRefusalTests
     [Fact]
     public void RegistryUnavailable_IsHowAFailedLoadReachesAWrite()
     {
-        // The seam: a caller obtains the registry from the state, and the states that did not load
-        // have none to give.
+        // A caller obtains the registry from the state, and a state that did not load has none to
+        // give.
         Assert.Equal(
             RefusalReason.RegistryUnavailable,
             Assert.Throws<FrontmatterRefusal>(() => new RegistryState.Absent("registry.json").Require()).Reason);

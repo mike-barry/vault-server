@@ -11,13 +11,13 @@ using static VaultMcpServer.Tests.DeclaredToolHarness;
 namespace VaultMcpServer.Tests;
 
 /// <summary>
-/// Unit-level coverage for <see cref="HealthCheckTool"/>'s own output shape - as distinct
-/// from <c>HealthCheckDispatchTests</c>' HTTP-level, end-to-end coverage (self-gated floor,
-/// BROKEN listing, initialize instructions) of the same feature set.
-///
-/// The wire names asserted here are the <c>snake_case</c> renderings of the report records' members
-/// under the shared serializer options, which govern results and arguments alike.
+/// Covers <see cref="HealthCheckTool"/>'s own output shape at the unit level.
+/// <c>HealthCheckDispatchTests</c> covers the same feature set over HTTP.
 /// </summary>
+/// <remarks>
+/// The wire names asserted here are the <c>snake_case</c> renderings of the report records' members
+/// under the shared serializer options, which apply to results and arguments alike.
+/// </remarks>
 public sealed class HealthCheckToolTests(TestVaultFixture fixture) : IClassFixture<TestVaultFixture>, IDisposable
 {
     private readonly VaultConfig _vaultConfig = fixture.Config;
@@ -60,8 +60,8 @@ public sealed class HealthCheckToolTests(TestVaultFixture fixture) : IClassFixtu
         var problems = doc.RootElement.GetProperty("problems").EnumerateArray().ToList();
         Assert.Equal(2, problems.Count);
 
-        // Settled decision: absolute filesystem paths in problem Detail strings flow
-        // verbatim into this tool's output - no sanitized second rendering path.
+        // Absolute filesystem paths in a problem's Detail string reach this tool's output verbatim.
+        // There is no sanitized second rendering.
         Assert.Contains(problems, p => p.GetProperty("detail").GetString()!.Contains(@"C:\some\absolute\path\grants.json"));
         Assert.Contains(problems, p => p.GetProperty("detail").GetString()!.Contains(@"C:\vaults\broken"));
         Assert.Contains(problems, p => p.GetProperty("severity").GetString() == "Fatal");
@@ -82,16 +82,18 @@ public sealed class HealthCheckToolTests(TestVaultFixture fixture) : IClassFixtu
     }
 
     /// <summary>
-    /// A vault whose root is not there is skipped rather than failing the file, and the report is
-    /// where an operator finds out. It is the other half of the configured set, not a second copy of
-    /// it: a skipped vault answers <c>vault_unavailable</c> to a call that names it, which is a
-    /// different answer from the <c>unknown_vault</c> a name nobody configured gets - so a report
-    /// that listed only the usable vaults would leave the operator unable to tell the two apart from
-    /// anything but a refusal.
-    ///
-    /// The committed fixture has no such vault, so this case builds one: <c>test</c> over a real
-    /// directory beside <c>broken</c> over a path that does not exist.
+    /// Verifies that a vault whose root directory is missing is skipped rather than failing the
+    /// whole config file, and that the report lists it separately from the usable vaults along with
+    /// the reason it was skipped.
     /// </summary>
+    /// <remarks>
+    /// A call naming a skipped vault is refused with <c>vault_unavailable</c>, while a name nobody
+    /// configured gets <c>unknown_vault</c>. Listing only the usable vaults would leave an operator
+    /// unable to tell those cases apart without making a call.
+    ///
+    /// The committed fixture has no missing-root vault, so this test builds its own config: <c>test</c>
+    /// over a real directory alongside <c>broken</c> over a path that does not exist.
+    /// </remarks>
     [Fact]
     public void Invoke_ReportsSkippedVaultsWithTheirReasonBesideTheConfiguredOnes()
     {
@@ -121,13 +123,14 @@ public sealed class HealthCheckToolTests(TestVaultFixture fixture) : IClassFixtu
 
         var skipped = vaults.GetProperty("skipped");
         Assert.Equal(["broken"], skipped.EnumerateObject().Select(p => p.Name));
-        // The reason is the one the load recorded, carried verbatim - the same settled decision that
-        // lets an absolute path through a problem's detail.
+        // The reason is the one the load recorded, carried verbatim, absolute path included.
         Assert.Contains(missing, skipped.GetProperty("broken").GetString()!, StringComparison.OrdinalIgnoreCase);
     }
 
-    /// <summary>The member is a finding either way: an empty map says the load skipped nothing,
-    /// which is not what an absent member would say.</summary>
+    /// <summary>
+    /// Verifies that the <c>skipped</c> member is always present. An empty map states that nothing
+    /// was skipped, which an absent member would not.
+    /// </summary>
     [Fact]
     public void Invoke_WithNothingSkipped_StillCarriesTheMember()
     {

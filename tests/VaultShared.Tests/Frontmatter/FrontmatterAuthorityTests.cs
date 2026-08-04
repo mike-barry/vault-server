@@ -3,18 +3,17 @@ using VaultShared.Auth;
 using VaultShared.Frontmatter;
 using VaultShared.Scope;
 
-// Both namespaces name a WriteOutcome - the layer's file-write answer and this surface's composed
-// one - and this file needs the access layer for the authority seam.
+// VaultShared.Access and VaultShared.Frontmatter both declare a WriteOutcome, and this file needs
+// the access namespace for the IKeyAuthority tests.
 using WriteOutcome = VaultShared.Frontmatter.WriteOutcome;
 
 namespace VaultShared.Tests;
 
 /// <summary>
-/// Outcome-based authority classification: the union of the three contributions, measured over what
-/// the write turned out to change rather than over what it nominally targeted. This is the surface's
-/// single most important property - classifying by intent classifies by what the caller said it was
-/// doing, and every injection path is an operation aimed at an innocuous field that mutates the
-/// protected layer anyway.
+/// Verifies how a frontmatter write decides which operation classes it requires. The required set
+/// is the union of three contributions - the registry's declared class for a changed key, the
+/// class a namespace prefix supplies, and the path policy's mutation requirement - and it is
+/// computed from the keys the write actually changed, not from the keys the operation named.
 /// </summary>
 public sealed class FrontmatterAuthorityTests
 {
@@ -29,7 +28,7 @@ public sealed class FrontmatterAuthorityTests
 
     private static FrontmatterOperation Set(string key, string value) => new FrontmatterOperation.SetScalar(key, value);
 
-    // ---- The three contributions ----
+    // ---- Contributions to the required set ----
 
     [Fact]
     public void TheRegistrysDeclaredClassIsRequiredForAChangedKey()
@@ -78,8 +77,8 @@ public sealed class FrontmatterAuthorityTests
     [Fact]
     public void PathPolicysMutationRequiresContributesOnABodyOnlyWriteToo()
     {
-        // A body-only write contributes no key-level authority by construction, and may still
-        // require what the policy declares - for a file whose body is an agent instruction.
+        // A body-only write changes no keys, so it contributes no key-level authority, but the
+        // path policy still applies to it.
         var policy = Synthetic.Policy($$"""[ { "path": "Areas", "mutation_requires": "{{Synthetic.ElevatedClass}}" } ]""");
         var authority = new StubAuthority(Synthetic.ElevatedClass);
 
@@ -103,13 +102,13 @@ public sealed class FrontmatterAuthorityTests
         Assert.Empty(authority.Calls);
     }
 
-    // ---- The diff ----
+    // ---- Change detection ----
 
     [Fact]
     public void TheDiffComparesReEmittedValuesSoAReserializationIsNotAChange()
     {
-        // The block's bytes change - the comment and the blank line do not survive a parse - and no
-        // protected key's value does, so a caller holding nothing writes it.
+        // The block's bytes change because the comment and the blank line are lost in the parse,
+        // but no protected key's value changes, so a caller holding no class can still write it.
         var authority = new StubAuthority();
         var content = "---\ndoc.owner: someone\n\n# a comment\n---\n" + Body;
 
@@ -148,8 +147,7 @@ public sealed class FrontmatterAuthorityTests
     [Fact]
     public void AnOperationAimedAtAnInnocuousKeyIsClassifiedByWhatItChanged()
     {
-        // The property that closes the class rather than the instances: what the operation named is
-        // not what decides.
+        // Classification uses the keys the write changed, not the key the operation named.
         var authority = new StubAuthority();
         var refusal = Assert.Throws<FrontmatterRefusal>(() => Apply(
             authority, Note("agent.instructions:\n  - routed: skill-a"),
@@ -175,8 +173,8 @@ public sealed class FrontmatterAuthorityTests
     [Fact]
     public void AnEmptyOpClassSetDenies()
     {
-        // Every invocation carries a grant, so there is nothing to degrade to: holding no class is
-        // a denial rather than an absence of a requirement.
+        // Every invocation carries a grant, so holding no class is a denial rather than an
+        // absent requirement.
         var refusal = Assert.Throws<FrontmatterRefusal>(() => Apply(new StubAuthority(), Body, [Set("doc.owner", "x")]));
 
         Assert.Equal(RefusalReason.AuthorityDenied, refusal.Reason);
@@ -201,8 +199,8 @@ public sealed class FrontmatterAuthorityTests
 
         Apply(authority, string.Empty, suppliedBlock: "agent.mode: strict", newBody: Body);
 
-        // Two assertions: the registry's statement that an elevated key was supplied at all, then
-        // the outcome diff's on what actually changed.
+        // Two assertions: one for the elevated key appearing in the supplied block at all, then
+        // one for what the diff found changed.
         Assert.Equal(2, authority.Calls.Count);
         Assert.Equal([Synthetic.ElevatedClass], authority.Calls[0].Required);
         Assert.Equal(["agent.mode"], authority.Calls[0].ChangedKeys);
@@ -211,8 +209,8 @@ public sealed class FrontmatterAuthorityTests
     [Fact]
     public void TheWholeBlockAssertionIsIndependentOfWhatChanged()
     {
-        // The supplied block matches the note exactly, so the diff finds nothing changed - and the
-        // registry's assertion still fires, because an elevated key was supplied.
+        // The supplied block matches the note exactly, so the diff finds nothing changed, and the
+        // registry's assertion still fires because an elevated key was supplied.
         var authority = new StubAuthority();
         var refusal = Assert.Throws<FrontmatterRefusal>(() => Apply(
             authority, Note("agent.mode: strict"), suppliedBlock: "agent.mode: strict", newBody: Body));
@@ -221,7 +219,7 @@ public sealed class FrontmatterAuthorityTests
         Assert.Single(authority.Calls);
     }
 
-    // ---- The seam ----
+    // ---- VaultAccess as IKeyAuthority ----
 
     [Fact]
     public void VaultAccessSatisfiesTheAuthorityInterfaceThroughItsOwnKeyAssertion()
@@ -236,7 +234,7 @@ public sealed class FrontmatterAuthorityTests
 
         var refusal = Assert.Throws<FrontmatterRefusal>(() => holdsNothing.Assert(required, keys));
         Assert.Equal(RefusalReason.AuthorityDenied, refusal.Reason);
-        // The denial names the caller's own coordinates and nothing about the grant.
+        // The refusal names the keys the caller asked for and does not disclose the required class.
         Assert.Equal(["agent.mode"], refusal.Keys);
         Assert.DoesNotContain(Synthetic.ElevatedClass, refusal.Message, StringComparison.Ordinal);
     }

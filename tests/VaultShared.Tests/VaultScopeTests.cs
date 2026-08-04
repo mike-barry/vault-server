@@ -25,16 +25,28 @@ public sealed class VaultScopeTests
         }
     }
 
-    /// <summary>What a scope case asserts. An enum rather than a string, so a case cannot name an
-    /// outcome the theory does not handle.</summary>
-    public enum Outcome { InScope, OutOfScope, Invalid }
+    /// <summary>
+    /// Specifies what a scope case expects. An enum rather than a string, so a case cannot name an
+    /// outcome the theory does not handle.
+    /// </summary>
+    public enum Outcome
+    {
+        /// <summary>The scope admits the path.</summary>
+        InScope,
+
+        /// <summary>The scope does not admit the path.</summary>
+        OutOfScope,
+
+        /// <summary>The check throws, because a configured root is not a contained relative path.</summary>
+        Invalid,
+    }
 
     [Fact]
     public void VaultScope_EmptyRootSetIsNotConstructible()
     {
-        // The point of the two-case shape: whole-vault authority has exactly one spelling, and
-        // it is not "a root set that happens to be empty". A caller that filters a root list down
-        // to nothing gets an error, not the widest possible grant.
+        // Whole-vault authority has exactly one spelling, VaultScope.Unscoped, and an empty root
+        // set is not it. A caller that filters a root list down to nothing gets an error rather
+        // than the widest possible grant.
         Assert.Throws<ArgumentException>(() => VaultScope.Of([]));
         Assert.Throws<ArgumentException>(() => VaultScope.Of(new HashSet<string>()));
     }
@@ -74,8 +86,12 @@ public sealed class VaultScopeTests
 
     private static VaultScope Rooted(params string[] roots) => VaultScope.Of(roots.ToHashSet(StringComparer.OrdinalIgnoreCase));
 
-    /// <summary>A grant reaching exactly the vaults <paramref name="scopeRoots"/> covers, which is
-    /// the coverage invariant every real grant carries.</summary>
+    /// <summary>
+    /// Builds a grant reaching exactly the vaults <paramref name="scopeRoots"/> covers, which is
+    /// the relationship every real grant holds between its vaults and its scopes.
+    /// </summary>
+    /// <param name="scopeRoots">The grant's scope in each vault, keyed by vault name.</param>
+    /// <returns>The grant.</returns>
     private static Grant GrantOver(IReadOnlyDictionary<string, VaultScope> scopeRoots) =>
         new("test-grant", new HashSet<string>(), scopeRoots.Keys.ToHashSet(StringComparer.OrdinalIgnoreCase), null, scopeRoots);
 

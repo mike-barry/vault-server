@@ -6,8 +6,9 @@ using VaultShared.Tools;
 namespace VaultShared.Tests.Tools;
 
 /// <summary>
-/// <c>move</c> over a real tree: both kinds, the repair-before-move order, the preview gate, the two
-/// artifact rules a relocation splits by, and what a move that stops partway reports.
+/// Tests the <c>move</c> tool against a real directory tree: the note and folder forms, the
+/// repair-before-move order, the preview gate, the two kinds of path policy rule a relocation is
+/// priced by, and what a move that stops partway reports.
 /// </summary>
 public sealed class MoveToolTests : IDisposable
 {
@@ -58,14 +59,14 @@ public sealed class MoveToolTests : IDisposable
         Assert.False(plan.Applied);
         Assert.True(_vault.HasFile("Projects/Widget/Notes.md"));
         Assert.False(_vault.HasFile("Archive/Notes.md"));
-        // Nothing was repaired either: the plan reports what it would rewrite.
+        // No link was repaired either; the plan only reports what it would rewrite.
         Assert.Equal("# Widget\n\nSee [[Notes]].\n", _vault.TextOf("Projects/Widget/Widget.md"));
     }
 
     /// <summary>
-    /// The parity claim, whole. Every path-valued member names a post-mutation path on both, which is
-    /// what lets a caller compare them at all - a plan naming pre-mutation paths would differ from
-    /// its own result everywhere.
+    /// A plan and the applied result differ only in the <c>Applied</c> flag. Every path-valued
+    /// member of a plan names the path the file will have after the move, not the one it has now,
+    /// which is what makes the two comparable.
     /// </summary>
     [Fact]
     public void APlanAndItsResultDifferInExactlyTheDiscriminatingMember()
@@ -80,8 +81,8 @@ public sealed class MoveToolTests : IDisposable
         Assert.True(performed.HasFile("Archive/Notes.md"));
     }
 
-    /// <summary>The same claim for the folder form, whose plan carries a whole relocation map and a
-    /// folder-note rename.</summary>
+    /// <summary>The same holds for the folder form, whose plan carries a relocation map for every
+    /// contained note plus the folder note's rename.</summary>
     [Fact]
     public void AFolderPlanAndItsResultDifferInExactlyTheDiscriminatingMember()
     {
@@ -110,8 +111,9 @@ public sealed class MoveToolTests : IDisposable
             result.ContentHash);
     }
 
-    /// <summary>Repair is what the move owed; pinning is protection it applied to links it was never
-    /// asked about. The two are reported apart because they are different events.</summary>
+    /// <summary>Links that named the moved note are repaired to follow it. Repaired and pinned links
+    /// are reported separately: a repair follows the moved note, a pin protects an unrelated
+    /// link.</summary>
     [Fact]
     public void RepairsLinksThatNamedTheMovedNote()
     {
@@ -120,21 +122,21 @@ public sealed class MoveToolTests : IDisposable
         Assert.Equal(["Projects/Widget/Widget.md:3 Notes -> Jottings"], Rendered(result.RepairedLinks));
         Assert.Contains("[[Jottings]]", _vault.TextOf("Projects/Widget/Widget.md"));
 
-        // A relocation always runs the pass, so the pinned member is a list rather than an absence -
-        // an empty one here, since nothing else could have been re-aimed.
+        // A move always runs the pinning pass, so the member is a list rather than null - empty
+        // here, because no other link could have been re-aimed.
         Assert.NotNull(result.PinnedLinks);
         Assert.Empty(result.PinnedLinks);
     }
 
     /// <summary>
-    /// Pinning is the other half, and it is reported apart from repair: a link nobody asked about,
-    /// frozen to what it opens today because the move would otherwise have changed the answer.
+    /// A link the move does not target, but whose resolution the move would change, is rewritten to
+    /// name what it resolves to today and reported as pinned rather than repaired.
     /// </summary>
     [Fact]
     public void ABystanderLinkTheMoveWouldReAimIsPinnedRatherThanRepaired()
     {
         // The link in Inbox/Note.md names a note that does not move. The rename puts a nearer
-        // same-named candidate beside it, which would silently change what the link opens.
+        // note of the same name beside it, which would silently change what the link opens.
         using var vault = new ScratchVault(opClasses: ["content:write"])
             .WithNote("Reference/Guide.md", "# The guide\n")
             .WithNote("Inbox/Note.md", "# Note\n\nSee [[Guide]].\n")
@@ -142,22 +144,21 @@ public sealed class MoveToolTests : IDisposable
 
         var result = Move(vault, new { path = "Inbox/Draft.md", destination = "Inbox/Guide.md", apply = true });
 
-        // Pinning freezes and never redirects: the link still opens what it opened before.
+        // A pin never redirects: the link still opens the note it opened before the move.
         Assert.Empty(result.RepairedLinks);
         Assert.Equal(["Inbox/Note.md:3 Guide -> Reference/Guide"], Rendered(result.PinnedLinks!));
         Assert.Contains("[[Reference/Guide]]", vault.TextOf("Inbox/Note.md"));
     }
 
     /// <summary>
-    /// The plan names every note by the path it has now, so the repair must be written before
-    /// anything moves. A move that cannot land still leaves the repair behind - which is exactly the
-    /// partial state the vocabulary exists to report.
+    /// Link repairs are written before the files move, because the repair pass locates links by the
+    /// paths the notes still have. A move that then fails leaves those repairs in place and reports
+    /// the partial state.
     /// </summary>
     [Fact]
     public void RepairIsWrittenBeforeTheMoveAndAFailedMoveReportsThePartialState()
     {
-        // The destination is occupied, so the relocation cannot land - but the graph was repaired
-        // against it first.
+        // The destination is occupied, so the move cannot land, but the links were repaired first.
         _vault.WithNote("Archive/Notes.md", "# Occupant\n");
 
         var refusal = Refusal(new { path = "Projects/Widget/Notes.md", destination = "Archive/Notes.md", apply = true });
@@ -171,8 +172,8 @@ public sealed class MoveToolTests : IDisposable
         Assert.Equal("# Occupant\n", _vault.TextOf("Archive/Notes.md"));
     }
 
-    /// <summary>With nothing repaired there is no partial state, and the occupied-destination
-    /// refusal stays distinguishable - a caller's next move after one is entirely different.</summary>
+    /// <summary>When no link needed repairing there is no partial state, so an occupied destination
+    /// is reported as an ordinary already-exists refusal.</summary>
     [Fact]
     public void AnOccupiedDestinationWithNothingToRepairIsACleanRefusal()
     {
@@ -199,9 +200,9 @@ public sealed class MoveToolTests : IDisposable
         Assert.Equal(ToolCodes.PathNotFound, Refusal(new { path = "Reference/Absent.md", destination = "Archive/Absent.md" }).Code);
     }
 
-    /// <summary>Git does not see a case-only rename under the platform's default case handling and
-    /// repository operations are outside this build, so the move reports it for a later pickup to
-    /// stage.</summary>
+    /// <summary>A rename that changes only letter case is performed and flagged in the result. Git
+    /// does not notice such a rename on a case-insensitive file system, and nothing here runs git,
+    /// so the flag is how a caller learns it has to stage the rename itself.</summary>
     [Fact]
     public void ACaseOnlyRenameIsPerformedAndReported()
     {
@@ -211,8 +212,8 @@ public sealed class MoveToolTests : IDisposable
         Assert.Equal("GUIDE.md", _vault.SpellingOf("Reference/Guide.md"));
     }
 
-    /// <summary>A destination identical to the source is not a rename at all, and is refused on the
-    /// argument rather than left to the platform.</summary>
+    /// <summary>A destination identical to the source moves nothing, and is refused as a bad
+    /// argument rather than handed to the file system.</summary>
     [Fact]
     public void ADestinationIdenticalToTheSourceIsRefused()
     {
@@ -225,9 +226,9 @@ public sealed class MoveToolTests : IDisposable
     // ---- The folder form ----
 
     /// <summary>
-    /// One directory rename. Contained names do not change, so the folder note is the only name
-    /// event: it is renamed to match its new folder, and the notes the folder carries are reported
-    /// where they land.
+    /// A folder move is a single directory rename. The names of contained notes do not change,
+    /// except for the folder note, which is renamed to match the folder's new name. The result
+    /// lists the contained notes at their new paths.
     /// </summary>
     [Fact]
     public void MovesAFolderWithEverythingInItAndRenamesItsFolderNote()
@@ -240,11 +241,11 @@ public sealed class MoveToolTests : IDisposable
         Assert.Null(result.ContentHash);
         Assert.False(_vault.HasFolder("Projects/Widget"));
         Assert.True(_vault.HasFile("Archive/Gizmo/Notes.md"));
-        // The folder note's rename is the tool's, over the map the plan produced.
+        // The folder note is renamed by the tool, using the relocation map the plan produced.
         Assert.True(_vault.HasFile("Archive/Gizmo/Gizmo.md"));
     }
 
-    /// <summary>A folder that has no folder note gets none created.</summary>
+    /// <summary>Moving a folder that has no folder note does not create one.</summary>
     [Fact]
     public void AFolderWithNoFolderNoteGetsNoneCreated()
     {
@@ -256,7 +257,7 @@ public sealed class MoveToolTests : IDisposable
         Assert.False(_vault.HasFile("Archive/Loose/Loose.md"));
     }
 
-    /// <summary>Links into the folder are repaired against where every note lands.</summary>
+    /// <summary>Links into a relocated folder are repaired to name where each note lands.</summary>
     [Fact]
     public void LinksIntoARelocatedFolderAreRepaired()
     {
@@ -274,8 +275,8 @@ public sealed class MoveToolTests : IDisposable
             Refusal(new { path = "Reference/Guide.md", destination = "Archive/Guide.md", kind = "folder" }).Code);
     }
 
-    /// <summary>The extension rule runs on the constructed operand too: a note never lands under a
-    /// folder-shaped name.</summary>
+    /// <summary>The extension rule applies to the destination as well as the source, so a note
+    /// never lands at a path without the markdown extension.</summary>
     [Fact]
     public void ANoteDestinationCarryingNoExtensionIsRefusedWithTheSpelling()
     {
@@ -285,15 +286,16 @@ public sealed class MoveToolTests : IDisposable
         Assert.Equal("Archive/Guide.md", VaultToolHarness.Data(refusal)!["suggested"]);
     }
 
-    /// <summary>And read the other way: a folder never acquires one.</summary>
+    /// <summary>The same rule in reverse: a folder never lands at a path carrying the markdown
+    /// extension.</summary>
     [Fact]
     public void AFolderDestinationCarryingTheExtensionIsTheKindRefusal()
     {
         Assert.Equal(ToolCodes.WrongKind, Refusal(new { path = "Projects/Widget", destination = "Archive/Gizmo.md" }).Code);
     }
 
-    /// <summary>The destination is the one segment brought into existence, so it is the one held to
-    /// the name grammar - and the refusal names a spelling that would have worked.</summary>
+    /// <summary>The destination is the only new name a move creates, so it is the one held to the
+    /// name grammar. The refusal suggests a spelling that would have worked.</summary>
     [Fact]
     public void ADestinationOutsideTheNameGrammarIsRefusedNamingASpellingThatWouldWork()
     {
@@ -303,10 +305,11 @@ public sealed class MoveToolTests : IDisposable
         Assert.Equal("New-guide.md", VaultToolHarness.Data(refusal)!["suggested"]);
     }
 
-    // ---- Path policy: the two artifact rules ----
+    // ---- Path policy: path entries and structural rules ----
 
-    /// <summary>A path entry always contributes on relocation - otherwise the protection is trivially
-    /// avoided by moving the file aside, editing it, and moving it back.</summary>
+    /// <summary>A policy entry that names a path applies to a move out of that path as well as to a
+    /// move into it. Otherwise the protection could be avoided by moving the file elsewhere,
+    /// editing it, and moving it back.</summary>
     [Fact]
     public void APathEntryContributesWhereverTheRelocationGoes()
     {
@@ -324,15 +327,15 @@ public sealed class MoveToolTests : IDisposable
             Move(granted, new { path = "Reference/Guide.md", destination = "Archive/Guide.md" }).AssertedAuthority);
     }
 
-    /// <summary>A structural rule contributes where artifact status changes: a note renamed to match
-    /// its folder acquires the shape.</summary>
+    /// <summary>A structural rule applies where a move changes what a note is: renaming a note to
+    /// match its containing folder makes it that folder's folder note.</summary>
     [Fact]
     public void AStructuralRuleContributesWhereANoteBecomesAFolderNote()
     {
         var policy = Synthetic.Policy("""[ { "rule": "folder_note", "mutation_requires": "agentic:write" } ]""");
         using var denied = Scratch(policy, "content:write");
 
-        // Neither end is a folder note, so nothing is contributed and the move is priced at the floor.
+        // Neither end is a folder note, so the rule adds nothing and the move needs only the floor.
         Assert.Empty(Move(denied, new { path = "Projects/Widget/Notes.md", destination = "Projects/Widget/Jottings.md" }).AssertedAuthority);
 
         using var acquiring = Scratch(policy, "content:write").WithFolder("Archive/Gizmo");
@@ -341,8 +344,8 @@ public sealed class MoveToolTests : IDisposable
             Refusal(acquiring, new { path = "Reference/Guide.md", destination = "Archive/Gizmo/Gizmo.md" }).Code);
     }
 
-    /// <summary>And does not contribute where it does not change: a folder note carried along by its
-    /// own folder's rename is still a folder note.</summary>
+    /// <summary>The rule adds nothing where the status does not change: a folder note carried along
+    /// by its own folder's rename is still a folder note afterwards.</summary>
     [Fact]
     public void AFolderNoteCarriedByItsFoldersRenameContributesNothing()
     {

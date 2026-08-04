@@ -6,11 +6,12 @@ using VaultShared.Tools;
 namespace VaultShared.Tests.Tools;
 
 /// <summary>
-/// <c>edit</c> over a real tree and a synthetic declaration: the staleness guard, the substitution's
-/// exactly-once rule, what the result reports, and how the write path's refusals reach a caller.
+/// Tests the <c>edit</c> tool against a real directory tree and a synthetic frontmatter
+/// declaration: the staleness guard, the substitution's exactly-once rule, what the result reports,
+/// and how the write path's refusals reach a caller.
 ///
-/// The vocabulary is <see cref="Synthetic"/>'s, so nothing here asserts anything about the vault's
-/// real one. What is under test is the tool.
+/// The frontmatter vocabulary is <see cref="Synthetic"/>'s, so no test here depends on the real
+/// vault's registry.
 /// </summary>
 public sealed class EditToolTests : IDisposable
 {
@@ -26,8 +27,10 @@ public sealed class EditToolTests : IDisposable
             .WithNote("Projects/Widget/Widget.md", Fenced)
             .WithNote("Inbox/Loose.md", Unfenced);
 
-    /// <summary>The tool over one vault's declaration, which is what a host holds and what the
-    /// fail-closed seam reads.</summary>
+    /// <summary>Builds the tool over a single vault's frontmatter declaration, the way a host holds
+    /// it.</summary>
+    /// <param name="state">The registry state to expose; a loaded synthetic registry by default.</param>
+    /// <returns>An <see cref="EditTool"/> over that state.</returns>
     private static EditTool Tool(RegistryState? state = null) =>
         new(FrontmatterRegistries.Of("scratch", state ?? new RegistryState.Loaded(Synthetic.Registry)));
 
@@ -40,11 +43,15 @@ public sealed class EditToolTests : IDisposable
     private ToolRefusal Refusal(object arguments) => Refusal(_vault, arguments);
 
     /// <summary>
-    /// The refusal as a caller sees it. <b>The tool catches nothing it did not raise</b>: a
-    /// <see cref="FrontmatterRefusal"/> travels out in its own vocabulary and is named through the
-    /// one table, where the envelope is rendered. This is that step, which is what a front-end does
-    /// and what a case about the wire code has to go through.
+    /// Invokes the tool and returns the refusal a caller would see. The tool does not catch a
+    /// <see cref="FrontmatterRefusal"/>; it is translated into a <see cref="ToolRefusal"/> here, the
+    /// same step a front-end takes when it renders the envelope.
     /// </summary>
+    /// <param name="vault">The scratch vault to run the call against.</param>
+    /// <param name="arguments">The tool arguments, as an anonymous object.</param>
+    /// <param name="state">The registry state to expose; a loaded synthetic registry by default.</param>
+    /// <returns>The refusal the call produced.</returns>
+    /// <exception cref="InvalidOperationException">The call succeeded instead of refusing.</exception>
     private static ToolRefusal Refusal(ScratchVault vault, object arguments, RegistryState? state = null)
     {
         try
@@ -68,8 +75,8 @@ public sealed class EditToolTests : IDisposable
 
     // ---- The declaration ----
 
-    /// <summary>A write floor, and it is not the whole authority: what a particular edit requires
-    /// depends on which keys it turned out to change, asserted inside the write path.</summary>
+    /// <summary>The declaration asks for a write floor. It is not the whole of the authority an
+    /// edit needs: the write path asserts more depending on which keys the edit changed.</summary>
     [Fact]
     public void DeclaresAWriteFloorAndMutates()
     {
@@ -92,8 +99,8 @@ public sealed class EditToolTests : IDisposable
         Assert.Equal([0], result.AppliedOperations);
     }
 
-    /// <summary>Operations are ordered and each sees the previous result, and only the ones that
-    /// changed something are reported applied.</summary>
+    /// <summary>Operations run in order, each seeing the result of the one before it, and only the
+    /// ones that changed something are reported as applied.</summary>
     [Fact]
     public void OperationsApplyInOrderAndOnlyTheOnesThatChangedSomethingAreReported()
     {
@@ -103,7 +110,7 @@ public sealed class EditToolTests : IDisposable
             operations = new object[]
             {
                 new { op = "set", key = "doc.title", value = "Gizmo" },
-                // Already what it says, so a pure no-op that changes nothing.
+                // The key already holds this value, so this operation changes nothing.
                 new { op = "set", key = "doc.type", value = "note" },
                 new { op = "set", key = "doc.title", value = "Sprocket" },
             },
@@ -113,8 +120,8 @@ public sealed class EditToolTests : IDisposable
         Assert.Contains("doc.title: Sprocket", _vault.TextOf("Projects/Widget/Widget.md"), StringComparison.Ordinal);
     }
 
-    /// <summary>The body survives verbatim: a frontmatter mutation changes the tree and nothing
-    /// else.</summary>
+    /// <summary>A frontmatter operation changes the frontmatter only; the body survives
+    /// verbatim.</summary>
     [Fact]
     public void AFrontmatterOperationLeavesTheBodyAlone()
     {
@@ -138,7 +145,8 @@ public sealed class EditToolTests : IDisposable
         Assert.True(result.FrontmatterChanged);
     }
 
-    /// <summary>An anchor places the entry beside the one it names, rather than appending.</summary>
+    /// <summary>An anchor places the new entry beside the entry it names rather than appending
+    /// it.</summary>
     [Fact]
     public void AnAnchoredAddLandsBesideTheEntryItNames()
     {
@@ -165,8 +173,8 @@ public sealed class EditToolTests : IDisposable
             text);
     }
 
-    /// <summary>A duplicate add is a pure no-op keyed on declared identity: nothing is written and
-    /// no operation is reported applied.</summary>
+    /// <summary>Adding an entry that matches an existing one by its declared identity changes
+    /// nothing. No bytes are written and no operation is reported as applied.</summary>
     [Fact]
     public void ADuplicateAddChangesNothingAndLeavesTheFileByteIdentical()
     {
@@ -218,8 +226,8 @@ public sealed class EditToolTests : IDisposable
         Assert.Equal(before, _vault.BytesOf("Projects/Widget/Widget.md"));
     }
 
-    /// <summary>Exactly-once matching is the self-verification of a surgical edit, so several
-    /// matches is a refusal carrying the count rather than a bulk replacement.</summary>
+    /// <summary>A substitution must match exactly once. Several matches is a refusal carrying the
+    /// count, never a bulk replacement.</summary>
     [Fact]
     public void ASubstitutionMatchingSeveralTimes_IsRefusedCarryingTheCount()
     {
@@ -232,8 +240,8 @@ public sealed class EditToolTests : IDisposable
         Assert.Equal("3", VaultToolHarness.Data(refusal)!["count"]);
     }
 
-    /// <summary>A substitution's anchor matches the body facet only: the note's frontmatter is not
-    /// reachable through it, which is what keeps a body patch body-confined.</summary>
+    /// <summary>A substitution searches the body only. Text inside the frontmatter block cannot be
+    /// matched or rewritten through it.</summary>
     [Fact]
     public void ASubstitutionCannotReachIntoTheFrontmatter()
     {
@@ -257,9 +265,10 @@ public sealed class EditToolTests : IDisposable
         Assert.Equal("# New\n", _vault.TextOf("Inbox/Loose.md"));
     }
 
-    /// <summary>The window the lock cannot cover: model time, during which the editor or a person
-    /// changes the file. The refusal carries nothing - returning the current hash would let a caller
-    /// retry with it and clobber content it never read, so recovery is a re-read.</summary>
+    /// <summary>The hash guards the window the write lock cannot cover, between the caller's read
+    /// and its write, during which an editor or a person may change the file. The refusal carries
+    /// no data on purpose: returning the current hash would let a caller retry with it and
+    /// overwrite content it never read, so the only recovery is to read the note again.</summary>
     [Fact]
     public void AWholesaleReplacementAgainstAStaleHash_IsRefusedWithNoPayload()
     {
@@ -275,8 +284,8 @@ public sealed class EditToolTests : IDisposable
 
     // ---- Chaining ----
 
-    /// <summary>The hash comes back from the write, so a chain of edits needs no interleaved read -
-    /// and it is the same value a read of the file answers.</summary>
+    /// <summary>The result carries the hash of what was written, and it equals the hash a read of
+    /// the file returns, so a chain of edits needs no read between them.</summary>
     [Fact]
     public void TheReturnedHashIsTheOneAReadOfTheFileAnswers()
     {
@@ -296,8 +305,8 @@ public sealed class EditToolTests : IDisposable
         Assert.Equal(HashOf(_vault, "Inbox/Loose.md"), second.ContentHash);
     }
 
-    /// <summary>An edit that turns out to change nothing answers the hash the file already had, so
-    /// a chain survives a no-op.</summary>
+    /// <summary>An edit that changes nothing returns the hash the file already had, so a chain of
+    /// edits survives a no-op.</summary>
     [Fact]
     public void ANoOpAnswersTheHashTheFileAlreadyHad()
     {
@@ -313,8 +322,8 @@ public sealed class EditToolTests : IDisposable
 
     // ---- Authority ----
 
-    /// <summary>What the outcome required, echoed for the audit trail. A key under a protected
-    /// namespace contributes the class the declaration names.</summary>
+    /// <summary>The result reports the op classes the edit asserted, for the audit trail. Changing
+    /// a key under a protected namespace contributes the class the declaration names for it.</summary>
     [Fact]
     public void TheResultEchoesTheAuthorityTheOutcomeAsserted()
     {
@@ -323,8 +332,8 @@ public sealed class EditToolTests : IDisposable
         Assert.Equal([Synthetic.ElevatedClass], result.AssertedAuthority);
     }
 
-    /// <summary>Empty stays: absence would not distinguish an operation that asserted nothing from
-    /// a tool that never asserts.</summary>
+    /// <summary>An edit that asserted no extra authority still reports an empty list, so a reader
+    /// can tell it from a tool that never reports authority at all.</summary>
     [Fact]
     public void AnEditAssertingNothingStillCarriesTheEmptyReport()
     {
@@ -333,8 +342,8 @@ public sealed class EditToolTests : IDisposable
         Assert.Empty(result.AssertedAuthority);
     }
 
-    /// <summary>A grant lacking the class the outcome requires is denied, the denial names the
-    /// changed key set - the call's own coordinates - and nothing is written.</summary>
+    /// <summary>A grant missing the op class the edit requires is refused, the refusal names the
+    /// keys that required it, and nothing is written.</summary>
     [Fact]
     public void AGrantLackingTheClassTheOutcomeRequires_IsDeniedAndWritesNothing()
     {
@@ -348,8 +357,8 @@ public sealed class EditToolTests : IDisposable
         Assert.Equal(before, vault.BytesOf("Inbox/Loose.md"));
     }
 
-    /// <summary>Classification is over the outcome rather than over what the caller said it was
-    /// doing: an operation that leaves a protected key exactly as it was requires nothing.</summary>
+    /// <summary>Authority is classified from what changed, not from what the caller asked for. An
+    /// operation that leaves a protected key exactly as it was asserts nothing.</summary>
     [Fact]
     public void AnOperationThatChangesAProtectedKeyToWhatItAlreadySays_AssertsNothing()
     {
@@ -370,10 +379,11 @@ public sealed class EditToolTests : IDisposable
         Assert.Equal(["doc.title"], result.ChangedKeys);
     }
 
-    // ---- The fail-closed seam ----
+    // ---- Behaviour when the frontmatter declaration did not load ----
 
-    /// <summary>No declaration means no way to tell whether a key is recognized, so a frontmatter
-    /// write refuses. Absent and unloadable refuse identically and report differently.</summary>
+    /// <summary>Without a declaration there is no way to tell whether a key is recognized, so a
+    /// frontmatter write refuses. A declaration that is missing and one that failed to parse refuse
+    /// with the same code and differ only in what they report.</summary>
     [Theory]
     [InlineData("absent")]
     [InlineData("unloadable")]
@@ -390,8 +400,8 @@ public sealed class EditToolTests : IDisposable
         Assert.Equal(Fenced, _vault.TextOf("Projects/Widget/Widget.md"));
     }
 
-    /// <summary>What a failed load refuses is exactly the frontmatter writes. A body-only edit
-    /// reads no key and composes no block, so it is untouched - what prices it is path policy.</summary>
+    /// <summary>Only frontmatter writes are refused. A body-only edit reads no key and composes no
+    /// block, so it runs; its authority comes from the path policy.</summary>
     [Fact]
     public void ABodyOnlyEditWithNoDeclaration_StillRuns()
     {
@@ -403,7 +413,7 @@ public sealed class EditToolTests : IDisposable
         Assert.Contains("Other text.", _vault.TextOf("Projects/Widget/Widget.md"), StringComparison.Ordinal);
     }
 
-    // ---- The write path's refusals, in the wire vocabulary ----
+    // ---- How the write path's refusals reach the caller ----
 
     [Fact]
     public void AnUndeclaredKey_ReachesTheCallerAsUnknownKey()
@@ -445,8 +455,8 @@ public sealed class EditToolTests : IDisposable
             }).Code);
     }
 
-    /// <summary>A variant a human authored is dropped one at a time, so clearing it wholesale is
-    /// refused - and the remedy is a differently shaped request.</summary>
+    /// <summary>A variant the declaration does not mark as clearable can only be removed one entry
+    /// at a time, so a request to clear it as a whole is refused.</summary>
     [Fact]
     public void ClearingAVariantThatIsNotRemovableWholesale_IsRefused()
     {
@@ -455,7 +465,7 @@ public sealed class EditToolTests : IDisposable
             Refusal(new { path = "Inbox/Loose.md", operations = new[] { new { op = "remove_entry", key = "agent.instructions", variant = "pinned" } } }).Code);
     }
 
-    // ---- Existence, and the operand perimeter ----
+    // ---- Existence and the limits of the grant ----
 
     [Fact]
     public void ANoteThatIsNotThere_IsAMissRatherThanACreation()
@@ -475,8 +485,9 @@ public sealed class EditToolTests : IDisposable
         Assert.Equal("Inbox/Loose.md", VaultToolHarness.Data(refusal)!["suggested"]);
     }
 
-    /// <summary>The operand is admitted against the grant's own roots and nothing wider, so a note
-    /// outside them refuses loudly rather than reading as a miss.</summary>
+    /// <summary>A path is admitted against the grant's own roots and nothing wider. A note outside
+    /// them is refused as out of scope rather than reported as missing, and the refusal carries no
+    /// data.</summary>
     [Fact]
     public void ANamedPathOutsideTheGrant_RefusesLoudly()
     {
@@ -490,8 +501,8 @@ public sealed class EditToolTests : IDisposable
         Assert.Null(VaultToolHarness.Data(refusal));
     }
 
-    /// <summary>An always-readable root admits a read and refuses a write, which is the asymmetry
-    /// the two path types carry.</summary>
+    /// <summary>An always-readable root grants reads but not writes, so an edit to a note reachable
+    /// only through one is refused as out of scope.</summary>
     [Fact]
     public void ANoteReachableOnlyThroughAnAlwaysReadableRoot_RefusesTheWrite()
     {

@@ -3,9 +3,9 @@ using VaultShared.Tools;
 namespace VaultShared.Tests.Tools;
 
 /// <summary>
-/// The lock's two non-obvious behaviours: an acquire that inherits from a dead owner proceeds, and
-/// a wait that elapses refuses rather than proceeding. A crashed writer must not wedge the vault; a
-/// hung one is alive and must be reported.
+/// Tests the vault write lock's two less obvious behaviours: acquiring a mutex abandoned by a dead
+/// owner succeeds, and a wait that elapses refuses. A writer that crashed must not leave the vault
+/// permanently locked, while one that is merely hung is still running and has to be reported.
 /// </summary>
 public sealed class VaultWriteLockTests
 {
@@ -24,8 +24,8 @@ public sealed class VaultWriteLockTests
         Assert.True(FreeElsewhere(name));
     }
 
-    /// <summary>A hung writer is alive, so nothing signals recovery and the wait simply elapses. The
-    /// payload carries the timeout, which is the one value a caller could act on.</summary>
+    /// <summary>A holder that is still alive never releases the mutex, so the wait elapses and the
+    /// call refuses. The payload carries the timeout, the one value a caller can act on.</summary>
     [Fact]
     public void Acquire_WhileAnotherHolderIsAlive_TimesOut()
     {
@@ -58,10 +58,10 @@ public sealed class VaultWriteLockTests
     }
 
     /// <summary>
-    /// The crash-recovery path. A thread that takes the mutex and exits without releasing it leaves
-    /// it abandoned, which is exactly what a writer process dying mid-write leaves behind. The next
-    /// acquire inherits it, reports that it did, and proceeds - refusing would wedge the vault, and
-    /// there is no journal to replay and no state to repair.
+    /// A thread that takes the mutex and exits without releasing it leaves it abandoned, which is
+    /// what a writer process dying mid-write leaves behind. The next acquire takes the abandoned
+    /// mutex, reports that it did, and proceeds. Refusing instead would leave the vault permanently
+    /// locked, and there is no journal to replay or state to repair.
     /// </summary>
     [Fact]
     public void Acquire_AfterAnOwnerDiedWithoutReleasing_ProceedsAndReports()
@@ -74,7 +74,7 @@ public sealed class VaultWriteLockTests
             var mutex = new Mutex(false, name);
             mutex.WaitOne();
             abandoned.Set();
-            // Falls off the end still holding it.
+            // The thread ends while still holding the mutex, abandoning it.
         });
         deadOwner.Start();
         abandoned.Wait();
@@ -91,8 +91,11 @@ public sealed class VaultWriteLockTests
         Assert.True(FreeElsewhere(name));
     }
 
-    /// <summary>Whether the named mutex is takeable right now, asked from a thread that is not the
-    /// holder - a <see cref="Mutex"/> is re-entrant for its owner.</summary>
+    /// <summary>Reports whether a named mutex can be acquired right now, asked from a thread that is
+    /// not the holder. It has to be another thread, because a <see cref="Mutex"/> is re-entrant for
+    /// the thread that owns it.</summary>
+    /// <param name="name">The name of the mutex to try.</param>
+    /// <returns>True if the mutex was acquired; otherwise false.</returns>
     private static bool FreeElsewhere(string name)
     {
         bool acquired = false;

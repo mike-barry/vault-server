@@ -3,9 +3,9 @@ using VaultShared.Frontmatter;
 namespace VaultShared.Tests;
 
 /// <summary>
-/// The advertised vocabulary as a projection of the loaded declaration. Generated from the same
-/// instance the write path holds, so there is no second copy and no drift test to write - what these
-/// cases assert is the projection's shape, not that two copies agree.
+/// Verifies <see cref="FrontmatterVocabulary"/>, the client-facing description generated from a
+/// loaded declaration. It is projected from the same registry instance the write path uses, so
+/// these cases assert the shape of the projection rather than agreement between two copies.
 /// </summary>
 public sealed class FrontmatterVocabularyTests
 {
@@ -49,8 +49,8 @@ public sealed class FrontmatterVocabularyTests
     [Fact]
     public void TwoKeysNamingOneSchemaShareOneBranch()
     {
-        // They hold one schema instance, so a client sees one branch both keys accept rather than
-        // two identical ones it has to reconcile.
+        // The two keys share one schema instance, so a client sees a single branch listing both
+        // keys rather than two identical branches.
         Assert.Equal(["nav.contents", "nav.see_also"], Branch("link").Keys.OrderBy(k => k, StringComparer.Ordinal));
         Assert.Equal(["agent.instructions", "doc.notes"], Branch("routed").Keys.OrderBy(k => k, StringComparer.Ordinal));
     }
@@ -86,8 +86,8 @@ public sealed class FrontmatterVocabularyTests
     [Fact]
     public void WhatNoClientFacingSchemaExpressesCleanlyIsCarriedInTheDescription()
     {
-        // It advertises; it does not enforce. The write path remains the sole enforcement point
-        // whatever a client makes of this sentence.
+        // The description only advertises the rule. The write path is still the only place it is
+        // enforced, whatever a client does with this text.
         var link = Branch("link").Description;
 
         Assert.Contains("Exactly one of link, folder", link, StringComparison.Ordinal);
@@ -115,8 +115,8 @@ public sealed class FrontmatterVocabularyTests
     [Fact]
     public void WithNoLoadedRegistryTheVariantBranchesAreSimplyAbsent()
     {
-        // Advertising was never permission: edit stays listed with its ordinary argument surface, and
-        // the frontmatter operations refuse at the write path where every other refusal lives.
+        // Dropping the branches does not grant or withhold anything. The edit tool keeps its
+        // ordinary arguments, and frontmatter operations refuse at the write path as usual.
         Assert.Same(FrontmatterVocabulary.None, FrontmatterVocabulary.Of(new RegistryState.Absent("registry.json")));
         Assert.Same(FrontmatterVocabulary.None, FrontmatterVocabulary.Of(new RegistryState.Unloadable("registry.json", "why.")));
         Assert.Empty(FrontmatterVocabulary.None.Branches);

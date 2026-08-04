@@ -4,10 +4,10 @@ using VaultShared.Tools;
 namespace VaultShared.Tests.Tools;
 
 /// <summary>
-/// The half of the parity claim that is provable without either front-end: that one writer produces
-/// the contract's bytes from the refusal each front-end catches, and that the neutral result has one
-/// rendering. Each front-end's suite then asserts its own emission against the same values, which is
-/// what closes the claim at both ends.
+/// Tests the part of the front-end parity contract that needs neither front-end: that
+/// <see cref="ToolRefusalEnvelope"/> renders each catchable exception to the expected bytes, and
+/// that a result has a single serialization. Each front-end's own tests then compare its output
+/// against the same expected values in <see cref="FrontEndParity"/>.
 /// </summary>
 public sealed class FrontEndParityTests
 {
@@ -26,9 +26,9 @@ public sealed class FrontEndParityTests
     }
 
     /// <summary>
-    /// The set of vocabularies is closed, and closed here rather than in each front-end's catch. An
-    /// exception that is not a refusal answers null, so a front-end lets it travel as the failure it
-    /// is rather than laundering it into an envelope with an invented code.
+    /// The set of exceptions that translate into a refusal is decided here rather than in each
+    /// front-end. Anything else returns null, so a front-end lets it propagate as a failure instead
+    /// of wrapping it in an envelope with an invented code.
     /// </summary>
     [Fact]
     public void SomethingThatIsNotARefusal_IsNotTranslated() =>
@@ -43,8 +43,8 @@ public sealed class FrontEndParityTests
     }
 
     /// <summary>
-    /// The content tier is the answer itself. Neither front-end may reformat it, so what the
-    /// contract carries is the text unchanged - which is what both are then asserted to emit.
+    /// A content result is the answer itself. Neither front-end may reformat it, so the expected
+    /// value is the text unchanged.
     /// </summary>
     [Fact]
     public void TheContentTier_IsTextNothingRenders()

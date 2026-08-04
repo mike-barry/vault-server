@@ -4,16 +4,17 @@ using VaultMcpServer.Tools;
 namespace VaultMcpServer.Tests;
 
 /// <summary>
-/// Pins MCP's wrapping of the refusal envelope: the JSON is the entire text block of an
-/// <c>isError</c> result, so nothing downstream has to unwrap a prose prefix to reach the code. The
-/// invariant it protects is that a caller cannot tell which layer refused, so a refusal the
-/// dispatcher makes and one a tool produces for itself must arrive identically.
-///
-/// The envelope's own form - compactness, field order, <c>data</c>'s absence rather than nullness -
-/// is <c>ToolRefusalEnvelope</c>'s, and pinned in <c>VaultShared.Tests</c>, because both front-ends
-/// emit it. The cases here that assert it do so through this wrapper, which is the one thing that
-/// would notice a helper wired to something other than the shared writer.
+/// Covers how MCP wraps the refusal envelope: the JSON is the entire text block of an
+/// <c>isError</c> result, so nothing downstream has to strip a prose prefix to reach the code. A
+/// refusal the dispatcher makes and one a tool produces for itself must arrive identically, so a
+/// caller cannot tell which layer refused.
 /// </summary>
+/// <remarks>
+/// The envelope's own form - compactness, field order, and <c>data</c> being absent rather than
+/// null - belongs to <c>ToolRefusalEnvelope</c> and is pinned in <c>VaultShared.Tests</c>, since
+/// both front-ends emit it. The tests here assert it through this wrapper, which is what would
+/// notice a helper wired to something other than the shared writer.
+/// </remarks>
 public sealed class ToolErrorTests
 {
     [Fact]

@@ -4,11 +4,14 @@ using VaultShared.Scope;
 namespace VaultShared.Tests;
 
 /// <summary>
-/// The two enumeration surfaces, against a real engine over a real tree. What is asserted here is
-/// everything a caller cannot tell apart from a confidently wrong answer: which domain answered,
-/// how a pattern anchors, whether dot entries came back, and whether a narrow scope withheld
-/// silently.
+/// Tests the two enumeration surfaces, <c>EnumerateNotes</c> and <c>EnumerateFiles</c>, against a
+/// real search engine over a real directory tree.
 /// </summary>
+/// <remarks>
+/// Enumeration returns a list, so a wrong answer looks the same to a caller as a right one. These
+/// tests pin the parts a caller cannot check: which set of files was enumerated, how a pattern
+/// anchors, whether dot entries came back, and what a narrow scope withheld.
+/// </remarks>
 public sealed class VaultEnumerationTests : IDisposable
 {
     private readonly ScratchVault _vault = Layout(new ScratchVault());
@@ -16,9 +19,11 @@ public sealed class VaultEnumerationTests : IDisposable
     public void Dispose() => _vault.Dispose();
 
     /// <summary>
-    /// Notes at three depths, a non-markdown file beside one of them, and a dot-directory holding
-    /// both a note and something else.
+    /// Seeds a vault with notes at three depths, a non-markdown file beside one of them, and a
+    /// dot directory holding both a note and a non-markdown file.
     /// </summary>
+    /// <param name="vault">The vault to seed.</param>
+    /// <returns>The same vault, so the call can be inlined.</returns>
     private static ScratchVault Layout(ScratchVault vault) => vault
         .WithNote("Root-Note.md")
         .WithNote("Notes/Alpha.md")
@@ -32,7 +37,7 @@ public sealed class VaultEnumerationTests : IDisposable
     private static IReadOnlyList<string> Values(SearchOutcome<VaultPath> outcome) =>
         [.. Assert.IsType<SearchOutcome<VaultPath>.Results>(outcome).Items.Select(p => p.Value).Order()];
 
-    // ---- The two domains ----
+    // ---- The two file sets ----
 
     [Fact]
     public void EnumerateNotes_AnswersMarkdownAndNothingElse()
@@ -45,8 +50,8 @@ public sealed class VaultEnumerationTests : IDisposable
     [Fact]
     public void EnumerateFiles_AnswersEveryFileWhateverItsExtension()
     {
-        // The census backs passes where a silent omission is a wrong answer rather than a narrower
-        // one, so the non-markdown file is in it.
+        // This surface backs operations where omitting a file gives a wrong answer rather than a
+        // narrower one, such as reporting what a recursive removal destroys.
         Assert.Contains("Notes/Data.txt", Values(_vault.Access.EnumerateFiles()));
     }
 
@@ -72,8 +77,8 @@ public sealed class VaultEnumerationTests : IDisposable
     [Fact]
     public void APatternWithASeparatorIsAnchoredAtTheVaultRoot()
     {
-        // The two answers differ and a caller cannot tell which it got, which is why the anchoring
-        // is a requirement rather than whatever the engine happened to do.
+        // Anchored and unanchored matching give different answers and a caller cannot tell which
+        // it got, so the anchoring is pinned here rather than left to the engine's default.
         Assert.Equal(["Notes/Alpha.md"], Values(_vault.Access.EnumerateNotes("Notes/*.md")));
         Assert.Empty(Values(_vault.Access.EnumerateNotes("Sub/*.md")));
     }
@@ -97,9 +102,9 @@ public sealed class VaultEnumerationTests : IDisposable
     [Fact]
     public void TheMarkdownRestrictionDoesNotRideOnTheCallersPattern()
     {
-        // The hazard this case exists for: "Notes/**" with ".md" appended is "Notes/**.md", which
-        // the engine accepts and degrades to a single "*", so the nested note disappears. The
-        // restriction is a predicate over the result, so it does not.
+        // Appending ".md" to the caller's "Notes/**" would give "Notes/**.md", which the engine
+        // accepts but treats as a single "*", dropping the nested note. The markdown restriction
+        // is applied as a filter over the results instead, so the pattern is unchanged.
         var notes = Values(_vault.Access.EnumerateNotes("Notes/**"));
 
         Assert.Contains("Notes/Sub/Nested.md", notes);
@@ -130,8 +135,8 @@ public sealed class VaultEnumerationTests : IDisposable
     [Fact]
     public void TheSwitchAdmitsDotEntriesOnBothSurfaces()
     {
-        // What lets a destruction census see a nested .git and report every file a removal takes
-        // with it.
+        // This is what lets a removal preview see a nested .git and report every file the removal
+        // would take with it.
         Assert.Contains(".obsidian/Deep.md", Values(_vault.Access.EnumerateNotes(includeDotEntries: true)));
         Assert.Contains(".obsidian/workspace.json", Values(_vault.Access.EnumerateFiles(includeDotEntries: true)));
     }
@@ -152,8 +157,8 @@ public sealed class VaultEnumerationTests : IDisposable
     {
         using var narrow = Layout(new ScratchVault(VaultScope.Of(["Projects/Widget"])));
 
-        // A list returns the in-scope subset without saying what was withheld: no refusal, no count,
-        // nothing that names what the caller may not read.
+        // The list is the in-scope subset with no indication of what was withheld: no refusal, no
+        // count, nothing naming what the caller may not read.
         Assert.Equal(["Projects/Widget/Widget.md"], Values(narrow.Access.EnumerateNotes()));
         Assert.Equal(["Projects/Widget/Widget.md"], Values(narrow.Access.EnumerateFiles()));
     }
@@ -166,7 +171,7 @@ public sealed class VaultEnumerationTests : IDisposable
         Assert.Empty(Values(narrow.Access.EnumerateNotes("Inbox/**")));
     }
 
-    // ---- The four outcomes ----
+    // ---- Outcomes other than results ----
 
     [Fact]
     public void NoMatchIsAnEmptyResultRatherThanAFailure()
@@ -199,9 +204,9 @@ public sealed class VaultEnumerationTests : IDisposable
     {
         var path = Assert.IsType<SearchOutcome<VaultPath>.Results>(_vault.Access.EnumerateNotes("Nested.md")).Items.Single();
 
-        // Vault-relative with one separator convention, and admitted when named back - enumeration
-        // hands out containment, not admission, so the round trip goes through the scope check
-        // exactly as any other caller-named path does.
+        // An enumerated path is vault-relative with forward slashes. Enumeration proves containment
+        // rather than admission, so naming the path back goes through the scope check like any
+        // other caller-named path.
         Assert.Equal("Notes/Sub/Nested.md", path.Value);
         Assert.IsType<PathResolution<ReadPath>.Admitted>(_vault.Access.ForRead(path.Value));
     }

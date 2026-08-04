@@ -6,8 +6,9 @@ using VaultShared.Tools;
 namespace VaultShared.Tests.Tools;
 
 /// <summary>
-/// <c>delete</c> over a real tree: the destruction plan the file census builds, the three guards,
-/// the backlink census, the preview gate, and what a removal that stops partway reports.
+/// Tests the <c>delete</c> tool against a real directory tree: the removal plan built from the file
+/// census, the three guards, the backlink census, the preview gate, and what a removal that stops
+/// partway reports.
 /// </summary>
 public sealed class DeleteToolTests : IDisposable
 {
@@ -39,8 +40,7 @@ public sealed class DeleteToolTests : IDisposable
 
     // ---- The declaration ----
 
-    /// <summary>Removal takes no destructive class of its own: it is authorized as a mutation like
-    /// any other.</summary>
+    /// <summary>Deletion has no op class of its own. It is authorized as an ordinary mutation.</summary>
     [Fact]
     public void DeclaresTheOrdinaryWriteFloorAndMutates()
     {
@@ -50,8 +50,8 @@ public sealed class DeleteToolTests : IDisposable
 
     // ---- The preview gate ----
 
-    /// <summary>The routine call reports and removes nothing. A plan is a faithful prediction of its
-    /// own result, so this shape is the one the applied call answers.</summary>
+    /// <summary>A call without <c>apply</c> reports the plan and removes nothing. The plan has the
+    /// same shape as the result the applied call returns.</summary>
     [Fact]
     public void PreviewsByDefaultAndRemovesNothing()
     {
@@ -63,9 +63,9 @@ public sealed class DeleteToolTests : IDisposable
     }
 
     /// <summary>
-    /// The parity claim, whole: a plan and the result of the call it authorized differ in exactly one
-    /// member. Everything else - the set, the census, the asserted authority - is computed the same
-    /// way under the same lock and the same validation.
+    /// A plan and the applied result differ only in the <c>Applied</c> flag. The removed set, the
+    /// backlink census and the asserted authority are computed the same way, under the same lock
+    /// and the same validation.
     /// </summary>
     [Fact]
     public void APlanAndItsResultDifferInExactlyTheDiscriminatingMember()
@@ -80,9 +80,9 @@ public sealed class DeleteToolTests : IDisposable
     // ---- The destruction plan ----
 
     /// <summary>
-    /// The plan comes from the file census, not note enumeration: a non-markdown file is still on
-    /// disk and still destroyed, and a folder holding only such files would otherwise read as empty.
-    /// Each folder's contents come before the folder, deepest first.
+    /// The plan comes from a file census rather than from enumerating notes. A non-markdown file is
+    /// on disk and is destroyed, and a folder holding only such files would otherwise look empty.
+    /// Each folder's contents are listed before the folder itself, deepest first.
     /// </summary>
     [Fact]
     public void ThePlanIsEveryFileUnderTheFolderThenTheFoldersDeepestFirst()
@@ -100,14 +100,14 @@ public sealed class DeleteToolTests : IDisposable
             plan.Removed);
     }
 
-    /// <summary>A note's plan is itself.</summary>
+    /// <summary>A note's plan contains only the note itself.</summary>
     [Fact]
     public void ANotesPlanIsItself()
     {
         Assert.Equal(["Reference/Guide.md"], Delete(new { path = "Reference/Guide.md", kind = "note" }).Removed);
     }
 
-    /// <summary>A missing sole target is a failure, never a skip - and the preview says so rather
+    /// <summary>A missing target is refused rather than skipped, and the preview refuses too rather
     /// than predicting a removal that cannot happen.</summary>
     [Fact]
     public void AMissingNoteIsAFailureEvenInThePreview()
@@ -117,8 +117,8 @@ public sealed class DeleteToolTests : IDisposable
 
     // ---- The guards ----
 
-    /// <summary>The first guard, run over the plan the census built with dot entries admitted -
-    /// either a note-only enumeration or a policy filter would hide the thing the check exists to
+    /// <summary>The first guard. It runs over the census with dot entries included, because a
+    /// note-only enumeration or a policy filter would hide the <c>.git</c> directory it exists to
     /// find.</summary>
     [Fact]
     public void AGitDirectoryAnywhereInTheSetRefusesTheWholeRemoval()
@@ -132,8 +132,9 @@ public sealed class DeleteToolTests : IDisposable
         Assert.True(_vault.HasFile("Projects/Widget/Widget.md"));
     }
 
-    /// <summary>The second guard. The refusal carries the full set a recursive removal would
-    /// destroy, so the caller retries against the actual file list rather than the folder name.</summary>
+    /// <summary>The second guard. A non-recursive folder removal that meets contents is refused,
+    /// and the refusal carries the full set a recursive removal would destroy so the caller can
+    /// retry knowing the file list.</summary>
     [Fact]
     public void APlainFolderRemovalMeetingContentsRefusesCarryingThePlan()
     {
@@ -153,8 +154,9 @@ public sealed class DeleteToolTests : IDisposable
         Assert.False(_vault.HasFolder("Projects/Empty"));
     }
 
-    /// <summary>The placeholder is the tooling's own rather than content a caller put there, so a
-    /// folder holding nothing else counts as empty and a plain call removes both.</summary>
+    /// <summary>A <c>.gitkeep</c> is the tooling's own placeholder rather than content a caller put
+    /// there, so a folder holding nothing else counts as empty and a non-recursive removal takes
+    /// both.</summary>
     [Fact]
     public void AFolderHoldingOnlyTheGitKeepCountsAsEmptyAndAPlainCallRemovesBoth()
     {
@@ -166,8 +168,8 @@ public sealed class DeleteToolTests : IDisposable
         Assert.False(_vault.HasFolder("Projects/Held"));
     }
 
-    /// <summary>A second placeholder-like file is not the placeholder case: the folder holds
-    /// content.</summary>
+    /// <summary>A folder holding a <c>.gitkeep</c> and anything else holds content, so it is not
+    /// empty.</summary>
     [Fact]
     public void AFolderHoldingTheGitKeepAndSomethingElseIsNotEmpty()
     {
@@ -176,7 +178,7 @@ public sealed class DeleteToolTests : IDisposable
         Assert.Equal(ToolCodes.NotEmpty, Refusal(new { path = "Projects/Held", kind = "folder", apply = true }).Code);
     }
 
-    /// <summary>The third guard: the whole plan is validated before anything is removed, so a
+    /// <summary>The third guard. The whole plan is authorized before anything is removed, so a
     /// refusal cannot arrive with part of the work already done.</summary>
     [Fact]
     public void TheWholePlanIsValidatedBeforeAnythingIsRemoved()
@@ -188,13 +190,13 @@ public sealed class DeleteToolTests : IDisposable
 
         Assert.Equal(ToolCodes.AuthorityRequired, refusal.Code);
         Assert.Equal(["Projects/Widget/Notes.md"], Strings(refusal, "paths"));
-        // Nothing was removed, including the entries whose own removal the policy never priced.
+        // Nothing was removed, including the entries the policy did not require elevation for.
         Assert.True(denied.HasFile("Projects/Widget/Widget.md"));
         Assert.True(denied.HasFile("Projects/Widget/Assets/Diagram.png"));
     }
 
-    /// <summary>There is no force, no purge and no skip: nothing in the argument surface waives a
-    /// guard.</summary>
+    /// <summary>The advertised arguments are exactly these five. There is no force, purge or skip
+    /// argument, so nothing a caller can send waives a guard.</summary>
     [Fact]
     public void NoArgumentWaivesAGuard()
     {
@@ -206,8 +208,8 @@ public sealed class DeleteToolTests : IDisposable
 
     // ---- The backlink census ----
 
-    /// <summary>Removal reports orphaning rather than repairing it, one entry per surviving
-    /// occurrence, because a caller fixing them visits each one.</summary>
+    /// <summary>Deletion reports the links it orphans rather than repairing them, one entry per
+    /// surviving occurrence.</summary>
     [Fact]
     public void ReportsEverySurvivingWikilinkIntoTheRemovedSet()
     {
@@ -216,12 +218,11 @@ public sealed class DeleteToolTests : IDisposable
         Assert.Equal(
             ["Reference/Guide.md:3 Widget", "Reference/Guide.md:3 Projects/Widget/Notes"],
             plan.Backlinks.Select(b => $"{b.Path}:{b.Line} {b.Target}"));
-        // Nothing was rewritten: the caller's intent for a surviving link is not knowable here.
+        // Nothing was rewritten; what the caller wants a surviving link to point at is not known here.
         Assert.Contains("[[Widget]]", _vault.TextOf("Reference/Guide.md"));
     }
 
-    /// <summary>A census that ran and found nothing is a finding, so the member is an empty list and
-    /// never absent.</summary>
+    /// <summary>A census that ran and found no backlinks reports an empty list, never a null one.</summary>
     [Fact]
     public void ACensusThatFoundNothingIsAnEmptyListRatherThanAnAbsence()
     {
@@ -243,8 +244,8 @@ public sealed class DeleteToolTests : IDisposable
         Assert.True(_vault.HasFile("Projects/Widget/Widget.md"));
     }
 
-    /// <summary>A recursive removal destroys every dot entry under the folder it was given: the plan
-    /// is the operation's footprint rather than the caller's perimeter.</summary>
+    /// <summary>A recursive removal destroys dot entries under the folder it was given. The plan
+    /// covers everything on disk, not only what a caller could have named.</summary>
     [Fact]
     public void ARecursiveRemovalDestroysTheDotEntriesUnderIt()
     {
@@ -256,8 +257,9 @@ public sealed class DeleteToolTests : IDisposable
         Assert.False(_vault.HasFolder("Projects/Widget"));
     }
 
-    /// <summary>The mutex means no other tool interleaved; it does not mean rollback. A removal that
-    /// stops partway names exactly what landed and what did not, and carries the ordered way out.</summary>
+    /// <summary>The write lock keeps other tools out but does not roll anything back. A removal
+    /// that stops partway reports which entries were removed, which were not, and the steps to
+    /// finish by hand.</summary>
     [Fact]
     public void ARemovalThatStopsPartwayRaisesThePartialMutationVocabulary()
     {
@@ -273,8 +275,8 @@ public sealed class DeleteToolTests : IDisposable
         Assert.True(_vault.HasFile("Projects/Widget/Widget.md"));
     }
 
-    /// <summary>With nothing yet removed the same condition is a clean refusal rather than a partial
-    /// mutation: there is no partial state to report.</summary>
+    /// <summary>The same failure on the first entry is an ordinary refusal rather than a partial
+    /// mutation, because nothing has been removed yet.</summary>
     [Fact]
     public void ARemovalThatFailsOnItsOnlyEntryIsACleanRefusal()
     {

@@ -4,12 +4,15 @@ using VaultShared.Scope;
 namespace VaultShared.Tests;
 
 /// <summary>
-/// Whether a link's target names a path. Both ways of getting this wrong are silent - a link repair
-/// fails to match is left pointing at nothing, and a link the census fails to match is an orphan
-/// nobody reports - so both directions are asserted for each form.
-///
-/// Nothing here touches a filesystem, so the vault is a value rather than a tree.
+/// Tests <c>WikilinkTarget.Matches</c>, which decides whether a wikilink's target names a given
+/// path.
 /// </summary>
+/// <remarks>
+/// Both ways of getting this wrong are silent: a link a repair fails to match is left pointing at
+/// nothing, and a link a report fails to match is an orphan nobody hears about. Every form is
+/// therefore tested for both a match and a non-match. Nothing here touches the filesystem, so the
+/// vault is a value rather than a real directory tree.
+/// </remarks>
 public sealed class WikilinkMatchingTests
 {
     private static readonly Vault Vault = new("test", Path.Combine(Path.GetTempPath(), "no-such-vault"), PathPolicy.None);
@@ -17,12 +20,12 @@ public sealed class WikilinkMatchingTests
     private static VaultPath At(string relativePath) =>
         VaultPath.TryCreate(Vault, relativePath, out var path, out var reason) ? path : throw new ArgumentException(reason);
 
-    // ---- Path-qualified: a suffix of whole components ----
+    // ---- Path-qualified targets: a suffix of whole components ----
 
     [Fact]
     public void APathQualifiedTargetMatchesASuffixOfWholeComponents()
     {
-        // The editor writes partial paths, so the qualification need not start at the vault root.
+        // The editor writes partial paths, so the target need not start at the vault root.
         Assert.True(WikilinkTarget.Matches(
             "Redesign/Spec-Tool-Capabilities",
             At("Projects/Vault-MCP-Server/Inbox/Redesign/Spec-Tool-Capabilities.md")));
@@ -37,7 +40,7 @@ public sealed class WikilinkMatchingTests
     [Fact]
     public void APartialComponentIsNotASuffix()
     {
-        // `sign/Spec-Tool-Capabilities` names nothing: components are whole or they do not match.
+        // A component matches whole or not at all, so "sign" does not match "Redesign".
         Assert.False(WikilinkTarget.Matches(
             "sign/Spec-Tool-Capabilities",
             At("Projects/Vault-MCP-Server/Inbox/Redesign/Spec-Tool-Capabilities.md")));
@@ -62,7 +65,7 @@ public sealed class WikilinkMatchingTests
         Assert.False(WikilinkTarget.Matches("Notes//Alpha", At("Notes/Alpha.md")));
     }
 
-    // ---- Bare: basename alone ----
+    // ---- Bare targets: the file name alone ----
 
     [Fact]
     public void ABareTargetMatchesOnBasenameAtAnyDepth()
@@ -74,8 +77,8 @@ public sealed class WikilinkMatchingTests
     [Fact]
     public void ABareTargetMatchesNoAncestorSegment()
     {
-        // Which of several same-named candidates a bare target resolves to is ranking's question,
-        // not this one - but a folder's name is never the basename.
+        // A bare target matches the file name only, never a folder along the way. Choosing between
+        // several files with the same name is ranking's job, not this method's.
         Assert.False(WikilinkTarget.Matches("Notes", At("Notes/Alpha.md")));
     }
 
@@ -93,7 +96,7 @@ public sealed class WikilinkMatchingTests
         Assert.False(WikilinkTarget.IsPathQualified("Alpha"));
     }
 
-    // ---- The extension ----
+    // ---- The file extension ----
 
     [Fact]
     public void ATargetMayOmitTheNoteExtension()
@@ -105,8 +108,8 @@ public sealed class WikilinkMatchingTests
     [Fact]
     public void ATargetMayCarryTheExtensionItNames()
     {
-        // The editor writes every non-note target with its own extension, and tolerates the note
-        // one being spelled out.
+        // The editor writes every non-note target with its extension, and accepts ".md" being
+        // spelled out on a note.
         Assert.True(WikilinkTarget.Matches("Alpha.md", At("Notes/Alpha.md")));
         Assert.True(WikilinkTarget.Matches("Diagram.png", At("Attachments/Diagram.png")));
     }
@@ -114,7 +117,7 @@ public sealed class WikilinkMatchingTests
     [Fact]
     public void ATargetOmittingAnExtensionThatIsNotTheNoteOneMatchesNothing()
     {
-        // Only `.md` is the target's to omit; nothing else would be recoverable from the target.
+        // Only ".md" may be omitted. Any other extension cannot be recovered from the target text.
         Assert.False(WikilinkTarget.Matches("Diagram", At("Attachments/Diagram.png")));
     }
 
@@ -124,13 +127,13 @@ public sealed class WikilinkMatchingTests
         Assert.False(WikilinkTarget.Matches("Alpha.txt", At("Notes/Alpha.md")));
     }
 
-    // ---- Case ----
+    // ---- Letter case ----
 
     [Fact]
     public void MatchingIsCaseInsensitiveThroughout()
     {
-        // Two spellings name one file, which is the layer's own path equality and the scope
-        // semantics behind it; a link whose case drifted still opens the file in the editor.
+        // Two spellings that differ only in case name one file, which is how path equality and
+        // scope already work, and a link whose case drifted still opens the file in the editor.
         Assert.True(WikilinkTarget.Matches("notes/alpha", At("Notes/Alpha.md")));
         Assert.True(WikilinkTarget.Matches("ALPHA.MD", At("Notes/Alpha.md")));
     }

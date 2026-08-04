@@ -14,9 +14,9 @@ using VaultShared.Tests;
 namespace VaultMcpServer.Tests;
 
 /// <summary>
-/// Boots the real host (Program) against a temp vaults.json/grants.json and drives it
-/// over HTTP through TestServer, proving the bearer gate actually authenticates and
-/// scopes requests rather than just unit-testing GrantStore in isolation.
+/// Covers the bearer gate end to end. Boots the real host against a temporary vaults.json and
+/// grants.json and drives it over HTTP through TestServer, so the gate is exercised in the
+/// pipeline rather than through GrantStore alone.
 /// </summary>
 [Collection("Program host tests")]
 public sealed class BearerGrantMiddlewareTests : IClassFixture<BearerGrantMiddlewareTests.Fixture>, IClassFixture<TestVaultFixture>
@@ -31,11 +31,10 @@ public sealed class BearerGrantMiddlewareTests : IClassFixture<BearerGrantMiddle
     }
 
     /// <summary>
-    /// Under the fail-closed localhost floor, an expired token and an unknown token do not
-    /// 401 - both degrade to the built-in minimum-access grant, so the session runs
-    /// harmless rather than hard-failing (a subagent with a stale/mangled token stays recoverable).
-    /// Constructs the middleware directly, capturing the grant it attaches, with a FixedTimeProvider
-    /// so the "expired" case is deterministic without real elapsed wall-clock time.
+    /// Verifies that an expired token and an unknown token both fall back to the built-in
+    /// minimum-access grant instead of returning 401, so a caller holding a stale token can still
+    /// recover. Builds the middleware directly to capture the grant it attaches, and uses a
+    /// FixedTimeProvider so expiry is deterministic.
     /// </summary>
     [Fact]
     public async Task ExpiredOrUnknownToken_FloorsToMinimumAccessNot401()
@@ -75,8 +74,11 @@ public sealed class BearerGrantMiddlewareTests : IClassFixture<BearerGrantMiddle
         }
     }
 
-    /// <summary>A missing Authorization header is a blank token: it floors to minimum access
-    /// rather than 401, and the principal token-hash is still stashed for the elevation tool.</summary>
+    /// <summary>
+    /// Verifies that a missing Authorization header is treated as a blank token: it falls back to
+    /// minimum access rather than 401, and the principal token hash the elevation tool reads is
+    /// still stored on the request.
+    /// </summary>
     [Fact]
     public async Task MissingAuthorizationHeader_FloorsToMinimumAccess()
     {
@@ -94,13 +96,11 @@ public sealed class BearerGrantMiddlewareTests : IClassFixture<BearerGrantMiddle
     }
 
     /// <summary>
-    /// When ServerHealthState is fatally degraded, every request is short-circuited with
-    /// 503 and the same fixed, detail-free body - regardless of whether a token was
-    /// presented at all, so a fatal config error can never look like an auth failure and
-    /// can never leak which file or detail was wrong. Constructs the middleware directly
-    /// (like <see cref="ExpiredToken_Returns401DistinctFromUnknownToken"/> above) rather
-    /// than going through the shared healthy Fixture, since that fixture's whole point is a
-    /// working config.
+    /// Verifies that a fatally degraded <see cref="ServerHealthState"/> short-circuits every
+    /// request with 503 and the same fixed, detail-free body, whether or not a token was
+    /// presented. A fatal config error must not be distinguishable from an auth failure, and the
+    /// response must not name the file or setting that was wrong. Builds the middleware directly
+    /// rather than using the shared fixture, which exists to supply a working config.
     /// </summary>
     [Fact]
     public async Task FatallyDegraded_ShortCircuitsEveryRequestWith503RegardlessOfToken()
@@ -157,9 +157,9 @@ public sealed class BearerGrantMiddlewareTests : IClassFixture<BearerGrantMiddle
     }
 
     /// <summary>
-    /// The gate runs on the body peek, before the dispatcher resolves a name to a tool, so the
-    /// tool named here does not have to exist - and deliberately does not, since a real name
-    /// would suggest the refusal depended on one.
+    /// Verifies that naming a vault outside the grant's scope is refused with 403. The gate reads
+    /// the request body before the dispatcher resolves the tool name, so the tool named here does
+    /// not exist - a real name would suggest the refusal depended on one.
     /// </summary>
     [Fact]
     public async Task ToolCallNamingOutOfScopeVault_Returns403()
@@ -173,11 +173,12 @@ public sealed class BearerGrantMiddlewareTests : IClassFixture<BearerGrantMiddle
     }
 
     /// <summary>
-    /// The vault-scope peek must match the "vault" argument property case-insensitively. A tool's
-    /// advertised schema spells it "vault" by the snake_case wire rule, but binders accept any
-    /// casing, so a client sending "Vault" must still hit the informative 403 gate rather than
-    /// falling through to the vaguer op-class/path-scope denial one layer down.
+    /// Verifies that the gate matches the vault argument name case-insensitively. Tool schemas
+    /// advertise it as "vault", but argument binding accepts any casing, so a client sending
+    /// "Vault" must still reach this 403 rather than the vaguer op-class or path-scope denial one
+    /// layer further in.
     /// </summary>
+    /// <param name="vaultPropertyName">The casing of the vault argument name to send.</param>
     [Theory]
     [InlineData("vault")]
     [InlineData("Vault")]
@@ -192,11 +193,11 @@ public sealed class BearerGrantMiddlewareTests : IClassFixture<BearerGrantMiddle
     }
 
     /// <summary>
-    /// The gate's admitting side, which needs a tool that exists: against an unknown name the
-    /// dispatcher answers a 200 tool error, so not-401/not-403 would hold for any name at all and
-    /// the assertion could not tell an admitted call from a missing tool. <c>read</c> takes a vault
-    /// argument and this grant is scoped to <c>personal</c>, so the call reaches the tool - which
-    /// then answers its own <c>path_not_found</c>, over HTTP 200.
+    /// Verifies that the gate admits a call naming a vault the grant covers. This case needs a
+    /// real tool name: an unknown name also yields HTTP 200 with a tool error, so asserting only
+    /// not-401 and not-403 would pass for any name. <c>read</c> takes a vault argument and this
+    /// grant covers <c>personal</c>, so the call reaches the tool, which returns its own
+    /// <c>path_not_found</c> error over HTTP 200.
     /// </summary>
     [Fact]
     public async Task ToolCallNamingInScopeVault_IsNotRejectedByTheGate()

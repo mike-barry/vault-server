@@ -5,8 +5,9 @@ using VaultShared.Tools;
 namespace VaultShared.Tests.Tools;
 
 /// <summary>
-/// <c>read</c> over a real tree: which facet comes back, where the content hash comes from, and how
-/// a miss, a failure and a path the caller may not name are told apart.
+/// Tests the <c>read</c> tool against a real directory tree: which part of a note comes back, where
+/// the content hash comes from, and how a missing note, an unreadable note and a path the caller may
+/// not read are told apart.
 /// </summary>
 public sealed class ReadToolTests : IDisposable
 {
@@ -34,9 +35,9 @@ public sealed class ReadToolTests : IDisposable
     // ---- The declaration ----
 
     /// <summary>
-    /// A read floor, and no more. Every path the tool touches is the one the caller named, admitted
-    /// against the effective read scope before anything is read, so there is no outcome-dependent
-    /// authority for it to assert.
+    /// The declaration asks for a read floor and nothing more. The only path the tool touches is the
+    /// one the caller named, checked against the effective read scope before anything is read, so
+    /// there is no further authority for it to assert.
     /// </summary>
     [Fact]
     public void DeclaresAReadFloorAndNeitherMutatesNorNeedsASession()
@@ -46,7 +47,7 @@ public sealed class ReadToolTests : IDisposable
         Assert.False(ReadTool.Declaration.RequiresClientSession);
     }
 
-    // ---- The three facets ----
+    // ---- The three parts of a note ----
 
     [Fact]
     public void WithNoPart_AnswersTheWholeNote()
@@ -66,8 +67,8 @@ public sealed class ReadToolTests : IDisposable
         Assert.Equal("# Widget\n\nBody text.\n", Read(new { path = "Projects/Widget/Widget.md", part = "body" }));
     }
 
-    /// <summary>The absent block is a well-formed value in the one split, not a case this tool
-    /// writes: empty text, and the whole note as body.</summary>
+    /// <summary>A note with no frontmatter block is handled by the shared note split rather than by
+    /// this tool: its frontmatter is empty text and its body is the whole note.</summary>
     [Fact]
     public void ANoteWithNoBlock_AnswersFrontmatterWithEmptyTextAndBodyWithTheWholeNote()
     {
@@ -77,8 +78,8 @@ public sealed class ReadToolTests : IDisposable
 
     // ---- The content hash ----
 
-    /// <summary>Content and hash come back together, as the one content-tier result that carries
-    /// structure.</summary>
+    /// <summary>Asking for the hash returns a structured result carrying the content and the hash
+    /// together.</summary>
     [Fact]
     public void WithContentHash_AnswersTheContentAndTheHashTogether()
     {
@@ -96,9 +97,9 @@ public sealed class ReadToolTests : IDisposable
     }
 
     /// <summary>
-    /// Whole-file whichever part was read, so nothing authorizes a write from a partial read. The
-    /// three facets therefore answer one value, and it is the value a mutation of the same file
-    /// would return.
+    /// The hash always covers the whole file, whichever part was read, so all three parts return the
+    /// same value and it is the value an edit of the same file returns. A hash of only the part read
+    /// would let a partial read authorize a whole-file write.
     /// </summary>
     [Theory]
     [InlineData("all")]
@@ -114,8 +115,9 @@ public sealed class ReadToolTests : IDisposable
     }
 
     /// <summary>
-    /// The hash describes the bytes the content was decoded from and nothing later. A second read
-    /// would hash whatever is on disk by then, which is the window the guard exists to close.
+    /// The hash describes the bytes the returned content was decoded from, not the file's later
+    /// state. Hashing the file again afterwards would describe whatever is on disk by then, which is
+    /// the gap the staleness guard exists to close.
     /// </summary>
     [Fact]
     public void TheHashDescribesTheBytesTheContentCameFromRatherThanALaterState()
@@ -138,7 +140,7 @@ public sealed class ReadToolTests : IDisposable
         Assert.Equal(read.ContentHash.ToLowerInvariant(), read.ContentHash);
     }
 
-    // ---- Miss versus failure ----
+    // ---- Missing versus unreadable ----
 
     [Fact]
     public void ANoteThatIsNotThere_IsAMissRatherThanAReadFailure()
@@ -155,8 +157,9 @@ public sealed class ReadToolTests : IDisposable
     }
 
     /// <summary>
-    /// There, and unreadable: a distinct code carrying the path, taken from the layer's
-    /// classification of the failure rather than from a probe this tool runs first.
+    /// A note that exists but cannot be opened gets its own code, naming the path. The distinction
+    /// comes from how the access layer classified the failure, not from a separate existence check
+    /// run beforehand.
     /// </summary>
     [Fact]
     public void ANoteThatIsThereAndCannotBeRead_IsAReadFailureNamingIt()
@@ -169,12 +172,12 @@ public sealed class ReadToolTests : IDisposable
         Assert.Equal("Inbox/Loose.md", VaultToolHarness.Data(refusal)!["path"]);
     }
 
-    // ---- Named is loud ----
+    // ---- Paths the caller may not read ----
 
     /// <summary>
-    /// A named path outside the grant refuses rather than reading as a miss. Enumeration and search
-    /// filter silently; an operand does not, and the two answers are what a caller acts on
-    /// differently.
+    /// A path the caller names that lies outside the grant is refused rather than reported as
+    /// missing. Enumeration and search filter such paths out silently; a named path does not, so a
+    /// caller can tell the two situations apart.
     /// </summary>
     [Fact]
     public void ANamedPathOutsideTheGrant_RefusesLoudlyRatherThanReadingAsAMiss()
@@ -186,14 +189,14 @@ public sealed class ReadToolTests : IDisposable
         var refusal = VaultToolHarness.Refusal(new ReadTool(), ReadTool.Declaration, scoped, new { path = "Inbox/Loose.md" });
 
         Assert.Equal(ToolCodes.OutOfScope, refusal.Code);
-        // No payload: the only remedy is elevation, so there is no corrected call to lift one into.
+        // No data: the only remedy is a wider grant, so there is no corrected call to suggest.
         Assert.Null(VaultToolHarness.Data(refusal));
-        // And no oracle: the refusal says nothing about whether the note is there.
+        // The refusal must not reveal whether the note exists.
         Assert.DoesNotContain("Loose", ToolRefusalEnvelope.Json(refusal).Replace("Inbox/Loose.md", "", StringComparison.Ordinal), StringComparison.Ordinal);
     }
 
-    /// <summary>A dot-directory segment is the perimeter rather than a scope answer, and no grant
-    /// changes it - this vault's grant is unscoped.</summary>
+    /// <summary>A path segment beginning with a dot is excluded outright, not by scope. This
+    /// vault's grant is unscoped and the path is still refused.</summary>
     [Fact]
     public void ANamedPathUnderADotDirectory_IsThePerimeterRatherThanAScopeDenial()
     {
@@ -207,8 +210,8 @@ public sealed class ReadToolTests : IDisposable
     }
 
     /// <summary>
-    /// The extension rule is decided before the layer sees the path, because it is a statement about
-    /// the caller's own text alone and it costs one retry to fix.
+    /// The markdown extension is required, checked on the caller's text before the access layer sees
+    /// the path, and the refusal names the spelling that would have worked.
     /// </summary>
     [Fact]
     public void AnExtensionlessOperand_RefusesNamingTheSpellingThatWouldHaveWorked()
@@ -219,8 +222,8 @@ public sealed class ReadToolTests : IDisposable
         Assert.Equal("Projects/Widget/Widget.md", VaultToolHarness.Data(refusal)!["suggested"]);
     }
 
-    /// <summary>An unrecognized enumerated value is the tool's own refusal, coded and naming the
-    /// argument, rather than whatever the binder would have raised.</summary>
+    /// <summary>An unrecognized <c>part</c> is refused by the tool, with a code and the argument's
+    /// name, rather than by the binder.</summary>
     [Fact]
     public void AnUnrecognizedPart_ReachesTheCallerAsACodedArgumentRefusal()
     {

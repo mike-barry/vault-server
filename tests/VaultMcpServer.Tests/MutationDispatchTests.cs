@@ -7,20 +7,20 @@ using VaultShared.Tests;
 namespace VaultMcpServer.Tests;
 
 /// <summary>
-/// End-to-end HTTP coverage that <c>create</c>, <c>move</c> and <c>delete</c> are advertised and
-/// dispatched like every other declaration, and that each reaches disk through the shared execute
-/// path - which holds the vault's mutex around the whole invocation, because all three declare that
-/// they mutate.
-///
-/// Their own behaviour is asserted in <c>VaultShared.Tests</c>. What is only observable here is the
-/// wiring: the registry carries them, the result serializes under the shared naming policy, a
-/// refusal arrives as the shared <c>{code, message, data?}</c> envelope, and the preview gate is a
-/// real gate across the transport rather than only inside the tool.
-///
-/// It runs against a temp copy of the committed <c>test-vault/</c>, with the isolation guard pair:
-/// <see cref="ProgramHostFixtureBase.AssertMutationSandboxed"/> before every mutating call, and
-/// <see cref="TestVaultCleanGuard"/> proving on dispose that the committed copy was never touched.
+/// Covers over HTTP that <c>create</c>, <c>move</c> and <c>delete</c> are advertised and dispatched
+/// like every other declaration, and that each reaches disk through the shared execute path, which
+/// holds the vault's mutex around the whole invocation because all three declare that they mutate.
 /// </summary>
+/// <remarks>
+/// Their own behaviour is asserted in <c>VaultShared.Tests</c>. Only the wiring is observable here:
+/// the registry carries them, the result serializes under the shared naming policy, a refusal
+/// arrives as the shared <c>{code, message, data?}</c> envelope, and the preview gate holds across
+/// the transport rather than only inside the tool.
+///
+/// The fixture runs against a temp copy of the committed <c>test-vault/</c>, with
+/// <see cref="ProgramHostFixtureBase.AssertMutationSandboxed"/> before every mutating call and
+/// <see cref="TestVaultCleanGuard"/> checking on dispose that the committed copy was never touched.
+/// </remarks>
 [Collection("Program host tests")]
 public sealed class MutationDispatchTests(MutationDispatchTests.Fixture fixture) : IClassFixture<MutationDispatchTests.Fixture>
 {
@@ -53,9 +53,15 @@ public sealed class MutationDispatchTests(MutationDispatchTests.Fixture fixture)
         return doc.RootElement.GetProperty("result").Clone();
     }
 
-    /// <summary>Every call goes through here, so a fixture whose two config paths ever stop
-    /// resolving inside its sandbox fails before the call runs rather than after it has written to
-    /// the committed fixture.</summary>
+    /// <summary>
+    /// Calls a tool after checking the sandbox. Every call goes through here, so a fixture whose
+    /// config paths stop resolving inside its sandbox fails before the call runs rather than after
+    /// it has written to the committed vault.
+    /// </summary>
+    /// <param name="fixture">The host fixture to call.</param>
+    /// <param name="tool">The tool name to invoke.</param>
+    /// <param name="argumentsJson">The tool's arguments, as a JSON object.</param>
+    /// <returns>Whether the call was an error, and the text of its single content block.</returns>
     private static async Task<(bool IsError, string Text)> CallAsync(Fixture fixture, string tool, string argumentsJson)
     {
         fixture.AssertSandboxed();
@@ -89,8 +95,10 @@ public sealed class MutationDispatchTests(MutationDispatchTests.Fixture fixture)
 
     // ---- create ----
 
-    /// <summary>The mutation result is the structured tier, serialized under the shared naming
-    /// policy - so what a caller reads back is <c>content_hash</c>, not a camelCase spelling.</summary>
+    /// <summary>
+    /// Verifies that a mutation returns the structured result serialized under the shared naming
+    /// policy, so a caller reads back <c>content_hash</c> rather than a camelCase spelling.
+    /// </summary>
     [Fact]
     public async Task Create_WritesANoteAndAnswersTheStructuredResult()
     {
@@ -101,15 +109,18 @@ public sealed class MutationDispatchTests(MutationDispatchTests.Fixture fixture)
         using var doc = JsonDocument.Parse(text);
         Assert.Equal("Inbox/Note-Fresh.md", doc.RootElement.GetProperty("path").GetString());
         Assert.Equal(64, doc.RootElement.GetProperty("content_hash").GetString()!.Length);
-        // A unique basename ran no pass, so the member is absent rather than empty.
+        // The basename is unique, so the link-pinning pass never ran and the member is absent
+        // rather than present and empty.
         Assert.False(doc.RootElement.TryGetProperty("pinned_links", out _));
         Assert.Empty(doc.RootElement.GetProperty("asserted_authority").EnumerateArray());
 
         Assert.Equal("# Fresh\n", await File.ReadAllTextAsync(fixture.In("Inbox/Note-Fresh.md")));
     }
 
-    /// <summary>The perimeter is narrower than the operation's footprint: a caller asks folder
-    /// creation for the placeholder and cannot name one.</summary>
+    /// <summary>
+    /// Verifies that creating a folder with <c>git_keep</c> seeds a <c>.gitkeep</c> placeholder. A
+    /// caller can ask for the placeholder but cannot choose its name.
+    /// </summary>
     [Fact]
     public async Task Create_SeedsTheGitKeepAFolderAsksFor()
     {
@@ -119,7 +130,7 @@ public sealed class MutationDispatchTests(MutationDispatchTests.Fixture fixture)
         Assert.True(File.Exists(fixture.In("Areas/.gitkeep")));
 
         using var doc = JsonDocument.Parse(text);
-        // A folder brings no note into existence, so neither member is populated.
+        // Creating a folder creates no note, so neither note-specific member is present.
         Assert.False(doc.RootElement.TryGetProperty("content_hash", out _));
         Assert.False(doc.RootElement.TryGetProperty("pinned_links", out _));
     }
@@ -148,8 +159,10 @@ public sealed class MutationDispatchTests(MutationDispatchTests.Fixture fixture)
 
     // ---- move ----
 
-    /// <summary>The gate is real across the transport: the routine call reports and moves
-    /// nothing.</summary>
+    /// <summary>
+    /// Verifies that a move without <c>apply</c> only reports what it would do and leaves the vault
+    /// unchanged, so the preview gate holds across the transport.
+    /// </summary>
     [Fact]
     public async Task Move_PreviewsByDefault()
     {
@@ -159,7 +172,8 @@ public sealed class MutationDispatchTests(MutationDispatchTests.Fixture fixture)
         Assert.False(isError, text);
         using var doc = JsonDocument.Parse(text);
         Assert.False(doc.RootElement.GetProperty("applied").GetBoolean());
-        // A path-valued member names a post-mutation path on a plan exactly as on a result.
+        // On a preview, a path-valued member reports the path the note would end up at, the same as
+        // it does on an applied result.
         Assert.Equal("Inbox/Gizmo-Reference.md", doc.RootElement.GetProperty("path").GetString());
 
         Assert.True(File.Exists(fixture.In("Resources/Gizmo-Reference.md")));
@@ -197,17 +211,19 @@ public sealed class MutationDispatchTests(MutationDispatchTests.Fixture fixture)
     // ---- The editor's resolution rule, end to end ----
 
     /// <summary>
-    /// The one behaviour in the set that is matched rather than designed: which note a bare wikilink
-    /// opens in Obsidian when several share a basename. The comparator is
-    /// asserted directly in <c>WikilinkRankingTests</c> and the passes over it in
-    /// <c>VaultShared.Tests/Links</c>; what only this level shows is that a real call through the
-    /// transport rewrites exactly the links the rule names and leaves the rest of the vault alone.
-    ///
-    /// <c>Ma/Ref.md</c> and <c>Mb/Ref.md</c> carry the same bare link and resolve to different notes,
-    /// because resolution is relative to the linking file rather than vault-global. Moving
-    /// <c>Ma/Dupe.md</c> therefore repairs one and must not touch the other - and the repaired link is
-    /// emitted qualified, since <c>Mb/Dupe.md</c> leaves the basename duplicated.
+    /// Verifies that a real call through the transport rewrites exactly the bare wikilinks that
+    /// resolved to the moved note and leaves the rest of the vault alone.
     /// </summary>
+    /// <remarks>
+    /// Which note a bare wikilink opens when several notes share a basename is Obsidian's behaviour,
+    /// matched rather than designed here. The comparator is asserted in <c>WikilinkRankingTests</c>
+    /// and the passes over it in <c>VaultShared.Tests/Links</c>.
+    ///
+    /// <c>Ma/Ref.md</c> and <c>Mb/Ref.md</c> carry the same bare link but resolve to different
+    /// notes, because resolution is relative to the linking file rather than vault-global. Moving
+    /// <c>Ma/Dupe.md</c> therefore repairs one and must leave the other alone, and the repaired link
+    /// is written qualified because <c>Mb/Dupe.md</c> still duplicates the basename.
+    /// </remarks>
     [Fact]
     public async Task Move_RepairsOnlyTheBareLinkThatResolvedToTheMovedNoteAndEmitsItQualified()
     {
@@ -223,15 +239,14 @@ public sealed class MutationDispatchTests(MutationDispatchTests.Fixture fixture)
         Assert.Equal("Mc/Dupe", rewrite.GetProperty("to").GetString());
 
         Assert.Equal("See [[Mc/Dupe]].\n", await File.ReadAllTextAsync(fixture.In("Ma/Ref.md")));
-        // Its answer never changed, so nothing about it is rewritten.
+        // This link still resolves to the same note as before, so it is left untouched.
         Assert.Equal("See [[Dupe]].\n", await File.ReadAllTextAsync(fixture.In("Mb/Ref.md")));
     }
 
     /// <summary>
-    /// The protective half of the same rule. Creating a note whose basename is already in use changes
-    /// what some bare links open, and those are pinned to the note they open now - the ranking is what
-    /// decides which ones. <c>Cb/Ref.md</c> would be re-aimed onto the new note and is pinned;
-    /// <c>Ca/Ref.md</c> already opens the nearer copy and is left as it is.
+    /// Verifies that creating a note whose basename is already in use pins only the bare links the
+    /// new note would re-aim. <c>Cb/Ref.md</c> would start opening the new note, so it is pinned to
+    /// the note it opens now; <c>Ca/Ref.md</c> already opens the nearer copy and is left alone.
     /// </summary>
     [Fact]
     public async Task Create_PinsOnlyTheBystanderLinksTheNewNoteWouldReAim()
@@ -241,22 +256,24 @@ public sealed class MutationDispatchTests(MutationDispatchTests.Fixture fixture)
 
         Assert.False(isError, text);
         using var doc = JsonDocument.Parse(text);
-        // The member is present because the basename was taken and the pass ran, which is a different
-        // answer from the absent member a unique name leaves.
+        // The basename was already taken, so the pinning pass ran and the member is present. A
+        // unique name leaves it absent instead.
         var pin = Assert.Single(doc.RootElement.GetProperty("pinned_links").EnumerateArray());
         Assert.Equal("Cb/Ref.md", pin.GetProperty("path").GetString());
         Assert.Equal("Gizmo", pin.GetProperty("from").GetString());
         Assert.Equal("Ca/Gizmo", pin.GetProperty("to").GetString());
 
-        // Pinning freezes and never redirects: no link is aimed at the note just created.
+        // Pinning only freezes an existing target; it never aims a link at the new note.
         Assert.Equal("See [[Ca/Gizmo]].\n", await File.ReadAllTextAsync(fixture.In("Cb/Ref.md")));
         Assert.Equal("See [[Gizmo]].\n", await File.ReadAllTextAsync(fixture.In("Ca/Ref.md")));
     }
 
     // ---- delete ----
 
-    /// <summary>The routine call reports the full set the removal would destroy and every surviving
-    /// wikilink into it, and removes nothing.</summary>
+    /// <summary>
+    /// Verifies that a delete without <c>apply</c> reports everything the removal would destroy
+    /// along with the wikilinks pointing into it, and removes nothing.
+    /// </summary>
     [Fact]
     public async Task Delete_PreviewsByDefaultAndReportsTheBlastRadius()
     {
@@ -268,7 +285,7 @@ public sealed class MutationDispatchTests(MutationDispatchTests.Fixture fixture)
         Assert.Contains(
             "Projects/Widget/Inbox/Plan-Widget-Assembly.md",
             doc.RootElement.GetProperty("removed").EnumerateArray().Select(v => v.GetString()));
-        // A census that ran is a list, never an absence.
+        // The backlink scan ran, so the member is present even when it lists nothing.
         Assert.True(doc.RootElement.TryGetProperty("backlinks", out _));
 
         Assert.True(File.Exists(fixture.In("Projects/Widget/Widget.md")));
@@ -297,8 +314,10 @@ public sealed class MutationDispatchTests(MutationDispatchTests.Fixture fixture)
         Assert.False(File.Exists(fixture.In("Inbox/Note-Doomed.md")));
     }
 
-    /// <summary>Kind is required, and omitting it refuses naming the argument rather than the first
-    /// member silently standing in.</summary>
+    /// <summary>
+    /// Verifies that <c>kind</c> is required and that omitting it is refused with the argument
+    /// named, rather than being inferred.
+    /// </summary>
     [Fact]
     public async Task Delete_WithoutAKindRefusesNamingIt()
     {
@@ -358,20 +377,23 @@ public sealed class MutationDispatchTests(MutationDispatchTests.Fixture fixture)
         }
 
         /// <summary>
-        /// The committed fixture carries no two notes sharing a basename, so the editor's resolution
-        /// rule has nothing to bind on there and the cases that need one seed their own. Two
-        /// independent sets, keyed on different basenames so neither move nor creation can change
-        /// what the other's links resolve to:
+        /// Writes the notes the link-resolution tests need: no two notes in the committed vault
+        /// share a basename, so those tests seed their own.
+        /// </summary>
+        /// <remarks>
+        /// Two independent sets, on different basenames so neither the move nor the create can
+        /// change what the other's links resolve to:
         ///
         /// <list type="bullet">
-        /// <item><c>Dupe</c> - two copies and a bare link beside each, for the relocation.</item>
-        /// <item><c>Gizmo</c> - one copy and a bare link in each of two folders, for the creation
-        /// that duplicates it.</item>
+        /// <item><c>Dupe</c> - two copies with a bare link beside each, for the move.</item>
+        /// <item><c>Gizmo</c> - one copy plus a bare link in each of two folders, for the create
+        /// that duplicates the basename.</item>
         /// </list>
         ///
-        /// Written here rather than added to <c>test-vault/</c> because a duplicate basename in the
-        /// committed fixture would change what every other suite's bare links resolve to.
-        /// </summary>
+        /// These are written here rather than added to <c>test-vault/</c> because a duplicate
+        /// basename in the committed vault would change what every other suite's bare links
+        /// resolve to.
+        /// </remarks>
         private void SeedDuplicateBasenames()
         {
             Seed("Ma/Dupe.md", "# One\n");

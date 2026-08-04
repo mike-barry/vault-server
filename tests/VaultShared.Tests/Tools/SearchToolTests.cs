@@ -5,11 +5,12 @@ using VaultShared.Tools;
 namespace VaultShared.Tests.Tools;
 
 /// <summary>
-/// <c>glob</c> and <c>grep</c> over a real tree and a real engine: the rendering of each tier, the
-/// empty result that is never a failure, and the codes the layer's four outcomes reach a caller as.
+/// Tests the <c>glob</c> and <c>grep</c> tools against a real directory tree and the real search
+/// engine: how each granularity is rendered, that no match is an empty result rather than a failure,
+/// and which code each search outcome reaches a caller as.
 ///
-/// Both tools name no path, so nothing here is gated loudly - what a caller may not read is filtered
-/// out by construction, which is the counterpart of <c>read</c>'s named operand.
+/// Neither tool takes a path from the caller, so a note the grant cannot read is filtered out of the
+/// results silently rather than refused.
 /// </summary>
 public sealed class SearchToolTests : IDisposable
 {
@@ -57,17 +58,17 @@ public sealed class SearchToolTests : IDisposable
             Lines(Glob(_vault, new { pattern = "Projects/**" })));
     }
 
-    /// <summary>Note enumeration, not the census: the markdown domain is the tool's semantic choice,
-    /// and an attachment is nothing any tool here operates on.</summary>
+    /// <summary>Enumeration covers markdown notes only. No tool here operates on an attachment, so
+    /// one is never listed.</summary>
     [Fact]
     public void Glob_AnswersTheMarkdownDomainOnly()
     {
         Assert.DoesNotContain("Attachments/Data.txt", Lines(Glob(_vault, new { pattern = "**" })));
     }
 
-    /// <summary>The restriction filters the engine's results and is never appended to the caller's
-    /// pattern: <c>Projects/**</c> with <c>.md</c> appended degrades to a single <c>*</c> and drops
-    /// every nested note, which is exactly what this asserts did not happen.</summary>
+    /// <summary>The markdown restriction is applied to the engine's results and must never be
+    /// appended to the caller's pattern. Appending <c>.md</c> to <c>Projects/**</c> turns the
+    /// recursive wildcard into a single <c>*</c> and drops every nested note.</summary>
     [Fact]
     public void Glob_ARecursivePatternStillReachesNestedNotes()
     {
@@ -80,15 +81,16 @@ public sealed class SearchToolTests : IDisposable
         Assert.DoesNotContain(".obsidian/Deep.md", Lines(Glob(_vault, new { pattern = "**" })));
     }
 
-    /// <summary>Any count is a result: an existence check must not require a caller to catch.</summary>
+    /// <summary>No match is an empty result rather than a refusal, so a caller checking whether
+    /// anything exists does not have to catch.</summary>
     [Fact]
     public void Glob_NoMatchIsEmptyTextRatherThanAFailure()
     {
         Assert.Equal("", Glob(_vault, new { pattern = "No-Such-Name.md" }));
     }
 
-    /// <summary>Filtering is silent. A note the grant cannot read is simply absent, with nothing
-    /// said about it - the opposite of what a named operand gets.</summary>
+    /// <summary>A note the grant cannot read is left out of the results, and nothing in the result
+    /// says it was withheld.</summary>
     [Fact]
     public void Glob_FiltersWhatTheGrantCannotReadWithoutSayingSo()
     {
@@ -143,8 +145,7 @@ public sealed class SearchToolTests : IDisposable
         Assert.Equal("", Grep(_vault, new { pattern = "haystack", granularity }));
     }
 
-    /// <summary>The path glob narrows which notes are searched, and is filtered rather than
-    /// gated.</summary>
+    /// <summary>The path glob narrows which notes are searched.</summary>
     [Fact]
     public void Grep_ThePathGlobNarrowsWhichNotesAreSearched()
     {
@@ -159,7 +160,7 @@ public sealed class SearchToolTests : IDisposable
         Assert.DoesNotContain("Attachments/Data.txt", Lines(Grep(_vault, new { pattern = "needle", granularity = "files" })));
     }
 
-    // ---- The four outcomes, over the real engine ----
+    // ---- Search outcomes, over the real engine ----
 
     [Fact]
     public void Glob_AMalformedPatternIsACallerError()
@@ -181,12 +182,12 @@ public sealed class SearchToolTests : IDisposable
     }
 
     /// <summary>
-    /// A file the search had to read and could not fails the whole search, and does so as a search
-    /// failure rather than as a read failure: <c>read_failed</c> names a path, and the file the
-    /// engine met is one this surface would otherwise have filtered out silently.
+    /// A file the search could not read fails the whole search, and is reported as a search failure
+    /// rather than a read failure. A read failure names the path it is about, and the file the
+    /// engine met may be one these tools would otherwise have filtered out silently.
     ///
-    /// <c>grep</c> only, because it is the only one of the two that reads content - enumeration
-    /// walks names, and an unreadable note still has a name.
+    /// Only <c>grep</c> can hit this, because it is the only one of the two that reads file content.
+    /// Enumeration walks names, and an unreadable note still has a name.
     /// </summary>
     [Theory]
     [InlineData("lines")]
@@ -201,8 +202,8 @@ public sealed class SearchToolTests : IDisposable
         Assert.Equal(ToolCodes.SearchFailed, refusal.Code);
         var detail = VaultToolHarness.Data(refusal)!["detail"];
         Assert.NotEmpty(detail);
-        // The engine met the file before scope filtering, so the diagnostic is scrubbed of its
-        // path: a surface that filters silently must not name what it withheld through a failure.
+        // The engine sees the file before scope filtering, so its path is scrubbed from the
+        // diagnostic. A tool that filters silently must not name a withheld file in a failure.
         Assert.DoesNotContain("Projects/Widget/Widget.md", detail, StringComparison.OrdinalIgnoreCase);
     }
 
@@ -225,13 +226,13 @@ public sealed class SearchToolTests : IDisposable
         Assert.NotEmpty(VaultToolHarness.Data(refusal)!["detail"]);
     }
 
-    // ---- The mapping itself ----
+    // ---- Mapping search outcomes to refusal codes ----
 
     /// <summary>
-    /// One site names the layer's outcomes, so no tool re-decides which of them is a caller error.
-    /// Asserted against constructed outcomes as well as the live ones above, because the split has to
-    /// hold for every granularity's result type and there is no engine state that produces all four
-    /// on demand.
+    /// One place maps search outcomes to codes, so no tool decides for itself which outcome is a
+    /// caller error. These cases use constructed outcomes as well as the live ones above, because
+    /// the mapping has to hold for every granularity's result type and no engine state produces
+    /// every outcome on demand.
     /// </summary>
     [Fact]
     public void TheOutcomeMappingNamesACallerErrorAndAnOperationalFailureApart()
@@ -241,8 +242,8 @@ public sealed class SearchToolTests : IDisposable
         Assert.Equal(ToolCodes.SearchFailed, ToolRefusalEnvelope.Translate(new SearchOutcome<VaultPath>.Failed("engine gone")).Code);
     }
 
-    /// <summary>A caller's own malformed pattern carries no <c>detail</c> payload of engine text to
-    /// lift: the pattern it names is already the caller's.</summary>
+    /// <summary>Only the operational failures carry engine text in <c>detail</c>. A malformed
+    /// pattern is the caller's own, so there is nothing to report back about it.</summary>
     [Fact]
     public void OnlyTheOperationalFailuresCarryEngineDetail()
     {

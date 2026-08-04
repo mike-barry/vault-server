@@ -3,9 +3,9 @@ using VaultShared.Frontmatter;
 namespace VaultShared.Tests;
 
 /// <summary>
-/// The whole-block extent over the same checkers the write path applies per key. A note this passes
-/// cannot be one an operation refuses over the same key, which is a property of there being one
-/// implementation of each check rather than of anybody keeping two in step.
+/// Verifies <see cref="FrontmatterValidator"/>, which applies the write path's checks to a whole
+/// block instead of to one key. Both paths call the same check implementations, so a note the
+/// validator passes is not one an operation refuses over the same key.
 /// </summary>
 public sealed class FrontmatterValidatorTests
 {
@@ -29,8 +29,8 @@ public sealed class FrontmatterValidatorTests
     [Fact]
     public void ItNeverReturnsAVerdict()
     {
-        // The return shape is set by the widest consumer: a sweeping tool builds findings and remedy
-        // payloads out of these, and a boolean would strand it.
+        // Callers build findings and remedy payloads from the violations, so validation returns the
+        // full list rather than a pass/fail verdict.
         var violation = Single("doc.created: yesterday");
 
         Assert.Equal(ViolationRule.ValueConstraintFailed, violation.Rule);
@@ -53,8 +53,8 @@ public sealed class FrontmatterValidatorTests
     [Fact]
     public void AnUnparsableBlockIsReportedRatherThanPassedOver()
     {
-        // Tolerance means one malformed note does not fail a whole-vault pass, not that the note is
-        // called valid - the write path refuses it, and the two extents must agree.
+        // A malformed note does not fail a whole-vault pass, but it is still reported, because the
+        // write path refuses it and the two must agree.
         var violation = Assert.Single(
             FrontmatterValidator.Validate("---\na: b\n  c: d\n\t- x\n---\nBody.\n", Synthetic.Registry));
 
@@ -70,7 +70,7 @@ public sealed class FrontmatterValidatorTests
         Assert.Equal(ViolationRule.UnparsableBlock, violation.Rule);
     }
 
-    // ---- What is compiled in ----
+    // ---- Shape rules ----
 
     [Fact]
     public void ADeclaredKeyCarryingNoValue()
@@ -96,7 +96,7 @@ public sealed class FrontmatterValidatorTests
         Assert.Equal(ViolationRule.BlockWhereScalarDeclared, Single("doc.title:\n  - a\n  - b").Rule);
     }
 
-    // ---- The declaration, applied ----
+    // ---- Entry schema rules ----
 
     [Fact]
     public void AnEntryMatchingNoVariant()

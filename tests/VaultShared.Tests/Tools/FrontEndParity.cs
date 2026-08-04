@@ -5,32 +5,32 @@ using VaultShared.Tools;
 namespace VaultShared.Tests.Tools;
 
 /// <summary>
-/// The parity contract between the two front-ends: for a given refusal, the exact bytes each must
-/// put on its own transport, and for a given call, the neutral result each must render.
+/// Holds the shared expectations both front-ends are checked against: for a given refusal, the
+/// exact bytes each must write to its own transport, and for a given call, the result each must
+/// render.
 ///
-/// <b>It lives here because it is a claim about both front-ends and belongs to neither's suite.</b>
-/// Each front-end's own tests assert its emission against these values - the MCP server that the
-/// text of an <c>isError</c> result is one of them, the CLI that standard error is - so
-/// "one declaration projects into both with the same semantics" is checked at both ends against one
-/// statement of it rather than at each end against its own.
+/// This is a claim about both front-ends, so it lives here rather than in either one's test suite.
+/// The MCP server's tests compare the text of an <c>isError</c> result against these values and the
+/// CLI's tests compare standard error against them, which is what makes the two comparable.
 ///
-/// A refusal is raised in one of three vocabularies, and every one of them reaches both transports
-/// through <see cref="ToolRefusalEnvelope"/>. That is what these cases pin: not merely that both
-/// front-ends produce valid JSON, but that they produce the same JSON, byte for byte, down to field
-/// order, to the escaping, and to <c>data</c> being absent rather than empty.
+/// Refusals are raised by three different layers, each with its own exception type, and all of them
+/// reach both transports through <see cref="ToolRefusalEnvelope"/>. The expected strings are
+/// compared byte for byte, including field order, escaping, and <c>data</c> being omitted rather
+/// than emitted as an empty object.
 /// </summary>
 public static class FrontEndParity
 {
-    /// <summary>One refusal and the envelope both front-ends owe for it.</summary>
-    /// <param name="Name">What the case is, for a failure message.</param>
-    /// <param name="Raised">The refusal as the layer raises it, in its own vocabulary.</param>
-    /// <param name="Envelope">The bytes both front-ends must emit.</param>
+    /// <summary>Represents one refusal and the envelope both front-ends must emit for it.</summary>
+    /// <param name="Name">A description of the case, used in failure messages.</param>
+    /// <param name="Raised">The exception as the layer that detects the problem throws it.</param>
+    /// <param name="Envelope">The exact JSON both front-ends must emit for that exception.</param>
     public sealed record RefusalCase(string Name, Exception Raised, string Envelope);
 
     /// <summary>
-    /// One case per refusal vocabulary that can reach a front-end: a tool's own coded refusal, the
-    /// frontmatter surface's, and the mid-operation key assertion's. A fourth vocabulary added to
-    /// one front-end's catch and not the other is exactly what this set exists to make visible.
+    /// Gets one case for each exception type that can reach a front-end: a tool's own coded
+    /// refusal, a frontmatter refusal, and a mid-operation authority refusal. Add a case here when
+    /// a new exception type becomes reachable, so that catching it in only one front-end is
+    /// caught by these tests.
     /// </summary>
     public static IReadOnlyList<RefusalCase> Refusals { get; } =
     [
@@ -58,19 +58,21 @@ public static class FrontEndParity
             "{\"code\":\"authority_required\",\"message\":\"This operation requires the \\u0022agentic:write\\u0022 op class.\"}"),
     ];
 
-    /// <summary>The content tier: text that is the answer itself, carried unchanged by both
-    /// front-ends.</summary>
+    /// <summary>Gets a text result, which both front-ends must carry through unchanged.</summary>
     public static ToolResult Content { get; } = new ToolResult.Content("Projects/Widget/Widget.md\nProjects/Widget/Tasks.md");
 
-    /// <summary>The structured tier, with multi-word members so the shared naming policy is actually
-    /// exercised rather than being invisible on single-word ones.</summary>
+    /// <summary>Gets a structured result. Its members are deliberately multi-word so that the
+    /// shared property naming policy shows up in the serialized output.</summary>
     public static ToolResult Structured { get; } = new ToolResult.Data(new StructuredAnswer("Projects/Widget/Widget.md", true, ["nav.contents"]));
 
-    /// <summary>What <see cref="Structured"/> serializes to under the shared options - one naming
-    /// policy for results and arguments alike, on both transports.</summary>
+    /// <summary>The JSON <see cref="Structured"/> serializes to under the shared options. The same
+    /// naming policy applies to results and arguments on both transports.</summary>
     public const string StructuredJson =
         "{\"path\":\"Projects/Widget/Widget.md\",\"frontmatter_changed\":true,\"changed_keys\":[\"nav.contents\"]}";
 
-    /// <summary>A stand-in for a mutation result.</summary>
+    /// <summary>Represents a stand-in for a mutation result, used to exercise serialization.</summary>
+    /// <param name="Path">The vault-relative path the result is about.</param>
+    /// <param name="FrontmatterChanged">Whether the frontmatter changed.</param>
+    /// <param name="ChangedKeys">The frontmatter keys that changed.</param>
     public sealed record StructuredAnswer(string Path, bool FrontmatterChanged, IReadOnlyList<string> ChangedKeys);
 }

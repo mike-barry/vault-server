@@ -4,12 +4,13 @@ using VaultShared.Scope;
 namespace VaultShared.Tests;
 
 /// <summary>
-/// The one pass scope does not bound. What is asserted is the pair of properties the seam exists
-/// for: the pass really does reach notes the grant can neither read nor write, and it is reachable
-/// only by a call that says so.
-///
-/// The grant here is scoped to one folder, and everything interesting is outside it.
+/// Tests <see cref="VaultWidePass"/>, the one surface a grant's scope does not bound.
 /// </summary>
+/// <remarks>
+/// Two properties are under test: the pass really does reach notes the grant can neither read nor
+/// write, and it can be obtained only by calling <c>BypassingScope</c>. The grant here is scoped
+/// to one folder and everything the tests use is outside it.
+/// </remarks>
 public sealed class VaultWidePassTests : IDisposable
 {
     private readonly ScratchVault _vault = new(VaultScope.Of(["Projects"]));
@@ -34,8 +35,8 @@ public sealed class VaultWidePassTests : IDisposable
     [Fact]
     public void TheScopedSurfacesWithholdWhatThePassReaches()
     {
-        // Without this the cases below would prove nothing: they need a note the grant genuinely
-        // cannot reach.
+        // The tests below need a note the grant genuinely cannot reach. Without this one they
+        // would prove nothing.
         Assert.Equal(["Projects/Widget.md"], Values(_vault.Access.EnumerateNotes()));
         Assert.IsType<PathResolution<ReadPath>.OutOfScope>(_vault.Access.ForRead("Notes/Alpha.md"));
         Assert.IsType<PathResolution<WritePath>.OutOfScope>(_vault.Access.ForWrite("Notes/Alpha.md"));
@@ -60,8 +61,8 @@ public sealed class VaultWidePassTests : IDisposable
     [Fact]
     public void EnumerateNotes_LeavesOutDotEntries()
     {
-        // The one narrowing the pass keeps: no path under a dot-directory is reachable by the tool
-        // set at all, which is not something a scope imposed.
+        // The pass drops its scope check but keeps the dot rule, because no path under a dot
+        // directory is reachable by the tool set at all.
         Assert.DoesNotContain(".obsidian/Copy.md", Values(_vault.Access.BypassingScope().EnumerateNotes()));
     }
 
@@ -93,8 +94,8 @@ public sealed class VaultWidePassTests : IDisposable
     [Fact]
     public void Replace_BringsNoNoteIntoExistence()
     {
-        // There is no creating form on the pass: a note is brought into existence by an operation
-        // whose own target is scope-checked normally.
+        // The pass has no creating write. A note is only brought into existence by an operation
+        // whose target goes through the normal scope check.
         Assert.IsType<WriteOutcome.NotFound>(
             _vault.Access.BypassingScope().Replace(At("Notes/Missing.md"), "# New\n"));
 
@@ -110,13 +111,13 @@ public sealed class VaultWidePassTests : IDisposable
         Assert.Throws<ArgumentException>(() => _vault.Access.BypassingScope().Read(foreign));
     }
 
-    // ---- The seam ----
+    // ---- How the pass is obtained ----
 
     [Fact]
     public void ThePassIsObtainedOnlyByTheCallThatNamesIt()
     {
-        // Bypassing scope has to be a deliberate act with one grep behind it, which holds only
-        // while nothing else can construct the object.
+        // With no public constructor, every place that bypasses scope is found by searching for
+        // BypassingScope.
         Assert.Empty(typeof(VaultWidePass).GetConstructors());
     }
 }

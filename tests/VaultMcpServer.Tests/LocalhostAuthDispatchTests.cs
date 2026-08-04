@@ -8,18 +8,20 @@ using VaultShared.Tests;
 namespace VaultMcpServer.Tests;
 
 /// <summary>
-/// End-to-end HTTP coverage for the localhost auth model wired through the real host: the
-/// well-known selector token resolving to the configured default named grant, and blank/unknown
-/// tokens degrading to the minimum-access floor (health_check still works; vault content is
-/// denied). Boots Program with a token-less named <c>admin</c> grant and
-/// <c>LocalhostAuth__SelectorToken</c>/<c>DefaultGrantId</c> config, so the whole
-/// config -> LocalhostAuthOptions -> GrantStore.ResolveLocalhostGrant -> BearerGrantMiddleware
-/// path is exercised. Own host per class (a fresh GrantStore).
+/// Covers the localhost auth model over HTTP through the real host: the well-known selector token
+/// resolving to the configured default named grant, and blank or unknown tokens falling back to the
+/// minimum-access floor, where health_check still works but vault content is denied.
 /// </summary>
+/// <remarks>
+/// The fixture boots Program with a token-less named <c>admin</c> grant and
+/// <c>LocalhostAuth__SelectorToken</c> and <c>LocalhostAuth__DefaultGrantId</c> set, so the whole
+/// path from configuration through LocalhostAuthOptions and GrantStore.ResolveLocalhostGrant to
+/// BearerGrantMiddleware runs. The class owns its host, and so its own GrantStore.
+/// </remarks>
 [Collection("Program host tests")]
 public sealed class LocalhostAuthDispatchTests : IClassFixture<LocalhostAuthDispatchTests.Fixture>
 {
-    /// <summary>A documentation-range address, so nothing here ever names a real host.</summary>
+    /// <summary>A documentation-range address, so no test here names a real host.</summary>
     private const string NonLoopback = "203.0.113.5";
 
     private readonly Fixture _fixture;
@@ -28,11 +30,14 @@ public sealed class LocalhostAuthDispatchTests : IClassFixture<LocalhostAuthDisp
 
     private static StringContent JsonBody(string json) => new(json, Encoding.UTF8, "application/json");
 
-    /// <param name="remoteIp">
-    /// The address the request is presented from. Absent means loopback, which is what the real
-    /// server sees and what every case above runs under; a value drives the non-loopback branch
-    /// through the whole host pipeline (see <see cref="ProgramHostFixtureBase.RemoteIpHeader"/>).
-    /// </param>
+    /// <summary>Creates a client for the MCP endpoint with the given bearer token and remote
+    /// address.</summary>
+    /// <param name="fixture">The host fixture to create the client from.</param>
+    /// <param name="token">The bearer token to send, or null to send no Authorization header.</param>
+    /// <param name="remoteIp">The address the request is presented from. Null means loopback, which
+    /// is what the real server sees; a value drives the non-loopback branch through the whole host
+    /// pipeline. See <see cref="ProgramHostFixtureBase.RemoteIpHeader"/>.</param>
+    /// <returns>A client carrying those headers plus the Accept types the MCP endpoint requires.</returns>
     private static HttpClient AuthedClient(Fixture fixture, string? token, string? remoteIp = null)
     {
         var client = fixture.CreateClient();
@@ -109,17 +114,20 @@ public sealed class LocalhostAuthDispatchTests : IClassFixture<LocalhostAuthDisp
 
     // ---- Off loopback ----
 
-    /// <summary>
-    /// The loopback gate through the real host, rather than over a hand-built context. The selector
-    /// binding and the minimum-access floor are what make a localhost-only server safe to run with no
-    /// credential; both are properties of the remote address, so a request presented from anywhere
-    /// else must present a token <c>GrantStore.Authenticate</c> accepts.
-    ///
-    /// <c>LoopbackAuthMiddlewareTests</c> asserts the same gate on the middleware alone, which is
-    /// where the address can be varied per case; what only this level shows is that the address the
-    /// host hands the middleware is the connection's, so nothing in the pipeline above it turns a
-    /// remote request into a loopback one.
-    /// </summary>
+    /// <summary>Calls <c>health_check</c> from a given remote address and returns the raw
+    /// response.</summary>
+    /// <param name="fixture">The host fixture to call.</param>
+    /// <param name="token">The bearer token to send, or null to send none.</param>
+    /// <param name="remoteIp">The address the request is presented from.</param>
+    /// <returns>The response status and body text.</returns>
+    /// <remarks>
+    /// The selector binding and the minimum-access floor both apply only to a loopback remote
+    /// address, so a request presented from anywhere else must carry a token
+    /// <c>GrantStore.Authenticate</c> accepts. <c>LoopbackAuthMiddlewareTests</c> asserts the same
+    /// gate against the middleware alone; what these tests add is that the address the host hands
+    /// the middleware is the connection's, so nothing earlier in the pipeline turns a remote request
+    /// into a loopback one.
+    /// </remarks>
     private static async Task<(HttpStatusCode Status, string Body)> HealthCheckFromAsync(Fixture fixture, string? token, string remoteIp)
     {
         using var client = AuthedClient(fixture, token, remoteIp);
@@ -157,8 +165,10 @@ public sealed class LocalhostAuthDispatchTests : IClassFixture<LocalhostAuthDisp
         Assert.Equal(HttpStatusCode.Unauthorized, status);
     }
 
-    /// <summary>A real token authenticates from anywhere: the address decides only whether the
-    /// selector and the floor apply.</summary>
+    /// <summary>
+    /// Verifies that a real token authenticates from any address. The remote address decides only
+    /// whether the selector binding and the minimum-access floor apply.
+    /// </summary>
     [Fact]
     public async Task NonLoopback_RealToken_Authenticates()
     {
@@ -184,8 +194,8 @@ public sealed class LocalhostAuthDispatchTests : IClassFixture<LocalhostAuthDisp
     {
         public const string SelectorToken = "test-localhost-selector";
 
-        /// <summary>The ordinary token row beside the named grant - the one thing a request from off
-        /// loopback can present.</summary>
+        /// <summary>The ordinary token row beside the named grant, and the only credential a request
+        /// from off loopback can present successfully.</summary>
         public const string ReadOnlyToken = "a-real-readonly-token";
 
         public Fixture() : base("vault-mcp-localhost-auth-tests-")
@@ -199,8 +209,8 @@ public sealed class LocalhostAuthDispatchTests : IClassFixture<LocalhostAuthDisp
                 vaults = new Dictionary<string, object>{ ["personal"] = new { path = vaultRoot } },
             }));
 
-            // A token-less named "admin" grant (the default-binding target) plus one ordinary
-            // read-only token row, exercising both kinds side by side.
+            // A token-less named "admin" grant, which the selector binds to, plus one ordinary
+            // read-only token row.
             var grantsPath = Path.Combine(TempDir, "grants.json");
             File.WriteAllText(grantsPath, JsonSerializer.Serialize(new Dictionary<string, object>
             {

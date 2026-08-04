@@ -6,14 +6,16 @@ using VaultShared.Scope;
 namespace VaultShared.Tests;
 
 /// <summary>
-/// Unit coverage for the localhost auth model on <see cref="GrantStore"/>: token-less named
-/// grants parsed from grants.json, the localhost selector/minimum-floor resolution
-/// (<see cref="GrantStore.ResolveLocalhostGrant"/>), and the elevation binding table
-/// (rebind-with-TTL and lazy revert inside <see cref="GrantStore.Authenticate"/>). Every test
-/// builds its own store from a temp grants.json (like <c>GrantStoreTests</c>); binding tests use
-/// <see cref="FixedTimeProvider"/> to drive TTL expiry without real wall-clock time. Anything that
-/// mutates a store's binding table gets its own fresh store, never a shared one.
+/// Tests the localhost auth model on <see cref="GrantStore"/>: token-less named grants parsed
+/// from grants.json, localhost token resolution in
+/// <see cref="GrantStore.ResolveLocalhostGrant"/>, and the elevation binding table, including
+/// rebinding with a TTL and reverting on expiry inside <see cref="GrantStore.Authenticate"/>.
 /// </summary>
+/// <remarks>
+/// Every test builds its own store from a temp grants.json, so a test that mutates the binding
+/// table never shares a store with another. Binding tests use <see cref="FixedTimeProvider"/> to
+/// drive TTL expiry without waiting on the wall clock.
+/// </remarks>
 public sealed class GrantStoreBindingTests(TestVaultFixture fixture) : IClassFixture<TestVaultFixture>, IDisposable
 {
     private static readonly OpClassRegistry OpClasses = OpClassRegistryLoader.Load(Path.Combine(TestVaultFixture.RepoRoot, "op-classes.json"), new RecordingProblemSink());
@@ -165,7 +167,7 @@ public sealed class GrantStoreBindingTests(TestVaultFixture fixture) : IClassFix
 
         timeProvider.Now = timeProvider.Now.AddMinutes(10);
 
-        // Pointer revert: the base "caller" grant is resolved again, and the elevated authority is gone.
+        // The binding is gone, so the token resolves to its base "caller" grant again.
         var reverted = store.Authenticate("caller-token");
         Assert.NotNull(reverted);
         Assert.Equal("caller", reverted.Id);

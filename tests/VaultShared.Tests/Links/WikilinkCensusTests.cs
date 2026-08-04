@@ -4,10 +4,10 @@ using VaultShared.Links;
 namespace VaultShared.Tests.Links;
 
 /// <summary>
-/// The census on removal: every surviving link into the set a removal destroys, reported one
-/// occurrence at a time and never rewritten. The asymmetry with creation is the editor's own -
-/// deleting one of two same-named notes leaves bare links resolving to the survivor, and what the
-/// caller wants done about them is not knowable here.
+/// Verifies the census a removal runs: every surviving link into the set being removed is reported
+/// one occurrence at a time and nothing is rewritten. A removal cannot repair links the way a move
+/// can, because deleting one of two same-named notes leaves bare links resolving to the survivor
+/// and the right fix is the caller's to choose.
 /// </summary>
 public sealed class WikilinkCensusTests : IDisposable
 {
@@ -34,9 +34,9 @@ public sealed class WikilinkCensusTests : IDisposable
     [Fact]
     public void ABareLinkIsReportedOnlyWhereItResolvedToSomethingRemoved()
     {
-        // A same-named bystander elsewhere is that link's real target, and the editor's ranking is
-        // what says which is which: `Aa/Bb/Dupe.md` and `Dupe.md` are a dead tie from `Aa/Note.md`,
-        // and the subtree copy takes it.
+        // A bare link resolves by the editor's ranking, so a same-named note elsewhere can be the
+        // real target: from `Aa/Note.md`, `Aa/Bb/Dupe.md` and `Dupe.md` tie and the copy in the
+        // subtree wins.
         _vault
             .WithNote("Dupe.md", "# Doomed\n")
             .WithNote("Aa/Bb/Dupe.md", "# The survivor\n")
@@ -76,8 +76,8 @@ public sealed class WikilinkCensusTests : IDisposable
     [Fact]
     public void ANonMarkdownFileInTheRemovedSetIsMatchedByAQualifiedLink()
     {
-        // The removal's own plan asks the file census, which sees what note enumeration does not.
-        // A link naming one of those is still a link into the set.
+        // The census runs over files rather than only over notes, so a link naming a non-markdown
+        // file in the removed set is still reported.
         _vault
             .WithNote("Assets/Diagram.png", "not really an image\n")
             .WithNote("Notes/Ref.md", "Embed ![[Assets/Diagram.png]].\n");
@@ -98,7 +98,8 @@ public sealed class WikilinkCensusTests : IDisposable
     [Fact]
     public void TheCensusRewritesNothing()
     {
-        // No protection on delete. Every reported link still says exactly what it said.
+        // A removal reports links but never repairs them, so every reported link still reads
+        // exactly as it did.
         _vault
             .WithNote("Projects/Widget.md", "# Doomed\n")
             .WithNote("Other/Widget.md", "# The survivor\n")
@@ -111,8 +112,8 @@ public sealed class WikilinkCensusTests : IDisposable
     [Fact]
     public void ANoteThatIsThereAndWillNotOpenFailsThePass()
     {
-        // What may be skipped is a file with nothing left to read. Skipping one that is present and
-        // unreadable would turn a failed operation into a silent success.
+        // A file that has gone away may be skipped. Skipping one that is present but unreadable
+        // would turn a failed pass into a silent success.
         _vault
             .WithNote("Projects/Widget.md", "# Doomed\n")
             .WithNote("Notes/Ref.md", "See [[Widget]].\n");

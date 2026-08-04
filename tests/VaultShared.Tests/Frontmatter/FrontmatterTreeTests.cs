@@ -3,8 +3,9 @@ using VaultShared.Frontmatter;
 namespace VaultShared.Tests;
 
 /// <summary>
-/// The wrapper over the node layer: what a key holds, which spelling a write uses, and the reads that
-/// tolerate a block the write path would refuse. Nothing here needs a vault or a declaration.
+/// Verifies <see cref="FrontmatterTree"/>: how a block parses, what shape a key holds, which
+/// spelling a write lands on, and the tolerant reads that accept a block the write path would
+/// refuse. No case here needs a vault or a declaration.
 /// </summary>
 public sealed class FrontmatterTreeTests
 {
@@ -72,7 +73,8 @@ public sealed class FrontmatterTreeTests
     [Fact]
     public void AMalformedBlockReadsAsNoBlock()
     {
-        // Reading reports on notes rather than gating them, and runs over every file in the vault.
+        // Reads run over every file in the vault and report on notes rather than gating them, so a
+        // malformed block is empty rather than an error.
         var tree = FrontmatterTree.Read("---\na: b\n  c: d\n\t- x\n---\nBody\n");
 
         Assert.True(tree.IsEmpty);
@@ -190,8 +192,8 @@ public sealed class FrontmatterTreeTests
     [Fact]
     public void ADifferentlyCasedWriteLandsOnTheKeyAlreadyThere()
     {
-        // Without the seam, a differently-cased spelling passes membership and then lands as a
-        // second key beside the first.
+        // Without canonicalization, a differently-cased spelling passes the membership test and
+        // then lands as a second key beside the first.
         var tree = Parsed("Title: Widget\ncount: 3");
         tree.Set("TITLE", "Gizmo");
 

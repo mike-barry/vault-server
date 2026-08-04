@@ -7,21 +7,21 @@ using VaultShared.Tests;
 namespace VaultMcpServer.Tests;
 
 /// <summary>
-/// End-to-end HTTP coverage that <c>edit</c> is advertised and dispatched like every other
-/// declaration, and that a mutation reaches disk through the shared execute path - which holds the
-/// vault's mutex around the whole invocation, because the declaration says the tool mutates.
-///
-/// The tool's own behaviour is asserted in <c>VaultShared.Tests</c>. What is only observable here is
-/// the wiring: the registry carries it, the declaration the committed <c>vaults.json</c> names
-/// actually loads, the result serializes under the shared naming policy, and a refusal arrives as
-/// the shared <c>{code, message, data?}</c> envelope.
-///
-/// <b>This is the suite's first mutating fixture</b>, so it is the first to use the isolation guard
-/// pair: it runs against a temp copy of the committed <c>test-vault/</c>,
-/// <see cref="ProgramHostFixtureBase.AssertMutationSandboxed"/> checks before every mutating call
-/// that both config paths resolve inside the sandbox, and <see cref="TestVaultCleanGuard"/> proves
-/// on dispose that the committed copy was never touched.
+/// Covers over HTTP that <c>edit</c> is advertised and dispatched like every other declaration and
+/// that a mutation reaches disk through the shared execute path, which holds the vault's mutex
+/// around the whole invocation because the declaration marks the tool as mutating.
 /// </summary>
+/// <remarks>
+/// The tool's own behaviour is asserted in <c>VaultShared.Tests</c>. Only the wiring is observable
+/// here: the registry carries the tool, the declaration named by the committed <c>vaults.json</c>
+/// loads, the result serializes under the shared naming policy, and a refusal arrives as the shared
+/// <c>{code, message, data?}</c> envelope.
+///
+/// This fixture mutates, so it uses both isolation guards. It runs against a temp copy of the
+/// committed <c>test-vault/</c>, <see cref="ProgramHostFixtureBase.AssertMutationSandboxed"/> checks
+/// before every mutating call that both config paths resolve inside the sandbox, and
+/// <see cref="TestVaultCleanGuard"/> checks on dispose that the committed copy was never touched.
+/// </remarks>
 [Collection("Program host tests")]
 public sealed class EditDispatchTests(EditDispatchTests.Fixture fixture) : IClassFixture<EditDispatchTests.Fixture>
 {
@@ -67,9 +67,15 @@ public sealed class EditDispatchTests(EditDispatchTests.Fixture fixture) : IClas
             result.GetProperty("content").EnumerateArray().First().GetProperty("text").GetString()!);
     }
 
-    /// <summary>Every mutating call goes through here, so a fixture whose two config paths ever
-    /// stop resolving inside its sandbox fails before the call runs rather than after it has
-    /// written to the committed fixture.</summary>
+    /// <summary>
+    /// Calls <c>edit</c> after checking the sandbox. Every mutating call goes through here, so a
+    /// fixture whose config paths stop resolving inside its sandbox fails before the call runs
+    /// rather than after it has written to the committed vault.
+    /// </summary>
+    /// <param name="fixture">The host fixture to call.</param>
+    /// <param name="token">The bearer token the call runs under.</param>
+    /// <param name="argumentsJson">The tool's arguments, as a JSON object.</param>
+    /// <returns>Whether the call was an error, and the text of its single content block.</returns>
     private static Task<(bool IsError, string Text)> EditAsync(Fixture fixture, string token, string argumentsJson)
     {
         fixture.AssertSandboxed();
@@ -96,14 +102,16 @@ public sealed class EditDispatchTests(EditDispatchTests.Fixture fixture) : IClas
     }
 
     /// <summary>
-    /// The vocabulary seam, end to end: <c>edit</c>'s advertised <c>entry</c> carries one branch per
-    /// variant of the <b>default vault's</b> loaded declaration - the vault an absent <c>vault</c>
-    /// argument targets. This fixture's default vault names the committed declaration, so the
-    /// branches are that file's variants.
-    ///
-    /// The absent case is asserted where it belongs: <c>NativeToolSchemaDispatchTests</c>'s fixture
-    /// configures no declaration at all, and pins that <c>entry</c> arrives unconstrained.
+    /// Verifies that the advertised <c>entry</c> argument carries one schema branch per variant of
+    /// the default vault's loaded declaration - the default vault being the one an absent
+    /// <c>vault</c> argument targets. This fixture's default vault names the committed
+    /// declaration, so the branches are that file's variants.
     /// </summary>
+    /// <remarks>
+    /// The case where no declaration is configured is covered by
+    /// <c>NativeToolSchemaDispatchTests</c>, whose fixture pins that <c>entry</c> then arrives
+    /// unconstrained.
+    /// </remarks>
     [Fact]
     public async Task ToolsList_EditsEntryCarriesTheDefaultVaultsVariantBranches()
     {
@@ -123,10 +131,10 @@ public sealed class EditDispatchTests(EditDispatchTests.Fixture fixture) : IClas
     }
 
     /// <summary>
-    /// The whole listing's wire contract, read off whatever the server advertises rather than a
+    /// Verifies the listing's wire contract against whatever the server advertises rather than a
     /// hand-kept list: every declaration arrives with a name, a description and a schema, and every
-    /// name is <c>snake_case</c> - the one regression that would leave schema and binder agreeing
-    /// with each other while breaking every existing caller.
+    /// name and argument name is <c>snake_case</c>. A casing regression would leave the schema and
+    /// the binder agreeing with each other while breaking every existing caller.
     /// </summary>
     [Fact]
     public async Task ToolsList_EveryAdvertisedToolCarriesNameDescriptionAndSchemaInSnakeCase()
@@ -151,8 +159,10 @@ public sealed class EditDispatchTests(EditDispatchTests.Fixture fixture) : IClas
 
     // ---- Dispatch ----
 
-    /// <summary>The mutation result is the structured tier, serialized under the shared naming
-    /// policy - so what a caller reads back is <c>content_hash</c>, not a camelCase spelling.</summary>
+    /// <summary>
+    /// Verifies that a mutation returns the structured result serialized under the shared naming
+    /// policy, so a caller reads back <c>content_hash</c> rather than a camelCase spelling.
+    /// </summary>
     [Fact]
     public async Task Edit_SetsAScalarAndAnswersTheStructuredResult()
     {
@@ -172,8 +182,10 @@ public sealed class EditDispatchTests(EditDispatchTests.Fixture fixture) : IClas
         Assert.Contains("doc.type: Reference", await File.ReadAllTextAsync(fixture.NotePath), StringComparison.Ordinal);
     }
 
-    /// <summary>The hash a mutation answers is the one a read of the same file returns, which is
-    /// what lets a chain of writes run with no interleaved read.</summary>
+    /// <summary>
+    /// Verifies that the hash a mutation returns equals the hash a read of the same file returns,
+    /// which is what lets a caller chain writes without reading in between.
+    /// </summary>
     [Fact]
     public async Task TheHashAnEditAnswersIsTheOneAReadReturns()
     {
@@ -189,8 +201,10 @@ public sealed class EditDispatchTests(EditDispatchTests.Fixture fixture) : IClas
             current.RootElement.GetProperty("content_hash").GetString());
     }
 
-    /// <summary>A refusal from beneath the tool arrives named through the one table, in the shared
-    /// envelope, rather than as whatever the layer raised.</summary>
+    /// <summary>
+    /// Verifies that a refusal raised below the tool arrives as a code from the shared table in the
+    /// shared envelope, rather than as whatever that layer raised.
+    /// </summary>
     [Fact]
     public async Task AnUndeclaredKey_ArrivesAsTheCodedRefusal()
     {
@@ -202,8 +216,10 @@ public sealed class EditDispatchTests(EditDispatchTests.Fixture fixture) : IClas
         Assert.Equal("unknown_key", Code(text));
     }
 
-    /// <summary>The floor is the write class, so a read-only grant is refused before its arguments
-    /// are even looked at.</summary>
+    /// <summary>
+    /// Verifies that a read-only grant is refused at the tool's write-class floor, before its
+    /// arguments are examined.
+    /// </summary>
     [Fact]
     public async Task AReadOnlyGrant_IsRefusedAtTheFloor()
     {
@@ -213,8 +229,11 @@ public sealed class EditDispatchTests(EditDispatchTests.Fixture fixture) : IClas
         Assert.Equal("authority_required", Code(text));
     }
 
-    /// <summary>The declared floor is not the whole authority: a key under the declaration's
-    /// protected namespace requires the class it names, asserted on the outcome inside the tool.</summary>
+    /// <summary>
+    /// Verifies that the declared floor is not the only authority check. A key under the
+    /// declaration's protected namespace also requires the op class that declaration names, and the
+    /// class actually used is reported on the result.
+    /// </summary>
     [Fact]
     public async Task AKeyUnderTheProtectedNamespace_RequiresTheClassTheDeclarationNames()
     {
@@ -234,8 +253,10 @@ public sealed class EditDispatchTests(EditDispatchTests.Fixture fixture) : IClas
         Assert.Equal(["agentic:write"], doc.RootElement.GetProperty("asserted_authority").EnumerateArray().Select(v => v.GetString()));
     }
 
-    /// <summary>The argument phase runs above the tool, so a shape rule is refused before anything
-    /// is locked or read.</summary>
+    /// <summary>
+    /// Verifies that an argument shape rule is refused in the argument phase above the tool, before
+    /// anything is locked or read.
+    /// </summary>
     [Fact]
     public async Task AWholesaleBodyReplacementWithNoHash_ArrivesAsAnArgumentRefusal()
     {
@@ -267,8 +288,8 @@ public sealed class EditDispatchTests(EditDispatchTests.Fixture fixture) : IClas
         public const string AgenticToken = "test-edit-agentic-token";
         public const string ReadToken = "test-edit-read-token";
 
-        /// <summary>The vault this fixture writes to: a copy of the committed fixture, made once
-        /// per fixture, so a mutating case never reaches the real one.</summary>
+        /// <summary>The vault this fixture writes to: a per-fixture copy of the committed
+        /// test-vault, so a mutating case never reaches the committed one.</summary>
         private readonly string _vaultRoot;
 
         public string NotePath => Path.Combine(_vaultRoot, "Inbox", "Note-Loose-Thought.md");
@@ -279,8 +300,8 @@ public sealed class EditDispatchTests(EditDispatchTests.Fixture fixture) : IClas
             CopyDirectory(Path.Combine(TestVaultFixture.RepoRoot, "test-vault"), _vaultRoot);
 
             // The declaration the committed configuration names, copied beside this fixture's own
-            // vaults.json - which is what it is resolved against. Copied rather than pointed at, so
-            // the whole configuration a mutating call reads sits inside the sandbox.
+            // vaults.json, because the path is resolved relative to that file. Copied rather than
+            // referenced so the whole configuration a mutating call reads sits inside the sandbox.
             File.Copy(
                 Path.Combine(TestVaultFixture.RepoRoot, "frontmatter-registry.json"),
                 Path.Combine(TempDir, "frontmatter-registry.json"));
@@ -306,9 +327,8 @@ public sealed class EditDispatchTests(EditDispatchTests.Fixture fixture) : IClas
             var toolsDir = Path.Combine(TempDir, "tools");
             Directory.CreateDirectory(toolsDir);
 
-            // The PowerShell-side path is set because the prevention guard asserts on it: a
-            // mutating fixture proves both halves of the handoff resolve inside its sandbox, and an
-            // unset one is exactly the misfire the guard exists to catch.
+            // VAULT_MCP_VAULTS_JSON is set because AssertMutationSandboxed requires it: an unset
+            // value is one of the misfires that guard exists to catch.
             ConfigureEnvironment(vaultsPath, grantsPath, toolsDirectory: toolsDir, vaultMcpVaultsJsonPath: vaultsPath);
         }
 
@@ -321,8 +341,8 @@ public sealed class EditDispatchTests(EditDispatchTests.Fixture fixture) : IClas
             scopeRoots = new Dictionary<string, string[]> { ["test"] = ["*"] },
         };
 
-        /// <summary>The prevention half of the isolation guard pair, exposed so a case can call it
-        /// immediately before a mutating call.</summary>
+        /// <summary>Exposes <see cref="ProgramHostFixtureBase.AssertMutationSandboxed"/> so a test
+        /// can call it immediately before a mutating call.</summary>
         public void AssertSandboxed() => AssertMutationSandboxed();
     }
 }

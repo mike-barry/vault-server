@@ -3,14 +3,18 @@ using VaultShared.Frontmatter;
 namespace VaultShared.Tests;
 
 /// <summary>
-/// The operation vocabulary's semantics, every one of them driven through the single write path -
-/// there is no other way in, and asserting them anywhere else would assert a surface no consumer
-/// uses.
+/// Verifies the semantics of each frontmatter operation. Every case runs through
+/// <see cref="FrontmatterWrite.Apply"/>, which is the only entry point consumers use.
 /// </summary>
 public sealed class FrontmatterOperationTests
 {
-    /// <summary>Holds everything the synthetic declaration can ask for, so these cases turn on the
-    /// operations rather than on authority.</summary>
+    /// <summary>
+    /// Applies operations to a note through an authority stub holding every class the synthetic
+    /// declaration can require, so these cases turn on operation semantics rather than authority.
+    /// </summary>
+    /// <param name="content">The full note text the operations are applied to.</param>
+    /// <param name="operations">The operations to apply, in order.</param>
+    /// <returns>The outcome of the write.</returns>
     private static WriteOutcome Apply(string content, params FrontmatterOperation[] operations) =>
         FrontmatterWrite.Apply(Synthetic.Write(
             content, new StubAuthority(Synthetic.OpenClass, Synthetic.ElevatedClass), operations));
@@ -48,7 +52,7 @@ public sealed class FrontmatterOperationTests
     [Fact]
     public void SetScalar_AgainstAFieldHoldingABlockIsRefused()
     {
-        // The only thing between a caller's typo and a destroyed list.
+        // Without the shape check, a mistyped key would replace a whole list with a scalar.
         var refusal = Refused(
             Note("doc.notes:\n  - a hint"),
             new FrontmatterOperation.SetScalar("doc.notes", "text"));
@@ -173,8 +177,7 @@ public sealed class FrontmatterOperationTests
     [Fact]
     public void AddEntry_AVariantWithNoIdentityAppendsEveryTime()
     {
-        // A bare hint declares no identity, so there is nothing to key idempotence on and repetition
-        // is meaningful.
+        // A bare hint declares no identity, so there is nothing to match on and each add appends.
         var outcome = Apply(
             Note("doc.notes:\n  - first hint"),
             new FrontmatterOperation.AddEntry("doc.notes", new EntryPayload.Scalar("second hint"), null));
@@ -299,8 +302,8 @@ public sealed class FrontmatterOperationTests
     [Fact]
     public void Operations_ApplyInOrderAndEachSeesThePreviousResult()
     {
-        // Rewriting an entry is a removal plus an addition in one ordered batch, which is what makes
-        // the duplicate add's pure no-op safe.
+        // Rewriting an entry is a removal followed by an addition in one ordered batch, which is
+        // what makes the duplicate add's no-op safe.
         var outcome = Apply(
             Note("doc.notes:\n  - routed: skill-a\n    when: always"),
             Remove("doc.notes", "skill-a"),

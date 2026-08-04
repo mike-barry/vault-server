@@ -6,10 +6,11 @@ using VaultShared.Health;
 namespace VaultShared.Tests;
 
 /// <summary>
-/// The declaration's place in the load cascade: one instance per file however many vaults name it,
-/// a failure recorded Degraded per vault rather than taking the host down, and a state for every
-/// vault whether or not it named a file. Writes its own vaults.json over temp directories, because
-/// every case here turns on what a vault entry names and whether that file is there.
+/// Verifies how frontmatter declarations are loaded across vaults: one registry instance per file
+/// however many vaults name it, a per-vault failure recorded as Degraded rather than fatal, and a
+/// state for every vault whether or not it names a file. Each case writes its own vaults.json into
+/// a temporary directory, because the behaviour turns on what a vault entry names and whether that
+/// file exists.
 /// </summary>
 public sealed class FrontmatterRegistriesTests : IDisposable
 {
@@ -20,8 +21,14 @@ public sealed class FrontmatterRegistriesTests : IDisposable
 
     public void Dispose() => Directory.Delete(_tempDir, recursive: true);
 
-    /// <summary>Writes a vaults.json over two rooted vaults, each optionally naming a declaration
-    /// file, and runs the cascade over it.</summary>
+    /// <summary>
+    /// Writes a vaults.json describing two rooted vaults, each optionally naming a declaration
+    /// file, and loads the registries from it.
+    /// </summary>
+    /// <param name="sink">The sink that records configuration and load problems.</param>
+    /// <param name="firstNames">The declaration file the first vault names, or null for none.</param>
+    /// <param name="secondNames">The declaration file the second vault names, or null for none.</param>
+    /// <returns>The loaded registries for both vaults.</returns>
     private FrontmatterRegistries Load(RecordingProblemSink sink, string? firstNames, string? secondNames)
     {
         var configPath = Path.Combine(_tempDir, "vaults.json");
@@ -55,8 +62,8 @@ public sealed class FrontmatterRegistriesTests : IDisposable
     [Fact]
     public void Load_TwoVaultsNamingOneFileShareOneInstance()
     {
-        // The file is the identity. A vocabulary declared once is one object however many vaults
-        // take it, so nothing can hold two readings of one declaration.
+        // The file path is the identity, so one declaration is read once and shared by every vault
+        // naming it.
         WriteDeclaration("shared.json", SyntheticDeclaration.Valid);
         var sink = new RecordingProblemSink();
 
@@ -89,8 +96,8 @@ public sealed class FrontmatterRegistriesTests : IDisposable
         var registries = Load(sink, "not-there.json", null);
 
         Assert.IsType<RegistryState.Absent>(registries.For("first"));
-        // Degraded rather than Fatal: everything but frontmatter writes in this vault is still
-        // correct, and taking the host down would refuse operations the failure does not touch.
+        // Degraded rather than fatal, because everything except frontmatter writes in this vault
+        // still works and taking the host down would refuse operations the failure does not touch.
         Assert.False(sink.IsFatallyDegraded);
         Assert.All(sink.Problems, p => Assert.Equal(ProblemSeverity.Degraded, p.Severity));
         Assert.Contains(Problems(sink), p => p.Contains("first") && p.Contains("is not there"));
@@ -113,9 +120,8 @@ public sealed class FrontmatterRegistriesTests : IDisposable
     [Fact]
     public void Load_AVaultNamingNoDeclarationIsAbsentAndSaysSo()
     {
-        // Fail-closed with nothing to point at: the vault has no vocabulary, so every frontmatter
-        // write in it refuses, and the condition is visible in health state rather than inferred
-        // from those refusals.
+        // The vault has no declaration, so every frontmatter write in it refuses. The condition is
+        // reported to the problem sink so it shows in health rather than only in those refusals.
         var sink = new RecordingProblemSink();
 
         var registries = Load(sink, null, null);
@@ -149,8 +155,8 @@ public sealed class FrontmatterRegistriesTests : IDisposable
     public void Load_ResolvesTheDeclarationAgainstTheConfigDirectoryRatherThanTheVaultRoot()
     {
         // The declaration lives beside the grant and op-class configuration, at the same trust
-        // tier, and is never discovered by walking vault content. A copy inside the vault must not
-        // be what gets read.
+        // level, and is never found by walking vault content. A copy inside the vault, which vault
+        // writers can create, must not be the file that gets read.
         WriteDeclaration("registry.json", SyntheticDeclaration.Valid);
         File.WriteAllText(Path.Combine(Root("first"), "registry.json"), "{ not json");
 

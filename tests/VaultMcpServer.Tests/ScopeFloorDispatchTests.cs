@@ -7,43 +7,43 @@ using VaultShared.Tests;
 namespace VaultMcpServer.Tests;
 
 /// <summary>
-/// The read-class scope floor, proved through the whole stack rather than at the containment check.
-/// The vault declares <c>Resources/Vault/Guides</c> <c>always_readable</c> and the grant is scoped to
-/// <c>Projects/Widget</c> alone, so both halves of the floor are observable in one fixture: the union
-/// reaches reads, and a write is checked against the grant's own roots and nothing wider.
-///
-/// <b>What is only observable here.</b> <c>PathPolicy.EffectiveReadScope</c> and
-/// <c>VaultAccess</c> have unit coverage of the union itself; what they cannot show is that every
-/// path-touching operation actually arrives at the check that applies it. A failure in this file is
-/// the floor's rather than a tool's: it means an operation reached the scope check on a path that
-/// should have been unioned in, or a write path consulted the floor when it must not.
-///
-/// <b>The result sets are asserted exactly.</b> An over-wide union is only visible as a path that
-/// should not be in an enumeration, so a containment assertion would pass on the very defect the
-/// step exists to find.
-///
-/// It runs against a temp copy of the committed <c>test-vault/</c> under both halves of the
-/// isolation guard, because one case writes: the floor must not narrow the grant's own write reach,
-/// and that is only provable by a write that lands.
+/// Covers the always-readable scope floor through the whole stack rather than at the containment
+/// check alone. The vault declares <c>Resources/Vault/Guides</c> as <c>always_readable</c> and the
+/// grant is scoped to <c>Projects/Widget</c>, so one fixture shows both halves: reads see the union
+/// of the two, and a write is checked against the grant's own roots and nothing wider.
 /// </summary>
+/// <remarks>
+/// <c>PathPolicy.EffectiveReadScope</c> and <c>VaultAccess</c> have unit coverage of the union
+/// itself. What these tests add is that every path-touching operation reaches the check that
+/// applies it. A failure here means an operation reached the scope check on a path that should have
+/// been in the union, or that a write path consulted the read floor when it must not.
+///
+/// Result sets are asserted exactly rather than by containment. An over-wide union shows up only as
+/// an extra path in an enumeration, which a containment assertion would not catch.
+///
+/// The fixture runs against a temp copy of the committed <c>test-vault/</c> under both isolation
+/// guards, because one test writes: the floor must not narrow the grant's own write reach, and only
+/// a write that lands shows that.
+/// </remarks>
 [Collection("Program host tests")]
 public sealed class ScopeFloorDispatchTests(ScopeFloorDispatchTests.Fixture fixture) : IClassFixture<ScopeFloorDispatchTests.Fixture>
 {
     private const string VaultGuide = "Resources/Vault/Guides/Vault-Guide.md";
     private const string Conventions = "Resources/Vault/Guides/Document-Conventions.md";
 
-    /// <summary>A note under the always-readable root that is not there. The oracle rule's other
-    /// half: a refusal must not disclose whether its target exists.</summary>
+    /// <summary>A path under the always-readable root with no note at it. A refusal must not
+    /// disclose whether its target exists.</summary>
     private const string AbsentGuide = "Resources/Vault/Guides/Absent-Guide.md";
 
-    /// <summary>Outside the grant's roots and outside the floor, in the two shapes the vault
-    /// offers - a note in another folder, and one at the vault root.</summary>
+    /// <summary>Notes outside both the grant's roots and the floor, in the two shapes the vault
+    /// offers: one in another folder, and one at the vault root.</summary>
     private const string LooseNote = "Inbox/Note-Loose-Thought.md";
     private const string RootNote = "Test-Vault.md";
     private const string AbsentOutside = "Inbox/Absent-Note.md";
 
-    /// <summary>What the narrow grant reaches: its own root's three notes and the floor's two, and
-    /// nothing else. Sorted, because a result set is a set and the engine's order is its own.</summary>
+    /// <summary>Everything the narrow grant can read: the three notes under its own root plus the
+    /// floor's two. Compared sorted, because the search engine's own ordering is not part of the
+    /// contract.</summary>
     private static readonly string[] Reachable =
     [
         "Projects/Widget/Inbox/Plan-Widget-Assembly.md",
@@ -89,9 +89,14 @@ public sealed class ScopeFloorDispatchTests(ScopeFloorDispatchTests.Fixture fixt
             result.GetProperty("content").EnumerateArray().First().GetProperty("text").GetString()!);
     }
 
-    /// <summary>Every mutating call goes through here, so a fixture whose two config paths ever stop
-    /// resolving inside its sandbox fails before the call runs rather than after it has written to
-    /// the committed fixture.</summary>
+    /// <summary>
+    /// Calls <c>edit</c> after checking the sandbox. Every mutating call goes through here, so a
+    /// fixture whose config paths stop resolving inside its sandbox fails before the call runs
+    /// rather than after it has written to the committed vault.
+    /// </summary>
+    /// <param name="fixture">The host fixture to call.</param>
+    /// <param name="argumentsJson">The tool's arguments, as a JSON object.</param>
+    /// <returns>Whether the call was an error, and the text of its single content block.</returns>
     private static Task<(bool IsError, string Text)> EditAsync(Fixture fixture, string argumentsJson)
     {
         fixture.AssertSandboxed();
@@ -120,8 +125,10 @@ public sealed class ScopeFloorDispatchTests(ScopeFloorDispatchTests.Fixture fixt
         Assert.Equal(fixture.OnDisk(path), text);
     }
 
-    /// <summary>Enumeration runs over the same effective scope a containment check uses, so the
-    /// floor needs no case of its own here - and the result is the union exactly, not a superset.</summary>
+    /// <summary>
+    /// Verifies that glob returns exactly the union of the grant's root and the floor, and nothing
+    /// more. Enumeration runs over the same effective scope a containment check uses.
+    /// </summary>
     [Fact]
     public async Task Glob_ReturnsTheUnionOfTheGrantsRootAndTheFloorAndNothingElse()
     {
@@ -131,8 +138,11 @@ public sealed class ScopeFloorDispatchTests(ScopeFloorDispatchTests.Fixture fixt
         Assert.Equal([.. Reachable.Order(StringComparer.Ordinal)], Lines(text));
     }
 
-    /// <summary>Every note in the fixture carries a wikilink, so the pattern discriminates on scope
-    /// alone: whatever comes back is exactly what the effective read scope admitted.</summary>
+    /// <summary>
+    /// Verifies that grep returns exactly the union of the grant's root and the floor. Every note in
+    /// the vault contains a wikilink, so this pattern matches on scope alone and whatever comes back
+    /// is what the effective read scope admitted.
+    /// </summary>
     [Fact]
     public async Task Grep_ReturnsTheUnionOfTheGrantsRootAndTheFloorAndNothingElse()
     {
@@ -142,8 +152,11 @@ public sealed class ScopeFloorDispatchTests(ScopeFloorDispatchTests.Fixture fixt
         Assert.Equal([.. Reachable.Order(StringComparer.Ordinal)], Lines(text));
     }
 
-    /// <summary>Filtering is silent: the paths withheld are simply absent, and nothing in the answer
-    /// says a filter ran.</summary>
+    /// <summary>
+    /// Verifies that a search matching only out-of-scope notes returns an empty result rather than a
+    /// refusal. Withheld paths are simply absent, and nothing in the answer reveals that filtering
+    /// happened.
+    /// </summary>
     [Fact]
     public async Task Grep_AgainstAnOutOfScopeNotesOwnContent_AnswersEmptyRatherThanRefusing()
     {
@@ -155,8 +168,11 @@ public sealed class ScopeFloorDispatchTests(ScopeFloorDispatchTests.Fixture fixt
 
     // ---- The union does not reach writes ----
 
-    /// <summary>A write is scope-checked against the grant's own roots and nothing wider. The two
-    /// cases differ only in whether the target exists, and the refusal must not.</summary>
+    /// <summary>
+    /// Verifies that a write is scope-checked against the grant's own roots and nothing wider. The
+    /// two calls differ only in whether the target note exists, and the refusals must be identical
+    /// apart from the path the caller supplied.
+    /// </summary>
     [Fact]
     public async Task EditingAGuideUnderTheFloor_IsRefusedOutOfScopeWhetherOrNotItExists()
     {
@@ -169,7 +185,7 @@ public sealed class ScopeFloorDispatchTests(ScopeFloorDispatchTests.Fixture fixt
         Assert.True(absentError, absent);
         Assert.Equal("out_of_scope", Code(present));
 
-        // Identical apart from the caller's own path, which is the only coordinate a refusal carries.
+        // The path the caller supplied is the only thing a refusal reports back.
         Assert.Equal(
             present.Replace(VaultGuide, "<path>", StringComparison.Ordinal),
             absent.Replace(AbsentGuide, "<path>", StringComparison.Ordinal));
@@ -177,8 +193,11 @@ public sealed class ScopeFloorDispatchTests(ScopeFloorDispatchTests.Fixture fixt
         Assert.Equal(Fixture.CommittedText(VaultGuide), fixture.OnDisk(VaultGuide));
     }
 
-    /// <summary>A body-only edit reads no key, so it is the shape that would expose a write path
-    /// consulting the read scope by taking a different route to the same file.</summary>
+    /// <summary>
+    /// Verifies that a body-only edit under the floor is refused too. It reads no frontmatter key,
+    /// so it reaches the file by a different route and would expose a write path that consulted the
+    /// read scope.
+    /// </summary>
     [Fact]
     public async Task ABodyOnlyEditOfAGuide_IsRefusedOutOfScopeToo()
     {
@@ -190,8 +209,10 @@ public sealed class ScopeFloorDispatchTests(ScopeFloorDispatchTests.Fixture fixt
         Assert.Equal(Fixture.CommittedText(Conventions), fixture.OnDisk(Conventions));
     }
 
-    /// <summary>The floor unions into the read scope; it does not narrow the grant's own write
-    /// reach, so a note inside the grant's root still writes.</summary>
+    /// <summary>
+    /// Verifies that a note inside the grant's own root still writes. The floor only widens the read
+    /// scope; it does not narrow the grant's write reach.
+    /// </summary>
     [Fact]
     public async Task EditingANoteInsideTheGrantsOwnRoot_Succeeds()
     {
@@ -206,8 +227,11 @@ public sealed class ScopeFloorDispatchTests(ScopeFloorDispatchTests.Fixture fixt
 
     // ---- Outside both roots is out of reach entirely ----
 
-    /// <summary>A named path outside both the grant's roots and the floor is gated loudly, and the
-    /// refusal is the same whether or not the note is there.</summary>
+    /// <summary>
+    /// Verifies that reading a path outside both the grant's roots and the floor is refused, with
+    /// the same refusal whether or not a note is there.
+    /// </summary>
+    /// <param name="path">The out-of-scope path to read.</param>
     [Theory]
     [InlineData(LooseNote)]
     [InlineData(RootNote)]
@@ -220,8 +244,11 @@ public sealed class ScopeFloorDispatchTests(ScopeFloorDispatchTests.Fixture fixt
         Assert.Equal("out_of_scope", Code(text));
     }
 
-    /// <summary>The floor is one folder prefix, matched by whole segment: the folder above it is not
-    /// in it, and neither is a sibling whose name starts the same way.</summary>
+    /// <summary>
+    /// Verifies that the floor is one folder prefix matched whole segment by whole segment. The
+    /// folder above it is not covered, and neither is a sibling whose name starts the same way.
+    /// </summary>
+    /// <param name="path">A path beside the floor rather than under it.</param>
     [Theory]
     [InlineData("Resources/Gizmo-Reference.md")]
     [InlineData("Resources/Vault/Guides-Archive/Vault-Guide.md")]
@@ -235,8 +262,8 @@ public sealed class ScopeFloorDispatchTests(ScopeFloorDispatchTests.Fixture fixt
 
     public sealed class Fixture : ProgramHostFixtureBase
     {
-        /// <summary>Scoped to <c>Projects/Widget</c> alone, and holding both content classes - so
-        /// what refuses a write to a guide is scope rather than the tool's floor.</summary>
+        /// <summary>A grant scoped to <c>Projects/Widget</c> alone that holds both content classes,
+        /// so what refuses a write to a guide is scope rather than the tool's op-class floor.</summary>
         public const string NarrowToken = "test-scope-floor-narrow-token";
 
         private readonly string _vaultRoot;
@@ -261,9 +288,8 @@ public sealed class ScopeFloorDispatchTests(ScopeFloorDispatchTests.Fixture fixt
                         path = _vaultRoot.Replace('\\', '/'),
                         frontmatter_registry = "frontmatter-registry.json",
 
-                        // The same declaration the committed vaults.json carries. Restated here
-                        // rather than pointed at, so the whole configuration a call reads sits
-                        // inside the sandbox.
+                        // The same declaration the committed vaults.json carries, restated here so
+                        // the whole configuration a call reads sits inside the sandbox.
                         path_policy = new[]
                         {
                             new { path = "Resources/Vault/Guides", always_readable = true },
@@ -291,18 +317,21 @@ public sealed class ScopeFloorDispatchTests(ScopeFloorDispatchTests.Fixture fixt
             ConfigureEnvironment(vaultsPath, grantsPath, toolsDirectory: toolsDir, vaultMcpVaultsJsonPath: vaultsPath);
         }
 
-        /// <summary>What the sandbox copy holds now, for a case asserting that a refused write
-        /// changed nothing.</summary>
+        /// <summary>Reads a note's current text from the sandbox copy of the vault.</summary>
+        /// <param name="relativePath">Vault-relative path of the note, with forward slashes.</param>
+        /// <returns>The file's contents.</returns>
         public string OnDisk(string relativePath) =>
             File.ReadAllText(Path.Combine(_vaultRoot, relativePath.Replace('/', Path.DirectorySeparatorChar)));
 
-        /// <summary>What the committed fixture holds, as the comparison a refusal is measured
-        /// against.</summary>
+        /// <summary>Reads a note's text from the committed vault, for comparison against the sandbox
+        /// copy after a refused write.</summary>
+        /// <param name="relativePath">Vault-relative path of the note, with forward slashes.</param>
+        /// <returns>The file's contents.</returns>
         public static string CommittedText(string relativePath) =>
             File.ReadAllText(Path.Combine(TestVaultFixture.RepoRoot, "test-vault", relativePath.Replace('/', Path.DirectorySeparatorChar)));
 
-        /// <summary>The prevention half of the isolation guard pair, exposed so a case can call it
-        /// immediately before a mutating call.</summary>
+        /// <summary>Exposes <see cref="ProgramHostFixtureBase.AssertMutationSandboxed"/> so a test
+        /// can call it immediately before a mutating call.</summary>
         public void AssertSandboxed() => AssertMutationSandboxed();
     }
 }

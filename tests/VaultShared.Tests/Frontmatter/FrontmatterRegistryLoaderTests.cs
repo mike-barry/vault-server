@@ -4,18 +4,17 @@ using VaultShared.Frontmatter;
 namespace VaultShared.Tests;
 
 /// <summary>
-/// A synthetic declaration the loader cases are written against. The vault's own vocabulary is not
-/// this suite's subject and must not become one: what is asserted here is the mechanism - how a
-/// declaration is expressed, validated, and refused - so the keys below are invented, and a
-/// declaration the vault really carries would prove nothing this does not.
+/// Provides synthetic declaration JSON for the loader tests. The keys are invented rather than
+/// taken from any real vault, because these tests cover the loading mechanism - how a declaration
+/// is expressed, validated, and refused - and not a particular vocabulary.
 /// </summary>
 internal static class SyntheticDeclaration
 {
     /// <summary>
-    /// One well-formed declaration exercising every part of the shape: both key shapes, a namespace
+    /// A well-formed declaration covering every part of the format: both key shapes, a namespace
     /// rule, two keys sharing one entry schema, a scalar variant beside two discriminated ones, an
-    /// exclusive group, both identity comparisons, and a wholesale-removable variant. Written with
-    /// comments and a trailing comma, which the format tolerates on read.
+    /// exclusive group, both identity comparisons, and a wholesale-removable variant. It also
+    /// contains comments and a trailing comma, which the loader accepts.
     /// </summary>
     internal const string Valid = """
         {
@@ -89,18 +88,23 @@ internal static class SyntheticDeclaration
         }
         """;
 
-    /// <summary>A declaration holding <paramref name="keys"/> and <paramref name="schemas"/> and
-    /// nothing else, for a case that turns on one part of the shape.</summary>
+    /// <summary>
+    /// Builds a minimal declaration from the given parts, for a case that turns on one part of the
+    /// format.
+    /// </summary>
+    /// <param name="keys">The JSON object for the declaration's "keys" member.</param>
+    /// <param name="schemas">The JSON object for the declaration's "entry_schemas" member.</param>
+    /// <param name="namespaces">The JSON array for the declaration's "namespaces" member.</param>
+    /// <returns>The declaration JSON.</returns>
     internal static string Of(string keys, string schemas = "{}", string namespaces = "[]") => $$"""
         { "version": 1, "namespaces": {{namespaces}}, "keys": {{keys}}, "entry_schemas": {{schemas}} }
         """;
 }
 
 /// <summary>
-/// What the declaration loader accepts, what it refuses, and what it answers. Every check the
-/// registry spec requires at load is a case here, because a check that runs at first use instead is
-/// one an operator meets as a refusal on an unrelated note rather than as a health problem naming
-/// the file.
+/// Verifies what the declaration loader accepts, what it refuses, and the registry it produces.
+/// Every validation check runs at load rather than at first use, so an operator sees a health
+/// problem naming the file instead of a refusal on an unrelated note.
 /// </summary>
 public sealed class FrontmatterRegistryLoaderTests : IDisposable
 {
@@ -121,14 +125,16 @@ public sealed class FrontmatterRegistryLoaderTests : IDisposable
     private FrontmatterRegistry Loaded(string json) =>
         Assert.IsType<RegistryState.Loaded>(FrontmatterRegistryLoader.Load(Write(json), OpClasses)).Registry;
 
-    /// <summary>Loads a declaration expected to be refused, and returns the reason it gave.</summary>
+    /// <summary>Loads a declaration that is expected to be refused.</summary>
+    /// <param name="json">The declaration JSON to write and load.</param>
+    /// <returns>The reason the loader gave for refusing it.</returns>
     private string Refused(string json)
     {
         var state = FrontmatterRegistryLoader.Load(Write(json), OpClasses);
         return Assert.IsType<RegistryState.Unloadable>(state).Why;
     }
 
-    // ---- The three states ----
+    // ---- Load states ----
 
     [Fact]
     public void Load_AWellFormedDeclarationIsLoaded()
@@ -147,8 +153,8 @@ public sealed class FrontmatterRegistryLoaderTests : IDisposable
 
         var absent = Assert.IsType<RegistryState.Absent>(FrontmatterRegistryLoader.Load(path, OpClasses));
 
-        // Absent and Unloadable refuse identically and report differently: one is a file to put
-        // there, the other a file to fix.
+        // Absent and Unloadable both refuse writes, but they report differently: one names a file
+        // to create, the other a file to fix.
         Assert.Equal(path, absent.Path);
     }
 
@@ -168,14 +174,14 @@ public sealed class FrontmatterRegistryLoaderTests : IDisposable
     [Fact]
     public void Load_ToleratesCommentsAndTrailingCommas()
     {
-        // The valid declaration carries both. They serve the operator and are not preserved
-        // through a read, which the read-only rule makes moot.
+        // The valid declaration contains both. Nothing writes the file back, so neither has to
+        // survive a read.
         var registry = Loaded(SyntheticDeclaration.Valid);
 
         Assert.True(registry.Keys.ContainsKey("plain.created"));
     }
 
-    // ---- The shape it builds ----
+    // ---- The registry it builds ----
 
     [Fact]
     public void Load_KeysAreMatchedCaseInsensitively()
@@ -188,8 +194,8 @@ public sealed class FrontmatterRegistryLoaderTests : IDisposable
     [Fact]
     public void Load_TwoKeysNamingOneSchemaHoldOneObject()
     {
-        // The property the name-reference form exists to produce: the two lists cannot drift,
-        // because there is nothing to drift from.
+        // Referring to a schema by name gives both lists the same object, so they cannot drift
+        // apart.
         var registry = Loaded(SyntheticDeclaration.Valid);
 
         Assert.Same(registry.Keys["list.first"].Entry, registry.Keys["list.second"].Entry);
@@ -228,8 +234,8 @@ public sealed class FrontmatterRegistryLoaderTests : IDisposable
 
         Assert.Equal<string[]>(["link", "folder"], [.. registry.EntrySchemas["link_entry"].Variants[0].ExactlyOneOf]);
         Assert.Equal("content:write", registry.Keys["plain.free"].WriteRequires);
-        // A key declaring nothing is not exempt from a namespace that matches it - the requirement
-        // is a union, computed where it is needed rather than folded in here.
+        // A key that declares nothing is still covered by a namespace matching it. The union of
+        // the two is computed at write time rather than folded into the loaded registry.
         Assert.Null(registry.Keys["synth.directives"].WriteRequires);
         Assert.Equal("agentic:write", registry.Namespaces[0].WriteRequires);
     }
@@ -265,8 +271,8 @@ public sealed class FrontmatterRegistryLoaderTests : IDisposable
     {
         var why = Refused(SyntheticDeclaration.Of("""{ "k": { "shape": "scalar", "value": { "kind": "regex", "pattern": ".*" } } }"""));
 
-        // The refusal that keeps the vocabulary closed - and there is no raw-regex kind to fall
-        // back to, by design.
+        // The set of constraint kinds is closed, and there is deliberately no raw-regex kind to
+        // fall back to.
         Assert.Contains("unknown constraint kind", why);
     }
 
@@ -334,8 +340,8 @@ public sealed class FrontmatterRegistryLoaderTests : IDisposable
     [Fact]
     public void Load_RefusesTwoVariantsSharingADiscriminatingField()
     {
-        // A mapping carrying the shared field would match both, and matching two is a violation
-        // rather than a precedence rule to invent.
+        // A mapping carrying the shared field would match both variants, which is refused rather
+        // than settled by an invented precedence rule.
         var schemas = """
             { "s": { "variants": [
               { "name": "one", "discriminated_by": "a", "fields": { "a": { "required": true } } },
@@ -361,9 +367,9 @@ public sealed class FrontmatterRegistryLoaderTests : IDisposable
     [Fact]
     public void Load_RefusesAnOpClassTheOpClassConfigurationDoesNotDefine()
     {
-        // The cross-file check, run against a real op-class registry. A protection naming an
-        // authority nothing defines can never be satisfied, so it reads as a locked key rather
-        // than as the misconfiguration it is.
+        // Checked against a real op-class registry. A key requiring a class nothing defines could
+        // never be written, so it would look like a permanently locked key rather than the
+        // misconfiguration it is.
         var why = Refused(SyntheticDeclaration.Of("""{ "k": { "shape": "scalar", "write_requires": "invented:class" } }"""));
 
         Assert.Contains("which the op-class configuration does not define", why);
@@ -386,7 +392,7 @@ public sealed class FrontmatterRegistryLoaderTests : IDisposable
         Assert.Equal("agentic:write", registry.Keys["k"].WriteRequires);
     }
 
-    // ---- The allowlist posture ----
+    // ---- Allowlist validation ----
 
     [Theory]
     [InlineData("""{ "verzion": 1, "keys": {} }""", "unrecognized top-level key")]
@@ -400,17 +406,17 @@ public sealed class FrontmatterRegistryLoaderTests : IDisposable
     [InlineData("""{ "entry_schemas": { "s": { "variants": [ { "scalar": { "kind": "string" } } ] } } }""", "no \"name\"")]
     public void Load_RefusesAMalformedDeclaration(string json, string expected)
     {
-        // A positive allowlist, the same posture the retained configuration parsers take: a typo'd
-        // field cannot read as a declaration someone made.
+        // The loader allowlists the members it knows, as the other configuration parsers do, so a
+        // misspelled field is refused rather than silently ignored.
         Assert.Contains(expected, Refused(json));
     }
 
     [Fact]
     public void Load_RefusesAnIdentityWithNoDeclaredComparison()
     {
-        // No answer is right by default: a file identity compares as the filesystem resolves it and
-        // a line of prose compares exactly, and guessing either makes a scan and an operation
-        // disagree about whether an entry is already there.
+        // There is no safe default. A file identity compares the way the filesystem resolves it
+        // and a line of prose compares exactly, so guessing would let a scan and an operation
+        // disagree about whether an entry is already present.
         var schemas = """
             { "s": { "variants": [ {
               "name": "v", "discriminated_by": "a",

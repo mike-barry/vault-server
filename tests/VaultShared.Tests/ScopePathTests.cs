@@ -3,15 +3,14 @@ using VaultShared.Scope;
 namespace VaultShared.Tests;
 
 /// <summary>
-/// The grammar under every vault-relative path in the scope model, asserted directly rather than
-/// through a containment answer. Both sides of the scope check read a path through this one member -
-/// a grant's configured roots when they are canonicalized at load, and a candidate path when it is
-/// tested against them at request time - so a case that only ever asks <c>Admits</c> cannot tell an
-/// accepted path from one the grammar quietly reshaped into something else.
-///
-/// Three things it answers, and each is a group below: what a path normalizes to, what is refused,
-/// and that the work is textual.
+/// Tests <c>ScopePath.Normalize</c>, which parses every vault-relative path in the scope model.
 /// </summary>
+/// <remarks>
+/// Both sides of a scope check go through this one method: a grant's configured roots when they
+/// are canonicalized at load, and a candidate path when it is tested against them at request
+/// time. Testing it directly rather than through a containment answer is what distinguishes an
+/// accepted path from one that normalization reshaped into something else.
+/// </remarks>
 public sealed class ScopePathTests
 {
     // ---- What normalizes, and to what ----
@@ -40,9 +39,8 @@ public sealed class ScopePathTests
     }
 
     /// <summary>
-    /// The one property both callers depend on: a root and a candidate spelled differently normalize
-    /// to the same segments, so load-time canonicalization and request-time comparison cannot
-    /// disagree about what a root is.
+    /// Checks that two spellings of one root normalize to the same segments, so load-time
+    /// canonicalization and request-time comparison cannot disagree about what a root is.
     /// </summary>
     [Theory]
     [InlineData("Projects/Widget", @"Projects\Widget")]
@@ -56,9 +54,9 @@ public sealed class ScopePathTests
     // ---- What is refused ----
 
     /// <summary>
-    /// Everything that cannot be read as a well-formed vault-relative path. Each is a refusal rather
-    /// than a value clamped into range: escaping text is refused, never normalized into something
-    /// else.
+    /// Checks the text that cannot be read as a well-formed vault-relative path. Each case throws
+    /// rather than being clamped into range; escaping text is never normalized into something
+    /// that would be admitted.
     /// </summary>
     [Theory]
     [InlineData("", "empty")]
@@ -75,9 +73,9 @@ public sealed class ScopePathTests
     }
 
     /// <summary>
-    /// The vault root is not a path. A whole-vault operation takes the vault as its operand, so
-    /// nothing spelled here denotes the root and the refusal needs no carve-out - a path with no
-    /// segments would be one value admitted under every scope.
+    /// Checks that text denoting the vault root is refused rather than normalized to zero
+    /// segments, since a path with no segments would be admitted under every scope. A whole-vault
+    /// operation names the vault as its operand instead of spelling a path.
     /// </summary>
     [Theory]
     [InlineData(".")]
@@ -89,8 +87,8 @@ public sealed class ScopePathTests
     }
 
     /// <summary>
-    /// The refusal names the caller's own text and identifies the argument, so a refusal built from
-    /// one discloses nothing the caller did not already hold.
+    /// Checks that the exception quotes the caller's own text and names the argument, so a message
+    /// built from it discloses nothing the caller did not already have.
     /// </summary>
     [Fact]
     public void Normalize_NamesTheCallersOwnTextAndNothingElse()
@@ -101,11 +99,11 @@ public sealed class ScopePathTests
         Assert.Equal("path", refusal.ParamName);
     }
 
-    // ---- That the work is textual ----
+    // ---- Containment is decided textually ----
 
     /// <summary>
-    /// Containment is decided textually and never touches the filesystem, which is what makes the
-    /// check cheap, applicable to every path, and identical for a path that does not exist yet.
+    /// Checks that normalization is purely textual and never touches the filesystem, so it behaves
+    /// the same for a path that does not exist.
     /// </summary>
     [Fact]
     public void Normalize_TouchesNoFilesystem()

@@ -5,10 +5,10 @@ using VaultShared.Tools;
 namespace VaultShared.Tests.Tools;
 
 /// <summary>
-/// One <see cref="JsonSerializerOptions"/> instance governs the advertised schema, the binder, the
-/// structured result and the refusal payload. The failure it guards against is silent in exactly one
-/// direction: dropping the naming policy renames every multi-word name on both sides at once, so the
-/// schema and the binder stay consistent with each other while every existing caller breaks.
+/// Tests that one <see cref="JsonSerializerOptions"/> instance governs the advertised schema, the
+/// argument binder, structured results and refusal payloads. Losing the naming policy renames every
+/// multi-word name on both sides at once, so the schema and the binder would still agree with each
+/// other while every existing caller broke. These cases pin the names themselves.
 /// </summary>
 public sealed class ToolSerializationTests
 {
@@ -38,8 +38,8 @@ public sealed class ToolSerializationTests
         Assert.True(bound.WithContentHash);
     }
 
-    /// <summary>And the name a result carries is the same name, so nothing translates between a sent
-    /// name and a returned one.</summary>
+    /// <summary>A result member carries the same style of name as an argument, so a caller never has
+    /// to translate between the two.</summary>
     [Fact]
     public void ResultNames_UseTheSamePolicyAsArgumentNames()
     {
@@ -48,9 +48,9 @@ public sealed class ToolSerializationTests
         Assert.Equal("""{"content_hash":"abc","frontmatter_changed":true}""", json);
     }
 
-    /// <summary>A tool taking no arguments advertises an object with an empty <c>properties</c>
-    /// member, not a bare <c>{"type":"object"}</c> - which is what the exporter emits for a record
-    /// with no members.</summary>
+    /// <summary>A tool that takes no arguments advertises an object with an empty <c>properties</c>
+    /// member rather than the bare <c>{"type":"object"}</c> the schema exporter produces for a
+    /// record with no members.</summary>
     [Fact]
     public void NoArguments_AdvertisesAnEmptyPropertiesObject()
     {

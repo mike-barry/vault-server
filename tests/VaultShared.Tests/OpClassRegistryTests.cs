@@ -4,11 +4,14 @@ using VaultShared.Configuration;
 namespace VaultShared.Tests;
 
 /// <summary>
-/// Load/parse coverage for <see cref="OpClassRegistry"/>, which is backed by
-/// op-classes.json. Same fail-fast rigor (and the same
-/// temp-dir-per-test pattern) as <see cref="GrantStoreTests"/>/<see cref="VaultConfigTests"/>,
-/// since GrantStore and ScriptToolLoader both validate op-class names against this registry.
+/// Tests loading and parsing <see cref="OpClassRegistry"/> from an op-classes.json file written
+/// into a temp directory per test.
 /// </summary>
+/// <remarks>
+/// GrantStore and ScriptToolLoader both validate op-class names against this registry, so these
+/// tests hold it to the same fail-fast standard as <see cref="GrantStoreTests"/> and
+/// <see cref="VaultConfigTests"/>.
+/// </remarks>
 public sealed class OpClassRegistryTests : IDisposable
 {
     private readonly string _tempDir = Directory.CreateTempSubdirectory("vault-mcp-opclass-tests-").FullName;
@@ -88,10 +91,13 @@ public sealed class OpClassRegistryTests : IDisposable
         AssertFatalAndEmpty(sink, registry);
     }
 
-    /// <summary>Shared assertion for every whole-file-failure case above: op-classes.json
-    /// stays all-or-nothing (there is no per-row skip for it), so a whole-file failure
-    /// records a single Fatal problem from source "OpClassRegistry" and returns a registry
-    /// with no valid op-classes at all - never a partial one.</summary>
+    /// <summary>
+    /// Asserts the outcome shared by every whole-file failure case above. Loading op-classes.json
+    /// is all-or-nothing, with no per-row skip, so a failure records exactly one fatal problem
+    /// from source "OpClassRegistry" and returns an empty registry rather than a partial one.
+    /// </summary>
+    /// <param name="sink">The sink the failed load recorded into.</param>
+    /// <param name="registry">The registry the failed load returned.</param>
     private static void AssertFatalAndEmpty(RecordingProblemSink sink, OpClassRegistry registry)
     {
         Assert.True(sink.IsFatallyDegraded);

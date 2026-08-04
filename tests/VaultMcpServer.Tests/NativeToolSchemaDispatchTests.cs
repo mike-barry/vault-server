@@ -7,20 +7,20 @@ using Microsoft.AspNetCore.Mvc.Testing;
 namespace VaultMcpServer.Tests;
 
 /// <summary>
-/// End-to-end HTTP coverage for the derived native schemas: that what
+/// Covers the derived native schemas over HTTP: that what
 /// <see cref="VaultShared.Tools.NativeToolArguments"/> exports from each tool's argument record is
-/// what a client actually receives in <c>tools/list</c>, and that a real call to each declared tool
-/// binds against that same schema rather than against a second, hand-walked reading of it.
-///
-/// <c>NativeToolSchemaTests</c> pins the same text against the tool objects; this class pins that it
-/// survives the dispatcher's <c>tools/list</c> assembly and MCP's own serialization, which is the
-/// only place a schema regression would actually reach a caller.
-///
-/// This fixture's vault names no frontmatter declaration, so it is also where the vocabulary seam's
-/// absent case is pinned: <c>edit</c> stays advertised with its ordinary argument surface and its
-/// <c>entry</c> carries no variant branches, because advertising was never permission. The loaded
-/// case is <c>EditDispatchTests</c>'s.
+/// what a client receives in <c>tools/list</c>, and that a real call to each declared tool binds
+/// against that same schema rather than a second reading of it.
 /// </summary>
+/// <remarks>
+/// <c>NativeToolSchemaTests</c> pins the same text against the tool objects. These tests pin that it
+/// survives the dispatcher's <c>tools/list</c> assembly and MCP's own serialization, which is where
+/// a schema regression would reach a caller.
+///
+/// This fixture's vault names no frontmatter declaration, so it also covers what <c>edit</c> looks
+/// like without one: still advertised with its ordinary argument surface, and its <c>entry</c>
+/// argument carrying no variant branches. <c>EditDispatchTests</c> covers the loaded case.
+/// </remarks>
 [Collection("Program host tests")]
 public sealed class NativeToolSchemaDispatchTests(NativeToolSchemaDispatchTests.Fixture fixture) : IClassFixture<NativeToolSchemaDispatchTests.Fixture>
 {
@@ -110,9 +110,10 @@ public sealed class NativeToolSchemaDispatchTests(NativeToolSchemaDispatchTests.
     }
 
     /// <summary>
-    /// The one thing the conversion could have broken on the wire: binding refuses with a
-    /// <see cref="JsonException"/>, which is not a <c>{code, message, data?}</c> error. A caller must
-    /// still see a coded refusal naming the argument, not a raw serializer message.
+    /// Verifies that a wrongly typed argument reaches the client as a coded refusal naming the
+    /// argument. Binding fails with a <see cref="JsonException"/>, which is not a
+    /// <c>{code, message, data?}</c> error, so the raw serializer message must not be what a caller
+    /// sees.
     /// </summary>
     [Fact]
     public async Task MintToken_RealCall_WrongTypedArgument_ReachesTheClientAsACodedRefusal()
@@ -131,8 +132,8 @@ public sealed class NativeToolSchemaDispatchTests(NativeToolSchemaDispatchTests.
         var result = await SendAsync(fixture, Fixture.ElevateToken, body);
 
         Assert.True(result.GetProperty("isError").GetBoolean());
-        // not_found rather than a binding failure: "grant" bound off the record and got as far as
-        // target resolution.
+        // not_found rather than a binding failure, so "grant" bound successfully and the call got as
+        // far as resolving the target.
         Assert.Equal(("not_found", "grant"), Refusal(result));
     }
 
@@ -159,9 +160,8 @@ public sealed class NativeToolSchemaDispatchTests(NativeToolSchemaDispatchTests.
 
     // --- Generic conformance, over whatever the server advertises -------------------------
     //
-    // Everything above names its tools by hand. These three read the tool set out of
-    // tools/list instead, so a tool added later is covered on registration rather than when
-    // someone remembers to extend an InlineData list.
+    // The tests above name their tools by hand. These three read the tool set out of tools/list
+    // instead, so a tool added later is covered as soon as it is registered.
 
     private static async Task<Dictionary<string, JsonElement>> AdvertisedAsync(Fixture fixture) =>
         (await SendAsync(fixture, Fixture.AdminToken, """{"jsonrpc":"2.0","id":1,"method":"tools/list"}"""))
@@ -174,10 +174,11 @@ public sealed class NativeToolSchemaDispatchTests(NativeToolSchemaDispatchTests.
             : [];
 
     /// <summary>
-    /// One fully valid call per tool that advertises required arguments - the one thing
-    /// <see cref="AdvertisedRequiredArguments_AreEnforced"/> cannot derive, since only the tool's
-    /// own tests know what a good call looks like. A tool with nothing in <c>required</c> needs no
-    /// entry; <see cref="EveryToolWithRequiredArguments_HasAValidCall"/> keeps that honest.
+    /// Holds one fully valid call per tool that advertises required arguments.
+    /// <see cref="AdvertisedRequiredArguments_AreEnforced"/> cannot derive these, because only the
+    /// tool itself defines what a good call looks like. A tool with nothing in <c>required</c> needs
+    /// no entry, and <see cref="EveryToolWithRequiredArguments_HasAValidCall"/> checks that the two
+    /// sets agree.
     /// </summary>
     public static readonly Dictionary<string, (string Token, string Arguments)> ValidCalls = new()
     {
@@ -186,17 +187,18 @@ public sealed class NativeToolSchemaDispatchTests(NativeToolSchemaDispatchTests.
         ["glob"] = (Fixture.AdminToken, """{"pattern":"*.md","vault":"personal"}"""),
         ["grep"] = (Fixture.AdminToken, """{"pattern":"widget","vault":"personal"}"""),
         ["edit"] = (Fixture.AdminToken, """{"path":"Note.md","vault":"personal","body":{"find":"a","replace":"b"}}"""),
-        // The three mutating tools' entries are shapes rather than calls: this suite only ever
-        // sends them with one required argument removed, and each of those refuses in the argument
-        // phase, above the lock and above anything that could reach the filesystem.
+        // The three mutating tools' entries are never sent as-is. This suite only sends them with
+        // one required argument removed, and each of those refuses in the argument phase, before
+        // the lock and before anything reaches the filesystem.
         ["create"] = (Fixture.AdminToken, """{"path":"New.md","kind":"note","vault":"personal","content":""}"""),
         ["move"] = (Fixture.AdminToken, """{"path":"Note.md","destination":"Moved.md","vault":"personal"}"""),
         ["delete"] = (Fixture.AdminToken, """{"path":"Note.md","kind":"note","vault":"personal"}"""),
     };
 
     /// <summary>
-    /// Every advertised tool is pinned. <see cref="Pinned"/> is a hand-written list, so without this
-    /// a newly declared tool would ship with no schema assertion at all and nothing would say so.
+    /// Verifies that every advertised tool appears in <see cref="Pinned"/>. That list is
+    /// hand-written, so without this check a newly declared tool would ship with no schema
+    /// assertion and nothing would report it.
     /// </summary>
     [Fact]
     public async Task EveryAdvertisedTool_HasAPinnedSchema()
@@ -207,7 +209,10 @@ public sealed class NativeToolSchemaDispatchTests(NativeToolSchemaDispatchTests.
             Pinned().Select(row => (string)row[0]!).OrderBy(n => n, StringComparer.Ordinal));
     }
 
-    /// <summary>The same guard for the sample payloads the conformance check runs on.</summary>
+    /// <summary>
+    /// Verifies that <see cref="ValidCalls"/> holds an entry for exactly those advertised tools that
+    /// declare required arguments.
+    /// </summary>
     [Fact]
     public async Task EveryToolWithRequiredArguments_HasAValidCall()
     {
@@ -218,18 +223,20 @@ public sealed class NativeToolSchemaDispatchTests(NativeToolSchemaDispatchTests.
     }
 
     /// <summary>
-    /// <c>required</c> must mean what it says: omitting an advertised-required argument has to
-    /// produce that tool's coded refusal naming it. The failure this exists for is silent in both
-    /// directions - an optional argument declared without a C# default is advertised required while
-    /// the tool still substitutes a default and never refuses, so the schema promises a constraint
-    /// nothing enforces and no existing assertion notices.
-    ///
-    /// Only that direction is checked. The inverse - a tool refusing on something it never
-    /// advertised - is indistinguishable from the conditional requiredness the schema is not
-    /// expected to express (<c>request_elevation</c> takes <c>grant</c> OR
-    /// <c>scope_roots</c>+<c>op_class</c>, so neither is required on its own), and flagging it here
-    /// would make a legitimate shape fail.
+    /// Verifies that omitting an argument the schema advertises as required produces that tool's
+    /// coded refusal naming it.
     /// </summary>
+    /// <remarks>
+    /// The failure this catches is silent: an optional argument declared without a C# default is
+    /// advertised as required while the tool still substitutes a default and never refuses, so the
+    /// schema promises a constraint nothing enforces.
+    ///
+    /// Only that direction is checked. A tool refusing on an argument it never advertised as
+    /// required is indistinguishable from conditional requiredness, which the schema is not expected
+    /// to express - <c>request_elevation</c> takes either <c>grant</c> or <c>scope_roots</c> with
+    /// <c>op_class</c>, so neither is required on its own - and flagging it would fail a legitimate
+    /// shape.
+    /// </remarks>
     [Fact]
     public async Task AdvertisedRequiredArguments_AreEnforced()
     {
@@ -286,12 +293,13 @@ public sealed class NativeToolSchemaDispatchTests(NativeToolSchemaDispatchTests.
             {
                 [AdminToken] = new { id = "admin", opClasses = new[] { "*" }, vaults = new[] { "*" }, ttl = "*", scopeRoots = new Dictionary<string, string[]> { ["*"] = ["*"] } },
                 // request_elevation is gated by the per-grant opt-in rather than an op class, so its
-                // argument handling is only reachable from a grant that carries it.
+                // argument handling is only reachable from a grant that sets canRequestElevation.
                 [ElevateToken] = new { id = "elevate", opClasses = new[] { "content:read" }, vaults = new[] { "personal" }, ttl = "*", scopeRoots = new Dictionary<string, string[]> { ["personal"] = [] }, canRequestElevation = true },
             }));
 
-            // A throwaway tools/ directory with no scripts: this class asserts only native tools, and
-            // an empty directory keeps the host out of the Degraded state a broken script would cause.
+            // A throwaway tools/ directory with no scripts. These tests assert only native tools,
+            // and an empty directory keeps the host out of the Degraded state a broken script would
+            // cause.
             var toolsDir = Path.Combine(TempDir, "tools");
             Directory.CreateDirectory(toolsDir);
 

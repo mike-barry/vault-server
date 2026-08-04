@@ -6,12 +6,13 @@ using VaultShared.Tools;
 namespace VaultShared.Tests.Tools;
 
 /// <summary>
-/// <c>create</c> over a real tree and a synthetic declaration: both forms, the whole-block
-/// validation a supplied note goes through, the basename census and the order it runs in, and the
-/// refusals occupancy and the name grammar produce.
+/// Tests the <c>create</c> tool against a real directory tree and a synthetic frontmatter
+/// declaration: both the note and folder forms, the validation a supplied frontmatter block goes
+/// through, the basename census and the order it runs in, and the refusals raised by an occupied
+/// target or a name outside the grammar.
 ///
-/// The vocabulary is <see cref="Synthetic"/>'s, so nothing here asserts anything about the vault's
-/// real one. What is under test is the tool.
+/// The frontmatter vocabulary is <see cref="Synthetic"/>'s, so no test here depends on the real
+/// vault's registry.
 /// </summary>
 public sealed class CreateToolTests : IDisposable
 {
@@ -36,9 +37,13 @@ public sealed class CreateToolTests : IDisposable
 
     private ToolRefusal Refusal(object arguments) => Refusal(_vault, arguments);
 
-    /// <summary>The refusal as a caller sees it: a <see cref="FrontmatterRefusal"/> travels out in
-    /// its own vocabulary and is named through the one table where the envelope is rendered, which
-    /// is the step a front-end does and this tool does not.</summary>
+    /// <summary>Invokes the tool and returns the refusal a caller would see. A
+    /// <see cref="FrontmatterRefusal"/> is translated into a <see cref="ToolRefusal"/> here because
+    /// the tool does not do that itself; a front-end does it when it renders the envelope.</summary>
+    /// <param name="vault">The scratch vault to run the call against.</param>
+    /// <param name="arguments">The tool arguments, as an anonymous object.</param>
+    /// <returns>The refusal the call produced.</returns>
+    /// <exception cref="InvalidOperationException">The call succeeded instead of refusing.</exception>
     private static ToolRefusal Refusal(ScratchVault vault, object arguments)
     {
         try
@@ -59,8 +64,8 @@ public sealed class CreateToolTests : IDisposable
 
     // ---- The declaration ----
 
-    /// <summary>A write floor and no preview gate: a creation destroys nothing, so a plan would echo
-    /// the request back.</summary>
+    /// <summary>The declaration asks for a write floor and advertises no <c>apply</c> property. A
+    /// creation destroys nothing, so there is nothing for a preview to show.</summary>
     [Fact]
     public void DeclaresAWriteFloorAndMutates()
     {
@@ -83,8 +88,8 @@ public sealed class CreateToolTests : IDisposable
             result.ContentHash);
     }
 
-    /// <summary>Nothing is templated and no field is composed: what the caller sent is what
-    /// lands, block included.</summary>
+    /// <summary>Nothing is templated and no field is composed. The content the caller sent is what
+    /// lands on disk, frontmatter block included.</summary>
     [Fact]
     public void ASuppliedBlockIsStoredAsTheNotesOwnFrontmatter()
     {
@@ -101,8 +106,8 @@ public sealed class CreateToolTests : IDisposable
         Assert.Equal("# Fenced\n", split.Body);
     }
 
-    /// <summary>The supplied block is validated whole, because the caller supplied every key - so an
-    /// undeclared key is a refusal rather than something passed through.</summary>
+    /// <summary>The supplied block is validated as a whole, since the caller wrote every key in it.
+    /// An undeclared key is refused rather than passed through.</summary>
     [Fact]
     public void ASuppliedBlockIsValidatedWholeRatherThanKeyByKey()
     {
@@ -112,8 +117,9 @@ public sealed class CreateToolTests : IDisposable
         Assert.False(_vault.HasFile("Inbox/Bad.md"));
     }
 
-    /// <summary>Authority is classified over the outcome. Against no original the diff counts every
-    /// key present as changed, so a key the declaration prices is priced on creation too.</summary>
+    /// <summary>Authority is classified over the resulting frontmatter. There is no original to
+    /// diff against, so every key present counts as changed and a key the declaration requires
+    /// elevation for is charged on creation as well.</summary>
     [Fact]
     public void AKeyRequiringElevationIsAssertedAndReported()
     {
@@ -139,8 +145,8 @@ public sealed class CreateToolTests : IDisposable
         Assert.Contains(Synthetic.ElevatedClass, result.AssertedAuthority);
     }
 
-    /// <summary>The path policy prices the target as well, and creation routes through the write
-    /// path that consults it.</summary>
+    /// <summary>The path policy can require elevation for the target path too, and a note creation
+    /// routes through the write path that consults it.</summary>
     [Fact]
     public void ThePathPolicyPricesTheTargetOfACreation()
     {
@@ -161,16 +167,17 @@ public sealed class CreateToolTests : IDisposable
 
     // ---- The basename census ----
 
-    /// <summary>A name nothing else carries changes what no link resolves to, so no pass runs.
-    /// <b>Absent is not empty</b>: this is the difference the nullable member exists for.</summary>
+    /// <summary>A basename no other note carries cannot change what any link resolves to, so the
+    /// pinning pass does not run and <c>PinnedLinks</c> is null. A null member means the pass did
+    /// not run; an empty list means it ran and pinned nothing.</summary>
     [Fact]
     public void AUniqueBasenameRunsNoPassAndReportsNoPinnedMember()
     {
         Assert.Null(Create(new { path = "Inbox/Unheard-Of.md", kind = "note", content = "# New\n" }).PinnedLinks);
     }
 
-    /// <summary>A duplicated basename runs the pass. It may still pin nothing, and an empty list is
-    /// that finding rather than an absence.</summary>
+    /// <summary>A basename another note already carries runs the pinning pass, and the rewrites it
+    /// applied are reported.</summary>
     [Fact]
     public void ADuplicatedBasenameRunsThePassAndReportsWhatItPinned()
     {
@@ -182,16 +189,16 @@ public sealed class CreateToolTests : IDisposable
     }
 
     /// <summary>
-    /// The order is the whole of the guarantee. Interrupted after pinning, the vault holds links
-    /// naming a target that is still correct; interrupted after writing, it holds bare links that
-    /// have silently changed meaning - so a creation that cannot write its note must still have
-    /// pinned first.
+    /// Pins are written before the note is. Do not reverse the order: if the run is interrupted
+    /// after pinning, existing links still name the target they always named, but if it is
+    /// interrupted after the note is written, bare links have silently changed meaning. A creation
+    /// that fails to write its note must still have pinned.
     /// </summary>
     [Fact]
     public void PinsAreAppliedBeforeTheNoteIsWritten()
     {
-        // The destination's folder is gone, so the note cannot be created; the pass runs against a
-        // basename that is already in use and its rewrite has to have landed regardless.
+        // The destination folder does not exist, so the note cannot be created; the pass runs
+        // against a basename already in use and its rewrite must have landed anyway.
         var refusal = Refusal(new { path = "Nowhere/Notes.md", kind = "note", content = "# Notes\n" });
 
         Assert.Equal(ToolCodes.ParentMissing, refusal.Code);
@@ -199,8 +206,9 @@ public sealed class CreateToolTests : IDisposable
         Assert.Contains("[[Reference/Notes]]", _vault.TextOf("Projects/Widget/Widget.md"));
     }
 
-    /// <summary>Creating at a path that already exists plans no pin at all: the note is already one
-    /// of the candidates, so no link's resolution changes and the refusal is clean.</summary>
+    /// <summary>Creating at a path that already exists pins nothing. The note is already among the
+    /// candidates for its basename, so no link's resolution would change, and the refusal leaves
+    /// the vault untouched.</summary>
     [Fact]
     public void AnOccupiedTargetIsRefusedAndPinsNothingOnTheWay()
     {
@@ -221,12 +229,12 @@ public sealed class CreateToolTests : IDisposable
 
         Assert.True(_vault.HasFolder("Projects/Gizmo"));
         Assert.Null(result.ContentHash);
-        // A folder brings no note into existence, so no pass ran and the member is absent.
+        // A folder creates no note, so the pinning pass does not run and the member is null.
         Assert.Null(result.PinnedLinks);
     }
 
-    /// <summary>The placeholder is reached from the operand and never named by the caller: the
-    /// perimeter refuses a dot segment and the grammar refuses the spelling, both deliberately.</summary>
+    /// <summary>The <c>.gitkeep</c> placeholder is derived from the requested folder rather than
+    /// named by the caller, and it is created empty.</summary>
     [Fact]
     public void GitKeepSeedsThePlaceholderTheCallerCannotName()
     {
@@ -246,10 +254,9 @@ public sealed class CreateToolTests : IDisposable
     }
 
     /// <summary>
-    /// A caller still cannot name it, from either direction. As a note it carries no markdown
-    /// extension and never reaches the layer; as a folder it reaches the layer and meets the operand
-    /// perimeter, which refuses a dot segment whatever the grant. That is what makes internal reach
-    /// derived from the operand rather than caller-directed.
+    /// A caller cannot name the placeholder from either direction. Asked for as a note it carries
+    /// no markdown extension and is refused as an invalid path; asked for as a folder it reaches
+    /// the access layer, whose operand rules exclude any dot segment regardless of the grant.
     /// </summary>
     [Fact]
     public void ACallerCannotNameThePlaceholderItself()
@@ -258,8 +265,8 @@ public sealed class CreateToolTests : IDisposable
         Assert.Equal(ToolCodes.PathExcluded, Refusal(new { path = "Projects/Held/.gitkeep", kind = "folder" }).Code);
     }
 
-    /// <summary>A folder creation consults the vault's path policy itself: it routes through no
-    /// frontmatter write, so nothing else would.</summary>
+    /// <summary>A folder creation consults the path policy directly. It performs no frontmatter
+    /// write, so nothing else on the path would consult it.</summary>
     [Fact]
     public void ThePathPolicyPricesTheTargetOfAFolderCreation()
     {
@@ -274,8 +281,8 @@ public sealed class CreateToolTests : IDisposable
 
     // ---- Names and paths ----
 
-    /// <summary>The name grammar's refusal names a conforming spelling where one can be derived, so
-    /// the miss costs one retry.</summary>
+    /// <summary>A name outside the grammar is refused, and the refusal suggests a conforming
+    /// spelling where one can be derived.</summary>
     [Fact]
     public void ANameOutsideTheGrammarIsRefusedNamingASpellingThatWouldWork()
     {
@@ -286,8 +293,8 @@ public sealed class CreateToolTests : IDisposable
         Assert.False(_vault.HasFile("Inbox/new thought.md"));
     }
 
-    /// <summary>The extension is never inferred, and a note-kind call handed an extensionless path
-    /// is told the spelling that would have worked.</summary>
+    /// <summary>The markdown extension is never inferred. A note-kind call on an extensionless path
+    /// is refused and told the spelling that would have worked.</summary>
     [Fact]
     public void ANoteKindCallOnAnExtensionlessPathIsRefusedWithTheSpelling()
     {
@@ -297,8 +304,8 @@ public sealed class CreateToolTests : IDisposable
         Assert.Equal("Inbox/Thought.md", VaultToolHarness.Data(refusal)!["suggested"]);
     }
 
-    /// <summary>Read the other way: a folder operand carries no extension, and the disagreement
-    /// between the spelling and the assertion is the kind refusal.</summary>
+    /// <summary>The same rule in reverse: a folder path carries no extension, so a folder-kind call
+    /// on a path ending in <c>.md</c> is a kind mismatch.</summary>
     [Fact]
     public void AFolderKindCallOnANotePathIsTheKindRefusal()
     {

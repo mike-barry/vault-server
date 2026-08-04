@@ -4,11 +4,13 @@ using VaultShared.Access;
 namespace VaultShared.Tests;
 
 /// <summary>
-/// Reading, the two write forms, and folder creation, against a real directory tree. What is under
-/// test is what the layer makes load-bearing: classification that comes from the failure rather than
-/// from a probe, a creating write whose refusal is the filesystem's, nothing materializing a parent
-/// on the way past, and the encoding and terminators the composing seam states.
+/// Tests reading, the two write forms, and folder creation, against a real directory tree.
 /// </summary>
+/// <remarks>
+/// The behaviour these tests pin: an outcome is classified from the failure the filesystem raised
+/// rather than from an existence check run first; no operation creates a parent folder it passes
+/// through; and every write emits UTF-8 without a byte order mark and with line feeds.
+/// </remarks>
 public sealed class VaultFilesReadWriteTests : IDisposable
 {
     private readonly ScratchVault _vault = new();
@@ -57,9 +59,9 @@ public sealed class VaultFilesReadWriteTests : IDisposable
     [Fact]
     public void Read_ThereAndSomethingWentWrongIsTheOtherAnswer()
     {
-        // A folder is present and is not a note. The two answers are distinguished by the failure
-        // the filesystem raised, which is the whole requirement: no existence probe runs first, and
-        // a caller cannot be left to recover this from message text.
+        // A folder is present where a note was named. "Not found" and "failed" are told apart by
+        // the failure the filesystem raised, with no existence check run first, so a caller never
+        // has to recover the distinction from message text.
         _vault.WithFolder("Projects/Widget.md");
 
         var outcome = Assert.IsType<ReadOutcome.Failed>(VaultFiles.Read(_vault.ToRead("Projects/Widget.md")));
@@ -93,8 +95,8 @@ public sealed class VaultFilesReadWriteTests : IDisposable
     [Fact]
     public void Replace_RefusesATargetThatIsNotThereAndCreatesNothing()
     {
-        // Bringing a note into existence is the creating form's job. Replacing something absent
-        // would make the two forms one.
+        // Create is the form that brings a note into existence. If Replace also created, the two
+        // forms would be the same operation.
         _vault.WithFolder("Projects");
 
         var outcome = Assert.IsType<WriteOutcome.NotFound>(VaultFiles.Replace(_vault.ToWrite("Projects/Widget.md"), "# New\n"));
@@ -127,9 +129,8 @@ public sealed class VaultFilesReadWriteTests : IDisposable
     [Fact]
     public void Create_RefusesAnExistingTargetDistinguishablyAndDestroysNothing()
     {
-        // The refusal is the filesystem's answer to an atomic create rather than a check the layer
-        // ran first, which is what closes the window in which something else creates the file
-        // between the check and the write.
+        // The refusal comes from an atomic create rather than a check run first, which closes the
+        // window in which something else creates the file between the check and the write.
         _vault.WithNote("Projects/Widget.md", "# Original\n");
 
         var outcome = Assert.IsType<WriteOutcome.AlreadyExists>(VaultFiles.Create(_vault.ToWrite("Projects/Widget.md"), "# New\n"));
@@ -152,13 +153,14 @@ public sealed class VaultFilesReadWriteTests : IDisposable
     [Fact]
     public void Create_ChecksOnlyTheSegmentItBringsIntoExistence()
     {
-        // Every other segment already exists, so the grammar has nothing to say about it.
+        // Only the final segment is new, so the name grammar is not applied to the folders the
+        // path passes through.
         _vault.WithFolder("old projects");
 
         Assert.IsType<WriteOutcome.Written>(VaultFiles.Create(_vault.ToWrite("old projects/Widget.md"), "# Widget\n"));
     }
 
-    // ---- Nothing creates a parent on the way past ----
+    // ---- A missing parent is never created ----
 
     [Fact]
     public void Create_NamesTheMissingParentInVaultRelativeTermsAndMaterializesNothing()
@@ -229,7 +231,7 @@ public sealed class VaultFilesReadWriteTests : IDisposable
         Assert.Empty(Directory.EnumerateFileSystemEntries(_vault.Absolute("Projects/Widget")));
     }
 
-    // ---- The composing seam ----
+    // ---- Encoding and line endings ----
 
     [Fact]
     public void AWriteEmitsUtf8WithNoByteOrderMark()
@@ -248,8 +250,8 @@ public sealed class VaultFilesReadWriteTests : IDisposable
     [InlineData("# Widget\n\nBody.\n")]
     public void AWriteEmitsLineFeedsWhateverItWasHanded(string content)
     {
-        // Notes are stored with LF. Nothing detects what was there or preserves another convention,
-        // and the seam that composes bytes is where that is stated.
+        // Notes are stored with LF line endings. Nothing detects the line endings already in a
+        // file or preserves another convention.
         _vault.WithFolder("Projects");
 
         VaultFiles.Create(_vault.ToWrite("Projects/Widget.md"), content);

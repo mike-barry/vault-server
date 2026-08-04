@@ -10,14 +10,17 @@ using VaultShared.Tests;
 namespace VaultMcpServer.Tests;
 
 /// <summary>
-/// Unit coverage for the middleware's loopback gate: the selector->default
-/// binding and the minimum-access floor apply only to a loopback remote, while a non-loopback
-/// request must present a real token that <see cref="GrantStore.Authenticate"/> accepts - otherwise
-/// a fixed generic 401 with no Expired-vs-Unknown oracle in the body. Constructs the middleware
-/// directly with a <see cref="DefaultHttpContext"/> whose <c>RemoteIpAddress</c> is set explicitly,
-/// which the hosted TestServer can't vary per case. Uses <see cref="TestVaultFixture"/> only for a
-/// valid <see cref="VaultConfig"/> to validate the grant rows against.
+/// Covers the middleware's loopback gate. The selector-to-default binding and the minimum-access
+/// floor apply only to a loopback remote address; a non-loopback request must present a token
+/// <see cref="GrantStore.Authenticate"/> accepts, and otherwise gets a fixed generic 401 whose body
+/// does not reveal whether the token was expired or unknown.
 /// </summary>
+/// <remarks>
+/// Each test builds the middleware directly over a <see cref="DefaultHttpContext"/> with
+/// <c>RemoteIpAddress</c> set explicitly, because the hosted TestServer cannot vary that per case.
+/// <see cref="TestVaultFixture"/> supplies only a valid <see cref="VaultConfig"/> for the grant
+/// rows to be validated against.
+/// </remarks>
 public sealed class LoopbackAuthMiddlewareTests : IClassFixture<TestVaultFixture>, IDisposable
 {
     private const string SelectorToken = "test-loopback-selector";
@@ -127,8 +130,8 @@ public sealed class LoopbackAuthMiddlewareTests : IClassFixture<TestVaultFixture
 
         Assert.Equal(StatusCodes.Status401Unauthorized, unknownStatus);
         Assert.Equal(StatusCodes.Status401Unauthorized, expiredStatus);
-        // Unknown and expired are indistinguishable in the response body - the Expired-vs-Unknown
-        // distinction stays server-side (the audit log), never an oracle a remote caller can probe.
+        // Unknown and expired are indistinguishable in the response body. The distinction is
+        // recorded in the audit log only, so a remote caller cannot probe for it.
         Assert.Equal(BearerGrantMiddleware.UnauthorizedBody, unknownBody);
         Assert.Equal(unknownBody, expiredBody);
         Assert.DoesNotContain("expired", expiredBody, StringComparison.OrdinalIgnoreCase);

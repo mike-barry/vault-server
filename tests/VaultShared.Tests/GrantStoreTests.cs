@@ -21,8 +21,8 @@ public sealed class GrantStoreTests(TestVaultFixture fixture) : IClassFixture<Te
         return path;
     }
 
-    // The fixture's VaultConfig configures vaults "test" (default) and "scratch" - every row
-    // here names those, since GrantStore.Load now validates each row's vaults against the
+    // The fixture's VaultConfig configures vaults "test" (the default) and "scratch". Every row
+    // here names one of those, because GrantStore.Load validates each row's vaults against the
     // configured set.
     private const string TwoGrants = """
         {
@@ -31,10 +31,17 @@ public sealed class GrantStoreTests(TestVaultFixture fixture) : IClassFixture<Te
         }
         """;
 
-    /// <summary>A known-good row loaded alongside each bad row in the row-skip tests, proving a skip is per-row, not whole-file.</summary>
+    /// <summary>
+    /// A valid row loaded alongside each bad row in the row-skip tests, which shows that a skip
+    /// applies to one row rather than to the whole file.
+    /// </summary>
     private const string GoodRow = """ "good-token": { "id": "good", "opClasses": ["content:read"], "vaults": ["test"], "ttl": "*", "scopeRoots": { "test": ["*"] } } """;
 
-    /// <summary>Loads a grants.json built from the given rows (each a `"token": {...}` fragment) against the fixture config and a fresh health state.</summary>
+    /// <summary>
+    /// Loads a grants.json built from the given rows against the fixture config and a fresh sink.
+    /// </summary>
+    /// <param name="rows">The rows to join into the file, each a <c>"token": { ... }</c> fragment.</param>
+    /// <returns>The loaded store and the sink the load recorded into.</returns>
     private (GrantStore Store, RecordingProblemSink HealthState) LoadRows(params string[] rows)
     {
         var json = "{\n" + string.Join(",\n", rows) + "\n}";
@@ -90,8 +97,8 @@ public sealed class GrantStoreTests(TestVaultFixture fixture) : IClassFixture<Te
     [Fact]
     public void Load_EmptyObjectIsFatal()
     {
-        // Zero configured rows is a structurally-empty grant table - still whole-file Fatal,
-        // unlike a table whose rows were individually skipped.
+        // A file with no rows at all is a whole-file failure, unlike a file whose rows were
+        // individually skipped.
         var sink = new RecordingProblemSink();
         var store = GrantStore.Load(WriteGrants("{}"), OpClasses, _vaultConfig, sink: sink);
 
@@ -101,12 +108,10 @@ public sealed class GrantStoreTests(TestVaultFixture fixture) : IClassFixture<Te
     [Fact]
     public void Load_EveryRowSkipped_IsFatal()
     {
-        // All rows individually invalid: each still records its own Degraded skip (the
-        // per-row detail), but a grants.json that parses down to zero usable rows is
-        // functionally indistinguishable from an empty grant table - nobody can
-        // authenticate against it - so it now also records a Fatal problem, same as the
-        // structurally-empty-file case, instead of leaving the server merely Degraded with
-        // callers silently getting plain 401s.
+        // Every row is invalid, so each records its own degraded skip with its own detail. A file
+        // that parses down to zero usable rows leaves nobody able to authenticate, so the load
+        // also records a fatal problem, the same as for a file with no rows at all. Without it
+        // the server would stay merely degraded while every caller received a plain 401.
         var (store, sink) = LoadRows(
             """ "token-a": { "id": "a", "opClasses": ["Nope"], "vaults": ["test"], "ttl": "*", "scopeRoots": { "test": ["*"] } } """,
             """ "token-b": { "id": "b", "opClasses": ["content:read"], "vaults": ["gone"], "ttl": "*", "scopeRoots": { "gone": ["*"] } } """);
@@ -178,10 +183,10 @@ public sealed class GrantStoreTests(TestVaultFixture fixture) : IClassFixture<Te
     [Fact]
     public void Load_RowNamingASkippedVaultStillLoads()
     {
-        // A vault whose root is missing on disk is per-entry skipped by VaultConfig but is
-        // still CONFIGURED - a grant referencing it stays valid (the vault being broken is
-        // the vault's problem, not the grant's), so the grant works again without a grants
-        // reload once the root is restored and the server restarts.
+        // VaultConfig skips a vault whose root is missing on disk, but the vault is still
+        // configured, so a grant naming it stays valid. The broken root is the vault's problem
+        // rather than the grant's, and the grant works again after the root is restored and the
+        // server restarts, with no change to grants.json.
         var config = LoadConfigWithBrokenVault();
 
         var json = """{ "token-a": { "id": "admin", "opClasses": ["content:read"], "vaults": ["broken"], "ttl": "*", "scopeRoots": { "broken": ["*"] } } }""";
@@ -197,7 +202,7 @@ public sealed class GrantStoreTests(TestVaultFixture fixture) : IClassFixture<Te
     [Fact]
     public void Load_VaultsWildcardExpandsAcrossSkippedVaultsToo()
     {
-        // "*" expands against the FULL configured set, skipped vaults included, so a grant's
+        // "*" expands against the whole configured set, skipped vaults included, so a grant's
         // effective vault set stays stable while a vault root is temporarily broken.
         var config = LoadConfigWithBrokenVault();
 
@@ -209,9 +214,9 @@ public sealed class GrantStoreTests(TestVaultFixture fixture) : IClassFixture<Te
         Assert.True(grant.CanAccessVault("ok"));
         Assert.True(grant.CanAccessVault("broken"));
 
-        // The scope wildcard derives from the expanded vault set, so delegation carries the scope
-        // roots in with it: the skipped vault gets a real unscoped entry rather than being left
-        // without one, which is what keeps the grant whole across a restart that fixes the root.
+        // The scope wildcard expands over the same vault set, so the skipped vault gets its own
+        // unscoped entry instead of being left without one. That is what keeps the grant whole
+        // across a restart that fixes the root.
         Assert.Equal(VaultScope.Unscoped, grant.ScopeRoots["ok"]);
         Assert.Equal(VaultScope.Unscoped, grant.ScopeRoots["broken"]);
     }
@@ -463,9 +468,9 @@ public sealed class GrantStoreTests(TestVaultFixture fixture) : IClassFixture<Te
     [Fact]
     public void Load_ScopeRootsEmptyListForVault_SkipsRow()
     {
-        // The empty list is the one spelling a mistake produces on its own - a dropped entry, a
-        // list filtered to nothing - so it is rejected rather than read as whole-vault access.
-        // Losing content from a grant must never widen it.
+        // An empty list is what a dropped entry or a list filtered to nothing leaves behind, so it
+        // is rejected rather than read as whole-vault access. Losing content from a grant must
+        // never widen it.
         var (store, sink) = LoadRows(
             """ "token-a": { "id": "admin", "opClasses": ["content:read"], "vaults": ["test"], "ttl": "*", "scopeRoots": { "test": [] } } """,
             GoodRow);
@@ -476,9 +481,8 @@ public sealed class GrantStoreTests(TestVaultFixture fixture) : IClassFixture<Te
     [Fact]
     public void Load_ScopeRootsEmptyListIsRejectedRatherThanTreatedAsTheWildcard()
     {
-        // The discriminating pair: the same row differing only in the spelling of its scope. If
-        // the empty list were still read as unscoped these would agree, and this test would pass
-        // while proving nothing.
+        // Two rows differing only in the spelling of their scope. If an empty list were read as
+        // unscoped the two would behave the same and this test would prove nothing.
         var empty = GrantStore.Load(
             WriteGrants("""{ "token-a": { "id": "admin", "opClasses": ["content:read"], "vaults": ["test"], "ttl": "*", "scopeRoots": { "test": [] } } }"""),
             OpClasses, _vaultConfig, new RecordingProblemSink());
@@ -656,11 +660,14 @@ public sealed class GrantStoreTests(TestVaultFixture fixture) : IClassFixture<Te
             store.Mint("minted-1", new HashSet<string> { OpClass.Read }, new HashSet<string> { "test" }, ScopeRoots(("test", "")), ttlMinutes: 0));
     }
 
-    /// <summary>Shared assertion for the remaining whole-file-failure cases (missing file,
-    /// structurally-empty table): the load records a Fatal problem from source "GrantStore"
-    /// and returns an inert store nobody can authenticate against. Per-row validation
-    /// failures do not land here - they skip just their row; see
-    /// <see cref="AssertSingleRowSkipped"/>.</summary>
+    /// <summary>
+    /// Asserts the outcome shared by the whole-file failure cases, a missing file and a file with
+    /// no rows: the load records one fatal problem from source "GrantStore" and returns a store
+    /// nobody can authenticate against. A per-row validation failure skips only its row instead;
+    /// see <see cref="AssertSingleRowSkipped"/>.
+    /// </summary>
+    /// <param name="sink">The sink the failed load recorded into.</param>
+    /// <param name="store">The store the failed load returned.</param>
     private static void AssertFatalAndEmpty(RecordingProblemSink sink, GrantStore store)
     {
         Assert.True(sink.IsFatallyDegraded);
@@ -673,9 +680,15 @@ public sealed class GrantStoreTests(TestVaultFixture fixture) : IClassFixture<Te
         Assert.Null(store.Authenticate("readonly-token"));
     }
 
-    /// <summary>Shared assertion for every row-level skip case: exactly one Degraded problem
-    /// from source "GrantStore" (never Fatal - the server stays fully operational), the bad
-    /// "token-a" row does not authenticate, and the known-good row loaded normally.</summary>
+    /// <summary>
+    /// Asserts the outcome shared by every row-level skip case: exactly one degraded problem from
+    /// source "GrantStore", never a fatal one, and the valid row still loaded.
+    /// </summary>
+    /// <param name="sink">The sink the load recorded into.</param>
+    /// <param name="store">The store the load returned.</param>
+    /// <param name="expectedDetailFragment">
+    /// Text the recorded detail must contain, or <see langword="null"/> to accept any detail.
+    /// </param>
     private static void AssertSingleRowSkipped(RecordingProblemSink sink, GrantStore store, string? expectedDetailFragment = null)
     {
         Assert.False(sink.IsFatallyDegraded);
@@ -689,7 +702,11 @@ public sealed class GrantStoreTests(TestVaultFixture fixture) : IClassFixture<Te
         Assert.NotNull(store.Authenticate("good-token"));
     }
 
-    /// <summary>Loads a VaultConfig with a healthy vault "ok" (also the default) and a vault "broken" whose root does not exist - the per-entry-skip shape the skipped-vault grant tests need.</summary>
+    /// <summary>
+    /// Loads a VaultConfig holding a healthy default vault "ok" and a vault "broken" whose root
+    /// does not exist, so the load skips exactly one vault entry.
+    /// </summary>
+    /// <returns>The loaded configuration.</returns>
     private VaultConfig LoadConfigWithBrokenVault()
     {
         var configPath = Path.Combine(_tempDir, "vaults.json");
@@ -707,7 +724,12 @@ public sealed class GrantStoreTests(TestVaultFixture fixture) : IClassFixture<Te
         return config;
     }
 
-    /// <summary>Builds the per-vault <see cref="Grant.ScopeRoots"/> dictionary shape from (vault, subtree) pairs, grouping subtrees under their vault key.</summary>
+    /// <summary>
+    /// Builds a <see cref="Grant.ScopeRoots"/> dictionary from vault and subtree pairs, grouping
+    /// subtrees under their vault name.
+    /// </summary>
+    /// <param name="entries">The vault and subtree pairs to group.</param>
+    /// <returns>One scope per named vault.</returns>
     private static Dictionary<string, VaultScope> ScopeRoots(params (string Vault, string Subtree)[] entries)
     {
         var byVault = new Dictionary<string, HashSet<string>>();
@@ -720,7 +742,9 @@ public sealed class GrantStoreTests(TestVaultFixture fixture) : IClassFixture<Te
         return byVault.ToDictionary(kv => kv.Key, kv => VaultScope.Of(kv.Value));
     }
 
-    /// <summary>Asserts a vault's scope is confined to exactly <paramref name="expected"/>.</summary>
+    /// <summary>Asserts that a scope is rooted at exactly the expected paths.</summary>
+    /// <param name="expected">The roots the scope must hold, compared case-insensitively.</param>
+    /// <param name="actual">The scope to check.</param>
     private static void AssertRoots(IEnumerable<string> expected, VaultScope actual) =>
         Assert.Equal(
             expected.ToHashSet(StringComparer.OrdinalIgnoreCase),

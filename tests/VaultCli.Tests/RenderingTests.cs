@@ -5,14 +5,15 @@ using VaultShared.Tools;
 namespace VaultCli.Tests;
 
 /// <summary>
-/// What each stream carries, and what the exit code says. Standard output carries the answer and
-/// nothing else, so a caller can pipe it; standard error carries the refusal envelope, which is
-/// where the machine-readable vocabulary lives.
-///
-/// The parity cases come from <see cref="FrontEndParity"/>, which the MCP server's suite asserts
-/// against as well - the two together are what makes "byte-identical whichever front-end answered" a
-/// checked claim.
+/// Verifies what each output stream carries and what the exit code reports. Standard output carries
+/// the answer and nothing else, so a caller can pipe it; standard error carries the refusal
+/// envelope with its machine-readable code.
 /// </summary>
+/// <remarks>
+/// The parity cases come from <see cref="FrontEndParity"/>, which the MCP server's suite asserts
+/// against as well. Both suites reading the same cases is what makes the claim that the two
+/// front-ends produce identical bytes a checked one.
+/// </remarks>
 public sealed class RenderingTests(CliFixture fixture) : IClassFixture<CliFixture>
 {
     [Fact]
@@ -25,8 +26,8 @@ public sealed class RenderingTests(CliFixture fixture) : IClassFixture<CliFixtur
         Assert.Equal(string.Empty, run.Error);
     }
 
-    /// <summary>A structured result prints as JSON, because there is no text rendering of a mutation
-    /// result that is not a second statement of it.</summary>
+    /// <summary>A structured result prints as JSON even in text mode, because any text rendering of
+    /// a mutation result would just restate the same fields.</summary>
     [Fact]
     public void AStructuredResult_GoesToStandardOutputAsJson()
     {
@@ -37,8 +38,8 @@ public sealed class RenderingTests(CliFixture fixture) : IClassFixture<CliFixtur
         Assert.False(document.RootElement.GetProperty("applied").GetBoolean());
     }
 
-    /// <summary>Under <c>--output json</c> a content result is an envelope too, so a script consuming
-    /// this never has to sniff which tier answered before it can parse.</summary>
+    /// <summary>Under <c>--output json</c> a content result is wrapped in an envelope as well, so a
+    /// script can parse the output without first working out which result tier answered.</summary>
     [Fact]
     public void OutputJson_RendersAContentResultAsADocumentToo()
     {
@@ -69,8 +70,8 @@ public sealed class RenderingTests(CliFixture fixture) : IClassFixture<CliFixtur
     }
 
     /// <summary>
-    /// A refusal goes to standard error as the shared envelope, in both output modes: a caller
-    /// branches on <c>code</c> whichever way it asked for the answer.
+    /// A refusal is written to standard error as the shared envelope in both output modes, so a
+    /// caller branches on <c>code</c> whichever format it asked for.
     /// </summary>
     [Theory]
     [InlineData("text")]
@@ -85,9 +86,9 @@ public sealed class RenderingTests(CliFixture fixture) : IClassFixture<CliFixtur
     }
 
     /// <summary>
-    /// The CLI's half of the parity contract: the envelope it writes for a refusal is the bytes the
-    /// contract names, which is the same string the MCP server's suite asserts of an <c>isError</c>
-    /// result's text.
+    /// The CLI's half of the parity contract. The envelope it writes for a refusal matches the
+    /// expected bytes exactly, and the MCP server's suite asserts the same string of the text in an
+    /// <c>isError</c> result.
     /// </summary>
     [Theory]
     [MemberData(nameof(RefusalNames))]
@@ -114,8 +115,8 @@ public sealed class RenderingTests(CliFixture fixture) : IClassFixture<CliFixtur
         Assert.Equal(FrontEndParity.StructuredJson, output.ToString().TrimEnd('\r', '\n'));
     }
 
-    /// <summary>The content tier is the answer itself, and nothing here reformats it - the same text
-    /// the other front-end puts in its text block.</summary>
+    /// <summary>A content result is written through unchanged, matching the text the MCP front-end
+    /// puts in its text block.</summary>
     [Fact]
     public void TheContentTier_IsWrittenUnchanged()
     {
@@ -127,8 +128,8 @@ public sealed class RenderingTests(CliFixture fixture) : IClassFixture<CliFixtur
     }
 
     /// <summary>
-    /// The three exit codes, together, so the set is asserted as a set: nothing else answers, and no
-    /// two conditions collapse onto one code.
+    /// Asserts the three exit codes together as a set, so that no other code is returned and no two
+    /// conditions collapse onto the same one.
     /// </summary>
     [Fact]
     public void TheThreeExitCodes_AreSuccessRefusalAndUsage()
@@ -139,8 +140,8 @@ public sealed class RenderingTests(CliFixture fixture) : IClassFixture<CliFixtur
         Assert.Equal(ExitCodes.UsageError, fixture.Run(["no_such_tool"]).Exit);
     }
 
-    /// <summary>A narrow grant refuses a write at the floor, before anything is bound - and the
-    /// operator's remedy is to rerun naming a wider one, which is what elevation is here.</summary>
+    /// <summary>A narrow grant refuses a write at the operation-class floor, before arguments are
+    /// bound. The operator's remedy is to rerun with <c>--grant</c> naming a wider grant.</summary>
     [Fact]
     public void AWriteUnderANarrowGrant_IsRefusedAtTheFloor()
     {

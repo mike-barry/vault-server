@@ -3,11 +3,14 @@ using VaultShared.Access;
 namespace VaultShared.Tests;
 
 /// <summary>
-/// The two removals. A path does not say which of a file and a folder it names, so neither
-/// operation guesses: each states what it expects and fails on the other. Both refuse from the
-/// attempt rather than from a probe, and neither walks a tree - the caller holds the validated plan
-/// and drives it entry by entry.
+/// Tests <c>VaultFiles.RemoveFile</c> and <c>VaultFiles.RemoveEmptyFolder</c>.
 /// </summary>
+/// <remarks>
+/// A path does not say whether it names a file or a folder, so neither operation guesses: each
+/// removes only what it expects and fails on the other. Both refuse from the attempt rather than
+/// from a check run first, and neither walks a tree. A caller removing a tree holds the validated
+/// plan and drives it entry by entry.
+/// </remarks>
 public sealed class VaultFilesRemovalTests : IDisposable
 {
     private readonly ScratchVault _vault = new();
@@ -30,8 +33,8 @@ public sealed class VaultFilesRemovalTests : IDisposable
     [Fact]
     public void RemoveFile_NothingThereToRemoveIsItsOwnAnswer()
     {
-        // A removal runs against a plan built a moment earlier, so an entry that vanished in
-        // between is a different answer from one that could not be removed.
+        // A removal runs against a plan built a moment earlier, so an entry that vanished in the
+        // meantime must be a different outcome from one that could not be removed.
         _vault.WithFolder("Projects");
 
         var outcome = Assert.IsType<RemovalOutcome.NotFound>(VaultFiles.RemoveFile(_vault.ToWrite("Projects/Widget.md")));
@@ -83,7 +86,7 @@ public sealed class VaultFilesRemovalTests : IDisposable
     [Fact]
     public void RemoveEmptyFolder_RefusesAFolderHoldingAFileAndDestroysNothing()
     {
-        // The refusal comes from the attempt, not from an emptiness check run first.
+        // The refusal comes from the removal attempt, not from an emptiness check run first.
         _vault.WithNote("Projects/Widget/Widget.md", "# Widget\n");
 
         var outcome = Assert.IsType<RemovalOutcome.NotEmpty>(VaultFiles.RemoveEmptyFolder(_vault.ToWrite("Projects/Widget")));

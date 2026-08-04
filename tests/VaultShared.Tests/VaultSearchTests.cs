@@ -4,11 +4,14 @@ using VaultShared.Scope;
 namespace VaultShared.Tests;
 
 /// <summary>
-/// Content search at its three granularities, against a real engine over a real tree. The
-/// granularities are separate capabilities, so each is asserted on its own answer rather than on a
-/// projection of the richest one, and the four outcomes are asserted on all three: collapsing a
-/// caller's bad pattern into "search failed" is unrecoverable above the layer.
+/// Tests content search at its three granularities - matching lines, matching files, and per-file
+/// match counts - against a real search engine over a real directory tree.
 /// </summary>
+/// <remarks>
+/// Each granularity is asserted on its own results rather than on a projection of the richest one,
+/// and every outcome is asserted on all three. A caller cannot recover from a bad pattern being
+/// reported as a failed search, so the two must stay distinct at every granularity.
+/// </remarks>
 public sealed class VaultSearchTests : IDisposable
 {
     private readonly ScratchVault _vault = Layout(new ScratchVault());
@@ -67,7 +70,7 @@ public sealed class VaultSearchTests : IDisposable
         Assert.Equal(1, items.Single(c => c.Path.Value == "Notes/Sub/Nested.md").Count);
     }
 
-    // ---- The domain the three share ----
+    // ---- Behaviour common to all three ----
 
     [Fact]
     public void SearchAnswersNoteContentAndNotTheRestOfTheVault()
@@ -111,13 +114,13 @@ public sealed class VaultSearchTests : IDisposable
         Assert.IsType<PathResolution<ReadPath>.Admitted>(_vault.Access.ForRead(path.Value));
     }
 
-    // ---- The four outcomes, on every granularity ----
+    // ---- Outcomes, on every granularity ----
 
     [Fact]
     public void NoMatchIsAnEmptyResultRatherThanAFailure()
     {
-        // An empty answer is the correct answer to a well-formed question. A caller needing exactly
-        // one match enforces that itself.
+        // No match is a correct answer to a well-formed question. A caller that needs exactly one
+        // match checks for that itself.
         Assert.Empty(Assert.IsType<SearchOutcome<MatchLine>.Results>(_vault.Access.SearchLines("haystack")).Items);
         Assert.Empty(Assert.IsType<SearchOutcome<VaultPath>.Results>(_vault.Access.SearchFiles("haystack")).Items);
         Assert.Empty(Assert.IsType<SearchOutcome<MatchCount>.Results>(_vault.Access.SearchCounts("haystack")).Items);
@@ -134,7 +137,7 @@ public sealed class VaultSearchTests : IDisposable
     [Fact]
     public void AMalformedGlobIsTheSameCallerErrorAsAMalformedRegex()
     {
-        // Both arrive as the engine's refusal of the invocation, so one classification covers them.
+        // The engine refuses both the same way, so one outcome covers them.
         Assert.IsType<SearchOutcome<MatchLine>.BadPattern>(_vault.Access.SearchLines("needle", "["));
         Assert.IsType<SearchOutcome<VaultPath>.BadPattern>(_vault.Access.SearchFiles("needle", "["));
         Assert.IsType<SearchOutcome<MatchCount>.BadPattern>(_vault.Access.SearchCounts("needle", "["));
@@ -143,8 +146,8 @@ public sealed class VaultSearchTests : IDisposable
     [Fact]
     public void AFileThatCannotBeReadFailsTheWholeSearch()
     {
-        // Skipping it would turn a permissions problem into a wrong answer the caller cannot
-        // distinguish from a correct one, so nothing partial comes back.
+        // Skipping the file would turn a permissions problem into a wrong answer the caller cannot
+        // tell from a correct one, so no partial result comes back.
         using var held = _vault.Unreadable("Notes/Alpha.md");
 
         var lines = Assert.IsType<SearchOutcome<MatchLine>.Unreadable>(_vault.Access.SearchLines("needle"));
@@ -158,8 +161,8 @@ public sealed class VaultSearchTests : IDisposable
     [Fact]
     public void AnUnreadableFileFailsTheSearchEvenWhenNothingElseMatched()
     {
-        // The case a completion marker exists for: with no results to show, a run that failed on a
-        // file must still be told from a pattern the engine refused.
+        // With no results to show, a run that failed on a file must still be distinguishable from
+        // a pattern the engine refused.
         using var held = _vault.Unreadable("Notes/Alpha.md");
 
         Assert.IsType<SearchOutcome<VaultPath>.Unreadable>(_vault.Access.SearchFiles("haystack"));
@@ -170,9 +173,9 @@ public sealed class VaultSearchTests : IDisposable
     [Fact]
     public void AnUnreadableFileUnderADotDirectoryDoesNotFailADefaultSearch()
     {
-        // With dot entries off the walk is pruned at the engine, so a file a concurrent git
-        // operation holds locked is never read by a search that was never going to include it.
-        // Asked for dot entries, the same search reads the file and fails whole.
+        // With dot entries off, the engine prunes the walk, so a file held locked by a concurrent
+        // git operation is never read by a search that would not have included it. Asked for dot
+        // entries, the same search reads the file and fails.
         using var held = _vault.Unreadable(".obsidian/Deep.md");
 
         Assert.Equal(

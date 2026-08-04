@@ -3,13 +3,12 @@ using VaultShared.Tools;
 namespace VaultShared.Tests.Tools;
 
 /// <summary>
-/// The pure argument surfaces of <c>create</c>, <c>move</c> and <c>delete</c>: what each record can
-/// refuse before a vault is resolved and before anything is locked.
+/// Tests the argument records of <c>create</c>, <c>move</c> and <c>delete</c>: what each one refuses
+/// before a vault is resolved and before anything is locked.
 ///
-/// The three are here together because the rules they turn on are one rule each, stated across the
-/// set - kind is required exactly where the two kinds take different arguments, and an argument that
-/// cannot change an outcome for the supplied operand is refused rather than ignored - and a copy per
-/// tool would let the copies drift.
+/// The three are tested together because the rules they share are stated across the set: <c>kind</c>
+/// is required exactly where the two kinds take different arguments, and an argument that cannot
+/// affect the outcome for the given kind is refused rather than ignored.
 /// </summary>
 public sealed class MutationArgumentTests
 {
@@ -25,8 +24,8 @@ public sealed class MutationArgumentTests
         Assert.Equal("path", Fault(new MoveArguments("", "Projects/Widget.md")));
     }
 
-    /// <summary>The one constructed operand in the set, and the reason its spelling differs from
-    /// <c>path</c>: it names something that does not exist yet.</summary>
+    /// <summary>A move needs a destination. It is spelled <c>destination</c> rather than <c>path</c>
+    /// because it names something that does not exist yet.</summary>
     [Fact]
     public void MoveRequiresItsDestination()
     {
@@ -35,9 +34,9 @@ public sealed class MutationArgumentTests
 
     // ---- Kind ----
 
-    /// <summary>Kind is required on the two tools whose kinds take different arguments. It is
-    /// nullable on the record rather than defaulted, so omitting it refuses naming the argument
-    /// rather than silently meaning the first member.</summary>
+    /// <summary><c>kind</c> is required on the two tools whose two kinds take different arguments.
+    /// The property is nullable rather than defaulted, so omitting it is refused by name instead of
+    /// silently meaning the first enum member.</summary>
     [Fact]
     public void KindIsRequiredOnCreateAndDelete()
     {
@@ -45,8 +44,8 @@ public sealed class MutationArgumentTests
         Assert.Equal("kind", Fault(new DeleteArguments("Inbox/Widget.md", null)));
     }
 
-    /// <summary>On <c>move</c> both kinds take the same arguments, so the assertion buys only
-    /// fail-fast and a call that makes none is complete.</summary>
+    /// <summary>On <c>move</c> both kinds take the same arguments, so <c>kind</c> is optional. Sent,
+    /// it only makes a mismatch fail sooner.</summary>
     [Fact]
     public void KindIsOptionalOnMove()
     {
@@ -54,8 +53,8 @@ public sealed class MutationArgumentTests
         Assert.Null(Fault(new MoveArguments("Inbox/Widget.md", "Projects/Widget.md", Kind: OperandKind.Note)));
     }
 
-    /// <summary>An unrecognized enumerated value is refused in this vocabulary rather than through
-    /// the binder, which is what <see cref="EnumArgument"/> exists to make possible.</summary>
+    /// <summary>An unrecognized enum value is refused here, as an argument fault, rather than by the
+    /// binder. <see cref="EnumArgument"/> is what lets it get this far.</summary>
     [Fact]
     public void AnUnrecognizedKindIsRefusedHereRatherThanByTheBinder()
     {
@@ -66,8 +65,8 @@ public sealed class MutationArgumentTests
         Assert.Equal("kind", Fault(new MoveArguments("Inbox/Widget.md", "Projects/Widget.md", Kind: unrecognized)));
     }
 
-    /// <summary>An unrecognized value arrives through binding rather than throwing there, so the
-    /// whole path from the wire to the fault is what a caller actually meets.</summary>
+    /// <summary>The same value sent on the wire binds without throwing, so the refusal a caller
+    /// meets is the argument fault.</summary>
     [Fact]
     public void AnUnrecognizedKindSurvivesBindingSoTheToolCanRefuseIt()
     {
@@ -77,9 +76,9 @@ public sealed class MutationArgumentTests
         Assert.Equal("kind", Fault(bound));
     }
 
-    /// <summary>An absent optional kind stays absent rather than binding to an unrecognized
-    /// value - the serializer's nullable handling wraps the lenient reader rather than replacing
-    /// it.</summary>
+    /// <summary>An omitted optional <c>kind</c> binds to null rather than to an unrecognized value,
+    /// because the converter that tolerates unknown names is wrapped by the nullable handling rather
+    /// than replacing it.</summary>
     [Fact]
     public void AnAbsentOptionalKindBindsToNothingAtAll()
     {
@@ -90,7 +89,7 @@ public sealed class MutationArgumentTests
         Assert.Null(Fault(bound));
     }
 
-    // ---- Inert parameters ----
+    // ---- Arguments that cannot affect the outcome ----
 
     [Fact]
     public void GitKeepOnANoteIsRefusedRatherThanIgnored()
@@ -110,8 +109,8 @@ public sealed class MutationArgumentTests
         Assert.Equal("recursive", Fault(new DeleteArguments("Inbox/Widget.md", OperandKind.Note, Recursive: true)));
     }
 
-    /// <summary>A creation composes nothing and templates nothing, so the text is the whole
-    /// substance of the call; a caller wanting an empty note says so.</summary>
+    /// <summary>A note creation requires <c>content</c>, since nothing is templated or composed for
+    /// the caller. Empty text is accepted and creates an empty note.</summary>
     [Fact]
     public void ANoteCreationRequiresItsContentAndTakesEmptyTextForAnEmptyNote()
     {
@@ -119,7 +118,7 @@ public sealed class MutationArgumentTests
         Assert.Null(Fault(new CreateArguments("Inbox/Widget.md", OperandKind.Note, Content: "")));
     }
 
-    /// <summary>The arguments each kind does take are not faults on the kind that takes them.</summary>
+    /// <summary>An argument is accepted on the kind it applies to.</summary>
     [Fact]
     public void EachKindTakesItsOwnArguments()
     {
@@ -127,7 +126,7 @@ public sealed class MutationArgumentTests
         Assert.Null(Fault(new DeleteArguments("Projects/Widget", OperandKind.Folder, Recursive: true)));
     }
 
-    /// <summary>The gate is the same argument on both tools that carry one, and false by
+    /// <summary>Both tools that preview spell the gate <c>apply</c>, and it is false by
     /// default.</summary>
     [Fact]
     public void ThePreviewGateIsOffByDefaultOnBothToolsThatCarryOne()

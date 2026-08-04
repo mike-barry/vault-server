@@ -8,16 +8,20 @@ using VaultShared.Tests;
 namespace VaultMcpServer.Tests;
 
 /// <summary>
-/// End-to-end coverage for the dispatcher's authoritative vault-membership enforcement:
-/// <see cref="Tools.ScriptToolDispatcher.CallToolAsync"/> re-checks
-/// <c>grant.CanAccessVault</c> on the call's effective vault - the deserialized <c>vault</c>
-/// argument when present, else the configured default vault - for every tool that takes a Vault
-/// parameter. This is the check the middleware's best-effort body-peek 403 cannot be trusted to
-/// cover: an omitted vault argument (which resolves to the default) sails past the peek, so these
-/// cases exercise the dispatcher rather than the gate. Denials come back as normal MCP tool errors
-/// (<c>isError</c>) carrying the shared <c>{code, message, data?}</c> JSON, matching the op-class
-/// denial pattern and a tool script's own errors.
+/// Covers over HTTP that the dispatcher enforces vault membership for every tool that takes a
+/// Vault parameter. <see cref="Tools.ScriptToolDispatcher.CallToolAsync"/> re-checks
+/// <c>grant.CanAccessVault</c> against the call's effective vault: the deserialized <c>vault</c>
+/// argument when present, otherwise the configured default vault.
 /// </summary>
+/// <remarks>
+/// The dispatcher is the authoritative check. The middleware peeks at the request body and can
+/// return 403 early, but a call that omits the vault argument names no vault for the peek to see,
+/// so it passes the gate and is refused by the dispatcher instead. These tests cover that path.
+///
+/// A denial arrives as a normal MCP tool error (<c>isError</c>) carrying the shared
+/// <c>{code, message, data?}</c> JSON, the same shape as an op-class denial or a tool script's own
+/// error.
+/// </remarks>
 [Collection("Program host tests")]
 public sealed class VaultMembershipDispatchTests : IClassFixture<VaultMembershipDispatchTests.Fixture>
 {
@@ -63,17 +67,17 @@ public sealed class VaultMembershipDispatchTests : IClassFixture<VaultMembership
     [Fact]
     public async Task OmittedVault_ResolvingToOutOfMembershipDefault_IsDeniedAsToolError()
     {
-        // personal-only grant, default vault is "test": omitting the vault sails past the
-        // middleware peek (no vault named) and the dispatcher resolves the default "test", which
-        // is outside the grant - the gap this check closes.
+        // The grant holds "personal" only. Omitting the vault argument leaves the middleware peek
+        // nothing to match on, so the call reaches the dispatcher, which resolves the default
+        // vault "test" and finds it outside the grant.
         var body = """{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"note_tool","arguments":{"Name":"x"}}}""";
         var (status, isError, text) = await CallToolAsync(_fixture, Fixture.PersonalOnlyToken, body);
 
         Assert.Equal(HttpStatusCode.OK, status);
         Assert.True(isError, text);
 
-        // The denial is the shared {code, message, data?} shape, not prose: a caller routes on
-        // `code` whether the dispatcher or a tool script refused (Error Convention).
+        // The denial uses the shared {code, message, data?} shape rather than prose, so a caller
+        // routes on the code whether the dispatcher or a tool script refused.
         using var error = JsonDocument.Parse(text);
         Assert.Equal("out_of_scope", error.RootElement.GetProperty("code").GetString());
         Assert.Equal("test", error.RootElement.GetProperty("data").GetProperty("vault").GetString());
@@ -81,9 +85,9 @@ public sealed class VaultMembershipDispatchTests : IClassFixture<VaultMembership
     }
 
     /// <summary>
-    /// The denial must not become an enumeration surface: it names the vault the call effectively
-    /// targeted, and nothing about what the grant does hold (its vault set or op classes). Mirrors
-    /// the no-oracle posture the middleware's fixed 401 body keeps (LoopbackAuthMiddlewareTests).
+    /// Verifies that a denial names only the vault the call effectively targeted and says nothing
+    /// about what the grant holds. A caller must not be able to enumerate a grant's vaults or op
+    /// classes from refusals.
     /// </summary>
     [Fact]
     public async Task VaultDenial_DoesNotDiscloseTheGrantsOwnVaultsOrOpClasses()
@@ -102,9 +106,9 @@ public sealed class VaultMembershipDispatchTests : IClassFixture<VaultMembership
     [Fact]
     public async Task VaultArgument_IsMatchedCaseInsensitively()
     {
-        // Uppercase "Vault" key naming an in-membership vault, under a grant whose default vault
-        // ("test") is out of membership: the call succeeds only if the dispatcher matched the
-        // argument case-insensitively (else it would fall back to the default and deny).
+        // The grant does not hold the default vault "test", so the call can only succeed if the
+        // dispatcher matched the uppercase "Vault" key against the vault argument
+        // case-insensitively. Otherwise it falls back to the default and denies.
         var body = """{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"note_tool","arguments":{"Name":"x","Vault":"personal"}}}""";
         var (status, isError, text) = await CallToolAsync(_fixture, Fixture.PersonalOnlyToken, body);
 
@@ -125,9 +129,9 @@ public sealed class VaultMembershipDispatchTests : IClassFixture<VaultMembership
     [Fact]
     public async Task FloorGrant_VaultBearingTool_IsDenied()
     {
-        // An unknown token floors to minimum-access on loopback; a vault-bearing tool is denied as
-        // a tool error. The floor has neither op classes nor vaults, so the op-class check happens
-        // to reject it first - either way it never reaches the script, which is the point.
+        // An unrecognized token floors to minimum access on loopback. The floor grant holds
+        // neither op classes nor vaults, so the op-class check rejects the call before the
+        // membership check runs. Either way the script is never invoked.
         var body = """{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"note_tool","arguments":{"Name":"x"}}}""";
         var (status, isError, text) = await CallToolAsync(_fixture, "some-unrecognized-token", body);
 
@@ -150,8 +154,9 @@ public sealed class VaultMembershipDispatchTests : IClassFixture<VaultMembership
     [Fact]
     public async Task FloorGrant_RequestElevation_IsNotDeniedForVaultScope()
     {
-        // request_elevation names no vault, so it is out of scope of the membership check (it is a
-        // native, op-class-exempt tool) - it reaches its own logic rather than a vault denial.
+        // request_elevation is a native tool that is exempt from the op-class floor and takes no
+        // vault parameter, so the membership check does not apply and the call reaches the tool's
+        // own logic.
         var body = """{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"request_elevation","arguments":{"grant_id":"admin"}}}""";
         var (status, _, text) = await CallToolAsync(_fixture, "some-unrecognized-token", body);
 
@@ -159,9 +164,17 @@ public sealed class VaultMembershipDispatchTests : IClassFixture<VaultMembership
         Assert.DoesNotContain("not scoped to vault", text);
     }
 
+    /// <summary>
+    /// Hosts the server over two empty vaults, <c>personal</c> and <c>test</c>, with <c>test</c> as
+    /// the default vault, and registers one script tool that takes a Vault parameter.
+    /// </summary>
     public sealed class Fixture : ProgramHostFixtureBase
     {
+        /// <summary>A grant holding both vaults.</summary>
         public const string BroadToken = "test-membership-broad-token";
+
+        /// <summary>A grant holding <c>personal</c> alone, so the default vault <c>test</c> lies
+        /// outside it and an omitted vault argument is denied.</summary>
         public const string PersonalOnlyToken = "test-membership-personal-only-token";
 
         public Fixture() : base("vault-mcp-membership-tests-")
@@ -187,9 +200,9 @@ public sealed class VaultMembershipDispatchTests : IClassFixture<VaultMembership
 
             var toolsDir = Path.Combine(TempDir, "tools");
             Directory.CreateDirectory(toolsDir);
-            // A vault-bearing script tool that echoes rather than touching the filesystem - the
-            // membership check runs before the script does, so denied cases never invoke it, and
-            // allowed cases just need it to run cleanly.
+            // A script tool with a Vault parameter that echoes its arguments instead of touching
+            // the filesystem. The membership check runs before the script, so denied cases never
+            // invoke it and allowed cases only need it to run cleanly.
             File.WriteAllText(Path.Combine(toolsDir, "note_tool.ps1"), """
                 <#
                 .SYNOPSIS

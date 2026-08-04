@@ -3,13 +3,12 @@ using VaultShared.Tools;
 namespace VaultShared.Tests.Tools;
 
 /// <summary>
-/// The three read tools' argument records: what <c>Validate</c> refuses, and that an enumerated
-/// value the vocabulary does not carry gets there at all.
+/// Tests the argument records of the three read tools: what <c>Validate</c> refuses, and that an
+/// unrecognized enum value survives binding so the record can refuse it.
 ///
-/// The last one is the whole point of <see cref="EnumArgument"/>. The serializer's own enum handling
-/// throws, and a refusal escaping that way arrives shaped by the binder rather than by the
-/// catalogue - so these cases bind first, exactly as the execute path does, and then assert on the
-/// fault.
+/// That last point is what <see cref="EnumArgument"/> exists for. The serializer's own enum handling
+/// throws, and a refusal raised that way is worded by the binder rather than by the tool. These
+/// cases therefore bind first, as the execute path does, and then assert on the fault.
 /// </summary>
 public sealed class VaultToolArgumentTests
 {
@@ -68,8 +67,8 @@ public sealed class VaultToolArgumentTests
         Assert.Null(arguments.Validate());
     }
 
-    /// <summary>An absent vault is the caller asking for the configured default, which resolution
-    /// answers above the tool - not an argument fault.</summary>
+    /// <summary>Omitting the vault asks for the configured default, which the execute path resolves
+    /// before the tool runs. It is not an argument fault.</summary>
     [Fact]
     public void AnAbsentVault_IsNotAFault()
     {
@@ -88,7 +87,7 @@ public sealed class VaultToolArgumentTests
         Assert.Equal(expected, Bind<ReadArguments>(new { path = "A.md", part = sent }).Part);
     }
 
-    /// <summary>Trimmed and case-folded before comparison, as the argument rules require.</summary>
+    /// <summary>An enum value is trimmed and compared without regard to case.</summary>
     [Theory]
     [InlineData("  body  ")]
     [InlineData("BODY")]
@@ -107,14 +106,14 @@ public sealed class VaultToolArgumentTests
         var fault = Assert.IsType<ArgumentFault>(Bind<ReadArguments>(new { path = "A.md", part = "middle" }).Validate());
 
         Assert.Equal("part", fault.Argument);
-        // The message names what the vocabulary does carry, so the retry is one step.
+        // The message lists the values that are accepted, so the caller can retry once and succeed.
         Assert.Contains("\"all\"", fault.Message, StringComparison.Ordinal);
         Assert.Contains("\"frontmatter\"", fault.Message, StringComparison.Ordinal);
         Assert.Contains("\"body\"", fault.Message, StringComparison.Ordinal);
     }
 
-    /// <summary>An enumerated argument sent as something that is not a string at all is the same
-    /// refusal: the record still binds, and the tool's own vocabulary still decides.</summary>
+    /// <summary>An enum argument sent as something other than a string is refused the same way. The
+    /// record still binds, and the tool still decides.</summary>
     [Theory]
     [InlineData(7)]
     [InlineData(true)]
@@ -141,11 +140,11 @@ public sealed class VaultToolArgumentTests
         Assert.Equal(expected, Bind<GrepArguments>(new { pattern = "x", granularity = sent }).Granularity);
     }
 
-    // ---- The never-inferred extension ----
+    // ---- The markdown extension, which is never inferred ----
 
     /// <summary>
-    /// The refusal is <c>invalid_path</c> rather than an argument fault, because the catalogue puts
-    /// the missing extension there and gives it a payload an argument fault has nowhere to carry.
+    /// A missing extension is refused as an invalid path rather than as an argument fault, so that
+    /// the refusal can carry the suggested spelling. An argument fault has nowhere to put it.
     /// </summary>
     [Fact]
     public void ANoteOperandWithoutAnExtension_RefusesNamingTheSpellingThatWouldHaveWorked()
@@ -157,9 +156,9 @@ public sealed class VaultToolArgumentTests
     }
 
     /// <summary>
-    /// A path carrying some other extension gets no suggestion: appending <c>.md</c> to it would
-    /// name a third thing the caller did not mean, and a payload is only there to be lifted into a
-    /// corrected call.
+    /// A path carrying a different extension gets no suggestion. Appending <c>.md</c> to it would
+    /// name a third path the caller did not ask for, and the suggestion exists only to be sent back
+    /// as a corrected call.
     /// </summary>
     [Fact]
     public void ANoteOperandCarryingAnotherExtension_RefusesWithNoSuggestion()
@@ -170,7 +169,7 @@ public sealed class VaultToolArgumentTests
         Assert.Null(VaultToolHarness.Data(refusal));
     }
 
-    /// <summary>A dot in a folder name is not an extension on the note.</summary>
+    /// <summary>A dot in a folder name does not count as the note's extension.</summary>
     [Fact]
     public void ADottedFolderNameDoesNotStandInForTheNotesOwnExtension()
     {
@@ -179,8 +178,8 @@ public sealed class VaultToolArgumentTests
         Assert.Equal("v1.2/Widget.md", VaultToolHarness.Data(refusal)!["suggested"]);
     }
 
-    /// <summary>Matched case-insensitively, because enumeration hands back a note spelled
-    /// <c>.MD</c> and a path this surface produces has to be one it takes back.</summary>
+    /// <summary>The extension is matched without regard to case. Enumeration can return a note
+    /// spelled <c>.MD</c>, and a path these tools hand out must be one they accept back.</summary>
     [Theory]
     [InlineData("Widget.md")]
     [InlineData("Widget.MD")]
