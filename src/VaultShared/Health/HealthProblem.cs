@@ -3,24 +3,25 @@ namespace VaultShared.Health;
 /// <summary>How serious a recorded <see cref="HealthProblem"/> is.</summary>
 public enum ProblemSeverity
 {
-    /// <summary>A per-entry skip - one grants.json row, one vaults.json entry, one tool
-    /// script - that doesn't affect the rest of that file. Recorded either append-only
-    /// (<see cref="IConfigProblemSink.RecordDegraded"/>, for startup-only loads that never
-    /// re-run) or, by a host whose sources re-scan at runtime, as a replaceable per-source
-    /// set that a later scan can clear.</summary>
+    /// <summary>A per-entry skip - one grants.json row, one vaults.json entry, one tool script - that
+    /// leaves the rest of that file usable. A startup-only load records it append-only through
+    /// <see cref="IConfigProblemSink.RecordDegraded"/>; a host whose sources re-scan at runtime holds
+    /// it in a replaceable per-source set that a later scan can clear.</summary>
     Degraded,
 
-    /// <summary>Whole-file failure of vaults.json, grants.json, or op-classes.json - the
-    /// file is missing, unparseable, or structurally invalid. What a host does about one is
-    /// its own decision: the server serves 503 until it is fixed, and a single-invocation
-    /// front-end fails outright.</summary>
+    /// <summary>A whole-file failure of vaults.json, grants.json, or op-classes.json: the file is
+    /// missing, unparseable, or structurally invalid. What a host does about it is the host's
+    /// decision, so the server returns 503 until it is fixed and a single-invocation front-end fails
+    /// outright.</summary>
     Fatal,
 }
 
-/// <summary>One recorded config problem: how bad it is, what subsystem found it, and a
-/// human-readable detail message safe to put in a log line. <paramref name="SubjectPath"/> is
-/// the optional file this problem is about (e.g. the tool script that failed to load) - carried
-/// as structured data so consumers that need the path (the broken-tool listing in
-/// the MCP front-end's script-tool dispatcher) read it directly instead of parsing it back out of
-/// <paramref name="Detail"/>.</summary>
+/// <summary>Represents one recorded configuration problem.</summary>
+/// <param name="Severity">How serious it is.</param>
+/// <param name="Source">The subsystem that found it.</param>
+/// <param name="Detail">A human-readable message, safe to put in a log line.</param>
+/// <param name="RecordedAtUtc">When it was recorded.</param>
+/// <param name="SubjectPath">The file the problem is about, such as a tool script that failed to
+/// load, or null. It is carried as its own member so a consumer that needs the path reads it directly
+/// instead of parsing it back out of <paramref name="Detail"/>.</param>
 public sealed record HealthProblem(ProblemSeverity Severity, string Source, string Detail, DateTimeOffset RecordedAtUtc, string? SubjectPath = null);

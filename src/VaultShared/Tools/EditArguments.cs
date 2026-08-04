@@ -7,14 +7,21 @@ using VaultShared.Frontmatter;
 namespace VaultShared.Tools;
 
 /// <summary>
-/// <see cref="EditTool"/>'s arguments: ordered frontmatter operations plus at most one body change,
-/// applied as a single outcome.
-///
-/// <b>The operations stay structured.</b> An argument whose contract is an ordered list of
-/// operations is that on the wire - not a caller-encoded string, not flattened into siblings - so
-/// <see cref="OperationArgument"/> is the wire projection of the substrate's four capabilities and
-/// nothing between here and the write path re-reads it as text.
+/// Represents <see cref="EditTool"/>'s arguments: ordered frontmatter operations plus at most one
+/// body change, applied as a single outcome.
 /// </summary>
+/// <remarks>
+/// The operations stay structured on the wire, as a list of objects rather than a caller-encoded
+/// string or a set of flattened sibling arguments. <see cref="OperationArgument"/> is the wire
+/// projection of the frontmatter layer's four operations, and nothing between here and the write path
+/// re-reads it as text.
+/// </remarks>
+/// <param name="Path">The vault-relative path of the note to edit.</param>
+/// <param name="Vault">The vault the note is in, or null for the configured default.</param>
+/// <param name="Operations">Frontmatter operations, applied in order, or null for none.</param>
+/// <param name="Body">A change to the note's body, or null for none.</param>
+/// <param name="ExpectedContentHash">The content hash a prior read returned. Required for a wholesale
+/// body replacement and refused otherwise.</param>
 public sealed record EditArguments(
     [property: Description("Vault-relative path of the note, carrying the \".md\" extension. The extension is never inferred.")]
     string Path,
@@ -28,34 +35,34 @@ public sealed record EditArguments(
     string? ExpectedContentHash = null) : IVaultArguments
 {
     /// <summary>
-    /// The operations as sent, never null - every caller enumerates them, and an absent list is an
-    /// empty batch rather than a null check in each of them. It sits beside the member rather than
-    /// replacing it, because the schema derives from the record's own parameters and their order is
-    /// the order a model reads them in.
+    /// The operations as sent, never null, so callers can enumerate without a null check. It sits
+    /// beside <see cref="Operations"/> rather than replacing it, because the advertised schema derives
+    /// from the record's own parameters and their order is the order a model reads them in.
     /// </summary>
     [JsonIgnore]
     public IReadOnlyList<OperationArgument> Ordered => Operations ?? [];
 
     /// <summary>
-    /// Everything decidable from the record alone: the operand is named, the call changes
-    /// something, the body change is one of its two forms, the staleness guard is present exactly
-    /// where it can act, and every operation carries the arguments its own capability takes.
-    ///
-    /// The staleness guard's two rules are both here rather than in the tool's own plan phase,
-    /// because both are statements about the shape of the request: a wholesale replacement has
-    /// nothing to self-verify against and so needs the hash, and a hash with no wholesale
-    /// replacement cannot change an outcome. Comparing the hash against the file is the plan
-    /// phase's, and it is the only half that needs the note.
+    /// Checks everything decidable from the record alone: that the path is named, that the call
+    /// changes something, that the body change is exactly one of its two forms, that the staleness
+    /// guard is present exactly where it can act, and that every operation carries the arguments its
+    /// own operation takes.
     /// </summary>
+    /// <returns>The first fault found, or null.</returns>
+    /// <remarks>
+    /// Both staleness-guard rules live here rather than in the tool, because both are statements
+    /// about the shape of the request: a wholesale replacement has nothing to verify itself against
+    /// and so needs the hash, and a hash without a wholesale replacement cannot change any outcome.
+    /// Comparing the hash against the file needs the note and happens in the tool.
+    /// </remarks>
     public ArgumentFault? Validate()
     {
         if (ArgumentRules.Missing(Path, "path") is { } missing)
             return missing;
 
         // An edit naming neither an operation nor a body change is a read spelled as a mutation: it
-        // takes the lock, asserts nothing, and answers a hash. Refused rather than admitted, on the
-        // rule that an argument surface which cannot change an outcome is refused rather than
-        // ignored.
+        // would take the write lock, assert nothing, and return a hash. Refuse it, following the rule
+        // that an argument surface which cannot change an outcome is refused rather than ignored.
         if (Ordered.Count == 0 && Body is null)
             return new ArgumentFault("operations", "An edit carries at least one operation or a body change.");
 
@@ -85,19 +92,19 @@ public sealed record EditArguments(
 }
 
 /// <summary>
-/// The two forms of body change, distinguished because the staleness rule distinguishes them.
-/// <see cref="Content"/> replaces the body wholesale and requires a content hash;
-/// <see cref="Find"/> with <see cref="Replace"/> substitutes once and self-verifies through its own
-/// anchor.
-///
-/// Exactly one form. One form with an optional anchor would make the hash requirement conditional
-/// on a value rather than on a shape.
+/// Represents a change to a note's body, in one of two forms. <see cref="Content"/> replaces the body
+/// wholesale and requires a content hash. <see cref="Find"/> with <see cref="Replace"/> substitutes
+/// once and verifies itself through its own anchor text.
 /// </summary>
 /// <param name="Content">The whole new body, replacing everything after the closing fence.</param>
 /// <param name="Find">Text to substitute, which must occur exactly once in the body. Zero
-/// occurrences and more than one are each a refusal rather than a partial application.</param>
-/// <param name="Replace">What replaces it. Empty deletes the matched text, which is why its
-/// emptiness is not a fault.</param>
+/// occurrences and more than one are each refused rather than partly applied.</param>
+/// <param name="Replace">What replaces the matched text. Empty text deletes it, which is why empty
+/// is not a fault here.</param>
+/// <remarks>
+/// A call carries exactly one of the two forms. Merging them into one form with an optional anchor
+/// would make the content-hash requirement depend on a value rather than on the request's shape.
+/// </remarks>
 public sealed record BodyChange(
     [property: Description("The whole new body, replacing everything after the frontmatter block. Requires \"expected_content_hash\".")]
     string? Content = null,
@@ -106,6 +113,8 @@ public sealed record BodyChange(
     [property: Description("What replaces the matched text. Empty deletes it. Sent with \"find\".")]
     string? Replace = null)
 {
+    /// <summary>Checks that exactly one of the two forms is present and complete.</summary>
+    /// <returns>The fault, or null.</returns>
     internal ArgumentFault? Validate()
     {
         var wholesale = Content is not null;
@@ -129,14 +138,15 @@ public sealed record BodyChange(
 }
 
 /// <summary>
-/// One frontmatter operation on the wire: the projection of the substrate's four capabilities, and
-/// the only shape they arrive in. An entry kind is not an <see cref="Op"/> - the payload states its
-/// own variant, and the variants come from the vault's declaration rather than from a set of
-/// operation names.
-///
-/// The record is also the anchor's shape, where its members mean the placement and the entry the new
-/// one lands beside. Nothing else nests.
+/// Represents one frontmatter operation on the wire. These four are the only operations, and this is
+/// the only shape they arrive in. An entry's variant is never an <see cref="Op"/>: the payload states
+/// its own variant, and the variants come from the vault's declaration rather than from a fixed set
+/// of operation names.
 /// </summary>
+/// <remarks>
+/// The same record is reused for an anchor, where <see cref="Op"/> means the placement and
+/// <see cref="Target"/> means the entry the new one lands beside. Nothing else nests.
+/// </remarks>
 /// <param name="Op">One of <c>set</c>, <c>remove</c>, <c>add_entry</c>, <c>remove_entry</c> -
 /// or, inside an anchor, <c>before</c> or <c>after</c>. Trimmed and case-folded before comparison,
 /// and an unrecognized value is refused in this vocabulary rather than through the binder.</param>
@@ -148,7 +158,7 @@ public sealed record BodyChange(
 /// anchor, the identity of the entry the new one lands beside.</param>
 /// <param name="Variant">The variant to clear wholesale, for <c>remove_entry</c>. Refused unless the
 /// declaration says that variant may be cleared.</param>
-/// <param name="Anchor">Where an added entry goes. Absent appends: placement is explicit or it is an
+/// <param name="Anchor">Where an added entry goes. Absent appends; placement is either explicit or an
 /// append.</param>
 public sealed record OperationArgument(
     [property: Description("The operation: \"set\", \"remove\", \"add_entry\" or \"remove_entry\". Inside an anchor, \"before\" or \"after\".")]
@@ -166,7 +176,7 @@ public sealed record OperationArgument(
     [property: Description("Where an added entry goes: an object carrying \"op\" of \"before\" or \"after\" and \"target\" naming an entry already in the list. Absent appends.")]
     OperationArgument? Anchor = null)
 {
-    /// <summary>The four capabilities, as they are spelled on the wire.</summary>
+    /// <summary>The four operations, as they are spelled on the wire.</summary>
     internal const string SetOp = "set";
     internal const string RemoveOp = "remove";
     internal const string AddEntryOp = "add_entry";
@@ -176,18 +186,21 @@ public sealed record OperationArgument(
     internal const string BeforeOp = "before";
     internal const string AfterOp = "after";
 
-    /// <summary>The operation as dispatched: trimmed and case-folded, ahead of every comparison,
-    /// so no capability implements its own version of either.</summary>
+    /// <summary>The operation name, trimmed and lower-cased once here so that no comparison site
+    /// repeats the trimming and folding.</summary>
     private string Folded => Op?.Trim().ToLowerInvariant() ?? string.Empty;
 
     /// <summary>
-    /// Per-operation coherence, decidable from the record alone: the capability is one this
-    /// vocabulary carries, the key is named, and every member the operation does not take is absent.
-    /// <b>An argument that cannot change an outcome is refused, not ignored</b> - a value on a
-    /// removal and a variant on an add are each a fault rather than a member nothing reads.
+    /// Checks one operation's coherence from the record alone: that the operation is one of the four,
+    /// that a key is named, and that every member this operation does not take is absent.
     /// </summary>
-    /// <param name="index">Where in the caller's own list the operation sits, so a fault names the
-    /// operation a caller can find.</param>
+    /// <param name="index">Where in the caller's own list the operation sits, so a fault names an
+    /// operation the caller can find.</param>
+    /// <returns>The first fault found, or null.</returns>
+    /// <remarks>
+    /// An argument that cannot change the outcome is refused rather than ignored, so a value on a
+    /// removal or a variant on an add is a fault rather than a member nothing reads.
+    /// </remarks>
     internal ArgumentFault? Validate(int index)
     {
         var at = $"operations[{index}]";
@@ -225,7 +238,7 @@ public sealed record OperationArgument(
             case AddEntryOp when Anchor?.ValidateAsAnchor(at) is { } placement:
                 return placement;
 
-            // An identity or a variant, never both and never neither: the two address entirely
+            // An identity or a variant, never both and never neither. The two address entirely
             // different sets, and a removal naming neither addresses nothing.
             case RemoveEntryOp when (Target is null) == (Variant is null):
                 return new ArgumentFault(
@@ -239,10 +252,13 @@ public sealed record OperationArgument(
     }
 
     /// <summary>
-    /// The anchor's own coherence. It reuses this record for its shape, so the two members it
-    /// means - the placement in <see cref="Op"/>, the anchored entry in <see cref="Target"/> - are
-    /// the only ones it may carry, and its key is the operation's own.
+    /// Checks an anchor's coherence. An anchor reuses this record, so the only members it may carry
+    /// are the placement in <see cref="Op"/> and the anchored entry in <see cref="Target"/>; its key
+    /// is the owning operation's.
     /// </summary>
+    /// <param name="operationAt">The owning operation's argument name, so a fault points at the
+    /// anchor inside it.</param>
+    /// <returns>The first fault found, or null.</returns>
     private ArgumentFault? ValidateAsAnchor(string operationAt)
     {
         var at = $"{operationAt}.anchor";
@@ -261,7 +277,7 @@ public sealed record OperationArgument(
             return new ArgumentFault(at, $"\"{at}\" names no \"target\" - an anchor addresses an entry already in the list.");
 
         // The anchor addresses an entry under the operation's own key, so a key here could only
-        // disagree with it; the rest belong to a capability an anchor is not.
+        // disagree with it. The remaining members belong to operations an anchor is not.
         if (Key is not null)
             return new ArgumentFault(at, $"\"{at}\" carries a \"key\" - an anchor addresses an entry under its operation's own key.");
         if (Inert(at, Value, "value", permitted: false, SetOp) is { } value)
@@ -276,14 +292,23 @@ public sealed record OperationArgument(
         return null;
     }
 
+    /// <summary>Refuses a member the current operation does not take.</summary>
+    /// <param name="at">The argument name a fault points at.</param>
+    /// <param name="value">The member's value.</param>
+    /// <param name="member">The member's wire name.</param>
+    /// <param name="permitted">Whether the current operation takes this member.</param>
+    /// <param name="owner">The operation the member does belong to.</param>
+    /// <returns>A fault when the member is present and not permitted, otherwise null.</returns>
     private static ArgumentFault? Inert(string at, object? value, string member, bool permitted, string owner) =>
         value is null || permitted
             ? null
             : new ArgumentFault(at, $"\"{at}\" carries a \"{member}\", which means nothing here - it belongs to \"{owner}\".");
 
-    /// <summary>Every field of a mapping entry is a name and a value. A nested object or array has
-    /// no place in an entry, and passing one through would be a shape the emitter would have to
-    /// invent a rendering for.</summary>
+    /// <summary>Checks that every field of a mapping entry is a name and a plain value.</summary>
+    /// <param name="at">The argument name a fault points at.</param>
+    /// <param name="fields">The entry's fields.</param>
+    /// <returns>A fault when the entry has no fields or any field is a nested object or array,
+    /// otherwise null. The emitter has no rendering for a nested shape.</returns>
     private static ArgumentFault? FieldFault(string at, JsonObject fields)
     {
         if (fields.Count == 0)
@@ -297,10 +322,12 @@ public sealed record OperationArgument(
     }
 
     /// <summary>
-    /// <b>The one decode site.</b> The wire projection becomes the substrate's own capability here
-    /// and nowhere else, so the write path never sees a caller's shape and no second reading of it
-    /// exists to disagree with this one. It is total on a record <see cref="Validate"/> passed.
+    /// Converts this wire operation into the frontmatter layer's own operation type. This is the only
+    /// site that does so, so the write path never sees a caller's shape and no second reading of it
+    /// can disagree with this one.
     /// </summary>
+    /// <returns>The frontmatter operation. Total for any record <see cref="Validate"/> accepted.</returns>
+    /// <exception cref="InvalidOperationException">The record was not validated first.</exception>
     public FrontmatterOperation Decode() => Folded switch
     {
         SetOp => new FrontmatterOperation.SetScalar(Key!, Value!),
@@ -315,14 +342,14 @@ public sealed record OperationArgument(
     private EntryAnchor DecodeAnchor() =>
         new(Folded is AfterOp ? AnchorPlacement.After : AnchorPlacement.Before, Target!);
 
-    /// <summary>
-    /// An entry's payload: the fields in the order they were sent, or a bare value. Order is carried
-    /// across because it is the order the emitter writes, and a caller composing an entry chose it.
-    ///
-    /// A field's text is what a client sent it as. A JSON string is that string; a number or a
-    /// boolean is its own literal text, since the parse leaves every frontmatter scalar as text and
-    /// a value that is a number in a client's eyes is a string in the note.
-    /// </summary>
+    /// <summary>Converts a wire entry into the frontmatter layer's payload.</summary>
+    /// <param name="entry">The entry the caller sent.</param>
+    /// <returns>The fields in the order they were sent, or a bare scalar value. The order is carried
+    /// across because it is the order the emitter writes and the caller chose it.</returns>
+    /// <remarks>
+    /// A field's text is what the caller sent. A JSON string becomes that string; a number or boolean
+    /// becomes its own literal text, because every frontmatter scalar is text in the note.
+    /// </remarks>
     private static EntryPayload Payload(JsonNode entry) => entry switch
     {
         JsonObject fields => new EntryPayload.Mapping([.. fields.Select(f => new EntryFieldValue(f.Key, Text(f.Value!)))]),

@@ -6,29 +6,36 @@ namespace VaultShared.Configuration;
 
 /// <summary>
 /// Parses one vault's <c>path_policy</c> array out of <c>vaults.json</c> into a
-/// <see cref="PathPolicy"/>. The only producer of one.
+/// <see cref="PathPolicy"/>. This is its only producer.
 /// </summary>
 public static class PathPolicyParser
 {
-    /// <summary>
-    /// A malformed entry is dropped and recorded Degraded rather than failing the vault: the rest
-    /// of the policy still applies, and dropping an <c>always_readable</c> entry narrows the floor
-    /// rather than widening anything, so the safe direction is also the quiet one. Unrecognized
-    /// keys are refused rather than ignored - a positive allowlist, the same posture the
-    /// frontmatter registry takes, so a typo'd modifier cannot read as a policy someone declared.
-    /// </summary>
+    /// <summary>Parses a vault's <c>path_policy</c> array.</summary>
+    /// <param name="policy">The <c>path_policy</c> element.</param>
+    /// <param name="vaultName">The vault's name, quoted in messages.</param>
     /// <param name="vaultRoot">
-    /// The vault's resolved root. A declared target absent from disk is recorded Degraded and
-    /// kept - it is this vault's claim about its own layout, worth saying once, and a root
-    /// matching nothing widens nothing. An unresolvable vault is skipped before this is reached,
-    /// so there is no case here for a root that does not exist.
+    /// The vault's resolved root, used to check whether a declared target exists. A target absent
+    /// from disk is recorded Degraded and kept: it is this vault's claim about its own layout, worth
+    /// saying once, and a root matching nothing widens nothing. An unresolvable vault is skipped
+    /// before this runs, so there is no case here for a root that does not exist.
     /// </param>
+    /// <param name="configPath">The vaults.json path, quoted in messages.</param>
     /// <param name="opClasses">
-    /// The loaded op-class configuration, which a <c>mutation_requires</c> class is checked against
-    /// - the same cross-file check the frontmatter registry and grants both run, and for the same
-    /// reason: a policy naming an authority nothing defines is a protection nobody can satisfy and
-    /// nothing can enforce, which reads as working right up until it matters.
+    /// The loaded op-class configuration, which each <c>mutation_requires</c> class is checked
+    /// against. This is the same cross-file check the frontmatter registry and grants run, for the
+    /// same reason: a policy naming an authority nothing defines is a protection nobody can satisfy
+    /// and nothing can enforce, which looks like it works right up until it matters.
     /// </param>
+    /// <param name="sink">Receives a Degraded problem for each entry dropped.</param>
+    /// <returns>The policy, or <see cref="PathPolicy.None"/> where nothing usable was
+    /// declared.</returns>
+    /// <remarks>
+    /// A malformed entry is dropped and recorded Degraded rather than failing the vault. The rest of
+    /// the policy still applies, and dropping an <c>always_readable</c> entry narrows the read floor
+    /// rather than widening anything, so the quiet direction is also the safe one. An unrecognized
+    /// key is refused rather than ignored, so a mistyped modifier cannot read as a policy someone
+    /// declared.
+    /// </remarks>
     public static PathPolicy Parse(
         JsonElement policy, string vaultName, string vaultRoot, string configPath, OpClassRegistry opClasses, IConfigProblemSink sink)
     {
@@ -59,9 +66,9 @@ public static class PathPolicyParser
                             $"{configPath}: vault \"{vaultName}\" declares \"{root}\" always_readable, but it does not exist ({full}) - it stays in effect and matches nothing.");
                 }
 
-                // De-duplicated by target rather than by entry: a target declared twice with two
-                // classes would union to both anyway, and one declared twice with one class is a
-                // repetition. Keeping the first keeps the list the order it was declared in.
+                // De-duplicate by target and class rather than by entry. A target declared twice
+                // with two classes unions to both anyway, and one declared twice with the same
+                // class is a repetition. Keeping the first occurrence keeps the declared order.
                 if (parsed.MutationRequires is { } opClass && seenMutation.Add($"{parsed.Path}|{parsed.Rule}|{opClass}"))
                     mutationRules.Add(new PathPolicy.MutationRule(
                         parsed.Rule is { } rule
@@ -79,15 +86,24 @@ public static class PathPolicyParser
     }
 
     /// <summary>
-    /// One well-formed entry: its target, as exactly one of a canonicalized vault-relative
-    /// <paramref name="Path"/> or a named <paramref name="Rule"/>, and the modifiers it carries.
+    /// Represents one well-formed policy entry: its target, which is exactly one of a path or a rule,
+    /// and the modifiers it carries.
     /// </summary>
+    /// <param name="Path">The canonicalized vault-relative path, or null where the entry names a
+    /// rule.</param>
+    /// <param name="Rule">The named structural rule, or null where the entry names a path.</param>
+    /// <param name="AlwaysReadable">Whether the entry declares its target always readable.</param>
+    /// <param name="MutationRequires">The op class mutating the target requires, or null.</param>
     private readonly record struct PolicyEntry(string? Path, StructuralRule? Rule, bool AlwaysReadable, string? MutationRequires);
 
-    /// <summary>
-    /// Validates one entry. Throws <see cref="InvalidDataException"/> on anything malformed, which
-    /// the caller turns into a dropped entry rather than a failed vault.
-    /// </summary>
+    /// <summary>Validates one policy entry.</summary>
+    /// <param name="entry">The entry element.</param>
+    /// <param name="vaultName">The vault's name, quoted in messages.</param>
+    /// <param name="configPath">The vaults.json path, quoted in messages.</param>
+    /// <param name="opClasses">Validates the declared <c>mutation_requires</c> class.</param>
+    /// <returns>The parsed entry.</returns>
+    /// <exception cref="InvalidDataException">The entry is malformed, which the caller turns into a
+    /// dropped entry rather than a failed vault.</exception>
     private static PolicyEntry ParseEntry(JsonElement entry, string vaultName, string configPath, OpClassRegistry opClasses)
     {
         var where = $"{configPath}: vault \"{vaultName}\"";
@@ -109,8 +125,8 @@ public static class PathPolicyParser
                         : throw new InvalidDataException($"{where} has a \"path_policy\" entry with an empty \"path\".");
                     break;
 
-                // A target that is a shape rather than a place, from a closed set. The rule is
-                // code; the declaration decides whether it applies and at what price, so an
+                // A target that is a shape rather than a place, from a closed set. The rule is code
+                // and the declaration only decides whether it applies and what it costs, so an
                 // unrecognized name is a rule nothing implements rather than one to pass through.
                 case "rule":
                     rule = field.Value.GetString() is { Length: > 0 } name
@@ -153,8 +169,8 @@ public static class PathPolicyParser
         if (!alwaysReadable && mutationRequires is null)
             throw new InvalidDataException($"{where} has a \"path_policy\" entry for \"{target}\" carrying no modifier - an entry that says nothing is a policy someone believes they declared.");
 
-        // always_readable is unioned into scope roots, and those are folder prefixes, so a
-        // structural rule has nothing to contribute to one.
+        // always_readable is unioned into scope roots, which are folder prefixes, so a structural
+        // rule has nothing it could contribute to one.
         if (alwaysReadable && rule is not null)
             throw new InvalidDataException($"{where} declares \"{target}\" always_readable - always_readable takes a \"path\", since a read scope is a set of path prefixes.");
 

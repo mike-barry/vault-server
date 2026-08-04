@@ -1,9 +1,9 @@
 namespace VaultShared.Auth;
 
 /// <summary>
-/// The context an <see cref="IElevationApprover"/> reviews: who is asking, what they hold now,
-/// what they want, for how long, and any session context worth showing a human approver. Carries
-/// grant ids (never tokens) so it is safe to log and to surface in an approval prompt.
+/// Represents the context an <see cref="IElevationApprover"/> reviews: who is asking, what they hold
+/// now, what they want, for how long, and any session context worth showing a human approver. It
+/// carries grant ids and never tokens, so it is safe to log and to show in an approval prompt.
 /// </summary>
 /// <param name="PrincipalGrantId">The id of the grant the requesting session currently resolves
 /// to (its base or currently-bound authority).</param>
@@ -22,25 +22,39 @@ public sealed record ElevationRequest(
     int TtlMinutes,
     string? SessionContext);
 
-/// <summary>An approver's verdict. <paramref name="Reason"/> explains a denial (surfaced in the
-/// tool error) and may annotate an approval.</summary>
+/// <summary>Represents an approver's verdict.</summary>
+/// <param name="Approved">Whether the elevation was approved.</param>
+/// <param name="Reason">Explains a denial, which the tool error surfaces, and may annotate an
+/// approval.</param>
 public sealed record ElevationDecision(bool Approved, string? Reason)
 {
+    /// <summary>Creates an approval.</summary>
+    /// <param name="reason">Optional annotation.</param>
+    /// <returns>The decision.</returns>
     public static ElevationDecision Approve(string? reason = null) => new(true, reason);
+
+    /// <summary>Creates a denial.</summary>
+    /// <param name="reason">Why the request was denied.</param>
+    /// <returns>The decision.</returns>
     public static ElevationDecision Deny(string reason) => new(false, reason);
 }
 
 /// <summary>
-/// The pluggable approval seam for an elevation rebind (see the <c>request_elevation</c> tool).
-/// A real provider (out-of-band push with scope + TTL + requesting session shown, so approval is
-/// not reflexive theater) slots in behind this later without touching the rebind mechanism; the
-/// shipped implementation is a config-selected stub. Only matters once a default-minimal
-/// environment exists - on a dev machine the default binding is already admin, so elevation is
-/// off the daily path.
+/// Reviews elevation rebind requests raised by the <c>request_elevation</c> tool.
 /// </summary>
+/// <remarks>
+/// This interface exists so a real approval provider - an out-of-band prompt showing the scope, the
+/// TTL and the requesting session, so approval is a decision rather than a reflex - can be added
+/// later without changing the rebind mechanism. The shipped implementation is a stub selected by
+/// configuration. It only matters once an environment defaults to minimum access; on a development
+/// machine the default binding is already admin, so elevation is off the daily path.
+/// </remarks>
 public interface IElevationApprover
 {
-    /// <summary>Reviews an elevation request and returns an approve/deny decision. Async so a
-    /// real provider can await an out-of-band human response.</summary>
+    /// <summary>Reviews an elevation request.</summary>
+    /// <param name="request">What is being asked for, and by whom.</param>
+    /// <param name="cancellationToken">Cancels the review.</param>
+    /// <returns>The approve-or-deny decision. The method is asynchronous so a real provider can await
+    /// an out-of-band human response.</returns>
     Task<ElevationDecision> ReviewAsync(ElevationRequest request, CancellationToken cancellationToken);
 }

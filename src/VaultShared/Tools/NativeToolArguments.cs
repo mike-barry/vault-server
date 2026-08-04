@@ -8,38 +8,39 @@ using System.Text.Json.Serialization.Metadata;
 namespace VaultShared.Tools;
 
 /// <summary>
-/// The single argument contract for a compiled tool: one C# record per
-/// tool is both the deserialization target and the source of the advertised <c>inputSchema</c>,
-/// derived by <c>System.Text.Json.Schema</c>'s <c>JsonSchemaExporter</c> from the same
-/// <see cref="JsonTypeInfo"/> contract that drives binding. A hand-authored
-/// <c>Dictionary&lt;string, object&gt;</c> schema literal beside a hand-walked
-/// <see cref="JsonElement"/> reader is two statements of one contract that drift independently;
-/// this is one statement.
-///
-/// The schema exporter and the binder deliberately share <see cref="Options"/> - the same instance,
-/// not two configured alike - because a policy set on one and not the other advertises one wire
-/// vocabulary while binding another.
-///
-/// What derives and what does not: the exporter states the argument's <em>shape</em> - names, types,
-/// required-ness. It cannot state <em>meaning</em>, so every semantic rule a native tool enforces
-/// (a scope root that is not <c>"*"</c>, a positive TTL, "exactly one of these two forms") stays as
-/// explicit post-binding validation inside the tool, raising that tool's own coded refusal. See
-/// <see cref="OffendingArgument"/> for the boundary between the two.
+/// Binds a compiled tool's arguments and derives its advertised <c>inputSchema</c>. One C# record
+/// per tool is both the deserialization target and the source of the schema, which
+/// <c>JsonSchemaExporter</c> derives from the same <see cref="JsonTypeInfo"/> contract that drives
+/// binding, so the shape is stated once.
 /// </summary>
+/// <remarks>
+/// <para>
+/// The exporter and the binder must share the same <see cref="Options"/> instance, not two instances
+/// configured alike. A policy set on one and not the other advertises one wire vocabulary while
+/// binding another.
+/// </para>
+/// <para>
+/// The exporter states an argument's shape - names, types, and which are required - and cannot state
+/// its meaning. Every semantic rule a tool enforces, such as a scope root that is not <c>"*"</c>, a
+/// positive TTL, or a choice of exactly one of two forms, stays as explicit validation inside the
+/// tool, raising that tool's own coded refusal.
+/// </para>
+/// </remarks>
 public static class NativeToolArguments
 {
     /// <summary>
-    /// Shared by the exporter and the binder, so an advertised property name and the name that
-    /// actually binds can never disagree.
-    ///
-    /// <b><see cref="JsonNamingPolicy.SnakeCaseLower"/> is pinned, not incidental.</b> The wire
-    /// vocabulary is <c>snake_case</c> (<c>scope_roots</c>, <c>op_class</c>, <c>session_context</c>) -
-    /// the same rule a script tool's <c>param()</c> block follows. Dropping the policy renames
-    /// every multi-word argument to <c>camelCase</c> on <em>both</em> sides at once: the schema and
-    /// the binder stay consistent with each other while every existing caller breaks. That is the one
-    /// way this layer can regress the wire contract with nothing failing, which is why
-    /// <c>NativeToolSchemaTests</c> pins each tool's advertised property names verbatim.
+    /// The serializer options shared by the schema exporter and the binder, so an advertised property
+    /// name and the name that actually binds can never disagree.
     /// </summary>
+    /// <remarks>
+    /// Do not remove <see cref="JsonNamingPolicy.SnakeCaseLower"/>. The wire vocabulary is
+    /// <c>snake_case</c> (<c>scope_roots</c>, <c>op_class</c>, <c>session_context</c>), the same rule
+    /// a script tool's <c>param()</c> block follows. Dropping the policy renames every multi-word
+    /// argument to <c>camelCase</c> on both sides at once, so the schema and the binder stay
+    /// consistent with each other while every existing caller breaks. That is the one way this layer
+    /// can regress the wire contract without anything failing, which is why
+    /// <c>NativeToolSchemaTests</c> pins each tool's advertised property names verbatim.
+    /// </remarks>
     public static readonly JsonSerializerOptions Options = new()
     {
         // JsonSchemaExporter refuses an options instance with no resolver; the reflection-based
@@ -48,17 +49,17 @@ public static class NativeToolArguments
         PropertyNamingPolicy = JsonNamingPolicy.SnakeCaseLower,
         // An enumerated argument binds by its wire spelling and never refuses here, so an
         // unrecognized value reaches the tool's own Validate rather than escaping as a binder
-        // failure - see EnumArgument.
+        // failure. See EnumArgument.
         Converters = { EnumArgument.Converter },
     };
 
     private static readonly JsonSchemaExporterOptions ExporterOptions = new() { TransformSchemaNode = Transform };
 
     /// <summary>
-    /// The <c>inputSchema</c> for a native tool that takes no arguments. A zero-member record would
-    /// be a deserialization target with nothing to deserialize, and the exporter emits
-    /// <c>{"type":"object"}</c> for one - dropping the <c>properties</c> member that has always been
-    /// on the wire. Stating it once here keeps that shape and keeps the literal out of the tools.
+    /// The <c>inputSchema</c> for a tool that takes no arguments. The exporter emits
+    /// <c>{"type":"object"}</c> for a record with no members, which drops the <c>properties</c>
+    /// member callers expect on the wire, so the correct shape is stated here once instead of as a
+    /// literal in each tool.
     /// </summary>
     public static readonly JsonElement None = JsonSerializer.SerializeToElement(new Dictionary<string, object>
     {
@@ -66,19 +67,20 @@ public static class NativeToolArguments
         ["properties"] = new Dictionary<string, object>(),
     });
 
-    /// <summary>Derives <typeparamref name="T"/>'s MCP <c>inputSchema</c>. Called once per tool, from a
-    /// field initializer - the result is immutable and shared for the process lifetime.</summary>
+    /// <summary>Derives the MCP <c>inputSchema</c> for an argument record type.</summary>
+    /// <typeparam name="T">The argument record type.</typeparam>
+    /// <returns>The schema. It is immutable and shared for the process lifetime.</returns>
     public static JsonElement Schema<T>() => SchemaFor(typeof(T));
 
     /// <summary>
-    /// The advertised schema for the argument record a <see cref="ToolDeclaration"/> names. Cached
-    /// per type: a declaration carries the type rather than a derived schema, so the projection asks
-    /// for it on every listing and the derivation should happen once.
-    ///
-    /// <see cref="NoArguments"/> answers <see cref="None"/> - the exporter emits
-    /// <c>{"type":"object"}</c> for a record with no members, dropping the <c>properties</c> member
-    /// that has always been on the wire.
+    /// Returns the advertised schema for the argument record a <see cref="ToolDeclaration"/> names.
     /// </summary>
+    /// <param name="arguments">The argument record type.</param>
+    /// <returns>The schema, or <see cref="None"/> for <see cref="NoArguments"/>.</returns>
+    /// <remarks>
+    /// Cached per type. A declaration carries the type rather than a derived schema, so a front-end
+    /// asks for the schema on every listing and the derivation has to happen only once.
+    /// </remarks>
     public static JsonElement SchemaFor(Type arguments) =>
         arguments == typeof(NoArguments)
             ? None
@@ -87,15 +89,16 @@ public static class NativeToolArguments
     private static readonly ConcurrentDictionary<Type, JsonElement> Schemas = new();
 
     /// <summary>
-    /// Binds the dispatcher's raw argument map onto <typeparamref name="T"/>. Throws
-    /// <see cref="JsonException"/> for anything that does not fit the advertised shape - which is not
-    /// a <c>{code, message, data?}</c> error, so every caller must catch it at the tool boundary and
-    /// re-raise it through the shared error envelope as <c>invalid_argument</c>.
-    ///
-    /// A member the caller omitted arrives as <c>null</c> rather than throwing: the schema's
-    /// <c>required</c> list advertises the requirement, and the tool's own refusal - which names the
-    /// argument and says what it needs - states it.
+    /// Binds a raw argument map onto an argument record type.
     /// </summary>
+    /// <typeparam name="T">The argument record type.</typeparam>
+    /// <param name="arguments">The call's raw argument map.</param>
+    /// <returns>The bound record. A member the caller omitted arrives as null rather than throwing;
+    /// the schema's <c>required</c> list advertises the requirement and the tool's own validation
+    /// enforces it.</returns>
+    /// <exception cref="JsonException">The arguments do not fit the advertised shape. This is not a
+    /// <c>{code, message, data?}</c> refusal, so a caller must catch it at the tool boundary and
+    /// re-raise it through <see cref="ToolRefusalEnvelope"/> as <c>invalid_argument</c>.</exception>
     public static T Bind<T>(IReadOnlyDictionary<string, JsonElement> arguments)
     {
         // The naming policy governs member names, not dictionary keys, so the caller's keys survive
@@ -106,10 +109,14 @@ public static class NativeToolArguments
     }
 
     /// <summary>
-    /// The same binding, onto the type a <see cref="ToolDeclaration"/> names rather than a compile-time
-    /// one. The shared execute path is generic over every tool and holds the argument record as a
-    /// <see cref="Type"/>, so this is the form it needs.
+    /// Binds a raw argument map onto the type a <see cref="ToolDeclaration"/> names. The shared
+    /// execute path handles every tool and holds the argument record as a <see cref="Type"/>, so this
+    /// is the form it uses.
     /// </summary>
+    /// <param name="arguments">The argument record type.</param>
+    /// <param name="values">The call's raw argument map.</param>
+    /// <returns>The bound record.</returns>
+    /// <exception cref="JsonException">The arguments do not fit the advertised shape.</exception>
     public static IToolArguments Bind(Type arguments, IReadOnlyDictionary<string, JsonElement> values)
     {
         var json = JsonSerializer.SerializeToUtf8Bytes(values, Options);
@@ -117,11 +124,12 @@ public static class NativeToolArguments
     }
 
     /// <summary>
-    /// The wire argument name a binding <see cref="JsonException"/> is about, read off its
-    /// <see cref="JsonException.Path"/> (<c>$.ttl</c>, <c>$.scope_roots[0]</c>), or null when the
-    /// failure is not attributable to one argument. Callers turn the name into their own refusal
-    /// prose: the schema derives, the refusal vocabulary does not.
+    /// Returns the wire argument name a binding failure is about, read off the exception's
+    /// <see cref="JsonException.Path"/> (<c>$.ttl</c>, <c>$.scope_roots[0]</c>).
     /// </summary>
+    /// <param name="exception">The exception binding threw.</param>
+    /// <returns>The argument name, or null when the failure cannot be attributed to one argument.
+    /// The caller writes its own refusal message around the name.</returns>
     public static string? OffendingArgument(JsonException exception)
     {
         if (exception.Path is not { Length: > 2 } path || !path.StartsWith("$.", StringComparison.Ordinal))
@@ -134,27 +142,30 @@ public static class NativeToolArguments
     }
 
     /// <summary>
-    /// The one <c>TransformSchemaNode</c> callback in the build, closing the exporter's three gaps
-    /// against what an MCP <c>inputSchema</c> should look like. Authored once here rather than per
-    /// tool, since every gap is a property of the exporter, not of any tool.
-    ///
-    /// <list type="number">
-    /// <item>It emits <c>["string","null"]</c>-style unions for every optional or nullable member
-    /// (and <c>["array","null"]</c> on the parameter itself), plus a <c>"default": null</c> for a
-    /// member whose C# default is null. Both are C# nullability leaking onto the wire: optionality is
-    /// already carried by absence from <c>required</c>, and <c>"default": null</c> is worse than
-    /// noise where the real default is a value the tool substitutes itself (<c>ttl</c>'s 60).</item>
-    /// <item>It does not read <see cref="DescriptionAttribute"/> at all, so a member's
-    /// <c>description</c> - the part of the schema a model actually reads - would vanish.</item>
-    /// <item>It emits an unconstrained node for a type behind a custom converter, and never calls
-    /// this callback for one. <see cref="EnumArgument"/> is that converter on every enumerated
-    /// argument, so an enum-valued member's permitted values - the whole of what a model needs in
-    /// order to spell one - are restated by <see cref="Enumerations"/> from the owning object's node,
-    /// which does reach here. <see cref="Unconstrained"/> is the same gap for a member whose type
-    /// genuinely admits any JSON: the node the exporter leaves has no shape to state and would
-    /// otherwise carry a bare <c>"default": null</c> and no description at all.</item>
-    /// </list>
+    /// Adjusts each exported schema node into the shape an MCP <c>inputSchema</c> needs. This is the
+    /// only <c>TransformSchemaNode</c> callback; every difference it corrects belongs to the
+    /// exporter, not to any one tool.
     /// </summary>
+    /// <param name="context">The exporter's context for the node.</param>
+    /// <param name="schema">The node the exporter produced.</param>
+    /// <returns>The corrected node.</returns>
+    /// <remarks>
+    /// There are three differences to correct:
+    /// <list type="number">
+    /// <item>The exporter emits type unions such as <c>["string","null"]</c> for optional or nullable
+    /// members, and a <c>"default": null</c> where the C# default is null. Both leak C# nullability
+    /// onto the wire. Optionality is already carried by absence from <c>required</c>, and
+    /// <c>"default": null</c> is actively misleading where the real default is a value the tool
+    /// substitutes itself.</item>
+    /// <item>The exporter does not read <see cref="DescriptionAttribute"/>, so a member's
+    /// <c>description</c>, the part of the schema a model reads, would be missing.</item>
+    /// <item>The exporter emits an unconstrained node for a type behind a custom converter and never
+    /// calls this callback for it. <see cref="EnumArgument"/> is such a converter on every enumerated
+    /// argument, so <see cref="Enumerations"/> restates the permitted values from the owning object's
+    /// node, which does reach here. <see cref="Unconstrained"/> handles the same gap for a member
+    /// whose type genuinely admits any JSON.</item>
+    /// </list>
+    /// </remarks>
     private static JsonNode Transform(JsonSchemaExporterContext context, JsonNode schema)
     {
         if (schema is not JsonObject node)
@@ -180,12 +191,13 @@ public static class NativeToolArguments
     }
 
     /// <summary>
-    /// Restates a member the exporter left with no shape at all - a type that admits any JSON, and
-    /// so sits behind a converter this callback is never offered. What comes out is
-    /// <c>{"default": null}</c>: a stale nullability artifact, and no description, which is the part
-    /// a model reads. The replacement keeps "anything goes" by stating no type and carries the
-    /// member's own description across.
+    /// Restates any member the exporter left with no shape at all, because its type admits any JSON
+    /// and sits behind a converter this callback is never offered. Such a node arrives as
+    /// <c>{"default": null}</c> with no description. The replacement states no type, so anything is
+    /// still accepted, and carries the member's own description across.
     /// </summary>
+    /// <param name="context">The exporter's context for the owning object's node.</param>
+    /// <param name="node">The owning object's node, modified in place.</param>
     private static void Unconstrained(JsonSchemaExporterContext context, JsonObject node)
     {
         if (node["properties"] is not JsonObject properties)
@@ -193,8 +205,8 @@ public static class NativeToolArguments
 
         foreach (var property in context.TypeInfo.Properties)
         {
-            // Anything the exporter did state a shape for is left exactly as it is: this is for the
-            // node that says nothing, never a widening of one that says something.
+            // Leave any node the exporter did state a shape for exactly as it is. This replaces a
+            // node that says nothing; it must never widen one that says something.
             if (!properties.TryGetPropertyValue(property.Name, out var exported)
                 || exported is not JsonObject slot
                 || slot.Any(member => member.Key is not "default"))
@@ -209,16 +221,19 @@ public static class NativeToolArguments
     }
 
     /// <summary>
-    /// Restates every enum-valued member of <paramref name="node"/>'s own type, which the exporter
-    /// left unconstrained and never offered to <see cref="Transform"/>. Done from the owning object's
-    /// node because that is the innermost node the callback does reach, and driven off
-    /// <see cref="JsonTypeInfo.Properties"/> so the wire name here is the one the binder matches on
-    /// rather than a second rendering of it.
-    ///
-    /// The values are <see cref="EnumArgument"/>'s own wire spellings, so what is advertised and what
-    /// binds cannot disagree. A member's declared default and description are carried across, since
-    /// nothing else will put them back.
+    /// Restates every enum-valued member of the node's own type, which the exporter left
+    /// unconstrained and never offered to <see cref="Transform"/>.
     /// </summary>
+    /// <param name="context">The exporter's context for the owning object's node.</param>
+    /// <param name="node">The owning object's node, modified in place.</param>
+    /// <remarks>
+    /// This works from the owning object's node because that is the innermost node the callback
+    /// reaches, and it iterates <see cref="JsonTypeInfo.Properties"/> so the wire name written here
+    /// is the one the binder matches on rather than a second rendering of it. The permitted values
+    /// come from <see cref="EnumArgument"/>'s own wire spellings, so what is advertised and what
+    /// binds cannot disagree. The member's declared default and description are carried across,
+    /// because nothing else will put them back.
+    /// </remarks>
     private static void Enumerations(JsonSchemaExporterContext context, JsonObject node)
     {
         if (node["properties"] is not JsonObject properties)

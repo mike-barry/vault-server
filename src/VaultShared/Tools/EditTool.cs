@@ -3,30 +3,34 @@ using System.Text.Json.Nodes;
 using VaultShared.Access;
 using VaultShared.Frontmatter;
 
-// Both namespaces carry a WriteOutcome - the layer's answer to storing bytes, and the write path's
-// answer to composing a note. Only the first is named here; the second arrives through var.
+// Two namespaces each declare a WriteOutcome: the access layer's answer to storing bytes, and the
+// frontmatter write path's answer to composing a note. This alias names the first; the second is
+// only ever held in a var.
 using WriteOutcome = VaultShared.Access.WriteOutcome;
 
 namespace VaultShared.Tools;
 
 /// <summary>
-/// What an edit turned out to be. Every member is one this tool genuinely populates: uniformity
-/// across the mutation results is an outcome rather than a goal, and a member forced onto a tool
-/// that does not do that thing is a claim it never made.
-///
-/// <b>No violations member, and no refusal on one.</b> Everything a caller can get wrong is already
-/// a hard refusal, so a schema violation still standing in the outcome was in the note before the
-/// call - refusing over it would make a list unaddable because somebody else broke an entry in it.
+/// Represents the result of an edit operation. Every member is one this tool genuinely populates.
 /// </summary>
-/// <param name="ContentHash">The note's hash after the write, so a chain of edits needs no
-/// interleaved read. The value a read of the same file answers.</param>
+/// <param name="ContentHash">The note's content hash after the write, so a chain of edits needs no
+/// read in between. It is the same value a read of the file returns.</param>
+/// <param name="FrontmatterChanged">Whether the note's frontmatter block differs from what it
+/// carried.</param>
+/// <param name="BodyChanged">Whether the note's body differs from what it carried.</param>
 /// <param name="ChangedKeys">Every key whose value differs from what the note carried, compared as
-/// re-emitted values - a reserialization that changed only quoting is not a changed key.</param>
+/// re-emitted values, so a reserialization that changed only quoting is not a changed key.</param>
 /// <param name="AppliedOperations">The indices, into the caller's own operation list, of the
-/// operations that changed something. An operation that was a no-op is simply absent.</param>
-/// <param name="AssertedAuthority">What the outcome required beyond the tool's floor. It stays when
-/// empty: absence would not distinguish an operation that asserted nothing from a tool that never
-/// asserts.</param>
+/// operations that changed something. An operation that changed nothing is absent.</param>
+/// <param name="AssertedAuthority">The op classes the outcome required beyond the tool's floor. It is
+/// reported even when empty, so that a caller can tell an operation that asserted nothing from a tool
+/// that never asserts.</param>
+/// <remarks>
+/// There is deliberately no member reporting schema violations, and an edit never refuses over one.
+/// Everything a caller can get wrong is already refused outright, so a violation still standing in
+/// the outcome was in the note before the call. Refusing over it would make a list unaddable because
+/// someone else broke an entry in it.
+/// </remarks>
 public sealed record EditResult(
     string ContentHash,
     bool FrontmatterChanged,
@@ -36,37 +40,45 @@ public sealed record EditResult(
     IReadOnlyList<string> AssertedAuthority);
 
 /// <summary>
-/// The only way to mutate an existing note: ordered frontmatter operations plus at most one body
-/// change, applied as a single outcome.
-///
-/// It operates on an existing target, so it requires exactly one and fails on a miss. It creates
-/// nothing and relocates nothing - existence, content and location are three separate tools, and a
-/// tool that created on a miss would turn a typo into a new note.
-///
-/// <b>Its own five phases, after the execute path's six.</b> Path resolution, then staleness, then
-/// the substitution's own anchor, then the single frontmatter write path - which classifies and
-/// asserts the authority the outcome turned out to require - and only then the write. Every refusal
-/// therefore precedes every change, and the read-modify-write in the middle is guarded twice over:
-/// by the mutex the execute path holds around the whole invocation, and by the staleness hash, which
-/// covers the window the lock cannot - model time, during which the editor or a person can change
-/// the file.
-///
-/// <b>There is no preview gate.</b> An edit's blast radius is its own request: it touches the one
-/// note it names, and a plan would echo the request back, which trains callers to skip previews
-/// generally.
+/// Edits one existing note: ordered frontmatter operations plus at most one body change, applied as
+/// a single outcome. This is the only way to mutate an existing note.
 /// </summary>
-/// <param name="registries">Every vault's loaded declaration. Held rather than handed in on the
-/// call, because the declaration is per vault and loaded once at startup, and the call carries a
-/// vault rather than a vocabulary.</param>
+/// <remarks>
+/// <para>
+/// The note must exist, and a miss is refused. This tool creates nothing and relocates nothing;
+/// existence, content and location are three separate tools, and a tool that created on a miss would
+/// turn a typo into a new note.
+/// </para>
+/// <para>
+/// The tool's own steps run after the shared execute path has validated the arguments and resolved
+/// the vault: path resolution, the staleness check, the substitution's own anchor, then the single
+/// frontmatter write path, which classifies and asserts the authority the outcome turned out to
+/// require, and only then the write. Every refusal therefore precedes every change.
+/// </para>
+/// <para>
+/// The read-modify-write in the middle is guarded twice: by the write lock the execute path holds
+/// around the whole invocation, and by the content hash, which covers the window the lock cannot -
+/// the time between the caller's read and its edit, during which a person or an editor can change
+/// the file.
+/// </para>
+/// <para>
+/// There is no preview. An edit touches only the note it names, so a plan would just echo the request
+/// back, and previews that say nothing train callers to skip the ones that matter.
+/// </para>
+/// </remarks>
+/// <param name="registries">Every vault's loaded frontmatter declaration. Held on the tool rather
+/// than passed per call, because a declaration is per vault and loaded once at startup, and a call
+/// carries a vault rather than a vocabulary.</param>
 public sealed class EditTool(FrontmatterRegistries registries) : ITool, IVocabularySchema
 {
+    /// <summary>The tool's wire name.</summary>
     public const string ToolName = "edit";
 
     /// <summary>
-    /// The floor is the base write class, and it is not the whole authority: what a particular edit
-    /// requires depends on which keys it turned out to change and on what the vault's path policy
-    /// says about the note, and both are asserted inside the write path on the outcome rather than
-    /// on what the caller said it was doing.
+    /// The tool's declaration. The floor is the base write class and is not the whole authority: what
+    /// a particular edit requires depends on which keys it turned out to change and on what the
+    /// vault's path policy says about the note. Both are asserted inside the write path, against the
+    /// outcome rather than against what the caller said it was doing.
     /// </summary>
     public static readonly ToolDeclaration Declaration = new()
     {
@@ -83,27 +95,30 @@ public sealed class EditTool(FrontmatterRegistries registries) : ITool, IVocabul
     };
 
     /// <summary>
-    /// The advertised entry vocabulary for one vault's declaration: one branch per entry variant,
-    /// each variant's discriminating field pinned on its own branch, generated from the same
-    /// registry instance the write path holds.
-    ///
-    /// <b>This is the schema seam, and it is a function rather than a member of the declaration.</b>
-    /// A tool is declared once and its argument record is the source of its advertised schema, but
-    /// the entry branch is per vault, and <c>tools/list</c> is not - so which vocabulary a listing
-    /// carries is the projection's choice and this is what it calls. Where nothing loaded, the
-    /// branches are simply absent and <c>entry</c> stays unconstrained: advertising was never
-    /// permission, and the write path refuses whatever the declaration does not recognize.
+    /// Builds the advertised schema for one vault's entry vocabulary: one branch per entry variant,
+    /// with each variant's discriminating field required on its own branch.
     /// </summary>
+    /// <param name="vocabulary">The vault's declared entry variants.</param>
+    /// <returns>The argument schema with the <c>entry</c> node constrained to the declared variants,
+    /// or the plain argument schema where nothing is declared.</returns>
+    /// <remarks>
+    /// This is a function rather than a member of the declaration because a tool is declared once
+    /// while the entry vocabulary is per vault, and a tool listing is not per vault. The projection
+    /// chooses which vault's vocabulary to advertise and calls this.
+    ///
+    /// Where nothing is declared, the branches are simply absent and <c>entry</c> stays
+    /// unconstrained. Advertising is not permission: the write path refuses anything the declaration
+    /// does not recognize either way.
+    /// </remarks>
     public static JsonElement Schema(FrontmatterVocabulary vocabulary)
     {
         var schema = JsonNode.Parse(NativeToolArguments.SchemaFor(typeof(EditArguments)).GetRawText())!;
         if (vocabulary.Branches.Count == 0 || Locate(schema) is not { } entry)
             return JsonSerializer.SerializeToElement(schema);
 
-        // anyOf rather than oneOf: two keys naming one schema hold one object and produce one
-        // branch, but two declarations that happen to describe the same shape would each match a
-        // payload, and an exclusive alternation would advertise that as invalid. The write path
-        // matches a variant by walking the declaration once, and that remains the enforcement.
+        // anyOf rather than oneOf. Two declarations that happen to describe the same shape would each
+        // match a payload, and an exclusive alternation would advertise that as invalid. Matching a
+        // variant is the write path's job, which it does by walking the declaration once.
         entry["anyOf"] = new JsonArray([.. vocabulary.Branches.Select(Branch)]);
         entry.Remove("description");
         entry["description"] =
@@ -113,32 +128,32 @@ public sealed class EditTool(FrontmatterRegistries registries) : ITool, IVocabul
         return JsonSerializer.SerializeToElement(schema);
     }
 
-    /// <summary>The advertised vocabulary of one vault, or the empty one where nothing loaded.</summary>
+    /// <summary>Returns one vault's declared entry vocabulary.</summary>
+    /// <param name="vaultName">The vault whose declaration to read.</param>
+    /// <returns>The vocabulary, or the empty one where nothing loaded.</returns>
     public FrontmatterVocabulary Vocabulary(string vaultName) =>
         FrontmatterVocabulary.Of(registries.For(vaultName));
 
-    /// <summary>
-    /// The seam a front-end reaches this tool's schema through, and the reason it needs no per-tool
-    /// branch to do it: the projection names a vault and this composes the two halves.
-    /// </summary>
+    /// <inheritdoc/>
     public JsonElement AdvertisedSchema(string vaultName) => Schema(Vocabulary(vaultName));
 
+    /// <inheritdoc/>
     public ToolResult Invoke(ToolCall call)
     {
         var arguments = call.ArgumentsAs<EditArguments>();
         var vault = call.RequireVault(ToolName);
 
-        // ---- 3. Path resolution, scope, and policy ----
+        // Argument validation and vault resolution have already run in the shared execute path.
 
+        // Path resolution, scope, and policy.
         var path = ToolPaths.WriteNote(vault, arguments.Path);
         var stored = Read(path, arguments.Path);
 
-        // ---- 4. Plan ----
-
+        // Plan.
         var operations = arguments.Ordered.Select(o => o.Decode()).ToList();
-        // A body-only edit is not a frontmatter write - it reads no key, and what prices it is the
-        // vault's path policy - so it runs against the vocabulary that interprets nothing rather
-        // than refusing on a declaration its body has nothing to do with.
+        // A body-only edit is not a frontmatter write: it reads no key, and what determines its
+        // authority is the vault's path policy. So it runs against the vocabulary that interprets
+        // nothing, rather than refusing over a declaration its body has nothing to do with.
         var registry = operations.Count > 0
             ? registries.For(vault.Vault.Name).Require()
             : MutationSupport.NoVocabulary;
@@ -146,11 +161,11 @@ public sealed class EditTool(FrontmatterRegistries registries) : ITool, IVocabul
         RefuseIfStale(arguments, stored);
         var body = NewBody(arguments, stored.Text);
 
-        // The single write path: it validates every operation against the declaration, applies them
-        // in order, classifies the authority the outcome requires over the composed diff, and
-        // asserts it through the access object - all before anything is serialized, so a denial
-        // costs nothing and leaves nothing half-done. Its refusals reach the wire through the one
-        // table that names them; this tool catches none of them.
+        // The single frontmatter write path. It validates every operation against the declaration,
+        // applies them in order, classifies the authority the outcome requires over the composed
+        // diff, and asserts it through the access object - all before anything is serialized, so a
+        // denial costs nothing and leaves nothing half-done. This tool catches none of its refusals;
+        // they reach the wire through ToolRefusalEnvelope.
         var outcome = FrontmatterWrite.Apply(new WriteRequest(
             stored.Text,
             path.Path.Value,
@@ -161,8 +176,7 @@ public sealed class EditTool(FrontmatterRegistries registries) : ITool, IVocabul
             SuppliedBlock: null,
             NewBody: body));
 
-        // ---- 5. Apply ----
-
+        // Apply.
         return new ToolResult.Data(new EditResult(
             Store(path, arguments.Path, outcome.Content, stored.ContentHash),
             outcome.FrontmatterChanged,
@@ -172,6 +186,11 @@ public sealed class EditTool(FrontmatterRegistries registries) : ITool, IVocabul
             [.. outcome.AssertedAuthority.Order(StringComparer.Ordinal)]));
     }
 
+    /// <summary>Reads the note the edit targets.</summary>
+    /// <param name="path">The admitted write path.</param>
+    /// <param name="named">The path as the caller spelled it, used in refusal messages.</param>
+    /// <returns>The note's stored text and content hash.</returns>
+    /// <exception cref="ToolRefusal">The note is not there, or could not be read.</exception>
     private static ReadOutcome.Content Read(WritePath path, string named) =>
         VaultFiles.Read(path.AsRead()) switch
         {
@@ -187,13 +206,19 @@ public sealed class EditTool(FrontmatterRegistries registries) : ITool, IVocabul
         };
 
     /// <summary>
-    /// The staleness guard, on the one operation that can destroy content the caller never saw.
-    /// The hash is compared against the file's stored bytes, which is what makes a hash from a read
-    /// and a hash from a mutation the same value.
-    ///
-    /// <b>The refusal carries no payload.</b> Returning the current hash would let a caller retry
-    /// with it and clobber content it never read; recovery is a re-read.
+    /// Refuses a wholesale body replacement whose content hash no longer matches the file. This
+    /// guards the one operation that can destroy content the caller never saw.
     /// </summary>
+    /// <param name="arguments">The validated arguments, carrying the caller's expected hash.</param>
+    /// <param name="stored">The note as it was just read.</param>
+    /// <exception cref="ToolRefusal">The file changed since the caller took its hash.</exception>
+    /// <remarks>
+    /// The hash is compared against the file's stored bytes, which is what makes the hash a read
+    /// returns and the hash a write returns the same value.
+    ///
+    /// The refusal carries no payload. Returning the current hash would let a caller retry with it
+    /// and overwrite content it never read; the only recovery is to read the note again.
+    /// </remarks>
     private static void RefuseIfStale(EditArguments arguments, ReadOutcome.Content stored)
     {
         if (arguments.ExpectedContentHash is not { } expected)
@@ -206,13 +231,18 @@ public sealed class EditTool(FrontmatterRegistries registries) : ITool, IVocabul
     }
 
     /// <summary>
-    /// The body a write composes, or null to keep the note's own. A wholesale replacement is the
-    /// caller's text; a substitution is the note's body with exactly one occurrence replaced.
-    ///
-    /// <b>Exactly once is the self-verification of a surgical edit</b>, which is why zero matches
-    /// and several are each a refusal rather than a partial application, and why no spelling of this
-    /// call replaces every occurrence.
+    /// Composes the new body a write should store.
     /// </summary>
+    /// <param name="arguments">The validated arguments.</param>
+    /// <param name="content">The note's whole stored text.</param>
+    /// <returns>The caller's text for a wholesale replacement, the body with its single occurrence
+    /// substituted for a substitution, or null to keep the note's own body.</returns>
+    /// <exception cref="ToolRefusal">The anchor text matched no times or more than once.</exception>
+    /// <remarks>
+    /// Matching exactly once is how a substitution verifies that it is editing what the caller meant,
+    /// so no match and several matches are each refused rather than partly applied. There is
+    /// deliberately no way to spell a replace-every-occurrence call.
+    /// </remarks>
     private static string? NewBody(EditArguments arguments, string content)
     {
         if (arguments.Body is not { } change)
@@ -220,8 +250,8 @@ public sealed class EditTool(FrontmatterRegistries registries) : ITool, IVocabul
         if (change.Content is { } wholesale)
             return NoteSplit.Normalize(wholesale);
 
-        // Against the same normalized text the write path will compose from, so an anchor a caller
-        // took out of a read matches the bytes the write actually holds.
+        // Match against the same normalized text the write path composes from, so an anchor the
+        // caller copied out of a read matches the bytes the write actually holds.
         var body = NoteSplit.Of(content).Body;
         var find = NoteSplit.Normalize(change.Find!);
 
@@ -240,7 +270,10 @@ public sealed class EditTool(FrontmatterRegistries registries) : ITool, IVocabul
         return string.Concat(body.AsSpan(0, at), NoteSplit.Normalize(change.Replace!), body.AsSpan(at + find.Length));
     }
 
-    /// <summary>Non-overlapping occurrences, which is what "exactly once" counts.</summary>
+    /// <summary>Counts non-overlapping occurrences, which is what "exactly once" means here.</summary>
+    /// <param name="text">The text to search.</param>
+    /// <param name="find">The text to count.</param>
+    /// <returns>The number of non-overlapping occurrences.</returns>
     private static int Occurrences(string text, string find)
     {
         var count = 0;
@@ -251,13 +284,20 @@ public sealed class EditTool(FrontmatterRegistries registries) : ITool, IVocabul
     }
 
     /// <summary>
-    /// Stores the composed note and answers the hash of what is on disk afterwards.
-    ///
-    /// A write that would store the bytes already there is skipped rather than performed. The two
-    /// hashes are equal exactly when the write would change nothing, so the file's mtime is not
-    /// disturbed by an operation that turned out to be a no-op, and the value answered is the same
-    /// either way.
+    /// Stores the composed note and returns the hash of what is on disk afterwards.
     /// </summary>
+    /// <param name="path">The admitted write path.</param>
+    /// <param name="named">The path as the caller spelled it, used in refusal messages.</param>
+    /// <param name="content">The composed note text.</param>
+    /// <param name="storedHash">The hash of the note as it was read.</param>
+    /// <returns>The file's content hash after the call.</returns>
+    /// <exception cref="ToolRefusal">The note vanished, its parent vanished, or the write
+    /// failed.</exception>
+    /// <remarks>
+    /// A write that would store the bytes already on disk is skipped. The two hashes are equal
+    /// exactly when the write would change nothing, so an operation that turned out to be a no-op
+    /// does not disturb the file's timestamp, and the value returned is the same either way.
+    /// </remarks>
     private static string Store(WritePath path, string named, string content, string storedHash)
     {
         var composed = VaultFiles.DigestOf(content);
@@ -268,9 +308,9 @@ public sealed class EditTool(FrontmatterRegistries registries) : ITool, IVocabul
         {
             WriteOutcome.Written written => written.ContentHash!,
 
-            // The note was read a moment ago under the vault's write lock, so every one of these is
-            // operational rather than a caller error - something outside this build moved or took
-            // the file while the write was in flight.
+            // The note was read a moment ago under the vault's write lock, so each of these is an
+            // operational failure rather than a caller error: something outside this process moved
+            // or removed the file while the write was in flight.
             WriteOutcome.NotFound => throw new ToolRefusal(
                 ToolCodes.PathNotFound,
                 $"\"{named}\" was there when it was read and is gone now. Nothing was written."),
@@ -286,8 +326,10 @@ public sealed class EditTool(FrontmatterRegistries registries) : ITool, IVocabul
         };
     }
 
-    /// <summary>The <c>entry</c> node inside the derived schema, wherever the exporter put the
-    /// operation record - inline or behind a definition it referenced.</summary>
+    /// <summary>Finds the <c>entry</c> node inside the derived schema, wherever the exporter put the
+    /// operation record: inline, or behind a definition it referenced.</summary>
+    /// <param name="schema">The derived argument schema.</param>
+    /// <returns>The <c>entry</c> node, or null when it is not there.</returns>
     private static JsonObject? Locate(JsonNode schema)
     {
         foreach (var node in Walk(schema))
@@ -319,11 +361,15 @@ public sealed class EditTool(FrontmatterRegistries registries) : ITool, IVocabul
     }
 
     /// <summary>
-    /// One variant, as one branch of the alternation. Discrimination is by a field's presence rather
-    /// than by its value, so the discriminating field is pinned by being required on its branch -
-    /// which is what presence-based discrimination becomes in a client-facing schema. What has no
-    /// clean expression there rides the description the projection already carries.
+    /// Renders one declared variant as one branch of the alternation.
     /// </summary>
+    /// <param name="branch">The declared variant.</param>
+    /// <returns>The branch schema.</returns>
+    /// <remarks>
+    /// Variants are told apart by which fields are present rather than by a field's value, so a
+    /// branch expresses that by listing its discriminating field as required. Anything that has no
+    /// clean expression in the schema goes into the branch's description instead.
+    /// </remarks>
     private static JsonNode Branch(EntryBranch branch)
     {
         if (branch.Scalar is { } scalar)
@@ -362,12 +408,18 @@ public sealed class EditTool(FrontmatterRegistries registries) : ITool, IVocabul
         return mapping;
     }
 
-    /// <summary>Which declared keys take this branch. A branch belongs to a schema rather than to a
-    /// key, and two keys naming one schema hold one object - so the branch says which keys accept
-    /// it rather than being restated under each.</summary>
+    /// <summary>Describes which declared keys accept this branch. A branch belongs to an entry schema
+    /// rather than to a key, and several keys can name the same schema, so the branch names its keys
+    /// instead of being restated under each of them.</summary>
+    /// <param name="branch">The declared variant.</param>
+    /// <returns>A sentence for the branch's description.</returns>
     private static string Accepted(EntryBranch branch) =>
         $"Accepted under {string.Join(", ", branch.Keys.Select(k => $"\"{k}\""))}.";
 
+    /// <summary>Joins the non-empty parts into the node's <c>description</c>, leaving it absent when
+    /// there is nothing to say.</summary>
+    /// <param name="node">The schema node to describe.</param>
+    /// <param name="parts">Description fragments, in order.</param>
     private static void Describe(JsonObject node, params string?[] parts)
     {
         var text = string.Join(" ", parts.Where(p => !string.IsNullOrWhiteSpace(p)));

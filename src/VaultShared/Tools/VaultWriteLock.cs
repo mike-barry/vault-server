@@ -3,45 +3,56 @@ using VaultShared.Access;
 namespace VaultShared.Tools;
 
 /// <summary>
-/// The vault's cross-process write mutex, acquired around a whole invocation of a tool that declares
-/// it mutates. <b>Nothing else in the build acquires it</b> - not the tools, not the layer's write
-/// primitives - so a write primitive called outside a tool runs with no lock held.
-///
-/// The name comes from <see cref="Vault.LockName"/>, a contract <c>VaultWatcher</c> shares as code.
-/// The hold is synchronous and stays on one thread: a <see cref="Mutex"/> is thread-affine and the
-/// hold must not cross a suspension point.
+/// Acquires the vault's cross-process write mutex around a whole invocation of a tool that declares
+/// it mutates.
 /// </summary>
+/// <remarks>
+/// Nothing else acquires this lock - not the tools, not the access layer's write primitives - so a
+/// write primitive called outside a tool runs with no lock held. The lock name comes from
+/// <see cref="Vault.LockName"/>. That derivation is a cross-process contract shared with
+/// <c>VaultWatcher</c>: changing it stops the two processes contending for the same mutex, silently.
+/// The hold is synchronous and stays on one thread, because a
+/// <see cref="Mutex"/> is thread-affine and the hold must not cross an await.
+/// </remarks>
 public static class VaultWriteLock
 {
     /// <summary>
-    /// How long an acquire waits before refusing. A constant rather than a configured knob: it is a
-    /// liveness diagnostic, and a tunable one gets tuned upward until it stops reporting the problem
-    /// it exists to report. A <em>hung</em> writer is alive and trips this rather than the recovery
-    /// signal below.
+    /// How long an acquire waits before refusing. This is a constant rather than a configured
+    /// setting because it is a liveness diagnostic, and a tunable value gets raised until it stops
+    /// reporting the problem it exists to report. A writer that is hung rather than dead trips this
+    /// timeout, not the inherited-lock signal.
     /// </summary>
     public static readonly TimeSpan Timeout = TimeSpan.FromSeconds(30);
 
-    /// <inheritdoc cref="Acquire(string, TimeSpan, Action{string}?)"/>
+    /// <summary>Acquires the write lock for a vault, using the standard <see cref="Timeout"/>.</summary>
+    /// <param name="vault">The vault whose lock name is used.</param>
+    /// <param name="onInherited">Receives the message when the lock is inherited from an owner that
+    /// died without releasing it, or null to ignore it.</param>
+    /// <returns>A hold that releases the lock when disposed.</returns>
+    /// <exception cref="ToolRefusal">The lock was not acquired before the timeout elapsed.</exception>
     public static IDisposable Acquire(Vault vault, Action<string>? onInherited = null) =>
         Acquire(vault.LockName, Timeout, onInherited);
 
     /// <summary>
-    /// Takes the lock, or raises <see cref="ToolCodes.LockTimeout"/>. Dispose releases it.
-    ///
-    /// <b>An acquire that inherits the lock from a dead owner proceeds.</b> The signal is that the
-    /// previous holder died without releasing, which is a fact about that process and not about this
-    /// call - there is no journal to replay and no state to repair, so refusing would wedge the vault
-    /// exactly as the guarantee forbids. It is reported through <paramref name="onInherited"/> and
-    /// the invocation continues.
+    /// Acquires the named write lock.
     /// </summary>
+    /// <param name="lockName">The system-wide mutex name.</param>
     /// <param name="timeout">
-    /// Always <see cref="Timeout"/> in the build. The parameter exists so the liveness refusal is
-    /// testable in less than half a minute; no configuration reaches it.
+    /// How long to wait. Always <see cref="Timeout"/> in production; the parameter exists so the
+    /// timeout refusal can be tested in less than half a minute, and no configuration reaches it.
     /// </param>
     /// <param name="onInherited">
-    /// Where the inherited-lock signal goes. A delegate rather than a logging dependency: this
-    /// assembly carries no logging abstraction, and one event does not justify adding one.
+    /// Receives the inherited-lock message. A delegate rather than a logging dependency, because this
+    /// assembly carries no logging abstraction and one event does not justify adding one.
     /// </param>
+    /// <returns>A hold that releases the lock when disposed.</returns>
+    /// <exception cref="ToolRefusal">The lock was not acquired before the timeout elapsed.</exception>
+    /// <remarks>
+    /// An acquire that inherits the lock from an owner that died without releasing it proceeds. That
+    /// signal is a fact about the dead process, not about this call: there is no journal to replay
+    /// and no state to repair, so refusing would leave the vault permanently unwritable. The message
+    /// goes to <paramref name="onInherited"/> and the invocation continues.
+    /// </remarks>
     public static IDisposable Acquire(string lockName, TimeSpan timeout, Action<string>? onInherited = null)
     {
         var mutex = new Mutex(initiallyOwned: false, lockName);

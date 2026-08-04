@@ -4,8 +4,8 @@ using VaultShared.Access;
 
 namespace VaultShared.Tools;
 
-/// <summary>How much of a content search's answer comes back. These three granularities are the
-/// whole set; the layer offers no others.</summary>
+/// <summary>Selects how much of a content search's answer comes back. These three granularities are
+/// the whole set; the access layer offers no others.</summary>
 public enum GrepGranularity
 {
     /// <summary>Every matching line, with its path and line number.</summary>
@@ -19,10 +19,14 @@ public enum GrepGranularity
 }
 
 /// <summary>
-/// <see cref="GrepTool"/>'s arguments. <see cref="Granularity"/> defaults to the richest form, which
-/// is what a caller reading results wants; <see cref="PathGlob"/> is absent by default and then the
-/// whole note domain is searched.
+/// Represents <see cref="GrepTool"/>'s arguments.
 /// </summary>
+/// <param name="Pattern">The regular expression to match against note content.</param>
+/// <param name="Vault">The vault to search, or null for the configured default.</param>
+/// <param name="Granularity">How much of the answer to return. Defaults to the richest form, which
+/// is what a caller reading results wants.</param>
+/// <param name="PathGlob">A glob narrowing which notes are searched, or null to search every
+/// note.</param>
 public sealed record GrepArguments(
     [property: Description("Regular expression, in the search engine's syntax, matched against note content.")]
     string Pattern,
@@ -33,19 +37,25 @@ public sealed record GrepArguments(
     [property: Description("Optional glob narrowing which notes are searched, matched the same way glob's pattern is.")]
     string? PathGlob = null) : IVaultArguments
 {
-    /// <inheritdoc cref="ReadArguments.Validate"/>
+    /// <summary>Checks that a pattern was supplied and that the granularity is one this tool
+    /// declares.</summary>
+    /// <returns>The first fault found, or null. Both are refused here rather than by the binder, so
+    /// each reaches the caller as a coded refusal naming the argument.</returns>
     public ArgumentFault? Validate() =>
         ArgumentRules.Missing(Pattern, "pattern")
         ?? ArgumentRules.Unrecognized(Granularity, "granularity");
 }
 
 /// <summary>
-/// The only content-search surface, at the three granularities the layer offers.
-///
-/// Like <see cref="GlobTool"/> it treats any count as a result and asks the note domain, and like it
-/// it names no path: <c>path_glob</c> narrows which notes are searched and is filtered rather than
-/// gated, so an out-of-scope note is simply absent from the answer.
+/// Searches note content by regular expression, at the three granularities the access layer offers.
+/// This is the only content search.
 /// </summary>
+/// <remarks>
+/// Like <see cref="GlobTool"/>, it searches notes only and treats any number of matches as a result.
+/// The caller names no path: <c>path_glob</c> narrows which notes are searched and its results are
+/// filtered against the read scope, so a note the caller may not reach is simply absent from the
+/// answer rather than refused.
+/// </remarks>
 public sealed class GrepTool : ITool
 {
     public const string ToolName = "grep";
@@ -66,9 +76,9 @@ public sealed class GrepTool : ITool
         var arguments = call.ArgumentsAs<GrepArguments>();
         var vault = call.RequireVault(ToolName);
 
-        // Each granularity is its own capability on the layer rather than the richest one with the
+        // Each granularity is its own call on the access layer rather than the richest one with the
         // detail discarded, so a caller asking for a file list does not pay to materialize every
-        // match in order to throw them away.
+        // match and throw it away.
         return arguments.Granularity switch
         {
             GrepGranularity.Lines => Render(
@@ -87,7 +97,13 @@ public sealed class GrepTool : ITool
         };
     }
 
-    /// <summary>One line per result, and empty text for the empty result - never a failure.</summary>
+    /// <summary>Renders a search outcome as one line per result.</summary>
+    /// <typeparam name="TResult">The result type for this granularity.</typeparam>
+    /// <param name="outcome">The search outcome.</param>
+    /// <param name="line">Formats one result as a line.</param>
+    /// <returns>The joined lines, or empty text where nothing matched. No match is never a
+    /// failure.</returns>
+    /// <exception cref="ToolRefusal">The search failed or the pattern was refused.</exception>
     private static ToolResult Render<TResult>(SearchOutcome<TResult> outcome, Func<TResult, string> line) =>
         outcome is SearchOutcome<TResult>.Results results
             ? new ToolResult.Content(string.Join("\n", results.Items.Select(line)))

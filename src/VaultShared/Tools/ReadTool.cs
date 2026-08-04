@@ -4,8 +4,8 @@ using VaultShared.Frontmatter;
 
 namespace VaultShared.Tools;
 
-/// <summary>Which facet of a note a read returns. These three are the whole set: there is no line
-/// range and no section addressing.</summary>
+/// <summary>Selects which part of a note a read returns. These three are the whole set: there is no
+/// line range and no section addressing.</summary>
 public enum ReadPart
 {
     /// <summary>The note's whole text, frontmatter block and body together.</summary>
@@ -19,13 +19,18 @@ public enum ReadPart
 }
 
 /// <summary>
-/// <see cref="ReadTool"/>'s arguments: the binding target and the source of its advertised schema.
-///
-/// <b>Requiredness in the advertised schema is a member carrying no default</b>, so every optional
-/// argument declares one and follows the required ones. <see cref="Path"/> is the operand and is the
-/// only required member; <see cref="Vault"/> selects rather than restricts and resolves to the
-/// configured default when it is absent.
+/// Represents <see cref="ReadTool"/>'s arguments: the binding target and the source of its advertised
+/// schema.
 /// </summary>
+/// <remarks>
+/// A member appears in the schema's <c>required</c> list exactly when it carries no default, so every
+/// optional argument declares one and follows the required members.
+/// </remarks>
+/// <param name="Path">The vault-relative path of the note to read.</param>
+/// <param name="Vault">The vault to read in, or null for the configured default.</param>
+/// <param name="Part">Which part of the note to return.</param>
+/// <param name="WithContentHash">Whether to return the whole file's content hash alongside the
+/// content.</param>
 public sealed record ReadArguments(
     [property: Description("Vault-relative path of the note, carrying the \".md\" extension. The extension is never inferred.")]
     string Path,
@@ -36,43 +41,46 @@ public sealed record ReadArguments(
     [property: Description("Whether to return the whole file's content hash alongside the content, for a later write to guard against a change it never saw. Defaults to false.")]
     bool WithContentHash = false) : IVaultArguments
 {
-    /// <summary>
-    /// An omitted operand and an unrecognized enumerated value, both refused here rather than
-    /// through the binder so each reaches a caller as a coded refusal naming the argument.
-    ///
-    /// The path's own rules are not here: missing the markdown extension is <c>invalid_path</c>
-    /// carrying the spelling that would have worked, and an argument fault has no code or payload to
-    /// carry either, so it is raised where the path is resolved.
-    /// </summary>
+    /// <summary>Checks that a path was supplied and that the part is one this tool declares.</summary>
+    /// <returns>The first fault found, or null. Both are refused here rather than by the binder, so
+    /// each reaches the caller as a coded refusal naming the argument.</returns>
+    /// <remarks>
+    /// The path's own rules are checked where the path is resolved, not here. A path missing the
+    /// markdown extension is refused as <c>invalid_path</c> carrying the spelling that would have
+    /// worked, and an <see cref="ArgumentFault"/> can carry neither that code nor that payload.
+    /// </remarks>
     public ArgumentFault? Validate() =>
         ArgumentRules.Missing(Path, "path")
         ?? ArgumentRules.Unrecognized(Part, "part");
 }
 
 /// <summary>
-/// The one content-tier result that carries structure: content and the hash describing the bytes it
-/// came from, returned together because a hash from a second read would not describe them.
+/// Represents a read that returns content together with the hash of the bytes it came from. They are
+/// returned together because a hash taken by a second read would not describe this content.
 /// </summary>
-/// <param name="ContentHash">SHA-256 of the whole file's stored bytes, lowercase hex - whole-file
-/// whichever part was read, so nothing authorizes a write from a partial read.</param>
+/// <param name="Content">The part of the note that was read.</param>
+/// <param name="ContentHash">SHA-256 of the whole file's stored bytes, in lowercase hex. It covers
+/// the whole file whichever part was read, so a partial read never authorizes a write.</param>
 public sealed record ReadResult(string Content, string ContentHash);
 
 /// <summary>
 /// Returns one note's whole content, its frontmatter, or its body, with a whole-file content hash
 /// when the caller asks for one.
-///
-/// It operates on an existing target, so it requires exactly one and fails on a miss: an absent
-/// value would push a check into every caller, where one will forget it. The miss is told from a
-/// failure to read by the layer's own classification of the failure, never by a probe this tool runs
-/// first.
 /// </summary>
+/// <remarks>
+/// The note must exist; a miss is refused rather than returned as an absent value, which would push a
+/// check into every caller. A miss is told apart from a failed read by how the access layer
+/// classified the failure, never by a probe this tool runs first.
+/// </remarks>
 public sealed class ReadTool : ITool
 {
+    /// <summary>The tool's wire name.</summary>
     public const string ToolName = "read";
 
     /// <summary>
-    /// The floor is the read class, and the tool asserts nothing beyond it: every path it touches is
-    /// the one the caller named, admitted against the effective read scope before anything is read.
+    /// The tool's declaration. The floor is the read class and the tool asserts nothing beyond it,
+    /// because every path it touches is the one the caller named, admitted against the effective read
+    /// scope before anything is read.
     /// </summary>
     public static readonly ToolDeclaration Declaration = new()
     {
@@ -110,12 +118,16 @@ public sealed class ReadTool : ITool
             : new ToolResult.Content(content);
     }
 
-    /// <summary>
-    /// The facet, through the one split every consumer of a note's two halves takes, so what this
-    /// returns is byte-identical to what a write echoes back. A note with no block answers
-    /// <see cref="ReadPart.Frontmatter"/> with empty text - the split treats the absent block as a
-    /// well-formed value rather than a case each caller writes.
-    /// </summary>
+    /// <summary>Returns the requested part of a note's text.</summary>
+    /// <param name="text">The note's whole text.</param>
+    /// <param name="part">Which part to return.</param>
+    /// <returns>The requested part. A note with no frontmatter block returns empty text for
+    /// <see cref="ReadPart.Frontmatter"/>, because the split treats an absent block as a well-formed
+    /// value rather than a case each caller has to handle.</returns>
+    /// <remarks>
+    /// This uses the same split every consumer of a note's two halves uses, so what a read returns is
+    /// byte-identical to what a write echoes back.
+    /// </remarks>
     private static string Facet(string text, ReadPart part) => part switch
     {
         ReadPart.All => text,

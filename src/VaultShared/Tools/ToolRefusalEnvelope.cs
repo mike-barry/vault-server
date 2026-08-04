@@ -6,26 +6,35 @@ using VaultShared.Frontmatter;
 namespace VaultShared.Tools;
 
 /// <summary>
-/// The shared <c>{code, message, data?}</c> envelope, and the one table translating refusals raised
-/// in another vocabulary into this one.
-///
-/// The invariant it protects: a caller branches on <c>code</c> regardless of which layer refused.
-/// Both front-ends emit the envelope - the MCP server inside an <c>isError</c> tool result, the CLI
-/// on stderr - so the writer lives here and neither restates it.
-///
-/// <b>The wire form is fixed:</b> no whitespace, <c>code</c> then <c>message</c> then <c>data</c>,
-/// and <c>data</c> omitted from the object entirely (not emitted as null) when there is none, so a
-/// caller can test for the field's presence rather than its nullness. <see cref="Utf8JsonWriter"/>
-/// is used directly rather than serializing an anonymous envelope type, because field order has to
-/// be pinned by the writer rather than left to reflection ordering.
-///
-/// <c>data</c> is serialized under <see cref="NativeToolArguments.Options"/>, the same options the
-/// binder and the result serializer use, so one naming policy governs everything on the wire in
-/// both directions.
+/// Writes the shared <c>{code, message, data?}</c> refusal envelope, and translates refusals raised
+/// in the other layers' vocabularies into this one. A caller branches on <c>code</c> whichever layer
+/// refused.
 /// </summary>
+/// <remarks>
+/// <para>
+/// Both front-ends emit this envelope - the MCP server inside an <c>isError</c> tool result, the CLI
+/// on stderr - so the writer lives here and neither restates it.
+/// </para>
+/// <para>
+/// The wire form is fixed and callers depend on it: no whitespace, <c>code</c> then <c>message</c>
+/// then <c>data</c>, and <c>data</c> left out of the object entirely rather than written as null
+/// when there is none, so a caller can test whether the field is present. The code writes with
+/// <see cref="Utf8JsonWriter"/> instead of serializing an anonymous envelope type so that field
+/// order is pinned here rather than left to reflection order.
+/// </para>
+/// <para>
+/// <c>data</c> is serialized with <see cref="NativeToolArguments.Options"/>, the same options the
+/// argument binder and the result serializer use, so one naming policy governs the wire in both
+/// directions.
+/// </para>
+/// </remarks>
 public static class ToolRefusalEnvelope
 {
-    /// <summary>The envelope as a compact string.</summary>
+    /// <summary>Returns the envelope as a compact JSON string.</summary>
+    /// <param name="code">The code from <see cref="ToolCodes"/>.</param>
+    /// <param name="message">The caller-visible message.</param>
+    /// <param name="data">The payload, or null to omit the field.</param>
+    /// <returns>The serialized envelope.</returns>
     public static string Json(string code, string message, object? data = null)
     {
         using var buffer = new MemoryStream();
@@ -48,15 +57,16 @@ public static class ToolRefusalEnvelope
     public static string Json(ToolRefusal refusal) => Json(refusal.Code, refusal.Message, refusal.Data);
 
     /// <summary>
-    /// The refusal an invocation raised, in this vocabulary, whichever vocabulary it was raised in -
-    /// or null where <paramref name="exception"/> is not a refusal at all and the front-end should
-    /// let it travel.
-    ///
-    /// Both front-ends catch exactly these three, so which three they are is stated here rather than
-    /// in each of their rendering paths: a fourth refusal vocabulary added to one catch and not the
-    /// other would surface as a crash in one front-end and an envelope in the other, for the same
-    /// call.
+    /// Returns the refusal an invocation raised, expressed in this vocabulary, or null where the
+    /// exception is not a refusal and the front-end should let it propagate.
     /// </summary>
+    /// <param name="exception">The exception an invocation raised.</param>
+    /// <returns>The translated refusal, or null.</returns>
+    /// <remarks>
+    /// The set of refusal types both front-ends recognize is listed here and not in each front-end's
+    /// rendering path. A fourth refusal type added to one front-end's catch and not the other would
+    /// crash one front-end and return an envelope from the other, for the same call.
+    /// </remarks>
     public static ToolRefusal? Refusal(Exception exception) => exception switch
     {
         ToolRefusal refusal => refusal,
@@ -66,21 +76,22 @@ public static class ToolRefusalEnvelope
     };
 
     /// <summary>
-    /// The single site that maps a <see cref="FrontmatterRefusal"/>'s <see cref="RefusalReason"/>
-    /// onto a code from <see cref="ToolCodes"/>. Applied where the envelope is rendered rather than
-    /// in any tool's catch, so no tool becomes a translation point reasoning about a refusal it did
+    /// Maps a <see cref="FrontmatterRefusal"/>'s <see cref="RefusalReason"/> onto a code from
+    /// <see cref="ToolCodes"/>. This is the only site that does so, and it runs where the envelope is
+    /// rendered rather than in a tool's catch block, so no tool has to reason about a refusal it did
     /// not raise.
-    ///
-    /// The payload carries the refusal's own coordinates - the keys it locates, and the index of the
-    /// operation that owns it - both of which are values the caller supplied. Nothing about the
-    /// grant reaches it.
     /// </summary>
+    /// <param name="refusal">The refusal the frontmatter layer raised.</param>
+    /// <returns>The refusal in this vocabulary. Its payload carries only the refusal's own
+    /// coordinates - the keys it locates and the index of the operation that owns them - both of
+    /// which the caller supplied. Nothing about the grant reaches it.</returns>
+    /// <exception cref="ArgumentOutOfRangeException">The reason has no declared wire code.</exception>
     public static ToolRefusal Translate(FrontmatterRefusal refusal)
     {
         var code = refusal.Reason switch
         {
-            // Whose text it is decides the code: a stored block nobody can parse is the note's
-            // problem, a supplied one is the caller's, and the remedies differ.
+            // Whose text failed decides the code. An unparsable stored block is the note's problem;
+            // an unparsable supplied block is the caller's, and the remedies differ.
             RefusalReason.Unparsable => ToolCodes.FrontmatterUnparsable,
             RefusalReason.NotAMapping => ToolCodes.FrontmatterUnparsable,
             RefusalReason.SuppliedBlockInvalid => ToolCodes.InvalidArgument,
@@ -88,8 +99,8 @@ public static class ToolRefusalEnvelope
             RefusalReason.FenceConflict => ToolCodes.FenceConflict,
             RefusalReason.PathExcluded => ToolCodes.PathExcluded,
 
-            // A control character and a refused value are both "the declaration will not take this
-            // text", which is one remedy: send a different value.
+            // A control character and a value the declaration refuses both mean the declaration will
+            // not take this text, and both have the same remedy: send a different value.
             RefusalReason.ControlCharacter => ToolCodes.InvalidValue,
             RefusalReason.ValueRefused => ToolCodes.InvalidValue,
 
@@ -98,8 +109,8 @@ public static class ToolRefusalEnvelope
             RefusalReason.UnresolvedIdentity => ToolCodes.EntryNotFound,
             RefusalReason.AmbiguousIdentity => ToolCodes.EntryAmbiguous,
 
-            // The remedy is to name entries one at a time, so the request's shape is what has to
-            // change - which is what invalid_argument means.
+            // The remedy is to name entries one at a time, so the shape of the request is what has
+            // to change, which is what invalid_argument means.
             RefusalReason.WholesaleRemovalRefused => ToolCodes.InvalidArgument,
 
             RefusalReason.AuthorityDenied => ToolCodes.AuthorityRequired,
@@ -112,17 +123,18 @@ public static class ToolRefusalEnvelope
     }
 
     /// <summary>
-    /// The single site that maps the layer's answer to a caller-named path onto a code. The layer
-    /// distinguishes the three refusals structurally and says nothing about what they are called;
-    /// this is where they are named, once, so no tool re-decides that a dot segment is
-    /// <see cref="ToolCodes.PathExcluded"/> rather than a scope denial.
-    ///
-    /// Each payload is the caller's own text and nothing else. <see cref="ToolCodes.OutOfScope"/>
-    /// carries none at all: its only remedy is elevation, so there is no corrected call to lift a
-    /// value into.
+    /// Maps the access layer's answer for a caller-named path onto a code. This is the only site that
+    /// does so. The layer distinguishes the three refusals structurally and does not name them, so no
+    /// tool re-decides that a dot segment is <see cref="ToolCodes.PathExcluded"/> rather than a scope
+    /// denial.
     /// </summary>
-    /// <exception cref="ArgumentException"><paramref name="resolution"/> was admitted, which is not
-    /// a refusal to translate.</exception>
+    /// <typeparam name="TPath">The resolved path type the layer returns.</typeparam>
+    /// <param name="resolution">A refused path resolution.</param>
+    /// <returns>The refusal in this vocabulary. Each message repeats only the caller's own path.
+    /// <see cref="ToolCodes.OutOfScope"/> carries no payload, because its only remedy is elevation
+    /// and there is no corrected call to lift a value into.</returns>
+    /// <exception cref="ArgumentException"><paramref name="resolution"/> admitted the path, which is
+    /// not a refusal to translate.</exception>
     public static ToolRefusal Translate<TPath>(PathResolution<TPath> resolution) where TPath : class =>
         resolution switch
         {
@@ -142,21 +154,24 @@ public static class ToolRefusalEnvelope
         };
 
     /// <summary>
-    /// The single site that maps an enumeration or content-search failure onto a code. Two of the
-    /// layer's four outcomes are failures the catalogue names apart, and the split is the one the
-    /// specs require to survive: a caller's own malformed pattern is
-    /// <see cref="ToolCodes.InvalidPattern"/> and needs the call to change, everything else is
-    /// <see cref="ToolCodes.SearchFailed"/> and the identical call may be retried.
-    ///
-    /// <b>A file the search could not read is a search failure, not a read failure.</b>
-    /// <see cref="ToolCodes.ReadFailed"/> names a path in its payload, and the file that failed is
-    /// one the engine met while walking the whole vault - before scope filtering - so naming it
-    /// would disclose a path the caller may not reach through a surface that otherwise filters
-    /// silently. The engine's diagnostic rides <c>detail</c> with that entry scrubbed out of it,
-    /// and both failures are retryable in the same way.
+    /// Maps an enumeration or content-search failure onto a code. This is the only site that does so.
+    /// A malformed pattern the caller supplied is <see cref="ToolCodes.InvalidPattern"/> and needs
+    /// the call to change; every other failure is <see cref="ToolCodes.SearchFailed"/> and the
+    /// identical call may be retried.
     /// </summary>
+    /// <typeparam name="TResult">The search result type.</typeparam>
+    /// <param name="outcome">A failed search outcome.</param>
+    /// <returns>The refusal in this vocabulary.</returns>
     /// <exception cref="ArgumentException"><paramref name="outcome"/> is a result, not a
     /// failure.</exception>
+    /// <remarks>
+    /// A file the search could not read is a search failure, not a read failure.
+    /// <see cref="ToolCodes.ReadFailed"/> names a path in its payload, and the file that failed is
+    /// one the engine met while walking the whole vault, before scope filtering. Naming it would
+    /// disclose a path the caller may not reach, through a surface that otherwise filters silently.
+    /// The engine's diagnostic goes into <c>detail</c> with that path scrubbed out, and both
+    /// failures are retryable in the same way.
+    /// </remarks>
     public static ToolRefusal Translate<TResult>(SearchOutcome<TResult> outcome) =>
         outcome switch
         {
@@ -164,10 +179,9 @@ public static class ToolRefusalEnvelope
                 ToolCodes.InvalidPattern,
                 $"The search engine refused the pattern: {bad.Reason}"),
 
-            // The diagnostic is scrubbed of the entry it names before it rides detail: the file the
-            // engine met is found while walking the whole vault, before scope filtering, so carrying
-            // its path would disclose one the caller may not reach through a surface that otherwise
-            // filters silently.
+            // Scrub the path out of the diagnostic before it goes into detail. The engine finds the
+            // file while walking the whole vault, before scope filtering, so carrying its path would
+            // disclose one the caller may not reach.
             SearchOutcome<TResult>.Unreadable unreadable => new ToolRefusal(
                 ToolCodes.SearchFailed,
                 "The search failed because a file it had to read could not be read.",
@@ -182,16 +196,21 @@ public static class ToolRefusalEnvelope
         };
 
     /// <summary>
-    /// The mid-operation key assertion's denial, which the layer raises in its own vocabulary. It
-    /// carries no payload: the class the operation turned out to require is named in the message,
-    /// and a caller's remedy is elevation rather than a corrected call.
+    /// Translates the denial of a key assertion made mid-operation, which the access layer raises in
+    /// its own vocabulary.
     /// </summary>
+    /// <param name="refusal">The denial the access layer raised.</param>
+    /// <returns>The refusal in this vocabulary, with no payload. The message names the op class the
+    /// operation turned out to require, and the caller's remedy is elevation rather than a corrected
+    /// call.</returns>
     public static ToolRefusal Translate(AuthorityRefusal refusal) =>
         new(ToolCodes.AuthorityRequired, refusal.Message);
 
-    /// <summary>The refusal's own coordinates, or null where it locates neither a key nor an
-    /// operation. A dictionary rather than an anonymous type, because both members are conditional
-    /// and an absent member must not appear as null.</summary>
+    /// <summary>Returns the refusal's own coordinates, or null where it locates neither a key nor an
+    /// operation. Uses a dictionary rather than an anonymous type because both members are
+    /// conditional and an absent member must not appear as null.</summary>
+    /// <param name="refusal">The refusal to read coordinates from.</param>
+    /// <returns>The payload, or null when there is nothing to report.</returns>
     private static object? Coordinates(FrontmatterRefusal refusal)
     {
         var data = new Dictionary<string, object>();

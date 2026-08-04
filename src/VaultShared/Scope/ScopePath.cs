@@ -1,21 +1,25 @@
 namespace VaultShared.Scope;
 
 /// <summary>
-/// The grammar shared by every vault-relative path the scope model handles - a scope root as
-/// configured, and a candidate path being tested against one. Pure string work: nothing here
-/// opens a file, which is what makes it applicable to a path that does not exist yet.
+/// Normalizes the vault-relative paths the scope model handles: a scope root as configured, and a
+/// candidate path being tested against one. This is pure string work and never touches the
+/// filesystem, so it applies equally to a path that does not exist yet.
 /// </summary>
 public static class ScopePath
 {
     /// <summary>
-    /// Splits a folder-prefix scope root or candidate vault-relative path into normalized,
-    /// case-preserved segments - resolving "." and ".." and rejecting rooted paths, root
-    /// escapes, and empty/whitespace input. Used when a grant's configured <c>scopeRoots</c> are
-    /// validated and canonicalized at load time, and again when a path is tested against them at
-    /// request time, so both sides read a root the same way. Throws
-    /// <see cref="ArgumentException"/> for anything that cannot be normalized to a well-formed
-    /// relative path.
+    /// Splits a scope root or candidate vault-relative path into normalized segments, resolving
+    /// "." and ".." and preserving case.
     /// </summary>
+    /// <param name="path">The vault-relative path.</param>
+    /// <returns>The path's segments.</returns>
+    /// <exception cref="ArgumentException">The path is empty or whitespace, rooted, or escapes the
+    /// vault, or it resolves to the vault root.</exception>
+    /// <remarks>
+    /// Configured scope roots are validated and canonicalized through this at load time, and a
+    /// candidate path is normalized through it again at request time, so both sides read a root the
+    /// same way.
+    /// </remarks>
     public static string[] Normalize(string path)
     {
         if (string.IsNullOrWhiteSpace(path))

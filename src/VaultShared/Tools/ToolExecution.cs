@@ -6,48 +6,50 @@ using VaultShared.Configuration;
 namespace VaultShared.Tools;
 
 /// <summary>
-/// The one path every tool invocation takes, from either front-end. It runs six steps before a
-/// tool's own work begins, and <b>a refusal from an earlier step wins over one from a later</b>:
-///
-/// <list type="number">
-/// <item><b>Session.</b> A declaration requiring a client session, invoked without one, refuses
-/// <see cref="ToolCodes.ToolUnavailable"/>.</item>
-/// <item><b>The op-class floor</b>, skipped on <see cref="Floor.SelfGated"/>.</item>
-/// <item><b>Arguments</b>, bound onto the declared record and then validated.</item>
-/// <item><b>Vault resolution and membership</b>, for arguments carrying a vault operand.</item>
-/// <item><b>The lock</b>, where the declaration says the tool mutates.</item>
-/// <item><b>The access object</b>, constructed from the resolved vault and the grant.</item>
-/// </list>
-///
-/// These six <em>precede</em> a tool's own phases rather than interleaving with them: argument
-/// validation and vault resolution happen here, above every tool, which is what makes the ordering
-/// guarantee structural rather than a rule each tool remembers.
-///
-/// <b>Authorization precedes argument feedback.</b> The floor is checked before arguments are bound,
-/// so a caller holding no authority over a tool cannot use a malformed call to probe the argument
-/// surface of one it may not run. It costs nothing, since the lock is later than both.
-///
-/// <b>Routing precedes authorization within step 4</b>: an unknown vault answers
-/// <see cref="ToolCodes.UnknownVault"/> rather than an out-of-scope refusal for a vault nobody
-/// configured.
-///
-/// A tool's declared floor is not its whole authority. Anything more is asserted inside the tool on
-/// the path that needs it, through the access object, because the required class depends on what the
-/// work turned out to touch.
+/// Runs every tool invocation from either front-end. It performs a fixed sequence of steps before a
+/// tool's own work begins: session check, op-class floor, argument binding and validation, vault
+/// resolution and membership, construction of the access object, and the write lock where the tool
+/// mutates.
 /// </summary>
-/// <param name="engine">Where the search engine is, handed to every access object this constructs
-/// rather than read from ambient state.</param>
-/// <param name="onInheritedLock">Where <see cref="VaultWriteLock"/>'s recovery signal goes.</param>
+/// <remarks>
+/// <para>
+/// Do not reorder these steps. A refusal from an earlier step wins over one from a later step, and
+/// callers depend on that:
+/// </para>
+/// <list type="bullet">
+/// <item>The floor is checked before arguments are bound, so a caller with no authority over a tool
+/// cannot use a malformed call to probe the argument surface of a tool it may not run.</item>
+/// <item>Within vault resolution, routing is decided before authority. A vault nobody configured
+/// answers <see cref="ToolCodes.UnknownVault"/> rather than an out-of-scope refusal.</item>
+/// <item>The lock is taken last, after every check that can refuse without it.</item>
+/// </list>
+/// <para>
+/// Argument validation and vault resolution happen here, above every tool, so no tool repeats them
+/// and none can get the order wrong.
+/// </para>
+/// <para>
+/// A tool's declared floor is not its whole authority. A tool asserts anything further inside the
+/// path that needs it, through the access object, because the required op class depends on what the
+/// work turns out to touch.
+/// </para>
+/// </remarks>
+/// <param name="vaultConfig">The configured vaults a call's vault name resolves against.</param>
+/// <param name="engine">The search engine, handed to every access object this constructs rather than
+/// read from ambient state.</param>
+/// <param name="onInheritedLock">Receives <see cref="VaultWriteLock"/>'s recovery signal.</param>
 public sealed class ToolExecution(VaultConfig vaultConfig, SearchEngine? engine = null, Action<string>? onInheritedLock = null)
 {
     /// <summary>
-    /// The op-class floor denial, and the only site that decides one. The script-tool branch of the
-    /// MCP dispatcher calls it too, over its own declared class, so both tool surfaces are gated by
-    /// one check rather than two that can drift.
-    ///
-    /// <c>data</c> names the required class - a property of the tool, and the class an elevation
-    /// request would ask for - but never the classes the grant actually holds.
+    /// Returns the op-class floor denial for a tool, or null where the grant allows it. This is the
+    /// only site that decides a floor denial; the MCP dispatcher's script-tool branch calls it too,
+    /// with its own declared class, so both tool surfaces are gated by the same check.
     /// </summary>
+    /// <param name="toolName">The tool's wire name.</param>
+    /// <param name="floor">The tool's declared floor.</param>
+    /// <param name="grant">The caller's grant.</param>
+    /// <returns>A refusal naming the required op class, or null where the floor is satisfied or the
+    /// tool is self-gated. The payload names the class the tool requires, which is what an elevation
+    /// request would ask for, and never the classes the grant holds.</returns>
     public static ToolRefusal? FloorRefusal(string toolName, Floor floor, Grant grant)
     {
         if (floor is not Floor.Class(var opClass))
@@ -62,11 +64,16 @@ public sealed class ToolExecution(VaultConfig vaultConfig, SearchEngine? engine 
     }
 
     /// <summary>
-    /// Runs the six steps and invokes the tool.
+    /// Runs the pre-invocation steps and then invokes the tool.
     /// </summary>
+    /// <param name="registration">The tool and its declaration.</param>
     /// <param name="arguments">The call's raw argument map, as the front-end received it.</param>
+    /// <param name="grant">The caller's grant.</param>
     /// <param name="session">The caller's session, or null where the front-end has none.</param>
-    /// <exception cref="ToolRefusal">Any of the six steps refused, or the tool itself did.</exception>
+    /// <returns>The tool's result.</returns>
+    /// <exception cref="ToolRefusal">A pre-invocation step refused, or the tool itself did.</exception>
+    /// <exception cref="InvalidOperationException">The declaration says the tool mutates but its
+    /// arguments name no vault to lock.</exception>
     public ToolResult Invoke(
         ToolRegistry.Registration registration,
         IReadOnlyDictionary<string, JsonElement> arguments,
@@ -75,39 +82,40 @@ public sealed class ToolExecution(VaultConfig vaultConfig, SearchEngine? engine 
     {
         var (declaration, tool) = registration;
 
-        // 1. Session. Enforced here rather than by omitting a subcommand: a front-end that can reach
-        //    a tool by name would otherwise make a listing filter cosmetic.
+        // Session. Enforced here rather than by leaving the subcommand out of a front-end's listing,
+        // because a front-end that can still reach the tool by name would make such a filter
+        // cosmetic.
         if (declaration.RequiresClientSession && session is null)
             throw new ToolRefusal(
                 ToolCodes.ToolUnavailable,
                 $"Tool \"{declaration.Name}\" needs a client session, which this caller does not have.",
                 new { tool = declaration.Name });
 
-        // 2. The op-class floor.
+        // The op-class floor.
         if (FloorRefusal(declaration.Name, declaration.OpClassFloor, grant) is { } denial)
             throw denial;
 
-        // 3. Arguments.
+        // Arguments.
         var bound = Bind(declaration, arguments);
         if (bound.Validate() is { } fault)
             throw new ToolRefusal(ToolCodes.InvalidArgument, fault.Message, new { argument = fault.Argument });
 
-        // 4. Vault resolution and membership. Whether a call targets a vault is a type question, so
-        //    the compiler carries it and no new tool can opt out by accident.
+        // Vault resolution and membership. Whether a call targets a vault is decided by the argument
+        // record's type, so the compiler enforces it and a new tool cannot opt out by accident.
         Vault? vault = bound is IVaultArguments vaultArguments ? Resolve(declaration, vaultArguments, grant) : null;
 
-        // 6. The access object. Constructed here and nowhere else, so no tool holds one it was not
-        //    handed.
+        // The access object. Constructed here and nowhere else, so no tool holds one it was not
+        // handed.
         var call = new ToolCall(bound, vault is null ? null : new VaultAccess(vault, grant, engine), grant, session);
 
         if (!declaration.Mutates)
             return tool.Invoke(call);
 
-        // 5. The lock. Its name comes from the resolved vault, which is why resolution precedes it,
-        //    and a declaration that mutates with no vault to lock is a wiring defect rather than an
-        //    invocation that quietly runs unlocked. The hold spans the whole invocation: a plan takes
-        //    it exactly as an apply does, so a preview cannot return a prediction that was already
-        //    stale when it was computed.
+        // The lock. Its name is derived from the resolved vault, so resolution has to come first. A
+        // declaration that mutates with no vault to lock is a wiring defect, not an invocation that
+        // quietly runs unlocked. The hold spans the whole invocation, and a preview takes it exactly
+        // as an apply does, so a preview cannot return a prediction that was already stale when it
+        // was computed.
         if (vault is null)
             throw new InvalidOperationException(
                 $"Tool \"{declaration.Name}\" declares that it mutates, but its arguments name no vault to lock.");
@@ -117,10 +125,14 @@ public sealed class ToolExecution(VaultConfig vaultConfig, SearchEngine? engine 
     }
 
     /// <summary>
-    /// Binds the raw map onto the declared record. A binding failure is not a coded refusal until it
-    /// is re-raised as one here - the one site that decides how a shape mismatch reaches the wire, so
-    /// no tool re-derives it from a serializer message.
+    /// Binds the raw argument map onto the record type the declaration names, and converts a binding
+    /// failure into a coded refusal. This is the only site that decides how a shape mismatch reaches
+    /// the wire, so no tool has to derive one from a serializer message.
     /// </summary>
+    /// <param name="declaration">The tool's declaration, naming the argument record type.</param>
+    /// <param name="arguments">The call's raw argument map.</param>
+    /// <returns>The bound argument record.</returns>
+    /// <exception cref="ToolRefusal">The arguments do not match the declared shape.</exception>
     private static IToolArguments Bind(ToolDeclaration declaration, IReadOnlyDictionary<string, JsonElement> arguments)
     {
         try
@@ -140,10 +152,17 @@ public sealed class ToolExecution(VaultConfig vaultConfig, SearchEngine? engine 
     }
 
     /// <summary>
-    /// Resolves the call's vault and checks the grant reaches it. Routing beats authorization: a call
-    /// naming a vault nobody configured is told that, rather than being refused for a scope that
-    /// could never have admitted it.
+    /// Resolves the call's vault and checks that the grant reaches it. Routing is decided before
+    /// authority: a call naming a vault nobody configured is told so, rather than being refused for
+    /// a scope that could never have admitted it.
     /// </summary>
+    /// <param name="declaration">The tool's declaration, whose name appears in the refusal
+    /// payload.</param>
+    /// <param name="arguments">The bound arguments, carrying the vault name the caller gave.</param>
+    /// <param name="grant">The caller's grant.</param>
+    /// <returns>The resolved vault.</returns>
+    /// <exception cref="ToolRefusal">The vault is unknown or unavailable, or the grant is not scoped
+    /// to it.</exception>
     private Vault Resolve(ToolDeclaration declaration, IVaultArguments arguments, Grant grant)
     {
         var vault = Vault.Resolve(vaultConfig, arguments.Vault) switch
@@ -160,10 +179,10 @@ public sealed class ToolExecution(VaultConfig vaultConfig, SearchEngine? engine 
             var other => throw new InvalidOperationException($"Unhandled vault resolution {other.GetType().Name}."),
         };
 
-        // data carries only the call's own coordinates - the tool, and the vault the call effectively
-        // targeted, which the caller may not have named and so is the one thing here it cannot
-        // already know. The grant's vault set, op classes and id stay out: a denial must not become
-        // an enumeration surface for authority the caller does not hold.
+        // data carries only the call's own coordinates: the tool, and the vault the call effectively
+        // targeted, which the caller may have left to the default and so is the one value here it
+        // may not already know. Keep the grant's vault set, op classes and id out of it, so that a
+        // denial cannot be used to enumerate authority the caller does not hold.
         if (!grant.CanAccessVault(vault.Name))
             throw new ToolRefusal(
                 ToolCodes.OutOfScope,

@@ -4,40 +4,46 @@ using VaultShared.Frontmatter;
 namespace VaultShared.Tools;
 
 /// <summary>
-/// The pieces the three mutating tools that do not route through the frontmatter write path share:
-/// the artifact-level assertion, the partial-failure refusal, and the vocabulary a write that
-/// interprets no frontmatter runs against. They sit together because each is one rule for the whole
-/// tool set, and a copy per tool is a copy that can drift.
+/// Provides the pieces shared by the mutating tools that do not route through the frontmatter write
+/// path: the artifact-level authority assertion, the partial-failure refusal, the name-grammar
+/// refusal, and the empty vocabulary a write that interprets no frontmatter runs against. Each is
+/// one rule for the whole tool set, and a copy per tool would drift.
 /// </summary>
 internal static class MutationSupport
 {
     /// <summary>
-    /// The vocabulary a note write that interprets no frontmatter runs against. <b>Not a fallback
-    /// vocabulary</b>: it is reachable only where the write carries no operation and no supplied
-    /// block, so no key is ever looked up in it and it can neither recognize nor refuse one. What
-    /// refuses a write that does interpret frontmatter, with no declaration loaded, is
-    /// <see cref="RegistryState.Require"/>.
+    /// The empty vocabulary a note write that interprets no frontmatter runs against.
     /// </summary>
+    /// <remarks>
+    /// This is not a fallback vocabulary. It is reachable only where the write carries no operation
+    /// and no supplied block, so no key is ever looked up in it and it can neither recognize nor
+    /// refuse one. A write that does interpret frontmatter with no declaration loaded is refused by
+    /// <see cref="RegistryState.Require"/> instead.
+    /// </remarks>
     internal static readonly FrontmatterRegistry NoVocabulary = new(
         new Dictionary<string, KeyDeclaration>(StringComparer.OrdinalIgnoreCase),
         [],
         new Dictionary<string, EntrySchema>(StringComparer.OrdinalIgnoreCase));
 
     /// <summary>
-    /// Asserts the artifact-level authority a set of targets requires, and answers what was
-    /// asserted.
-    ///
-    /// <b>Neither <c>delete</c> nor <c>move</c> routes through the frontmatter write path</b>, so
-    /// each consults the vault's path policy in its own validate phase, before the lock is used for
-    /// anything and with zero mutation on denial. Contributions union across the set - no target can
-    /// clear a class another contributed.
-    ///
-    /// The refusal names the paths in the operation's own set that carry the class it asked for.
-    /// A caller told that something in a folder needed authority it lacks, without being told what,
-    /// cannot act; and those paths are the declaration's answer about the caller's own operand set
-    /// rather than anything about the grant.
+    /// Asserts the artifact-level authority a set of targets requires, and returns the op classes
+    /// that were asserted.
     /// </summary>
+    /// <param name="vault">The per-call access object.</param>
+    /// <param name="targets">Each target path and the op classes the vault's path policy requires to
+    /// mutate it.</param>
+    /// <returns>The distinct op classes asserted, in ordinal order.</returns>
     /// <exception cref="ToolRefusal">The grant holds none of a required class.</exception>
+    /// <remarks>
+    /// The delete and move tools do not route through the frontmatter write path, so each calls this
+    /// during its own validation, before anything is mutated. Requirements union across the set: no
+    /// target can clear a class another target contributed.
+    ///
+    /// The refusal names the paths in the caller's own target set that carry the class that was
+    /// denied. A caller told only that something inside a folder needed authority it lacks cannot
+    /// act on that. Those paths come from the vault's path policy applied to the caller's own
+    /// operands and say nothing about the grant.
+    /// </remarks>
     public static IReadOnlyList<string> AssertArtifactAuthority(
         VaultAccess vault, IEnumerable<PathRequirement> targets)
     {
@@ -69,14 +75,22 @@ internal static class MutationSupport
     }
 
     /// <summary>
-    /// The refusal a multi-target mutation raises when it fails partway. The mutex lock means no
-    /// other tool interleaved; it does not mean rollback, so what landed and what did not are named
-    /// exactly and the recovery steps are the caller's route out of that state.
-    ///
-    /// <b>The steps are non-destructive and in order.</b> Nothing here tells a caller to remove
-    /// something to make room, because neither relocation nor removal ever leaves content in two
-    /// places: a move relocates bytes rather than copying them, and a removal only ever unlinks.
+    /// Builds the refusal a mutation over several targets raises when it fails partway.
     /// </summary>
+    /// <param name="message">The caller-visible message.</param>
+    /// <param name="applied">The targets the mutation completed.</param>
+    /// <param name="notApplied">The targets it did not.</param>
+    /// <param name="recovery">Ordered steps the caller can take to reach a consistent state.</param>
+    /// <returns>The refusal.</returns>
+    /// <remarks>
+    /// The write lock means no other tool interleaved. It does not mean the change is rolled back,
+    /// so the payload names exactly what landed and what did not, and the recovery steps are the
+    /// caller's route out of that state.
+    ///
+    /// Recovery steps must be non-destructive and in order. Never tell a caller to remove something
+    /// to make room: neither a move nor a delete ever leaves content in two places, because a move
+    /// relocates bytes rather than copying them and a delete only unlinks.
+    /// </remarks>
     public static ToolRefusal Partial(
         string message,
         IReadOnlyList<string> applied,
@@ -85,11 +99,13 @@ internal static class MutationSupport
         new(ToolCodes.PartialMutation, message, new { applied, notApplied, recovery });
 
     /// <summary>
-    /// The name grammar's refusal, carrying a conforming spelling where one can be derived from what
-    /// the caller sent - so the miss costs one retry rather than a reading of the grammar. Choosing
-    /// among conforming names stays the caller's, which is why exactly one is offered, and none is
-    /// offered where the text carries no conforming characters at all.
+    /// Builds the refusal for a name outside the name grammar.
     /// </summary>
+    /// <param name="name">The segment the caller sent.</param>
+    /// <returns>The refusal. Where a conforming spelling can be derived from the caller's text, the
+    /// payload carries exactly one, so the miss costs one retry rather than a reading of the
+    /// grammar. Offering more than one would make the choice this code's rather than the caller's,
+    /// and none is offered where the text carries no conforming characters at all.</returns>
     public static ToolRefusal InvalidName(string name)
     {
         const string Grammar =
@@ -103,11 +119,13 @@ internal static class MutationSupport
             : new ToolRefusal(ToolCodes.InvalidName, $"\"{name}\" is outside the name grammar - {Grammar}.");
     }
 
-    /// <summary>What a pass over every note in the vault answers when it did not complete, in this
-    /// vocabulary. A pass that could not enumerate or could not read has no answer at all - a
-    /// partial one would under-report exactly the links a caller needs.</summary>
-    /// <exception cref="ToolRefusal">Always; the caller has already matched away the completed
-    /// case.</exception>
+    /// <summary>Translates the failure of a pass over every note in the vault into this vocabulary.
+    /// A pass that could not enumerate or could not read returns no answer at all, because a partial
+    /// answer would under-report exactly the links a caller needs.</summary>
+    /// <typeparam name="TResult">The pass's result type.</typeparam>
+    /// <param name="outcome">A pass outcome the caller has already matched the completed case
+    /// out of.</param>
+    /// <returns>The refusal.</returns>
     public static ToolRefusal PassFailure<TResult>(Links.LinkPassOutcome<TResult> outcome) => outcome switch
     {
         Links.LinkPassOutcome<TResult>.EnumerationFailed enumeration =>
@@ -125,6 +143,8 @@ internal static class MutationSupport
         paths.Count == 1 ? $"\"{paths.Min}\"" : $"{paths.Count} paths in this operation's target set";
 }
 
-/// <summary>One target of an operation and what the vault's path policy says mutating it
-/// requires.</summary>
+/// <summary>Pairs one target of an operation with what the vault's path policy requires to mutate
+/// it.</summary>
+/// <param name="Path">The vault-relative target path.</param>
+/// <param name="Required">The op classes the path policy requires for that path.</param>
 internal readonly record struct PathRequirement(string Path, IReadOnlyCollection<string> Required);

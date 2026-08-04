@@ -3,28 +3,29 @@ using VaultShared.Access;
 using VaultShared.Frontmatter;
 using VaultShared.Links;
 
-// Both namespaces carry a WriteOutcome - the layer's answer to storing bytes, and the write path's
-// answer to composing a note. Only the first is named here; the second arrives through var.
+// Two namespaces each declare a WriteOutcome: the access layer's answer to storing bytes, and the
+// frontmatter write path's answer to composing a note. This alias names the first; the second is
+// only ever held in a var.
 using WriteOutcome = VaultShared.Access.WriteOutcome;
 
 namespace VaultShared.Tools;
 
 /// <summary>
-/// What a creation turned out to be. Every member is one this tool genuinely populates.
+/// Represents the result of a create operation.
 /// </summary>
-/// <param name="Path">Where the thing now is, vault-relative and quotable into a later call. It is
-/// the resolved spelling rather than the caller's.</param>
-/// <param name="ContentHash">The note's hash, so a create chains straight into an edit. Absent for
-/// a folder: there is no single note left to describe.</param>
+/// <param name="Path">Where the note or folder now is, vault-relative and usable in a later call.
+/// This is the resolved spelling rather than the caller's.</param>
+/// <param name="ContentHash">The new note's content hash, so a create chains straight into an edit.
+/// Absent for a folder, which leaves no single note to describe.</param>
 /// <param name="PinnedLinks">
-/// The bystander links frozen to what they open today. <b>Absent and empty are different answers</b>:
-/// absent means the basename was unique and no pass ran, an empty list means the pass ran and found
-/// nothing to protect. A folder creation brings no note into existence, so it is always absent
-/// there.
+/// The links in other notes that were frozen to what they open today. Absent and empty mean different
+/// things: absent means the basename was unique and no pass ran, and an empty list means the pass ran
+/// and found nothing to protect. It is always absent for a folder, which brings no note into
+/// existence.
 /// </param>
-/// <param name="AssertedAuthority">What the outcome required beyond the tool's floor. It stays when
-/// empty: absence would not distinguish an operation that asserted nothing from a tool that never
-/// asserts.</param>
+/// <param name="AssertedAuthority">The op classes the outcome required beyond the tool's floor. It is
+/// reported even when empty, so that a caller can tell an operation that asserted nothing from a tool
+/// that never asserts.</param>
 public sealed record CreateResult(
     string Path,
     [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
@@ -34,39 +35,46 @@ public sealed record CreateResult(
     IReadOnlyList<string> AssertedAuthority);
 
 /// <summary>
-/// The only way to bring a note or a folder into existence, and the tool that owns directory
-/// creation.
-///
-/// It brings something into existence, so <b>existence is its failure</b>: an occupied target is
-/// refused rather than overwritten or merged, distinguishably from every other refusal, and the
-/// refusal is the filesystem's answer to an atomic create rather than a check this runs first.
-///
-/// <b>Nothing is composed here.</b> A note's content is finished text: no templating, no
-/// field-by-field composition, no computed name and no injected provenance. What the caller sends is
-/// validated whole through the single frontmatter write path - which is what classifies and asserts
-/// the authority the supplied block turned out to require - and stored.
-///
-/// <b>There is no preview gate.</b> A creation destroys nothing. It can still pin wikilinks in notes
-/// the caller never named, and pinning holds the resolution that already applied, so the result
-/// reports what was pinned rather than asking permission for it.
+/// Creates one note or one folder. This is the only way to bring either into existence, and the only
+/// tool that creates directories.
 /// </summary>
-/// <param name="registries">Every vault's loaded declaration, held rather than handed in on the
-/// call, because the declaration is per vault and loaded once at startup.</param>
+/// <remarks>
+/// <para>
+/// An occupied target is refused rather than overwritten or merged, with its own code. The refusal
+/// comes from the filesystem's answer to an atomic create rather than from an existence check this
+/// tool runs first, so there is no window in which something else creates the file in between.
+/// </para>
+/// <para>
+/// Nothing is composed here. A note's content is finished text: no templating, no field-by-field
+/// composition, no computed name, no injected provenance. What the caller sends is validated whole
+/// through the single frontmatter write path, which classifies and asserts the authority the supplied
+/// block turns out to require, and then stored.
+/// </para>
+/// <para>
+/// There is no preview. A creation destroys nothing. It can still pin wikilinks in notes the caller
+/// never named, but pinning only holds the resolution that already applied, so the result reports
+/// what was pinned rather than asking permission first.
+/// </para>
+/// </remarks>
+/// <param name="registries">Every vault's loaded frontmatter declaration. Held on the tool rather
+/// than passed per call, because a declaration is per vault and loaded once at startup.</param>
 public sealed class CreateTool(FrontmatterRegistries registries) : ITool
 {
+    /// <summary>The tool's wire name.</summary>
     public const string ToolName = "create";
 
     /// <summary>
-    /// The floor is the base write class. What a particular creation requires beyond it depends on
-    /// which keys the supplied block carries and on what the vault's path policy says about the
-    /// target, and both are asserted on the outcome rather than on what the caller said it was
-    /// doing.
-    ///
-    /// The wikilink dimension a duplicate basename triggers contributes that same base class: the
-    /// pass replaces the target inside links that already exist and reads no key. What is special
-    /// about it is that it is not scope-checked, which is the seam
-    /// <see cref="VaultAccess.BypassingScope"/> makes deliberate rather than a class of its own.
+    /// The tool's declaration. The floor is the base write class. What a particular creation requires
+    /// beyond it depends on which keys the supplied block carries and on what the vault's path policy
+    /// says about the target, and both are asserted against the outcome rather than against what the
+    /// caller said it was doing.
     /// </summary>
+    /// <remarks>
+    /// The wikilink pass a duplicate basename triggers contributes that same base class: it replaces
+    /// the target inside links that already exist and reads no key. It is not scope-checked, which
+    /// <see cref="VaultAccess.BypassingScope"/> makes explicit at the call site rather than through
+    /// an op class of its own.
+    /// </remarks>
     public static readonly ToolDeclaration Declaration = new()
     {
         Name = ToolName,
@@ -86,8 +94,9 @@ public sealed class CreateTool(FrontmatterRegistries registries) : ITool
         var arguments = call.ArgumentsAs<CreateArguments>();
         var vault = call.RequireVault(ToolName);
 
-        // ---- 3. Path resolution, scope, and policy ----
+        // Argument validation and vault resolution have already run in the shared execute path.
 
+        // Path resolution, scope, and policy.
         var target = ToolPaths.Write(vault, arguments.Path, ToolPaths.KindOf(arguments.Path, arguments.Operand));
 
         return new ToolResult.Data(
@@ -97,25 +106,29 @@ public sealed class CreateTool(FrontmatterRegistries registries) : ITool
     }
 
     /// <summary>
-    /// The note form. Four steps, and every refusal precedes every change: the artifact assertion,
-    /// the whole supplied note through the write path, the basename census, and then - in that order
-    /// - the pins and the note.
+    /// Creates a note. Every step that can refuse runs before anything changes: the artifact-level
+    /// authority assertion, the supplied note through the frontmatter write path, and the basename
+    /// census. Only then are the pins written and the note stored, in that order.
     /// </summary>
+    /// <param name="vault">The per-call access object.</param>
+    /// <param name="arguments">The validated arguments.</param>
+    /// <param name="target">The admitted write path.</param>
+    /// <returns>The result, including the new note's hash and any links that were pinned.</returns>
+    /// <exception cref="ToolRefusal">Any step refused.</exception>
     private CreateResult CreateNote(VaultAccess vault, CreateArguments arguments, WritePath target)
     {
-        // ---- 4. Plan ----
-
+        // Plan.
         var artifact = ArtifactRequirement(vault, target.Path);
         var asserted = new SortedSet<string>(MutationSupport.AssertArtifactAuthority(vault, [artifact]), StringComparer.Ordinal);
 
         var supplied = NoteSplit.Of(arguments.Content!);
         var registry = supplied.HasBlock ? registries.For(vault.Vault.Name).Require() : MutationSupport.NoVocabulary;
 
-        // The single write path, over a note with no original. A supplied block is an input to a
-        // parse rather than text spliced through: it is validated whole, because the caller supplied
-        // every key, and the authority the outcome requires is classified over the composed diff -
-        // which against no original counts every key present as changed. Its refusals reach the wire
-        // through the one table that names them; this tool catches none of them.
+        // The single frontmatter write path, run against a note with no original. A supplied block is
+        // parsed rather than spliced through as text, and is validated whole because the caller
+        // supplied every key. The authority the outcome requires is classified over the composed
+        // diff, which against no original counts every key present as changed. This tool catches none
+        // of the write path's refusals; they reach the wire through ToolRefusalEnvelope.
         var composed = FrontmatterWrite.Apply(new WriteRequest(
             Content: string.Empty,
             RelativePath: target.Path.Value,
@@ -128,8 +141,8 @@ public sealed class CreateTool(FrontmatterRegistries registries) : ITool
 
         asserted.UnionWith(composed.AssertedAuthority);
 
-        // The basename census, asked before anything is written. A name nothing else carries cannot
-        // change what any link resolves to, so no pass runs and no pins are reported.
+        // The basename census, taken before anything is written. A basename nothing else carries
+        // cannot change what any link resolves to, so no pass runs and no pins are reported.
         var pass = vault.BypassingScope();
         var planned = WikilinkMaintenance.PlanCreation(pass, target.Path);
         var plan = planned switch
@@ -139,11 +152,11 @@ public sealed class CreateTool(FrontmatterRegistries registries) : ITool
             var failure => throw MutationSupport.PassFailure(failure),
         };
 
-        // ---- 5. Apply ----
+        // Apply.
 
-        // Pinning runs before the note is written, and the order is the whole of the guarantee:
-        // interrupted after pinning, the vault holds links naming a target that is still correct;
-        // interrupted after writing, it holds bare links that have silently changed meaning.
+        // Do not reorder: pinning must run before the note is written. Interrupted after pinning, the
+        // vault holds links naming a target that is still correct. Interrupted after writing, it
+        // holds bare links that have silently changed meaning.
         if (plan is not null && !plan.IsEmpty && WikilinkMaintenance.Apply(pass, plan) is LinkApplyOutcome.Failed stopped)
             throw MutationSupport.Partial(
                 $"\"{stopped.Path}\" could not be rewritten, so the pins this creation needs are only partly in place and \"{target.Path.Value}\" was not created.",
@@ -163,24 +176,26 @@ public sealed class CreateTool(FrontmatterRegistries registries) : ITool
     }
 
     /// <summary>
-    /// The folder form. It brings no note into existence, so no wikilink pass runs and no pins are
+    /// Creates a folder. No note comes into existence, so no wikilink pass runs and no pins are
     /// reported.
-    ///
-    /// <b>The placeholder is reached from the operand, never named by the caller.</b> The perimeter
-    /// is narrower than an operation's footprint on purpose: a caller can ask folder creation for a
-    /// <c>.gitkeep</c> and cannot name one, which is why
-    /// <see cref="VaultFiles.CreateGitKeep"/> takes the folder and composes the child path itself.
     /// </summary>
+    /// <param name="vault">The per-call access object.</param>
+    /// <param name="arguments">The validated arguments.</param>
+    /// <param name="target">The admitted write path.</param>
+    /// <returns>The result, with no content hash and no pinned links.</returns>
+    /// <exception cref="ToolRefusal">The authority assertion or the write refused.</exception>
+    /// <remarks>
+    /// The caller can ask for the placeholder file but can never name one, which is why
+    /// <see cref="VaultFiles.CreateGitKeep"/> takes the folder and composes the child path itself.
+    /// The paths a caller may name are deliberately narrower than what an operation touches.
+    /// </remarks>
     private static CreateResult CreateFolder(VaultAccess vault, CreateArguments arguments, WritePath target)
     {
-        // ---- 4. Plan ----
-
-        // Folder creation routes through no frontmatter write, so this tool consults the vault's
-        // path policy itself, in its own validate phase and with zero mutation on denial.
+        // Plan. Folder creation routes through no frontmatter write, so this tool consults the
+        // vault's path policy itself, before anything is mutated.
         var asserted = MutationSupport.AssertArtifactAuthority(vault, [ArtifactRequirement(vault, target.Path)]);
 
-        // ---- 5. Apply ----
-
+        // Apply.
         switch (VaultFiles.CreateFolder(target))
         {
             case WriteOutcome.Written:
@@ -195,27 +210,30 @@ public sealed class CreateTool(FrontmatterRegistries registries) : ITool
                 throw new InvalidOperationException($"Unhandled write outcome {other.GetType().Name}.");
         }
 
-        // An existing placeholder is the state the caller asked for, so it is not a second failure:
-        // the folder now exists and holds the file that makes it survive a repository round trip.
+        // An existing placeholder is already the state the caller asked for, so it is not a failure:
+        // the folder exists and holds the file that makes it survive a repository round trip.
         if (arguments.GitKeep && VaultFiles.CreateGitKeep(target) is WriteOutcome.Failed seeding)
             throw Failed($"{arguments.Path}/{VaultFiles.GitKeepName}", seeding);
 
         return new CreateResult(target.Path.Value, ContentHash: null, PinnedLinks: null, asserted);
     }
 
-    /// <summary>
-    /// What the vault's path policy says mutating this target requires. A creation names one path,
-    /// so the set has one member and both target kinds are consulted: creating an artifact always
-    /// requires the declared class, whether the declaration named the path or the shape.
-    /// </summary>
+    /// <summary>Returns what the vault's path policy requires to mutate this target. A creation names
+    /// one path, so the set has one member.</summary>
+    /// <param name="vault">The per-call access object.</param>
+    /// <param name="target">The target path.</param>
+    /// <returns>The path and the op classes required for it.</returns>
     private static PathRequirement ArtifactRequirement(VaultAccess vault, VaultPath target) =>
         new(target.Value, vault.Vault.Policy.MutationRequires(target.Value));
 
-    /// <summary>
-    /// Stores the composed note and answers the hash of what landed. The refusal on an occupied
-    /// target comes from the atomic create, which is what closes the window in which something else
-    /// creates the file between a check and a write.
-    /// </summary>
+    /// <summary>Stores the composed note and returns the hash of what landed.</summary>
+    /// <param name="target">The admitted write path.</param>
+    /// <param name="named">The path as the caller spelled it, used in refusal messages.</param>
+    /// <param name="content">The composed note text.</param>
+    /// <returns>The stored file's content hash.</returns>
+    /// <exception cref="ToolRefusal">The target was occupied, the name was refused, the parent was
+    /// missing, or the write failed. The occupied-target refusal comes from the atomic create, so
+    /// nothing can create the file between a check and the write.</exception>
     private static string Store(WritePath target, string named, string content) =>
         VaultFiles.Create(target, content) switch
         {

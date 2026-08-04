@@ -4,19 +4,20 @@ using VaultShared.Health;
 namespace VaultShared.Configuration;
 
 /// <summary>
-/// Builds an <see cref="OpClassRegistry"/> from op-classes.json. The only producer of one.
+/// Builds an <see cref="OpClassRegistry"/> from op-classes.json. This is its only producer.
 /// </summary>
 public static class OpClassRegistryLoader
 {
+    /// <summary>Loads and validates op-classes.json.</summary>
+    /// <param name="path">The op-classes.json path.</param>
     /// <param name="sink">
-    /// Whole-file failures (missing file, bad JSON, non-array root, a row missing "name",
-    /// a duplicate name, or an empty array) are recorded here as a
-    /// <see cref="ProblemSeverity.Fatal"/> problem instead of being thrown - the caller
-    /// always gets back a usable (if empty) instance. Required, deliberately with no
-    /// default: a defaulted throwaway instance would let a production call site compile
-    /// while silently discarding recorded failures. Callers that only exercise the success
-    /// path (tests) pass a fresh local instance.
+    /// Receives a <see cref="ProblemSeverity.Fatal"/> problem instead of the loader throwing, for a
+    /// missing file, bad JSON, a non-array root, a row missing <c>name</c>, a duplicate name, or an
+    /// empty array. It has no default value on purpose: a defaulted throwaway sink would let a
+    /// production call site compile while silently discarding recorded failures. A test that only
+    /// exercises the success path passes a fresh local instance.
     /// </param>
+    /// <returns>The registry, or <see cref="OpClassRegistry.Empty"/> where the file failed.</returns>
     public static OpClassRegistry Load(string path, IConfigProblemSink sink)
     {
         try

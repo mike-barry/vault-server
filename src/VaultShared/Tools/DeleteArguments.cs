@@ -4,16 +4,23 @@ using System.Text.Json.Serialization;
 namespace VaultShared.Tools;
 
 /// <summary>
-/// <see cref="DeleteTool"/>'s arguments.
-///
-/// <b>Kind is required here because the two kinds take different arguments</b>: a note has nothing
-/// beneath it, so <see cref="Recursive"/> cannot change an outcome for one and is refused rather
-/// than ignored.
-///
-/// <see cref="Recursive"/> states which operation the caller wants; it does not suppress a check.
-/// There is no force, no purge and no skip - a gate the same call can waive stops nobody, because a
-/// caller that hits the refusal simply resends with the waiver attached.
+/// Represents <see cref="DeleteTool"/>'s arguments.
 /// </summary>
+/// <remarks>
+/// The kind is required because the two kinds take different arguments. A note has nothing beneath
+/// it, so <see cref="Recursive"/> cannot change the outcome for one and is refused rather than
+/// ignored.
+///
+/// <see cref="Recursive"/> says which operation the caller wants; it does not suppress a check. There
+/// is deliberately no force, purge or skip argument. A guard the same call can waive stops nobody,
+/// because a caller that hits the refusal just resends with the waiver attached.
+/// </remarks>
+/// <param name="Path">The vault-relative path to remove.</param>
+/// <param name="Kind">Which kind the path names. Required.</param>
+/// <param name="Vault">The vault to remove from, or null for the configured default.</param>
+/// <param name="Recursive">Whether to remove a folder together with everything under it. Folders
+/// only.</param>
+/// <param name="Apply">Whether to perform the removal. False previews it.</param>
 public sealed record DeleteArguments(
     [property: Description("Vault-relative path to remove. A note carries the \".md\" extension; a folder carries none. The extension is never inferred.")]
     string Path,
@@ -27,13 +34,17 @@ public sealed record DeleteArguments(
     bool Apply = false) : IVaultArguments
 {
     /// <summary>
-    /// The kind, once <see cref="Validate"/> has established there is one. It is nullable on the
-    /// record so that omitting it is a refusal naming the argument rather than the first enum member
-    /// silently standing in - a default here would advertise a requirement nothing enforces.
+    /// The kind, valid once <see cref="Validate"/> has established there is one.
+    /// <see cref="Kind"/> is nullable on the record so that omitting it refuses and names the
+    /// argument, rather than letting the first enumeration member stand in for a requirement the
+    /// schema advertises but nothing enforces.
     /// </summary>
     [JsonIgnore]
     public OperandKind Operand => Kind!.Value;
 
+    /// <summary>Checks that the path is named, that the kind is supplied and recognized, and that
+    /// no argument the chosen kind does not take is present.</summary>
+    /// <returns>The first fault found, or null.</returns>
     public ArgumentFault? Validate()
     {
         if (ArgumentRules.Missing(Path, "path") is { } missing)

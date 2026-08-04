@@ -4,15 +4,20 @@ using System.Text.Json.Serialization;
 namespace VaultShared.Tools;
 
 /// <summary>
-/// <see cref="CreateTool"/>'s arguments: one path, which kind it names, and the arguments that kind
-/// takes.
-///
-/// <b>Kind is required here because the two kinds take different arguments.</b> <see cref="Content"/>
-/// is a note's substance and means nothing for a folder; <see cref="GitKeep"/> is a folder's
-/// placeholder and means nothing for a note. Where an argument cannot change an outcome for the
-/// supplied operand it is refused rather than ignored, which is what makes the kind decide the shape
-/// rather than decorate it.
+/// Represents <see cref="CreateTool"/>'s arguments: one path, which kind it names, and the arguments
+/// that kind takes.
 /// </summary>
+/// <remarks>
+/// The kind is required because the two kinds take different arguments. <see cref="Content"/> is a
+/// note's substance and means nothing for a folder; <see cref="GitKeep"/> is a folder's placeholder
+/// and means nothing for a note. An argument that cannot change the outcome for the supplied kind is
+/// refused rather than ignored.
+/// </remarks>
+/// <param name="Path">The vault-relative path to bring into existence.</param>
+/// <param name="Kind">Which kind the path names. Required.</param>
+/// <param name="Vault">The vault to create in, or null for the configured default.</param>
+/// <param name="Content">The note's finished text. Notes only, and required for one.</param>
+/// <param name="GitKeep">Whether to seed the folder's placeholder file. Folders only.</param>
 public sealed record CreateArguments(
     [property: Description("Vault-relative path to bring into existence. A note carries the \".md\" extension; a folder carries none. The extension is never inferred.")]
     string Path,
@@ -26,21 +31,24 @@ public sealed record CreateArguments(
     bool GitKeep = false) : IVaultArguments
 {
     /// <summary>
-    /// The kind, once <see cref="Validate"/> has established there is one. It is nullable on the
-    /// record so that omitting it is a refusal naming the argument rather than the first enum member
-    /// silently standing in - a default here would advertise a requirement nothing enforces.
+    /// The kind, valid once <see cref="Validate"/> has established there is one.
+    /// <see cref="Kind"/> is nullable on the record so that omitting it refuses and names the
+    /// argument, rather than letting the first enumeration member stand in for a requirement the
+    /// schema advertises but nothing enforces.
     /// </summary>
     [JsonIgnore]
     public OperandKind Operand => Kind!.Value;
 
     /// <summary>
-    /// Everything decidable from the record alone: the operand is named, the kind is one this
-    /// vocabulary carries, and every argument the chosen kind does not take is absent.
-    ///
-    /// The extension rule is not here. Whether the path's spelling agrees with the kind is a path
-    /// refusal carrying the spelling that would have worked, which an
-    /// <see cref="ArgumentFault"/> can carry neither a code nor a payload for.
+    /// Checks everything decidable from the record alone: that the path is named, that the kind is
+    /// supplied and recognized, and that no argument the chosen kind does not take is present.
     /// </summary>
+    /// <returns>The first fault found, or null.</returns>
+    /// <remarks>
+    /// Whether the path's spelling agrees with the kind is checked where the path is resolved. It is
+    /// a path refusal carrying the spelling that would have worked, and an
+    /// <see cref="ArgumentFault"/> can carry neither that code nor that payload.
+    /// </remarks>
     public ArgumentFault? Validate()
     {
         if (ArgumentRules.Missing(Path, "path") is { } missing)
@@ -60,9 +68,9 @@ public sealed record CreateArguments(
                 "content",
                 "\"content\" is a note's text and means nothing for a folder - create the folder, then create the notes in it.");
 
-        // Required rather than defaulted to empty: a creation composes nothing and templates
-        // nothing, so the text is the whole substance of the call, and a caller that genuinely
-        // wants an empty note says so by sending empty text.
+        // Required rather than defaulted to empty. A creation composes nothing and templates
+        // nothing, so the text is the whole substance of the call, and a caller that genuinely wants
+        // an empty note says so by sending empty text.
         if (Operand == OperandKind.Note && Content is null)
             return new ArgumentFault(
                 "content",
