@@ -125,7 +125,7 @@ public static class WikilinkMaintenance
                 continue;
 
             var linking = notes[i];
-            if (Rewritten(linking, text, target =>
+            if (Rewritten(linking, text, (target, _) =>
                 {
                     if (before.Resolve(linking, target) is not { } held)
                         return null;
@@ -299,7 +299,7 @@ public static class WikilinkMaintenance
             var wasAt = notes[i];
             var willBe = destinations[i];
 
-            if (Rewritten(wasAt, text, target =>
+            if (Rewritten(wasAt, text, (target, alias) =>
                 {
                     if (before.Resolve(wasAt, target) is not { } held)
                         return null;
@@ -307,7 +307,10 @@ public static class WikilinkMaintenance
                     // The link named the relocated note, so re-emit it at the destination. This is
                     // a repair.
                     if (moved.Contains(held))
-                        return new Replacement(Emit(after, destinations[held]), Pinned: false);
+                        return new Replacement(
+                            Emit(after, destinations[held]),
+                            Pinned: false,
+                            Alias: Refreshed(alias, notes[held], destinations[held]));
 
                     // A bystander link. Its target did not move, but the move may have put a nearer
                     // same-named candidate in its way, or moved the linking note itself. Resolution
@@ -371,6 +374,28 @@ public static class WikilinkMaintenance
             : throw new InvalidOperationException($"Composed relocation target \"{value}\" is not a vault path: {reason}");
 
     /// <summary>
+    /// Returns the display alias a repaired link should carry, or null to leave the author's alias
+    /// alone.
+    /// </summary>
+    /// <remarks>
+    /// An alias that was the relocated note's own basename is the editor's own display text rather
+    /// than the author's words, and is re-emitted at the new basename so the link does not go on
+    /// showing a name nothing carries. Any other alias is the author's and survives untouched. The
+    /// editor writes such an alias onto every link whose target it emits in anything but bare form,
+    /// so a vault holds many of them.
+    ///
+    /// The comparison is case-sensitive, alone in this layer. The editor writes the basename exactly,
+    /// so nothing it generates is missed, while an alias differing only in case is a display choice
+    /// the author made and rewriting it would overwrite their words with the file's.
+    /// </remarks>
+    /// <param name="alias">The alias the link carries, or null when it carries none.</param>
+    /// <param name="from">Where the relocated note is now.</param>
+    /// <param name="to">Where the relocated note will be.</param>
+    /// <returns>The alias to write, or null to keep what is there.</returns>
+    private static string? Refreshed(string? alias, VaultPath from, VaultPath to) =>
+        string.Equals(alias, WikilinkName.Bare(from), StringComparison.Ordinal) ? WikilinkName.Bare(to) : null;
+
+    /// <summary>
     /// Returns the canonical form of a link to <paramref name="target"/>: the bare basename when the
     /// name is unique in the vault, the full vault path when it is not.
     /// </summary>
@@ -401,7 +426,7 @@ public static class WikilinkMaintenance
     /// <param name="text">The note's text, exactly as read.</param>
     /// <param name="replacement">Decides each target's replacement, or null to leave it alone.</param>
     /// <returns>The composed rewrite, or null when no target changed.</returns>
-    private static NoteRewrite? Rewritten(VaultPath note, string text, Func<string, Replacement?> replacement)
+    private static NoteRewrite? Rewritten(VaultPath note, string text, Func<string, string?, Replacement?> replacement)
     {
         StringBuilder? composed = null;
         List<PlannedRewrite>? planned = null;
@@ -411,14 +436,32 @@ public static class WikilinkMaintenance
         foreach (var occurrence in Wikilink.Recognize(text))
         {
             var target = occurrence.TargetIn(text);
-            if (replacement(target) is not { } chosen || string.Equals(target, chosen.Emitted, StringComparison.Ordinal))
+            var alias = occurrence.AliasIn(text);
+            if (replacement(target, alias) is not { } chosen)
+                continue;
+
+            var retarget = !string.Equals(target, chosen.Emitted, StringComparison.Ordinal);
+            var realias = chosen.Alias is { } refreshed && !string.Equals(alias, refreshed, StringComparison.Ordinal);
+            if (!retarget && !realias)
                 continue;
 
             composed ??= new StringBuilder(text.Length);
             planned ??= [];
 
-            composed.Append(text, copied, occurrence.TargetStart - copied).Append(chosen.Emitted);
-            copied = occurrence.TargetStart + occurrence.TargetLength;
+            // The target always precedes the alias, so writing the two in this order only ever moves
+            // the copy point forward.
+            if (retarget)
+            {
+                composed.Append(text, copied, occurrence.TargetStart - copied).Append(chosen.Emitted);
+                copied = occurrence.TargetStart + occurrence.TargetLength;
+            }
+
+            if (realias)
+            {
+                composed.Append(text, copied, occurrence.AliasStart - copied).Append(chosen.Alias);
+                copied = occurrence.AliasStart + occurrence.AliasLength;
+            }
+
             planned.Add(new PlannedRewrite(
                 new LinkRewrite(note.Value, lines.At(occurrence.TargetStart), target, chosen.Emitted), chosen.Pinned));
         }
@@ -437,7 +480,11 @@ public static class WikilinkMaintenance
     /// </summary>
     /// <param name="Emitted">The target text to write in place of the old one.</param>
     /// <param name="Pinned">True for a pin, false for a repair.</param>
-    private readonly record struct Replacement(string Emitted, bool Pinned);
+    /// <param name="Alias">
+    /// The display alias to write in place of the old one, or null to leave it as the author wrote
+    /// it. Only a rename supplies one, and only where the alias was the renamed note's own basename.
+    /// </param>
+    private readonly record struct Replacement(string Emitted, bool Pinned, string? Alias = null);
 
     /// <summary>
     /// Reads every requested note's text into a positional array, stopping at the first read

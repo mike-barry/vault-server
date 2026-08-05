@@ -29,6 +29,43 @@ public sealed class WikilinkRecognitionTests
         return Extents(text, occurrence);
     }
 
+    /// <summary>Recognizes text expected to hold exactly one link and returns its display alias.</summary>
+    /// <param name="text">The text to recognize.</param>
+    /// <returns>The alias, or null where the link carries none.</returns>
+    private static string? Alias(string text) => Assert.Single(Wikilink.Recognize(text)).AliasIn(text);
+
+    // ---- The display alias ----
+
+    [Fact]
+    public void AnAliasIsTheTextAfterTheBar()
+    {
+        Assert.Equal("Alias", Alias("See [[Widget|Alias]].\n"));
+        Assert.Null(Alias("See [[Widget]].\n"));
+    }
+
+    [Fact]
+    public void AnAliasIsFoundAfterASubpathToo()
+    {
+        // The target extent stops at the first decoration, which here is the subpath rather than
+        // the alias, so the alias does not begin where the target stopped.
+        Assert.Equal("Alias", Alias("See [[Widget#Heading|Alias]].\n"));
+        Assert.Null(Alias("See [[Widget#Heading]].\n"));
+    }
+
+    [Fact]
+    public void AFurtherBarIsAliasTextRatherThanAnotherDecoration()
+    {
+        Assert.Equal("Alias|More", Alias("See [[Widget|Alias|More]].\n"));
+    }
+
+    [Fact]
+    public void AnAliasIsTrimmedAndAnEmptyOneIsNoAliasAtAll()
+    {
+        Assert.Equal("Alias", Alias("See [[Widget | Alias ]].\n"));
+        Assert.Null(Alias("See [[Widget|]].\n"));
+        Assert.Null(Alias("See [[Widget|   ]].\n"));
+    }
+
     // ---- The link forms ----
 
     [Fact]

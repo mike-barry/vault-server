@@ -135,6 +135,69 @@ public sealed class WikilinkRepairTests : IDisposable
         Assert.Equal("See [[Widget]].\n", _vault.TextOf("Notes/Qualified.md"));
     }
 
+    // ---- The display alias ----
+
+    [Fact]
+    public void ARenameRefreshesTheEditorsOwnAliasAndLeavesTheAuthorsWordsAlone()
+    {
+        // The five spellings as the editor answered them. An alias that was the note's own basename
+        // is display text the editor wrote and is re-emitted at the new name; anything else is the
+        // author's and survives. A heading anchor is untouched either way.
+        _vault
+            .WithNote("Nv/Zz/Nova-Far.md", "# The note that is renamed\n")
+            .WithNote("Nv/Aa/Bb/Aliases.md",
+                """
+                [[Nv/Zz/Nova-Far]]
+                [[Nv/Zz/Nova-Far|Nova-Far]]
+                [[Nv/Zz/Nova-Far|My Own Words]]
+                [[Nv/Zz/Nova-Far#Some-Heading]]
+                [[Nv/Zz/Nova-Far#Some-Heading|My Own Words]]
+
+                """);
+
+        LinkPass.Apply(_vault, LinkPass.Plan(Move("Nv/Zz/Nova-Far.md", "Nv/Zz/Nova-Rename.md")));
+
+        Assert.Equal(
+            """
+            [[Nova-Rename]]
+            [[Nova-Rename|Nova-Rename]]
+            [[Nova-Rename|My Own Words]]
+            [[Nova-Rename#Some-Heading]]
+            [[Nova-Rename#Some-Heading|My Own Words]]
+
+            """,
+            _vault.TextOf("Nv/Aa/Bb/Aliases.md"));
+    }
+
+    [Fact]
+    public void AMoveThatKeepsTheNameLeavesEvenTheEditorsOwnAliasAlone()
+    {
+        // Only a rename can strand an alias. The note keeps its basename here, so the alias already
+        // says what it would be refreshed to and the link's display text never changes.
+        _vault
+            .WithNote("A/Dupe.md", "# Moves, keeping its name\n")
+            .WithNote("B/Dupe.md", "# Keeps the name duplicated\n")
+            .WithNote("Notes/Ref.md", "See [[A/Dupe|Dupe]].\n");
+
+        LinkPass.Apply(_vault, LinkPass.Plan(Move("A/Dupe.md", "C/Dupe.md")));
+
+        Assert.Equal("See [[C/Dupe|Dupe]].\n", _vault.TextOf("Notes/Ref.md"));
+    }
+
+    [Fact]
+    public void AnAliasDifferingOnlyInCaseIsTheAuthorsAndIsKept()
+    {
+        // The editor writes the basename exactly, so an alias that differs from it at all - case
+        // included - is a display choice somebody made rather than text to regenerate.
+        _vault
+            .WithNote("Guide/Setup.md", "# Renamed\n")
+            .WithNote("Notes/Ref.md", "See the [[Guide/Setup|setup]] page.\n");
+
+        LinkPass.Apply(_vault, LinkPass.Plan(Move("Guide/Setup.md", "Guide/Install.md")));
+
+        Assert.Equal("See the [[Install|setup]] page.\n", _vault.TextOf("Notes/Ref.md"));
+    }
+
     [Fact]
     public void AQualifiedBystanderIsNotSimplifiedWhenTheMoveRemovesTheAmbiguity()
     {

@@ -91,6 +91,11 @@ public static class Wikilink
     /// at the first decoration - an alias after <c>|</c> or a subpath after <c>#</c> - and excludes
     /// padding around the name, so it covers exactly the name the link denotes and everything
     /// outside it survives a substitution unchanged.
+    ///
+    /// The alias extent covers the display text after the first <c>|</c>, which may follow a
+    /// subpath, and runs to the closing delimiter: a second <c>|</c> is alias text rather than a
+    /// further decoration. It is absent where the link carries no <c>|</c> and empty where it
+    /// carries one with nothing after it.
     /// </remarks>
     /// <param name="text">The note's whole text.</param>
     /// <param name="open">The index of the opening <c>[[</c>.</param>
@@ -116,9 +121,34 @@ public static class Wikilink
         while (targetEnd > targetStart && text[targetEnd - 1] is ' ' or '\t')
             targetEnd--;
 
-        return targetEnd == targetStart
-            ? null
-            : new WikilinkOccurrence(start, end + 2 - start, targetStart, targetEnd - targetStart);
+        if (targetEnd == targetStart)
+            return null;
+
+        var bar = -1;
+        for (var i = cut; i < end; i++)
+            if (text[i] == '|')
+            {
+                bar = i;
+                break;
+            }
+
+        var aliasStart = -1;
+        var aliasLength = 0;
+        if (bar >= 0)
+        {
+            aliasStart = bar + 1;
+            while (aliasStart < end && text[aliasStart] is ' ' or '\t')
+                aliasStart++;
+
+            var aliasEnd = end;
+            while (aliasEnd > aliasStart && text[aliasEnd - 1] is ' ' or '\t')
+                aliasEnd--;
+
+            aliasLength = aliasEnd - aliasStart;
+        }
+
+        return new WikilinkOccurrence(
+            start, end + 2 - start, targetStart, targetEnd - targetStart, aliasStart, aliasLength);
     }
 }
 
@@ -135,10 +165,24 @@ public static class Wikilink
 /// <param name="Length">How far the whole link runs, through its closing <c>]]</c>.</param>
 /// <param name="TargetStart">Where the target begins.</param>
 /// <param name="TargetLength">How far the target runs. Never zero.</param>
-public sealed record WikilinkOccurrence(int Start, int Length, int TargetStart, int TargetLength)
+/// <param name="AliasStart">Where the display alias begins, or -1 when the link carries none.</param>
+/// <param name="AliasLength">How far the alias runs. Zero for both an absent and an empty alias.</param>
+public sealed record WikilinkOccurrence(
+    int Start, int Length, int TargetStart, int TargetLength, int AliasStart = -1, int AliasLength = 0)
 {
+    /// <summary>Gets whether the link carries a display alias with text in it.</summary>
+    public bool HasAlias => AliasStart >= 0 && AliasLength > 0;
+
     /// <summary>Returns the target this occurrence names, sliced from the text it was recognized in.</summary>
     /// <param name="text">The text this occurrence was recognized in.</param>
     /// <returns>The target text.</returns>
     public string TargetIn(string text) => text.Substring(TargetStart, TargetLength);
+
+    /// <summary>
+    /// Returns the display alias, sliced from the text it was recognized in, or null where the link
+    /// carries none.
+    /// </summary>
+    /// <param name="text">The text this occurrence was recognized in.</param>
+    /// <returns>The alias text, or null.</returns>
+    public string? AliasIn(string text) => HasAlias ? text.Substring(AliasStart, AliasLength) : null;
 }
