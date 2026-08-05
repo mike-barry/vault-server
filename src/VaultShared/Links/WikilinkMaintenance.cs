@@ -12,7 +12,10 @@ namespace VaultShared.Links;
 /// All three share one grammar, one matching rule and one ranking comparator
 /// (<see cref="Wikilink"/>, <see cref="WikilinkTarget"/>, <see cref="WikilinkRanking"/>). Keep them
 /// shared: a link one consumer recognizes and another does not is a rewrite that misses a link or a
-/// census that under-reports, and both fail silently.
+/// census that under-reports, and both fail silently. All three reach the matching rule through
+/// <see cref="WikilinkUniverse"/>, which is what decides the note a target opens; only the census
+/// also reads <see cref="WikilinkTarget"/> directly, for the targets that name a file the universe
+/// does not index.
 ///
 /// Every pass runs over every note in the vault, through <see cref="VaultWidePass"/>, never only
 /// the notes inside the caller's scope. Links to a moved note can be anywhere, so a scoped pass
@@ -196,9 +199,14 @@ public static class WikilinkMaintenance
                 // A target that resolves is answered by the note it opens, whether or not that note
                 // is being removed. A target no note answers may still name a file that is not a
                 // note, which the universe does not index, so it is matched against the set here.
+                // That match reads the address rather than the target as written, or a relative link
+                // to an attachment - the form the editor writes for one - would be reported by
+                // nobody. Matching is wider than the exact-path tier and subsumes it, so the two
+                // tiers resolution runs need no separate expression here.
                 var hit = universe.Resolve(linking, target) is { } held
                     ? removed.Contains(universe[held])
-                    : removing.Any(path => WikilinkTarget.Matches(target, path));
+                    : WikilinkTarget.Address(target, linking) is { } address
+                        && removing.Any(path => WikilinkTarget.Matches(address, path));
 
                 if (hit)
                     found.Add(new LinkOccurrence(linking.Value, lines.At(occurrence.TargetStart), target));

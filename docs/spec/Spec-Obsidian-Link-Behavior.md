@@ -4,13 +4,15 @@ How Obsidian resolves and maintains `[[wikilinks]]` when multiple files share a 
 
 ## Resolution Rule
 
-A target resolves **deterministically**, in two tiers.
+A target is first read as an **address**, then resolved in two tiers. Both steps are **deterministic**.
+
+**Addressing.** A target beginning with `/` is measured from the vault root; one beginning with `./` or `../` is measured from the linking file's own folder, each `..` climbing one level and a climb past the root simply stopping there (`../../../../Delta` written in `S/T/` addresses `Delta`). The address is what the tiers below then resolve, loose matching included: `../Delta` written in `S/T/` addresses `S/Delta`, and where no file sits there it still falls through to the second tier. Only the single leading empty component is an anchor - any other empty component, including a trailing one, makes the target name nothing, so `//Delta` and `./Delta/` resolve to nothing at all, as do `.` and `..` alone. A target whose first component is anything else is already measured from the vault root and is read exactly as written: an interior `..` does not fold (`S/../Delta` names nothing), a backslash is an ordinary character (`.\Delta` names nothing), and a leading `..` that is part of a name is not an anchor (`..Delta` names nothing).
 
 **Exact path wins outright.** The target text is first tried as a path from the vault root. A file sitting at that path takes the link and no other candidate is considered. Targets are vault-relative, never relative to the linking file: `[[Q/Kappa]]` written in `W/Note.md` opens `Q/Kappa.md` and not `W/Q/Kappa.md`.
 
 **Otherwise, by proximity.** Where the target matches no path, the candidates are every file the target *names*: its final component must match the file's basename whole, and the text before it must be a character suffix of the file's folder path. The suffix is measured in characters rather than components, so `sign/Spec-Tool` names `.../Redesign/Spec-Tool` - only the leading folder name can be cut that way, and the final component is never partial (`Tool` alone names nothing). A bare target names every file with that basename.
 
-Those candidates are ranked by the length of the path prefix they share with the linking file's folder - longest shared prefix wins. Descending into the linking file's own subtree is free and ascending out of it is not, so a candidate one level below the linking file beats one a level above. Ties are broken by ordinal comparison of the candidates' **vault paths**.
+Those candidates are ranked by the length of the path prefix they share with the linking file's folder - longest shared prefix wins. Climbing out of the linking file's subtree costs more than descending into it at any depth, so a candidate three folders below the linking file beats one a single folder above it. Descending is cheaper, not free: among candidates that climb equally far, the shallower wins, so a candidate in the linking file's own folder beats one in a subfolder of it. Only then are ties broken by ordinal comparison of the candidates' **vault paths**.
 
 A path-qualified link is therefore not safe from re-aiming: it reaches its file by a rule wider than that file's own path, so a file created at the path the target spells takes the link from it. Only a target spelling a file's whole path is immune, which is what a pin writes.
 
@@ -20,7 +22,7 @@ The autocomplete suggestion popup for a duplicated basename ranks its candidates
 
 ## Maintenance Rules
 
-- **Emit on rename/move:** links to the renamed/moved file are re-emitted per the link-format setting - bare when the basename is unique, full vault path when it is not. Deliberately path-qualified links to a unique-basename file are collapsed to bare on move (no form preservation).
+- **Emit on rename/move:** links to the renamed/moved file are re-emitted per the link-format setting - bare when the basename is unique, full vault path when it is not. Deliberately path-qualified links to a unique-basename file are collapsed to bare on move (no form preservation). An anchored link is flattened the same way: `./Delta` is re-emitted as `Delta` or `S/T/Delta`. An emitted link is never anchored, which is a property worth keeping - an anchored target is measured from the linking file's folder, so it would silently change meaning the next time the *linking* file moved.
 - **Protection:** an in-app action that creates or shifts ambiguity for a basename (creating a duplicate, renaming into a collision, moving a same-basename file closer) rewrites affected bare links to **full vault path** first, so no link's resolution ever silently changes. Protection extends to bystanders - links to the file the action didn't touch. It is offered as a prompt naming the count of affected links, with *Always update*, *Just once*, and *Do not update*; declining leaves the links bare and lets them re-aim. A pin is always safe to write, because the full vault path lands in the exact-path tier and cannot itself be captured.
 - **One-way ratchet:** removing ambiguity (renaming a duplicate away, deleting one) never simplifies remaining qualified links back to bare.
 - **No protection on delete:** deleting one duplicate leaves bare links silently repointing to the survivor - no warning, no rewrite.

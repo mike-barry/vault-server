@@ -97,6 +97,36 @@ public sealed class WikilinkPinningTests : IDisposable
         Assert.True(LinkPass.Plan(Creating("Aa/Bb/Dupe.md")).IsEmpty);
     }
 
+    // ---- Anchored targets ----
+
+    [Fact]
+    public void ARelativeLinkTheNewNoteWouldTakeIsPinned()
+    {
+        // `../Delta` addresses `S/Delta`, where nothing sits, so today it reaches `Zed/S/Delta.md`
+        // by the character suffix rule. A note created at exactly that address takes the link, the
+        // same way a note created at the path any other target spells does, so the link is pinned
+        // to what it opens now.
+        _vault
+            .WithNote("Zed/S/Delta.md", "# The one it opens now\n")
+            .WithNote("S/T/Spellings.md", "See [[../Delta]].\n");
+
+        var plan = LinkPass.Plan(Creating("S/Delta.md"));
+
+        Assert.Equal(["S/T/Spellings.md:1 ../Delta -> Zed/S/Delta"], LinkPass.Apply(_vault, plan));
+    }
+
+    [Fact]
+    public void ARelativeLinkThatOpenedNothingIsNotPinned()
+    {
+        // The new note gives the link a target it never had. There is no earlier answer to
+        // preserve, and pinning one would write the note the link does not open.
+        _vault
+            .WithNote("Delta.md", "# The root copy, which a relative target does not reach\n")
+            .WithNote("S/T/Spellings.md", "See [[./Delta]].\n");
+
+        Assert.True(LinkPass.Plan(Creating("S/T/Delta.md")).IsEmpty);
+    }
+
     [Fact]
     public void APathQualifiedLinkIsPinnedWhereANoteIsCreatedAtThePathItSpells()
     {

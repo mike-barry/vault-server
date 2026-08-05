@@ -72,6 +72,27 @@ public sealed class WikilinkRankingTests
             Ranked("Aa/Bb/Cc/Note.md", "Dupe.md", "Aa/Bb/Cc/Dd/Dupe.md"));
     }
 
+    [Fact]
+    public void TheLinkingFilesOwnFolderBeatsASubfolderOfIt()
+    {
+        // Both candidates climb no folders, so the one that descends least wins. The subfolder is
+        // named to sort ahead of the basename, which is what the ordinal comparison would seize on
+        // if descent were not weighed first.
+        Assert.Equal(
+            ["Aa/Bb/Dupe.md", "Aa/Bb/Aaa/Dupe.md"],
+            Ranked("Aa/Bb/Note.md", "Aa/Bb/Aaa/Dupe.md", "Aa/Bb/Dupe.md"));
+    }
+
+    [Fact]
+    public void TheOwnFolderWinsWhicheverWayTheSubfolderSorts()
+    {
+        // The same pair with the subfolder sorting behind the basename. Ranking must not depend on
+        // the subfolder's name at all.
+        Assert.Equal(
+            ["Aa/Bb/Dupe.md", "Aa/Bb/Zzz/Dupe.md"],
+            Ranked("Aa/Bb/Note.md", "Aa/Bb/Zzz/Dupe.md", "Aa/Bb/Dupe.md"));
+    }
+
     // ---- Breaking a tie ----
 
     [Fact]
@@ -98,8 +119,10 @@ public sealed class WikilinkRankingTests
     [Fact]
     public void EveryCandidateComesBack()
     {
+        // `Notes/Dupe.md` shares a folder with the linking note; the other two share none and are
+        // ordered by how far they descend.
         Assert.Equal(
-            ["Notes/Dupe.md", "Aa/Bb/Cc/Dupe.md", "Aa/Dupe.md"],
+            ["Notes/Dupe.md", "Aa/Dupe.md", "Aa/Bb/Cc/Dupe.md"],
             Ranked("Notes/Note.md", "Aa/Bb/Cc/Dupe.md", "Notes/Dupe.md", "Aa/Dupe.md"));
     }
 

@@ -60,6 +60,61 @@ public sealed class WikilinkRepairTests : IDisposable
         Assert.Empty(plan.Pins);
     }
 
+    // ---- Anchored targets ----
+
+    [Fact]
+    public void ARelativeLinkToTheRelocatedNoteIsRepairedLikeAnyOther()
+    {
+        // Before anchored targets were addressed at all, this link resolved to nothing, so the move
+        // left it dangling and no census would have reported it. It names the moved note, so it is
+        // a repair, and it is re-emitted in canonical form: the relative spelling is not preserved,
+        // exactly as a deliberately path-qualified one is not.
+        _vault
+            .WithNote("Delta.md", "# The root copy\n")
+            .WithNote("S/T/Delta.md", "# The one that moves\n")
+            .WithNote("S/T/Spellings.md", "See [[./Delta]].\n");
+
+        var plan = LinkPass.Plan(Move("S/T/Delta.md", "Zed/Delta.md"));
+
+        Assert.Equal(["S/T/Spellings.md:1 ./Delta -> Zed/Delta"], LinkPass.Apply(_vault, plan));
+        Assert.Empty(plan.Pins);
+    }
+
+    [Fact]
+    public void ARelativeLinkThatMovesWithWhatItNamesIsStillRepaired()
+    {
+        // The link and the note it opens travel together, so it would still open the right note if
+        // it were left alone. It is re-emitted anyway, because the canonical form of a link to a
+        // duplicated basename is the full vault path and the editor would rewrite anything else.
+        _vault
+            .WithNote("Delta.md", "# The root copy\n")
+            .WithNote("S/T/Delta.md", "# Moves with the folder\n")
+            .WithNote("S/T/Spellings.md", "See [[./Delta]].\n");
+
+        var plan = LinkPass.Plan(MoveFolder("S/T", "Zed/T"));
+
+        Assert.Equal(["S/T/Spellings.md:1 ./Delta -> Zed/T/Delta"], LinkPass.Render(plan.Repairs));
+    }
+
+    [Fact]
+    public void ARelativeLinkIsMeasuredFromWhereTheLinkingNoteWillBe()
+    {
+        // The bystander case, and the reason a target is addressed inside resolution rather than
+        // once by the caller. `../Delta` reaches `Zed/S/Delta.md` by suffix from `S/T/`, and that
+        // note does not move - but the linking note does, and from `Zed/T/` the same spelling
+        // addresses `Zed/Delta` and reaches nothing. The link is therefore pinned to what it opens
+        // today. Addressing the target once, against the folder the linking note is leaving, would
+        // find the answer unchanged and leave the link silently re-aimed.
+        _vault
+            .WithNote("Zed/S/Delta.md", "# Named by suffix, and not moving\n")
+            .WithNote("S/T/Spellings.md", "See [[../Delta]].\n");
+
+        var plan = LinkPass.Plan(MoveFolder("S/T", "Zed/T"));
+
+        Assert.Equal(["S/T/Spellings.md:1 ../Delta -> Zed/S/Delta"], LinkPass.Render(plan.Pins));
+        Assert.Empty(plan.Repairs);
+    }
+
     // ---- Canonical emission ----
 
     [Fact]

@@ -81,35 +81,48 @@ internal sealed class WikilinkUniverse
     /// <remarks>
     /// The linking note is a parameter rather than a position in this universe because a relocation
     /// moves the linking note as well, and the answer must be measured from where that note will be
-    /// rather than from where it is.
+    /// rather than from where it is. It is also what an anchored target is measured from, which is
+    /// why the target is normalized here rather than once by the caller. A link written
+    /// <c>./Delta</c> in a note that is moving names one path in the universe before the move and
+    /// another in the universe after it, so normalizing once and passing the result to both would
+    /// decide the second answer from where the linking note used to be.
     ///
-    /// Resolution runs in two tiers, measured against Obsidian on 2026-08-04. A target naming a
-    /// whole vault path takes the note at that path outright; only a target naming no path is
-    /// ranked against the notes sharing its basename. Collapsing the two would let a nested note
-    /// take a link belonging to a root note, and would miss the pins a root-level creation owes.
+    /// Resolution runs in two tiers, measured against Obsidian on 2026-08-04, over the address
+    /// <see cref="WikilinkTarget.Address"/> produces. A target naming a whole vault path takes the
+    /// note at that path outright; only a target naming no path is ranked against the notes sharing
+    /// its basename. Collapsing the two would let a nested note take a link belonging to a root
+    /// note, and would miss the pins a root-level creation owes.
     ///
     /// A whole path is read from the vault root, never from the linking note's folder, so the first
-    /// tier is never satisfied by a note sitting beside the linking note. A target that carries
-    /// ancestor text but names no whole path falls to the second tier, where every note sharing the
-    /// basename is re-tested with <see cref="WikilinkTarget.Matches"/>.
+    /// tier is never satisfied by a note sitting beside the linking note. An anchored target reaches
+    /// the vault root by being normalized before the tiers run, not by either tier reading it
+    /// relatively. A target that carries ancestor text but names no whole path falls to the second
+    /// tier, where every note sharing the basename is re-tested with
+    /// <see cref="WikilinkTarget.Matches"/> - an anchored target included, which is how
+    /// <c>../Delta</c> written in <c>S/T/</c> opens <c>Zed/S/Delta.md</c> when nothing sits at
+    /// <c>S/Delta.md</c>.
     /// </remarks>
-    /// <param name="linkingNote">The note the link is written in. Ranking distance is measured from it.</param>
+    /// <param name="linkingNote">The note the link is written in. Ranking distance and an anchored
+    /// target are both measured from it.</param>
     /// <param name="target">The target text as the note carries it.</param>
     /// <returns>The position of the note the target opens, or null when no note bears the name.</returns>
     public int? Resolve(VaultPath linkingNote, string target)
     {
-        if (_byPath.TryGetValue(target, out var named))
+        if (WikilinkTarget.Address(target, linkingNote) is not { } address)
+            return null;
+
+        if (_byPath.TryGetValue(address, out var named))
             return named;
 
-        var last = WikilinkTarget.LastComponent(target);
+        var last = WikilinkTarget.LastComponent(address);
         if (!_byName.TryGetValue(last, out var bearers))
             return null;
 
         // Indexing is by basename, so a target carrying ancestor text has to be re-tested against
         // each bearer. A bare target needs no filtering, and skipping it keeps the common case free.
-        IReadOnlyList<int> candidates = last.Length == target.Length
+        IReadOnlyList<int> candidates = last.Length == address.Length
             ? bearers
-            : [.. bearers.Where(position => WikilinkTarget.Matches(target, _paths[position]))];
+            : [.. bearers.Where(position => WikilinkTarget.Matches(address, _paths[position]))];
 
         if (candidates.Count == 0)
             return null;

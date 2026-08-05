@@ -101,6 +101,106 @@ public sealed class WikilinkCensusTests : IDisposable
             LinkPass.Occurrences(Removing("Doomed/One.md", "Doomed/Two.md")));
     }
 
+    // ---- Anchored targets ----
+
+    /// <summary>
+    /// Builds the vault every anchored spelling was measured in, with one link per line in the
+    /// order the measurement recorded them.
+    /// </summary>
+    /// <remarks>
+    /// The census is what these tests resolve through: a target is reported exactly when it opens
+    /// the file being removed, so removing one of the three <c>Delta</c> files names every spelling
+    /// that opens it and, by omission, every spelling that opens nothing.
+    /// </remarks>
+    private void WithTheMeasuredSpellings() =>
+        _vault
+            .WithNote("Delta.md", "# The root copy\n")
+            .WithNote("S/T/Delta.md", "# The copy beside the linking note\n")
+            .WithNote("Zed/S/Delta.md", "# The copy a climbing target reaches by suffix\n")
+            .WithNote("S/T/Spellings.md",
+                """
+                [[Delta]]
+                [[Delta.md]]
+                [[/Delta]]
+                [[./Delta]]
+                [[../../Delta]]
+                [[S/T/Delta]]
+                [[../Delta]]
+                [[../../../../Delta]]
+                [[//Delta]]
+                [[/S/T/Delta]]
+                [[./Delta.md]]
+                [[.\Delta]]
+                [[S/../Delta]]
+                [[..Delta]]
+                [[./Delta/]]
+                [[.]]
+                [[..]]
+
+                """);
+
+    [Fact]
+    public void ARootAnchoredOrFullyClimbedTargetOpensTheRootNote()
+    {
+        // `/` anchors at the vault root, and climbing out of the linking note's folders reaches the
+        // same place. Over-climbing is ignored rather than failing, so a fourth climb from two
+        // folders deep still lands at the root.
+        WithTheMeasuredSpellings();
+
+        Assert.Equal(
+            [
+                "S/T/Spellings.md:1 Delta",
+                "S/T/Spellings.md:2 Delta.md",
+                "S/T/Spellings.md:3 /Delta",
+                "S/T/Spellings.md:5 ../../Delta",
+                "S/T/Spellings.md:8 ../../../../Delta",
+            ],
+            LinkPass.Occurrences(Removing("Delta.md")));
+    }
+
+    [Fact]
+    public void AFolderAnchoredTargetOpensTheNoteBesideTheLinkingNote()
+    {
+        // `./` anchors at the linking note's own folder, which is the one place the root note does
+        // not hold the link. An anchored target may spell out the extension like any other.
+        WithTheMeasuredSpellings();
+
+        Assert.Equal(
+            [
+                "S/T/Spellings.md:10 /S/T/Delta",
+                "S/T/Spellings.md:11 ./Delta.md",
+                "S/T/Spellings.md:4 ./Delta",
+                "S/T/Spellings.md:6 S/T/Delta",
+            ],
+            LinkPass.Occurrences(Removing("S/T/Delta.md")));
+    }
+
+    [Fact]
+    public void AnAnchoredTargetStillFallsToLooseMatchingWhenNothingSitsAtItsAddress()
+    {
+        // `../Delta` addresses `S/Delta`, where no file sits. Anchoring only decides the address;
+        // the two tiers then run over it exactly as they do over any other target, so the character
+        // suffix rule reaches `Zed/S/Delta.md`.
+        WithTheMeasuredSpellings();
+
+        Assert.Equal(["S/T/Spellings.md:7 ../Delta"], LinkPass.Occurrences(Removing("Zed/S/Delta.md")));
+    }
+
+    [Fact]
+    public void ARelativeLinkToAFileThatIsNoNoteIsStillReported()
+    {
+        // No note answers an attachment's target, so it is matched against the removed set
+        // directly. That match reads the address rather than the text as written, and a relative
+        // attachment link is a form the editor's own link-format setting writes.
+        _vault
+            .WithNote("S/T/Diagram.png", "not really an image\n")
+            .WithNote("S/T/Ref.md", "Embed ![[./Diagram.png]].\n");
+
+        Assert.Equal(["S/T/Ref.md:1 ./Diagram.png"], LinkPass.Occurrences(Removing("S/T/Diagram.png")));
+    }
+
+    // ---- Files that are not notes ----
+
     [Fact]
     public void ANonMarkdownFileInTheRemovedSetIsMatchedByAQualifiedLink()
     {

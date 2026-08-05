@@ -55,14 +55,18 @@ public static class WikilinkRanking
 
     /// <summary>
     /// Compares two candidates by the measured rule: the candidate sharing the longer folder prefix
-    /// with the linking note wins, with ties broken by ordinal comparison of the candidates'
-    /// vault-relative paths.
+    /// with the linking note wins, then the shallower of the two, then ordinal comparison of the
+    /// candidates' vault-relative paths.
     /// </summary>
     /// <remarks>
-    /// Distance is asymmetric. Descending into the linking note's own subtree costs nothing at any
-    /// depth, while climbing out of it costs immediately, so a candidate three folders below the
-    /// linking note beats one a single folder above it. Ranking by the length of the relative path
-    /// instead would reverse that pair.
+    /// Distance is asymmetric. Climbing out of the linking note's subtree costs more than descending
+    /// into it at any depth, so a candidate three folders below the linking note beats one a single
+    /// folder above it. Ranking by the length of the relative path instead would reverse that pair.
+    ///
+    /// Descending is not free, though, only cheap: among candidates that climb equally far, the one
+    /// that descends least wins, so a candidate in the linking note's own folder beats one in a
+    /// subfolder of it. Leaving that to the ordinal comparison instead would decide it by the
+    /// subfolder's first letter.
     /// </remarks>
     /// <param name="from">The note the link is written in.</param>
     /// <param name="a">The first candidate.</param>
@@ -71,8 +75,17 @@ public static class WikilinkRanking
     private static int Compare(VaultPath from, VaultPath a, VaultPath b)
     {
         var byDepth = SharedDepth(from, b).CompareTo(SharedDepth(from, a));
-        return byDepth != 0 ? byDepth : string.CompareOrdinal(a.Value, b.Value);
+        if (byDepth != 0)
+            return byDepth;
+
+        var byDescent = FolderDepth(a).CompareTo(FolderDepth(b));
+        return byDescent != 0 ? byDescent : string.CompareOrdinal(a.Value, b.Value);
     }
+
+    /// <summary>Returns how many folders the candidate sits inside.</summary>
+    /// <param name="candidate">The note being measured.</param>
+    /// <returns>The number of folders above the note.</returns>
+    private static int FolderDepth(VaultPath candidate) => candidate.Segments.Count - 1;
 
     /// <summary>
     /// Returns how many leading folders the candidate shares with the folder holding the linking
