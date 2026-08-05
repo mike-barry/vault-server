@@ -18,7 +18,9 @@ A path-qualified link is therefore not safe from re-aiming: it reaches its file 
 
 The two tiers together are what make a **vault-root file special**: a bare `[[Name]]` is the exact vault path of a root-level `Name.md`, so a root file holds every bare link to its basename unconditionally and cannot be displaced by a same-named file created anywhere below it. The same fact runs the other way - creating a file at the vault root captures every bare link to that basename across the whole vault at once, which is the widest re-aiming any single change can cause.
 
-The autocomplete suggestion popup for a duplicated basename ranks its candidates by the same rule.
+An embed (`![[...]]`) is addressed and resolved exactly as a link is, and renders as not-yet-created where the target names nothing.
+
+The autocomplete suggestion popup for a duplicated basename lists its candidates in resolution order - the whole-path match first where there is one, then the ranking above - so its first entry is the note the link would open if accepted as typed.
 
 ## Maintenance Rules
 
