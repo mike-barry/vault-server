@@ -68,4 +68,5 @@ These run outside this repo and are listed so the build knows where it ends.
 
 - [ ] Semantic harvest, in its own session against the preserved old repo, once the suite is committed
 - [ ] Reconcile the harvest against the committed suite - every gap is a case to add and a spec to amend
-- [ ] Cutover: this build's files replace the canonical repo's wholesale, at a cut date
+- [ ] Audit the test projects' doc references before cutover - enable `GenerateDocumentationFile` on the three of them, build, fix what it reports, and revert the project files. They do not generate documentation, so a dangling `cref` there is invisible until someone looks. `conventions/Comment-Sweep.md` has the procedure
+- [ ] Cutover: this build's files replace the canonical repo's wholesale, at a cut date. `docs/` is archived back into the vault, and `conventions/` carries across instead - it governs the code rather than recording the build, and the comment standard is unreachable to a future maintainer if it archives with the specifications it was written alongside
