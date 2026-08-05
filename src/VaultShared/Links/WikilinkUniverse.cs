@@ -51,10 +51,16 @@ internal sealed class WikilinkUniverse
             if (!string.Equals(stem, name, StringComparison.Ordinal))
                 Register(stem, i);
 
-            var path = paths[i].Value;
-            _byPath[path] = i;
-            _byPath[WikilinkName.StemOf(path)] = i;
+            _byPath[paths[i].Value] = i;
         }
+
+        // A second pass, so that a note's whole path always beats another note's extensionless one.
+        // The two forms collide whenever a name ends in the note extension twice: `A/Report.md.md`
+        // is written `A/Report.md`, which is `A/Report.md`'s own whole path, and the editor gives
+        // that target to the note whose whole path it is. Registering both forms together would
+        // hand it to whichever note enumerated later instead.
+        for (var i = 0; i < paths.Count; i++)
+            _byPath.TryAdd(WikilinkName.StemOf(paths[i].Value), i);
     }
 
     /// <summary>Gets the note at the given position.</summary>

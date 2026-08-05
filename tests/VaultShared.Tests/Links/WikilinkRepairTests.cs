@@ -136,6 +136,23 @@ public sealed class WikilinkRepairTests : IDisposable
     }
 
     [Fact]
+    public void AQualifiedBystanderIsNotSimplifiedWhenTheMoveRemovesTheAmbiguity()
+    {
+        // Ambiguity ratchets one way. After the move the basename is unique again and the bare form
+        // would open the same note, but the link named something that did not move and its meaning
+        // did not change, so the pass leaves it alone rather than canonicalizing every link it sees.
+        _vault
+            .WithNote("A/Dupe.md", "# Moves away under a new name\n")
+            .WithNote("B/Dupe.md", "# The one the link names, and it does not move\n")
+            .WithNote("Notes/Ref.md", "See [[B/Dupe]].\n");
+
+        var plan = LinkPass.Plan(Move("A/Dupe.md", "A/Other.md"));
+
+        Assert.Empty(plan.Rewrites);
+        Assert.Equal("See [[B/Dupe]].\n", _vault.TextOf("Notes/Ref.md"));
+    }
+
+    [Fact]
     public void ANameStillDuplicatedAfterTheMoveIsEmittedAsTheFullVaultPath()
     {
         _vault

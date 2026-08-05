@@ -12,6 +12,14 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <!-- Wikilink resolution is internal because nothing outside this assembly resolves a link, and
+         it is the layer where a wrong answer is silent rather than loud. Reached only through the
+         three maintenance passes, any behaviour that turns on note enumeration order is untestable,
+         because each pass builds its own index from whatever order the search engine returns. -->
+    <InternalsVisibleTo Include="VaultShared.Tests" />
+  </ItemGroup>
+
+  <ItemGroup>
     <!-- CliWrap invokes ripgrep, which backs enumeration and content search. Both are chosen
          dependencies rather than candidates. -->
     <PackageReference Include="CliWrap" Version="3.10.4" />
