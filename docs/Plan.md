@@ -58,6 +58,7 @@ The phase opens with two steps that touch code rather than documents. They are g
 - [x] Build the CLI front-end from the same declarations
 - [x] Sweep the code for comments narrating the build rather than describing the code. Every comment should read as a statement about the current design, with the reasoning kept and the chronology dropped. Rewrite in place; do not simply delete, since most of these carry a real constraint wrapped in a stale story
 - [x] Audit test coverage against the specs, then commit the suite
+- [x] Rewrite the comments into the register of MSDN documentation, over `src/` and `tests/` both. The earlier sweep took the chronology out; this one takes out the voice absorbed from the specs - the bolded theses, the argued justification, the idioms a reader has to have read the bundle to decode - and completes the parameter documentation. Every citation into `docs/spec/` and `docs/design/` goes, and the fact it was carrying is written into the comment, because those documents are archived at cutover and the comment becomes the only copy. The convention lands in `../CLAUDE.md` and `CS1573` holds parameter completeness at build time
 
 Tests are built with the functionality they cover and split into files by logical area. Coverage derives from the specs and there is nothing else to derive it from.
 
