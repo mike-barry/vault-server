@@ -169,6 +169,25 @@ public sealed class VaultToolArgumentTests
         Assert.Null(VaultToolHarness.Data(refusal));
     }
 
+    /// <summary>
+    /// A path carrying an extension that is not the note's is classified as a folder, which is what
+    /// keeps a file that is not a note out of relocation and creation.
+    /// </summary>
+    /// <remarks>
+    /// Wikilink repair and pinning enumerate notes only, so a target naming an attachment resolves
+    /// to nothing in either pass. That is unreachable today because this classification sends every
+    /// such path down the folder route, where it names no folder and is refused. Teaching the tools
+    /// to carry a non-note operand means teaching those two passes about it in the same change; the
+    /// removal census already handles one, because deleting a folder destroys the files beneath it
+    /// whether they are notes or not.
+    /// </remarks>
+    [Fact]
+    public void APathCarryingAnotherExtensionIsAFolderRatherThanANote()
+    {
+        Assert.Equal(OperandKind.Folder, ToolPaths.KindOf("Attachments/Diagram.png"));
+        Assert.Equal(OperandKind.Note, ToolPaths.KindOf("Attachments/Diagram.md"));
+    }
+
     /// <summary>A dot in a folder name does not count as the note's extension.</summary>
     [Fact]
     public void ADottedFolderNameDoesNotStandInForTheNotesOwnExtension()
