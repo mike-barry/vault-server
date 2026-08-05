@@ -133,9 +133,8 @@ public sealed class GrantStoreTests(TestVaultFixture fixture) : IClassFixture<Te
             """ "token-b": { "id": "admin", "opClasses": ["content:read"], "vaults": ["test"], "ttl": "*", "scopeRoots": { "test": ["*"] } } """,
             GoodRow);
 
-        AssertSingleRowSkipped(sink, store);
+        AssertSingleRowSkipped(sink, store, skippedToken: "token-b");
         Assert.NotNull(store.Authenticate("token-a"));
-        Assert.Null(store.Authenticate("token-b"));
     }
 
     [Fact]
@@ -689,7 +688,22 @@ public sealed class GrantStoreTests(TestVaultFixture fixture) : IClassFixture<Te
     /// <param name="expectedDetailFragment">
     /// Text the recorded detail must contain, or <see langword="null"/> to accept any detail.
     /// </param>
-    private static void AssertSingleRowSkipped(RecordingProblemSink sink, GrantStore store, string? expectedDetailFragment = null)
+    /// <summary>
+    /// Asserts that exactly one row was skipped, that the skipped row's token does not
+    /// authenticate, and that the rest of the file still loaded.
+    /// </summary>
+    /// <param name="sink">The sink the load reported problems to.</param>
+    /// <param name="store">The store the load produced.</param>
+    /// <param name="expectedDetailFragment">Text the problem's detail must contain, or null to
+    /// assert only that it says something.</param>
+    /// <param name="skippedToken">The token of the row that must not have loaded.</param>
+    /// <remarks>
+    /// The token assertion is what makes this a skip rather than a log line. A loader that recorded
+    /// the problem and admitted the grant anyway would satisfy every other assertion here, and the
+    /// failure would be fail-open.
+    /// </remarks>
+    private static void AssertSingleRowSkipped(
+        RecordingProblemSink sink, GrantStore store, string? expectedDetailFragment = null, string skippedToken = "token-a")
     {
         Assert.False(sink.IsFatallyDegraded);
         var problem = Assert.Single(sink.Problems);
@@ -699,6 +713,7 @@ public sealed class GrantStoreTests(TestVaultFixture fixture) : IClassFixture<Te
         if (expectedDetailFragment is not null)
             Assert.Contains(expectedDetailFragment, problem.Detail);
 
+        Assert.Null(store.Authenticate(skippedToken));
         Assert.NotNull(store.Authenticate("good-token"));
     }
 
