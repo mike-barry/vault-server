@@ -7,12 +7,18 @@ namespace VaultShared.Access;
 /// census that fails to match leaves an orphan nobody reports.
 /// </summary>
 /// <remarks>
-/// A target comes in two forms. A path-qualified target - one containing a separator - matches a
-/// suffix of whole path components, because the editor writes partial paths. So
+/// A target names a candidate when its final component matches the candidate's basename whole and
+/// the text before it is a character suffix of the candidate's folder path. So
 /// <c>Redesign/Spec-Tool-Capabilities</c> names
-/// <c>Projects/Vault-MCP-Server/Inbox/Redesign/Spec-Tool-Capabilities</c>, while
-/// <c>sign/Spec-Tool-Capabilities</c> names nothing. A bare target matches on basename alone, and
-/// <see cref="WikilinkRanking"/> decides which of several same-named candidates it resolves to.
+/// <c>Projects/Vault-MCP-Server/Inbox/Redesign/Spec-Tool-Capabilities</c>, and so does
+/// <c>sign/Spec-Tool-Capabilities</c>: the suffix is measured in characters, so it may cut a folder
+/// name in half. Only the leading component can be cut, because only it sits at the start of the
+/// suffix. The final component is never partial, so <c>Capabilities</c> alone names nothing. This
+/// was measured against Obsidian on 2026-08-04.
+///
+/// Matching is wider than resolution and does not decide anything on its own. Several notes can
+/// match one target; <see cref="WikilinkRanking"/> orders them, and a note whose whole path the
+/// target spells takes the link ahead of all of them.
 /// </remarks>
 public static class WikilinkTarget
 {
@@ -22,10 +28,10 @@ public static class WikilinkTarget
     /// </summary>
     private const char Separator = '/';
 
-    /// <summary>Returns whether a target contains a separator, and so matches as a path.</summary>
+    /// <summary>Returns the target's final component, the part that must match a note's basename.</summary>
     /// <param name="target">The link's target text.</param>
-    /// <returns>True when the target is path-qualified.</returns>
-    public static bool IsPathQualified(string target) => target.Contains(Separator);
+    /// <returns>The text after the last separator, or the whole target when it has none.</returns>
+    public static string LastComponent(string target) => target[(target.LastIndexOf(Separator) + 1)..];
 
     /// <summary>Returns whether a link's target names a candidate note.</summary>
     /// <remarks>
@@ -42,20 +48,21 @@ public static class WikilinkTarget
     /// <returns>True when the target names the candidate.</returns>
     public static bool Matches(string target, VaultPath candidate)
     {
-        var parts = target.Split(Separator);
         var segments = candidate.Segments;
+        var cut = target.LastIndexOf(Separator);
 
-        // A bare target is handled by the same walk: one component compared against the basename,
-        // with no ancestor components to agree on.
-        if (parts.Length > segments.Count)
+        if (!NameMatches(target[(cut + 1)..], segments[^1]))
             return false;
 
-        var offset = segments.Count - parts.Length;
-        for (var i = 0; i < parts.Length - 1; i++)
-            if (!string.Equals(parts[i], segments[offset + i], StringComparison.OrdinalIgnoreCase))
-                return false;
+        // A bare target has no ancestor text, so the basename alone settles it.
+        if (cut < 0)
+            return true;
 
-        return NameMatches(parts[^1], segments[^1]);
+        var folders = segments.Count > 1
+            ? string.Join(Separator, segments.Take(segments.Count - 1)) + Separator
+            : string.Empty;
+
+        return folders.EndsWith(target[..(cut + 1)], StringComparison.OrdinalIgnoreCase);
     }
 
     private static bool NameMatches(string component, string segment) =>

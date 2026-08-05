@@ -88,13 +88,75 @@ public sealed class WikilinkPinningTests : IDisposable
     }
 
     [Fact]
-    public void APathQualifiedLinkIsLeftAloneBecauseItsMeaningCannotChange()
+    public void APathQualifiedLinkKeepingItsTargetIsLeftAlone()
     {
         _vault
             .WithNote("Zz/Dupe.md", "# Existing\n")
             .WithNote("Aa/Note.md", "See [[Zz/Dupe]].\n");
 
         Assert.True(LinkPass.Plan(Creating("Aa/Bb/Dupe.md")).IsEmpty);
+    }
+
+    [Fact]
+    public void APathQualifiedLinkIsPinnedWhereANoteIsCreatedAtThePathItSpells()
+    {
+        // The link reaches its note by a suffix of that note's path, so a note created at exactly
+        // the path the target spells takes the link from it. Being path-qualified does not exempt
+        // a link from pinning.
+        _vault
+            .WithNote("Deepish/Nest/Dupe.md", "# The one it opens now\n")
+            .WithNote("Deepish/Note.md", "See [[Nest/Dupe]].\n");
+
+        var plan = LinkPass.Plan(Creating("Nest/Dupe.md"));
+
+        Assert.Equal(["Deepish/Note.md:1 Nest/Dupe -> Deepish/Nest/Dupe"], LinkPass.Apply(_vault, plan));
+    }
+
+    // ---- The vault root ----
+
+    [Fact]
+    public void ACreationAtTheVaultRootPinsEveryBareLinkToTheDisplacedNote()
+    {
+        // A bare target spells the whole vault path of a root note, so a note created at the root
+        // takes every bare link to its basename at once, from any distance. Ranking never comes
+        // into it: the nearby link is the one a distance-only rule leaves unpinned.
+        _vault
+            .WithNote("Zz/Deep/Dupe.md", "# The one they open now\n")
+            .WithNote("Zz/Deep/Near.md", "See [[Dupe]].\n")
+            .WithNote("Aa/Far.md", "See [[Dupe]].\n");
+
+        var plan = LinkPass.Plan(Creating("Dupe.md"));
+
+        Assert.Equal(
+            ["Aa/Far.md:1 Dupe -> Zz/Deep/Dupe", "Zz/Deep/Near.md:1 Dupe -> Zz/Deep/Dupe"],
+            LinkPass.Apply(_vault, plan));
+    }
+
+    [Fact]
+    public void ANoteAtTheVaultRootIsNotDisplacedByADeeperCreation()
+    {
+        // The link keeps naming the root note's whole path, so no ranking can take it and there is
+        // nothing to pin. The pass still runs, because the basename is in use.
+        _vault
+            .WithNote("Dupe.md", "# The root copy\n")
+            .WithNote("Aa/Bb/Note.md", "See [[Dupe]].\n");
+
+        var plan = LinkPass.Plan(Creating("Aa/Bb/Dupe.md"));
+
+        Assert.True(plan.IsEmpty);
+        Assert.Equal("See [[Dupe]].\n", _vault.TextOf("Aa/Bb/Note.md"));
+    }
+
+    [Fact]
+    public void APinNamesTheDisplacedNoteRatherThanTheRootNoteBeingCreated()
+    {
+        _vault
+            .WithNote("Zz/Dupe.md", "# Existing\n")
+            .WithNote("Zz/Note.md", "See [[Dupe]].\n");
+
+        var plan = LinkPass.Plan(Creating("Dupe.md"));
+
+        Assert.Equal("Zz/Dupe", plan.Pins.Single().To);
     }
 
     // ---- Ordering against the note's creation ----

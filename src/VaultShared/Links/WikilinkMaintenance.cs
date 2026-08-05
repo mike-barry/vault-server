@@ -37,8 +37,9 @@ public static class WikilinkMaintenance
     /// Every link naming the note is re-emitted in its canonical form: bare when the basename is
     /// unique after the move, the full vault path when it is not. A deliberately path-qualified link
     /// to a unique name therefore collapses to bare. That is the editor's own emit rule, and the
-    /// author's chosen form is not preserved. A path-qualified target matches on a suffix of whole
-    /// path components; a bare one is rewritten only where it resolves to the relocated note.
+    /// author's chosen form is not preserved. Every target, bare or path-qualified, is rewritten
+    /// only where it resolves to the relocated note, because a target can name a note the editor
+    /// does not open with it.
     ///
     /// Where the move would change what some other bare link resolves to, that link is rewritten to
     /// name the target it has now and planning continues. Ambiguity never fails the pass, because a
@@ -84,9 +85,11 @@ public static class WikilinkMaintenance
     /// <see cref="LinkPassOutcome{TResult}.NotNeeded"/>: no pass ran, and no wikilink authority is
     /// required.
     ///
-    /// Every bare link whose resolution the new note would change is rewritten to the qualified form
-    /// naming the target it resolves to now. Every other link is left alone, and no link is ever
-    /// aimed at the new note.
+    /// Every link whose resolution the new note would change is rewritten to the qualified form
+    /// naming the target it resolves to now. A path-qualified link is not exempt: a target need not
+    /// spell a note's whole path to name it, so a note created at exactly the path a target spells
+    /// takes that link from the note it used to open. Every other link is left alone, and no link is
+    /// ever aimed at the new note.
     /// </remarks>
     /// <param name="pass">The vault-wide pass to enumerate and read through.</param>
     /// <param name="creating">The note about to be created.</param>
@@ -121,9 +124,7 @@ public static class WikilinkMaintenance
             var linking = notes[i];
             if (Rewritten(linking, text, target =>
                 {
-                    // Only bare links can change meaning. Adding a file leaves every path-qualified
-                    // target naming exactly what it named before.
-                    if (WikilinkTarget.IsPathQualified(target) || before.Resolve(linking, target) is not { } held)
+                    if (before.Resolve(linking, target) is not { } held)
                         return null;
 
                     // Every rewrite a creation plans is a pin. Nothing moved, so the replacement
@@ -146,17 +147,18 @@ public static class WikilinkMaintenance
     /// Removing one of two same-named notes does re-aim bare links onto the survivor, but they are
     /// still deliberately not pinned, because what the caller wants for them is not knowable here.
     ///
-    /// A path-qualified link is reported when its target names something in the set under the suffix
-    /// rule. A bare link is reported only when it resolves to something in the set, because a
-    /// same-named note elsewhere is that link's real target. Links inside the removed set are not
-    /// reported. Each surviving occurrence is reported individually, since a caller fixing them
-    /// visits each one.
+    /// A link that opens a note is reported when that note is in the set, and not otherwise: a note
+    /// the target also names but does not open is not that link's target. A link that opens no note
+    /// is matched against the set directly, which is how a link to a file that is not a note is
+    /// reported. Links inside the removed set are not reported. Each surviving occurrence is
+    /// reported individually, since a caller fixing them visits each one.
     /// </remarks>
     /// <param name="pass">The vault-wide pass to enumerate and read through.</param>
     /// <param name="removing">
-    /// What the removal destroys, as its own plan lists it. Paths that are not notes are matched by
-    /// a path-qualified target like any other; bare resolution ranks notes only, which is the domain
-    /// the editor resolves a bare link against.
+    /// What the removal destroys, as its own plan lists it. A path that is not a note is never in
+    /// the resolution index, so a target naming one is matched against this set directly, bare and
+    /// path-qualified alike. Ranking itself sees notes only, which is the domain the editor resolves
+    /// a bare link against.
     /// </param>
     /// <returns>Every surviving occurrence, or the failure that stopped the pass.</returns>
     public static LinkPassOutcome<IReadOnlyList<LinkOccurrence>> Census(
@@ -190,9 +192,13 @@ public static class WikilinkMaintenance
             foreach (var occurrence in Wikilink.Recognize(text))
             {
                 var target = occurrence.TargetIn(text);
-                var hit = WikilinkTarget.IsPathQualified(target)
-                    ? removing.Any(path => WikilinkTarget.Matches(target, path))
-                    : universe.Resolve(linking, target) is { } held && removed.Contains(universe[held]);
+
+                // A target that resolves is answered by the note it opens, whether or not that note
+                // is being removed. A target no note answers may still name a file that is not a
+                // note, which the universe does not index, so it is matched against the set here.
+                var hit = universe.Resolve(linking, target) is { } held
+                    ? removed.Contains(universe[held])
+                    : removing.Any(path => WikilinkTarget.Matches(target, path));
 
                 if (hit)
                     found.Add(new LinkOccurrence(linking.Value, lines.At(occurrence.TargetStart), target));
@@ -287,11 +293,6 @@ public static class WikilinkMaintenance
 
             if (Rewritten(wasAt, text, target =>
                 {
-                    if (WikilinkTarget.IsPathQualified(target))
-                        return map.Pairs.FirstOrDefault(pair => WikilinkTarget.Matches(target, pair.From)) is { } named
-                            ? new Replacement(Emit(after, named.To), Pinned: false)
-                            : null;
-
                     if (before.Resolve(wasAt, target) is not { } held)
                         return null;
 

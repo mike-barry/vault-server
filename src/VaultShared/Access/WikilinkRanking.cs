@@ -6,11 +6,16 @@ namespace VaultShared.Access;
 /// </summary>
 /// <remarks>
 /// The rule is not a design choice. It is Obsidian's observed behaviour, and the vault's existing
-/// content already depends on it. It was measured on 2026-07-23 against Obsidian configured with
+/// content already depends on it. It was measured on 2026-08-04 against Obsidian configured with
 /// <i>New link format = shortest path when possible</i> and <i>Automatically update internal links
 /// = on</i>. Re-measure the editor before changing it, because changing it changes which note
 /// existing links open. The rule is confined to <see cref="Compare"/>, which is all a
 /// re-measurement would need to change.
+///
+/// This is only the editor's second resolution tier. A target that names a whole vault path is
+/// taken by the file at that path and never reaches ranking at all, which is why a note at the
+/// vault root holds every bare link to its basename. That tier is applied before these candidates
+/// are gathered.
 /// </remarks>
 public static class WikilinkRanking
 {
@@ -49,15 +54,15 @@ public static class WikilinkRanking
         Rank(linkingNote, candidates).FirstOrDefault();
 
     /// <summary>
-    /// Compares two candidates by the measured rule: the shorter relative path from the linking
-    /// file wins, measured by character count, with ties broken by ordinal comparison of the
-    /// candidates' vault-relative paths. A <c>..</c> component carries no extra weight, so two
-    /// short hops beat one long one.
+    /// Compares two candidates by the measured rule: the candidate sharing the longer folder prefix
+    /// with the linking note wins, with ties broken by ordinal comparison of the candidates'
+    /// vault-relative paths.
     /// </summary>
     /// <remarks>
-    /// The tie-break compares vault-relative paths rather than relative ones deliberately. A
-    /// <c>..</c> sorts before letters, so comparing the relative forms would give every tie to the
-    /// candidate further out, which is not what the editor does.
+    /// Distance is asymmetric. Descending into the linking note's own subtree costs nothing at any
+    /// depth, while climbing out of it costs immediately, so a candidate three folders below the
+    /// linking note beats one a single folder above it. Ranking by the length of the relative path
+    /// instead would reverse that pair.
     /// </remarks>
     /// <param name="from">The note the link is written in.</param>
     /// <param name="a">The first candidate.</param>
@@ -65,19 +70,18 @@ public static class WikilinkRanking
     /// <returns>Negative when <paramref name="a"/> ranks first, positive when <paramref name="b"/> does.</returns>
     private static int Compare(VaultPath from, VaultPath a, VaultPath b)
     {
-        var byDistance = RelativeTo(from, a).Length.CompareTo(RelativeTo(from, b).Length);
-        return byDistance != 0 ? byDistance : string.CompareOrdinal(a.Value, b.Value);
+        var byDepth = SharedDepth(from, b).CompareTo(SharedDepth(from, a));
+        return byDepth != 0 ? byDepth : string.CompareOrdinal(a.Value, b.Value);
     }
 
     /// <summary>
-    /// Returns the candidate's path written from the folder holding the linking note, using the
-    /// editor's separator convention. Only its length is read; the string form is how the measured
-    /// rule is stated.
+    /// Returns how many leading folders the candidate shares with the folder holding the linking
+    /// note. This is the whole of the distance measure: a longer shared prefix is nearer.
     /// </summary>
     /// <param name="from">The note the link is written in.</param>
-    /// <param name="candidate">The note the relative path leads to.</param>
-    /// <returns>The relative path.</returns>
-    private static string RelativeTo(VaultPath from, VaultPath candidate)
+    /// <param name="candidate">The note being measured.</param>
+    /// <returns>The number of shared leading folders.</returns>
+    private static int SharedDepth(VaultPath from, VaultPath candidate)
     {
         var folder = from.Segments.Count - 1;
         var shared = 0;
@@ -86,6 +90,6 @@ public static class WikilinkRanking
                && string.Equals(from.Segments[shared], candidate.Segments[shared], StringComparison.OrdinalIgnoreCase))
             shared++;
 
-        return string.Join('/', Enumerable.Repeat("..", folder - shared).Concat(candidate.Segments.Skip(shared)));
+        return shared;
     }
 }

@@ -10,9 +10,12 @@ namespace VaultShared.Tests;
 /// <remarks>
 /// The ordering reproduces how Obsidian resolves a bare wikilink, which is a requirement rather
 /// than a choice, because the vault's existing content already depends on which file a link opens.
-/// These tests are the record of that behaviour, measured on 2026-07-23 against Obsidian
+/// These tests are the record of that behaviour, measured on 2026-08-04 against Obsidian
 /// configured with "New link format" set to "shortest path when possible" and "Automatically
 /// update internal links" turned on. A later measurement that disagrees will fail here.
+///
+/// Ranking is the editor's second resolution tier only. A target naming a whole vault path is
+/// taken by the note at that path before ranking is consulted, which the pass-level tests cover.
 ///
 /// Ranking finds no files itself and touches no filesystem, so the vault is a value rather than a
 /// real directory tree and the candidates are passed in.
@@ -27,7 +30,7 @@ public sealed class WikilinkRankingTests
     private static IReadOnlyList<string> Ranked(string linkingNote, params string[] candidates) =>
         [.. WikilinkRanking.Rank(At(linkingNote), candidates.Select(At)).Select(p => p.Value)];
 
-    // ---- Nearest by relative path ----
+    // ---- Nearest by shared folder prefix ----
 
     [Fact]
     public void TheCandidateInTheLinkingFilesOwnFolderIsNearest()
@@ -38,21 +41,32 @@ public sealed class WikilinkRankingTests
     }
 
     [Fact]
-    public void TwoShortHopsBeatOneLongOne()
+    public void ADescentIntoTheLinkingFilesSubtreeBeatsAClimbOutOfIt()
     {
-        // The comparison is character count alone, with no extra weight for a ".." component, so
-        // climbing twice out of a deep folder beats one long descent. "../../Notes/Dupe.md" is
-        // nineteen characters and "Reference-Material/Dupe.md" is twenty-six.
+        // Distance is the shared folder prefix, not the length of the relative path. The subtree
+        // copy shares two folders with the linking file and the other shares none, so it wins even
+        // though "../../Notes/Dupe.md" is the shorter path to write.
         Assert.Equal(
-            ["Notes/Dupe.md", "Projects/Widget/Reference-Material/Dupe.md"],
-            Ranked("Projects/Widget/Note.md", "Projects/Widget/Reference-Material/Dupe.md", "Notes/Dupe.md"));
+            ["Projects/Widget/Reference-Material/Dupe.md", "Notes/Dupe.md"],
+            Ranked("Projects/Widget/Note.md", "Notes/Dupe.md", "Projects/Widget/Reference-Material/Dupe.md"));
     }
 
     [Fact]
-    public void ResolutionIsRelativeRatherThanVaultGlobal()
+    public void ADescentOfAnyDepthBeatsASingleClimb()
     {
-        // A deeper-nested candidate inside the linking file's own subtree beats a globally shorter
-        // path elsewhere.
+        // Descending costs nothing, so depth below the linking file does not accumulate against
+        // the candidate. Three folders down still outranks one folder up.
+        Assert.Equal(
+            ["Aa/Bb/Cc/Dd/Dupe.md", "Dupe.md"],
+            Ranked("Aa/Bb/Note.md", "Dupe.md", "Aa/Bb/Cc/Dd/Dupe.md"));
+    }
+
+    [Fact]
+    public void ADeeperCandidateOutranksTheVaultRootCopy()
+    {
+        // Ranking alone hands the link to the subtree copy. The root copy nonetheless keeps every
+        // bare link to its basename, because a bare target spells that copy's whole vault path and
+        // the path tier takes it before these candidates are ever gathered.
         Assert.Equal(
             ["Aa/Bb/Cc/Dd/Dupe.md", "Dupe.md"],
             Ranked("Aa/Bb/Cc/Note.md", "Dupe.md", "Aa/Bb/Cc/Dd/Dupe.md"));
@@ -61,20 +75,19 @@ public sealed class WikilinkRankingTests
     // ---- Breaking a tie ----
 
     [Fact]
-    public void ADeadTieIsBrokenByOrdinalComparisonOfTheVaultRelativePaths()
+    public void CandidatesSharingTheSameDepthAreOrderedByTheirVaultPaths()
     {
-        // "Bb/Dupe.md" and "../Dupe.md" are both ten characters. Comparing the relative forms
-        // would give the tie to the parent-folder copy, since ".." sorts before letters. Comparing
-        // the vault-relative forms gives it to the subtree copy, which is what the editor does.
+        // Neither candidate shares a folder with the linking file, so the ordinal comparison of
+        // the vault paths decides.
         Assert.Equal(
-            ["Aa/Bb/Dupe.md", "Dupe.md"],
-            Ranked("Aa/Note.md", "Dupe.md", "Aa/Bb/Dupe.md"));
+            ["Bb/Dupe.md", "Zz/Dupe.md"],
+            Ranked("Aa/Note.md", "Zz/Dupe.md", "Bb/Dupe.md"));
     }
 
     [Fact]
     public void TheTieBreakIsOrdinalRatherThanCultural()
     {
-        // Both are one hop down from the linking file's folder and equal in length.
+        // Both are one hop down from the linking file's folder and share no folder with it.
         Assert.Equal(
             ["Aa/Dupe.md", "aa/Dupe.md"],
             Ranked("Note.md", "aa/Dupe.md", "Aa/Dupe.md"));
@@ -86,7 +99,7 @@ public sealed class WikilinkRankingTests
     public void EveryCandidateComesBack()
     {
         Assert.Equal(
-            ["Notes/Dupe.md", "Aa/Dupe.md", "Aa/Bb/Cc/Dupe.md"],
+            ["Notes/Dupe.md", "Aa/Bb/Cc/Dupe.md", "Aa/Dupe.md"],
             Ranked("Notes/Note.md", "Aa/Bb/Cc/Dupe.md", "Notes/Dupe.md", "Aa/Dupe.md"));
     }
 

@@ -24,6 +24,19 @@ internal sealed class WikilinkUniverse
     /// </summary>
     private readonly Dictionary<string, List<int>> _byName = new(StringComparer.OrdinalIgnoreCase);
 
+    /// <summary>
+    /// Every whole vault path that names a note, mapped to the position bearing it, in both the
+    /// spelled-out form and the extensionless form the editor writes. A target spelling a note's
+    /// whole path takes that note outright, ahead of every same-named candidate.
+    /// </summary>
+    /// <remarks>
+    /// A note at the vault root is indexed here under its basename, because there its basename and
+    /// its whole path are the same string. That is what makes a root note unreachable by ranking:
+    /// it holds every bare link to its name however deeply a same-named note is created, and
+    /// creating one at the root takes every such link across the vault at once.
+    /// </remarks>
+    private readonly Dictionary<string, int> _byPath = new(StringComparer.OrdinalIgnoreCase);
+
     /// <summary>Initializes a universe over the given notes, indexed by position.</summary>
     /// <param name="paths">The notes to resolve against. Positions index into this list.</param>
     public WikilinkUniverse(IReadOnlyList<VaultPath> paths)
@@ -37,6 +50,10 @@ internal sealed class WikilinkUniverse
             var stem = WikilinkName.StemOf(name);
             if (!string.Equals(stem, name, StringComparison.Ordinal))
                 Register(stem, i);
+
+            var path = paths[i].Value;
+            _byPath[path] = i;
+            _byPath[WikilinkName.StemOf(path)] = i;
         }
     }
 
@@ -65,13 +82,36 @@ internal sealed class WikilinkUniverse
     /// The linking note is a parameter rather than a position in this universe because a relocation
     /// moves the linking note as well, and the answer must be measured from where that note will be
     /// rather than from where it is.
+    ///
+    /// Resolution runs in two tiers, measured against Obsidian on 2026-08-04. A target naming a
+    /// whole vault path takes the note at that path outright; only a target naming no path is
+    /// ranked against the notes sharing its basename. Collapsing the two would let a nested note
+    /// take a link belonging to a root note, and would miss the pins a root-level creation owes.
+    ///
+    /// A whole path is read from the vault root, never from the linking note's folder, so the first
+    /// tier is never satisfied by a note sitting beside the linking note. A target that carries
+    /// ancestor text but names no whole path falls to the second tier, where every note sharing the
+    /// basename is re-tested with <see cref="WikilinkTarget.Matches"/>.
     /// </remarks>
     /// <param name="linkingNote">The note the link is written in. Ranking distance is measured from it.</param>
-    /// <param name="target">The bare target text as the note carries it.</param>
+    /// <param name="target">The target text as the note carries it.</param>
     /// <returns>The position of the note the target opens, or null when no note bears the name.</returns>
     public int? Resolve(VaultPath linkingNote, string target)
     {
-        if (!_byName.TryGetValue(target, out var candidates))
+        if (_byPath.TryGetValue(target, out var named))
+            return named;
+
+        var last = WikilinkTarget.LastComponent(target);
+        if (!_byName.TryGetValue(last, out var bearers))
+            return null;
+
+        // Indexing is by basename, so a target carrying ancestor text has to be re-tested against
+        // each bearer. A bare target needs no filtering, and skipping it keeps the common case free.
+        IReadOnlyList<int> candidates = last.Length == target.Length
+            ? bearers
+            : [.. bearers.Where(position => WikilinkTarget.Matches(target, _paths[position]))];
+
+        if (candidates.Count == 0)
             return null;
 
         if (candidates.Count == 1)

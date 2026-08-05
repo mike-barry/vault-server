@@ -21,29 +21,57 @@ public sealed class WikilinkCensusTests : IDisposable
     [Fact]
     public void APathQualifiedLinkNamingSomethingRemovedIsReportedOnTheSuffixRule()
     {
+        // The suffix is measured in characters, so a half-cut folder name reaches the note being
+        // removed. Its link is left orphaned just as a whole-component one would be.
         _vault
             .WithNote("Projects/Vault/Inbox/Widget.md", "# Doomed\n")
             .WithNote("Notes/Suffix.md", "See [[Inbox/Widget]].\n")
-            .WithNote("Notes/MidComponent.md", "See [[box/Widget]].\n");
+            .WithNote("Notes/CutComponent.md", "See [[box/Widget]].\n");
 
         Assert.Equal(
-            ["Notes/Suffix.md:1 Inbox/Widget"],
+            ["Notes/CutComponent.md:1 box/Widget", "Notes/Suffix.md:1 Inbox/Widget"],
             LinkPass.Occurrences(Removing("Projects/Vault/Inbox/Widget.md")));
+    }
+
+    [Fact]
+    public void APathQualifiedLinkThatOpensASurvivorIsNotReported()
+    {
+        // `Vault/Widget` names the note being removed too, but opens the nearer one, so the removal
+        // leaves it pointing at something that still exists.
+        _vault
+            .WithNote("Projects/Vault/Widget.md", "# Doomed\n")
+            .WithNote("Notes/Vault/Widget.md", "# The survivor it opens\n")
+            .WithNote("Notes/Note.md", "See [[Vault/Widget]].\n");
+
+        Assert.Empty(LinkPass.Occurrences(Removing("Projects/Vault/Widget.md")));
     }
 
     [Fact]
     public void ABareLinkIsReportedOnlyWhereItResolvedToSomethingRemoved()
     {
         // A bare link resolves by the editor's ranking, so a same-named note elsewhere can be the
-        // real target: from `Aa/Note.md`, `Aa/Bb/Dupe.md` and `Dupe.md` tie and the copy in the
-        // subtree wins.
+        // real target: `Aa/Note.md` opens the copy in its own subtree and the removal leaves it
+        // alone.
         _vault
-            .WithNote("Dupe.md", "# Doomed\n")
+            .WithNote("Zz/Dupe.md", "# Doomed\n")
             .WithNote("Aa/Bb/Dupe.md", "# The survivor\n")
             .WithNote("Aa/Note.md", "See [[Dupe]].\n")
-            .WithNote("Cc/Note.md", "See [[Dupe]].\n");
+            .WithNote("Zz/Note.md", "See [[Dupe]].\n");
 
-        Assert.Equal(["Cc/Note.md:1 Dupe"], LinkPass.Occurrences(Removing("Dupe.md")));
+        Assert.Equal(["Zz/Note.md:1 Dupe"], LinkPass.Occurrences(Removing("Zz/Dupe.md")));
+    }
+
+    [Fact]
+    public void RemovingAVaultRootNoteReportsEveryBareLinkToItsBasename()
+    {
+        // A bare target spells the root note's whole vault path, so it holds every such link
+        // however near a same-named note sits to the linking note.
+        _vault
+            .WithNote("Dupe.md", "# Doomed\n")
+            .WithNote("Zz/Deep/Dupe.md", "# A nearer copy that holds nothing\n")
+            .WithNote("Zz/Deep/Note.md", "See [[Dupe]].\n");
+
+        Assert.Equal(["Zz/Deep/Note.md:1 Dupe"], LinkPass.Occurrences(Removing("Dupe.md")));
     }
 
     [Fact]
@@ -83,6 +111,18 @@ public sealed class WikilinkCensusTests : IDisposable
             .WithNote("Notes/Ref.md", "Embed ![[Assets/Diagram.png]].\n");
 
         Assert.Equal(["Notes/Ref.md:1 Assets/Diagram.png"], LinkPass.Occurrences(Removing("Assets/Diagram.png")));
+    }
+
+    [Fact]
+    public void ANonMarkdownFileInTheRemovedSetIsMatchedByABareLinkToo()
+    {
+        // The editor writes a non-note target with its extension and opens the file from a bare
+        // one. No note answers such a target, so it is matched against the removed set directly.
+        _vault
+            .WithNote("Assets/Diagram.png", "not really an image\n")
+            .WithNote("Notes/Ref.md", "Embed ![[Diagram.png]].\n");
+
+        Assert.Equal(["Notes/Ref.md:1 Diagram.png"], LinkPass.Occurrences(Removing("Assets/Diagram.png")));
     }
 
     [Fact]

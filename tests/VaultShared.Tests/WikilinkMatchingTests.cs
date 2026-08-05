@@ -20,10 +20,10 @@ public sealed class WikilinkMatchingTests
     private static VaultPath At(string relativePath) =>
         VaultPath.TryCreate(Vault, relativePath, out var path, out var reason) ? path : throw new ArgumentException(reason);
 
-    // ---- Path-qualified targets: a suffix of whole components ----
+    // ---- Path-qualified targets: a character suffix of the path ----
 
     [Fact]
-    public void APathQualifiedTargetMatchesASuffixOfWholeComponents()
+    public void APathQualifiedTargetMatchesASuffixOfThePath()
     {
         // The editor writes partial paths, so the target need not start at the vault root.
         Assert.True(WikilinkTarget.Matches(
@@ -38,12 +38,26 @@ public sealed class WikilinkMatchingTests
     }
 
     [Fact]
-    public void APartialComponentIsNotASuffix()
+    public void TheLeadingComponentMayBeCutInHalf()
     {
-        // A component matches whole or not at all, so "sign" does not match "Redesign".
-        Assert.False(WikilinkTarget.Matches(
+        // The suffix is measured in characters, not components, so "sign" matches "Redesign".
+        Assert.True(WikilinkTarget.Matches(
             "sign/Spec-Tool-Capabilities",
             At("Projects/Vault-MCP-Server/Inbox/Redesign/Spec-Tool-Capabilities.md")));
+    }
+
+    [Fact]
+    public void OnlyTheLeadingComponentMayBeCut()
+    {
+        // A cut anywhere else leaves text that is no longer a tail of the path.
+        Assert.False(WikilinkTarget.Matches("Inbox/design/Spec", At("Projects/Inbox/Redesign/Spec.md")));
+    }
+
+    [Fact]
+    public void AnAncestorMatchingNoTailOfThePathMatchesNothing()
+    {
+        // The basename agrees and the ancestor text does not, which is the whole of the test.
+        Assert.False(WikilinkTarget.Matches("Nowhere/Alpha", At("Notes/Sub/Alpha.md")));
     }
 
     [Fact]
@@ -90,10 +104,19 @@ public sealed class WikilinkMatchingTests
     }
 
     [Fact]
-    public void TheFormIsDecidedByTheSeparator()
+    public void TheFinalComponentIsNeverPartial()
     {
-        Assert.True(WikilinkTarget.IsPathQualified("Notes/Alpha"));
-        Assert.False(WikilinkTarget.IsPathQualified("Alpha"));
+        // The looseness stops at the last separator. A basename matches whole or not at all,
+        // whether or not the target carries ancestor text.
+        Assert.False(WikilinkTarget.Matches("pha", At("Notes/Alpha.md")));
+        Assert.False(WikilinkTarget.Matches("Notes/pha", At("Notes/Alpha.md")));
+    }
+
+    [Fact]
+    public void TheFinalComponentIsTheTextAfterTheLastSeparator()
+    {
+        Assert.Equal("Alpha", WikilinkTarget.LastComponent("Notes/Sub/Alpha"));
+        Assert.Equal("Alpha", WikilinkTarget.LastComponent("Alpha"));
     }
 
     // ---- The file extension ----

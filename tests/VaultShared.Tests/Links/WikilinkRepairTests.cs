@@ -24,6 +24,42 @@ public sealed class WikilinkRepairTests : IDisposable
     private LinkPassOutcome<WikilinkPlan> MoveFolder(string from, string to) =>
         WikilinkMaintenance.PlanFolderRelocation(_vault.Access.BypassingScope(), _vault.At(from), _vault.At(to));
 
+    // ---- The vault root ----
+
+    [Fact]
+    public void RelocatingANoteToTheVaultRootPinsTheLinksItWouldTake()
+    {
+        // At the root the moved note's basename becomes its whole vault path, so every bare link
+        // to that basename would follow it there. The bystanders are pinned to the note they open
+        // now, and only the link naming the moved note is re-aimed.
+        _vault
+            .WithNote("Xx/Dupe.md", "# The one that moves\n")
+            .WithNote("Zz/Deep/Dupe.md", "# The one they open now\n")
+            .WithNote("Zz/Deep/Near.md", "See [[Dupe]].\n")
+            .WithNote("Xx/Caller.md", "See [[Xx/Dupe]].\n");
+
+        var plan = LinkPass.Plan(Move("Xx/Dupe.md", "Dupe.md"));
+
+        Assert.Equal(["Zz/Deep/Near.md:1 Dupe -> Zz/Deep/Dupe"], LinkPass.Render(plan.Pins));
+        Assert.Equal(["Xx/Caller.md:1 Xx/Dupe -> Dupe"], LinkPass.Render(plan.Repairs));
+    }
+
+    [Fact]
+    public void RelocatingANoteAwayFromTheVaultRootReleasesTheLinksItHeld()
+    {
+        // Off the root the basename stops being a whole path, so the links it held fall to
+        // ranking. They named the moved note, so they are repairs rather than pins.
+        _vault
+            .WithNote("Dupe.md", "# The root copy\n")
+            .WithNote("Zz/Deep/Dupe.md", "# The other copy\n")
+            .WithNote("Zz/Deep/Near.md", "See [[Dupe]].\n");
+
+        var plan = LinkPass.Plan(Move("Dupe.md", "Xx/Dupe.md"));
+
+        Assert.Equal(["Zz/Deep/Near.md:1 Dupe -> Xx/Dupe"], LinkPass.Render(plan.Repairs));
+        Assert.Empty(plan.Pins);
+    }
+
     // ---- Canonical emission ----
 
     [Fact]
@@ -74,18 +110,38 @@ public sealed class WikilinkRepairTests : IDisposable
     }
 
     [Fact]
-    public void APartialPathSuffixNamesTheRelocatedNoteAndAMidComponentOneDoesNot()
+    public void APartialPathSuffixNamesTheRelocatedNoteAndIsRepairedWithTheRest()
     {
+        // A target reaches its note by a character suffix of the path, so a half-cut folder name
+        // names it as surely as a whole one and is repaired the same way. The bystander is named by
+        // neither target and keeps its own note.
         _vault
             .WithNote("Projects/Vault/Inbox/Widget.md", "# Widget\n")
             .WithNote("Other/Widget.md", "# Bystander\n")
             .WithNote("Notes/Suffix.md", "See [[Inbox/Widget]].\n")
-            .WithNote("Notes/MidComponent.md", "See [[box/Widget]].\n");
+            .WithNote("Notes/CutComponent.md", "See [[box/Widget]].\n");
 
         var plan = LinkPass.Plan(Move("Projects/Vault/Inbox/Widget.md", "Archive/Widget.md"));
 
-        Assert.Equal(["Notes/Suffix.md:1 Inbox/Widget -> Archive/Widget"], LinkPass.Apply(_vault, plan));
-        Assert.Equal("See [[box/Widget]].\n", _vault.TextOf("Notes/MidComponent.md"));
+        Assert.Equal(
+            ["Notes/CutComponent.md:1 box/Widget -> Archive/Widget", "Notes/Suffix.md:1 Inbox/Widget -> Archive/Widget"],
+            LinkPass.Apply(_vault, plan));
+    }
+
+    [Fact]
+    public void ATargetNamingTheRelocatedNoteWithoutOpeningItIsLeftAlone()
+    {
+        // `Vault/Widget` names both notes, and opens the nearer one. The move does not touch what
+        // the link opens, so re-aiming it at the destination would silently redirect it.
+        _vault
+            .WithNote("Projects/Vault/Widget.md", "# The one that moves\n")
+            .WithNote("Notes/Vault/Widget.md", "# The one it opens\n")
+            .WithNote("Notes/Note.md", "See [[Vault/Widget]].\n");
+
+        var plan = LinkPass.Plan(Move("Projects/Vault/Widget.md", "Archive/Widget.md"));
+
+        Assert.Empty(plan.Repairs);
+        Assert.Equal("See [[Vault/Widget]].\n", _vault.TextOf("Notes/Note.md"));
     }
 
     // ---- Links are never re-aimed ----
@@ -146,16 +202,16 @@ public sealed class WikilinkRepairTests : IDisposable
     }
 
     [Fact]
-    public void TheSubtreeCopyWinsADeadTieAsTheEditorRanksIt()
+    public void ADeadTieIsBrokenByOrdinalComparisonAsTheEditorRanksIt()
     {
-        // `Aa/Bb/Dupe.md` and `Dupe.md` are the same distance from `Aa/Note.md`, and the ordinal
-        // tie-break on the vault-relative paths gives it to the subtree copy.
+        // `Bb/Dupe.md` and `Zz/Dupe.md` share no folder with `Aa/Note.md`, so neither is nearer and
+        // the ordinal comparison of the vault paths decides which one the link names.
         _vault
-            .WithNote("Aa/Bb/Dupe.md", "# Subtree copy\n")
-            .WithNote("Dupe.md", "# Root copy\n")
+            .WithNote("Bb/Dupe.md", "# The one it opens\n")
+            .WithNote("Zz/Dupe.md", "# The other copy\n")
             .WithNote("Aa/Note.md", "See [[Dupe]].\n");
 
-        var plan = LinkPass.Plan(Move("Aa/Bb/Dupe.md", "Aa/Bb/Renamed.md"));
+        var plan = LinkPass.Plan(Move("Bb/Dupe.md", "Bb/Renamed.md"));
 
         Assert.Equal(["Aa/Note.md:1 Dupe -> Renamed"], LinkPass.Apply(_vault, plan));
     }
