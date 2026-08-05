@@ -12,7 +12,7 @@ namespace VaultShared.Tests;
 /// synthetic declaration, because a declaration that fails to load leaves a host degraded with
 /// every frontmatter write refusing. They check that the committed files load and stay wired up,
 /// not what the vocabulary contains; the behaviour of the write path is covered by
-/// <see cref="Frontmatter.FrontmatterWritePathTests"/> against a declaration those tests own.
+/// <see cref="FrontmatterWritePathTests"/> against a declaration those tests own.
 /// </remarks>
 public sealed class CommittedDeclarationTests
 {

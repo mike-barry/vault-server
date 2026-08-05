@@ -681,21 +681,14 @@ public sealed class GrantStoreTests(TestVaultFixture fixture) : IClassFixture<Te
 
     /// <summary>
     /// Asserts the outcome shared by every row-level skip case: exactly one degraded problem from
-    /// source "GrantStore", never a fatal one, and the valid row still loaded.
+    /// source "GrantStore", never a fatal one, the skipped row's token not authenticating, and the
+    /// valid row still loaded.
     /// </summary>
     /// <param name="sink">The sink the load recorded into.</param>
     /// <param name="store">The store the load returned.</param>
     /// <param name="expectedDetailFragment">
     /// Text the recorded detail must contain, or <see langword="null"/> to accept any detail.
     /// </param>
-    /// <summary>
-    /// Asserts that exactly one row was skipped, that the skipped row's token does not
-    /// authenticate, and that the rest of the file still loaded.
-    /// </summary>
-    /// <param name="sink">The sink the load reported problems to.</param>
-    /// <param name="store">The store the load produced.</param>
-    /// <param name="expectedDetailFragment">Text the problem's detail must contain, or null to
-    /// assert only that it says something.</param>
     /// <param name="skippedToken">The token of the row that must not have loaded.</param>
     /// <remarks>
     /// The token assertion is what makes this a skip rather than a log line. A loader that recorded

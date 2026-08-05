@@ -6,8 +6,9 @@ namespace VaultMcpServer.Tests;
 
 /// <summary>
 /// Covers <see cref="ServerHealthState"/>'s own recording and enumeration surface, independent of
-/// any loader. <see cref="VaultConfigTests"/>, <see cref="OpClassRegistryTests"/> and
-/// <see cref="GrantStoreTests"/> cover recording from a real whole-file failure.
+/// any loader. <see cref="VaultShared.Tests.VaultConfigLoadTests"/>,
+/// <see cref="VaultShared.Tests.OpClassRegistryTests"/> and
+/// <see cref="VaultShared.Tests.GrantStoreTests"/> cover recording from a real whole-file failure.
 /// </summary>
 public sealed class ServerHealthStateTests
 {

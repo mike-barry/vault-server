@@ -8,7 +8,8 @@ namespace VaultShared.Tests;
 /// </summary>
 /// <remarks>
 /// This is the after-the-fact half of a pair of isolation checks; the before-the-fact half is
-/// <see cref="ProgramHostFixtureBase.AssertMutationSandboxed"/>, which refuses to let a mutating
+/// <c>ProgramHostFixtureBase.AssertMutationSandboxed</c> in the MCP server's suite, which that
+/// project can name and this one cannot. It refuses to let a mutating
 /// call run unless both config paths point into the fixture's temp directory. Every fixture that
 /// copies <c>test-vault/</c> into a temp directory calls
 /// <see cref="AssertCommittedFixtureUntouched"/> on dispose, after its own temp-dir cleanup. One

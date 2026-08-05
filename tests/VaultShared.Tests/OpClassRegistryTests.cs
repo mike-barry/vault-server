@@ -10,7 +10,7 @@ namespace VaultShared.Tests;
 /// <remarks>
 /// GrantStore and ScriptToolLoader both validate op-class names against this registry, so these
 /// tests hold it to the same fail-fast standard as <see cref="GrantStoreTests"/> and
-/// <see cref="VaultConfigTests"/>.
+/// <see cref="VaultConfigLoadTests"/>.
 /// </remarks>
 public sealed class OpClassRegistryTests : IDisposable
 {

@@ -16,7 +16,7 @@ namespace VaultMcpServer.Tests;
 /// </summary>
 /// <remarks>
 /// This class has its own host fixture, because minting mutates that host's
-/// <see cref="VaultMcpServer.Auth.GrantStore"/> in memory and no other test class should inherit
+/// <see cref="VaultShared.Auth.GrantStore"/> in memory and no other test class should inherit
 /// the changes.
 /// </remarks>
 [Collection("Program host tests")]
