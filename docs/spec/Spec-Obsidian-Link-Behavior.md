@@ -1,6 +1,6 @@
 # Obsidian Link Behavior
 
-How Obsidian resolves and maintains `[[wikilinks]]` when multiple files share a basename, established empirically (2026-07-23, re-measured 2026-08-04, Obsidian with *New link format = shortest path when possible* and *Automatically update internal links = on*). This model is the behavioral reference the `move` tool mirrors.
+How Obsidian resolves and maintains `[[wikilinks]]` when multiple files share a basename, established empirically (2026-07-23, re-measured 2026-08-04 and 2026-08-08, Obsidian with *New link format = shortest path when possible* and *Automatically update internal links = on*). This model is the behavioral reference the `move` tool mirrors.
 
 ## Resolution Rule
 
@@ -12,7 +12,7 @@ A target is first read as an **address**, then resolved in two tiers. Both steps
 
 **Otherwise, by proximity.** Where the target matches no path, the candidates are every file the target *names*: its final component must match the file's basename whole, and the text before it must be a character suffix of the file's folder path. The suffix is measured in characters rather than components, so `sign/Spec-Tool` names `.../Redesign/Spec-Tool` - only the leading folder name can be cut that way, and the final component is never partial (`Tool` alone names nothing). A bare target names every file with that basename.
 
-Those candidates are ranked by the length of the path prefix they share with the linking file's folder - longest shared prefix wins. Climbing out of the linking file's subtree costs more than descending into it at any depth, so a candidate three folders below the linking file beats one a single folder above it. Descending is cheaper, not free: among candidates that climb equally far, the shallower wins, so a candidate in the linking file's own folder beats one in a subfolder of it. Only then are ties broken by ordinal comparison of the candidates' **vault paths**.
+Those candidates fall into two groups: those inside the linking file's own folder subtree and those outside it. Climbing out of that subtree costs more than descending into it at any depth, so a candidate three folders below the linking file beats one a single folder above it. Within either group the shortest relative path wins, measured in characters, each `..` costing only the three it is written with - so a candidate two folders down under short names beats one a single folder down under a long one. Only then are ties broken by ordinal comparison of the candidates' **vault paths**.
 
 A path-qualified link is therefore not safe from re-aiming: it reaches its file by a rule wider than that file's own path, so a file created at the path the target spells takes the link from it. Only a target spelling a file's whole path is immune, which is what a pin writes.
 
@@ -22,7 +22,7 @@ An embed (`![[...]]`) is addressed and resolved exactly as a link is, and render
 
 Anchored targets are a form a vault holds by configuration rather than only by hand. Under *New link format = path from current file* the editor writes them itself: from `Nv/Aa/Bb/`, a link to `Nv/Zz/Nova.md` is inserted as `[[../../Zz/Nova|Nova]]` and one to the root `Nova.md` as `[[../../../Nova|Nova]]`. Under *path from vault folder* the same two are `[[Nv/Zz/Nova|Nova]]` and `[[Nova]]`. An inserted link carries a display alias wherever the emitted target is not already the basename.
 
-The autocomplete suggestion popup for a duplicated basename lists its candidates in resolution order - the whole-path match first where there is one, then the ranking above - so its first entry is the note the link would open if accepted as typed.
+The autocomplete suggestion popup for a duplicated basename orders its candidates by a rule of its own, not the ranking above - its first entry is not necessarily the note the link opens once accepted, so it cannot be read as a preview of resolution.
 
 ## Maintenance Rules
 
