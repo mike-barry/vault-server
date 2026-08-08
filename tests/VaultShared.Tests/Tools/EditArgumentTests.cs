@@ -94,20 +94,21 @@ public sealed class EditArgumentTests
         Assert.Equal("expected_content_hash", Fault(new { path = "Note.md", body = new { content = "new body" } }).Argument);
     }
 
-    /// <summary>A content hash sent without a wholesale replacement is refused rather than ignored.
-    /// A substitution already verifies itself through the text it matches, so the hash could not
-    /// change the outcome.</summary>
+    /// <summary>A content hash is accepted on any edit, not only on a wholesale replacement. It then
+    /// guards whatever the edit does, which is how a read-modify-write of one key or one passage of
+    /// text is protected against a change made between the caller's read and its edit. Whether the
+    /// hash still matches the file needs the note and is the tool's check.</summary>
     [Theory]
     [InlineData("""{"find":"a","replace":"b"}""")]
     [InlineData("null")]
-    public void AContentHashWithNoWholesaleReplacement_IsRefused(string body)
+    public void AContentHashWithNoWholesaleReplacement_HoldsUp(string body)
     {
         var arguments = (EditArguments)NativeToolArguments.Bind(
             typeof(EditArguments),
             JsonSerializer.Deserialize<Dictionary<string, JsonElement>>(
                 $$"""{"path":"Note.md","body":{{body}},"operations":[{"op":"remove","key":"doc.title"}],"expected_content_hash":"abc"}""")!);
 
-        Assert.Equal("expected_content_hash", arguments.Validate()!.Argument);
+        Assert.Null(arguments.Validate());
     }
 
     [Fact]

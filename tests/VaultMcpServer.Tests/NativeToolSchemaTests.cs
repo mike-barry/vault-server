@@ -39,7 +39,8 @@ public static class NativeToolSchemas
               "description": "Minutes until the minted grant expires. Optional, defaults to 60. \"*\" (infinite) is not accepted."
             }
           },
-          "required": [ "scope_roots", "op_class" ]
+          "required": [ "scope_roots", "op_class" ],
+          "additionalProperties": false
         }
         """;
 
@@ -69,12 +70,13 @@ public static class NativeToolSchemas
               "type": "string",
               "description": "Optional free-text context about why elevation is needed, shown to a human approver."
             }
-          }
+          },
+          "additionalProperties": false
         }
         """;
 
     public const string HealthCheck = """
-        { "type": "object", "properties": {} }
+        { "type": "object", "properties": {}, "additionalProperties": false }
         """;
 
     // The vault tools follow. These pins guard the same thing the three above do: the argument
@@ -105,7 +107,8 @@ public static class NativeToolSchemas
               "description": "Whether to return the whole file's content hash alongside the content, for a later write to guard against a change it never saw. Defaults to false."
             }
           },
-          "required": [ "path" ]
+          "required": [ "path" ],
+          "additionalProperties": false
         }
         """;
 
@@ -122,7 +125,8 @@ public static class NativeToolSchemas
               "description": "The vault to search in. Optional; the configured default vault is used when it is absent."
             }
           },
-          "required": [ "pattern" ]
+          "required": [ "pattern" ],
+          "additionalProperties": false
         }
         """;
 
@@ -149,7 +153,8 @@ public static class NativeToolSchemas
               "description": "Optional glob narrowing which notes are searched, matched the same way glob's pattern is."
             }
           },
-          "required": [ "pattern" ]
+          "required": [ "pattern" ],
+          "additionalProperties": false
         }
         """;
 
@@ -227,12 +232,14 @@ public static class NativeToolSchemas
                     "required": [
                       "op"
                     ],
+                    "additionalProperties": false,
                     "description": "Where an added entry goes: an object carrying \"op\" of \"before\" or \"after\" and \"target\" naming an entry already in the list. Absent appends."
                   }
                 },
                 "required": [
                   "op"
-                ]
+                ],
+                "additionalProperties": false
               },
               "description": "Frontmatter operations, applied in order, each seeing the previous one's result. Repetition is meaningful."
             },
@@ -252,16 +259,18 @@ public static class NativeToolSchemas
                   "description": "What replaces the matched text. Empty deletes it. Sent with \"find\"."
                 }
               },
+              "additionalProperties": false,
               "description": "A change to the note's body: either a wholesale replacement, or a substitution that must match exactly once."
             },
             "expected_content_hash": {
               "type": "string",
-              "description": "The content hash a prior read returned. Required for a wholesale body replacement, refused otherwise, and refused if the file has changed since."
+              "description": "The content hash a prior read returned. Required for a wholesale body replacement, optional on any other edit, and the edit is refused if the file has changed since."
             }
           },
           "required": [
             "path"
-          ]
+          ],
+          "additionalProperties": false
         }
         """;
 
@@ -292,7 +301,8 @@ public static class NativeToolSchemas
               "description": "Whether to seed the folder's \".gitkeep\", so a folder expected to exist while empty survives a repository round trip. Folders only; off by default."
             }
           },
-          "required": [ "path", "kind" ]
+          "required": [ "path", "kind" ],
+          "additionalProperties": false
         }
         """;
 
@@ -323,7 +333,8 @@ public static class NativeToolSchemas
               "description": "Apply the move. Absent or false answers the same result with \"applied\" false: where everything lands, and every wikilink the move would repair or pin."
             }
           },
-          "required": [ "path", "destination" ]
+          "required": [ "path", "destination" ],
+          "additionalProperties": false
         }
         """;
 
@@ -355,7 +366,8 @@ public static class NativeToolSchemas
               "description": "Apply the removal. Absent or false answers the same result with \"applied\" false: the full set that would be destroyed, and every surviving wikilink into it."
             }
           },
-          "required": [ "path", "kind" ]
+          "required": [ "path", "kind" ],
+          "additionalProperties": false
         }
         """;
 
@@ -530,6 +542,34 @@ public sealed class NativeToolSchemaTests(TestVaultFixture fixture) : IClassFixt
         var refusal = Refuse(MakeStore(), new { scope_roots = new[] { "test" }, op_class = new object[] { 7 } });
 
         Assert.Equal(("invalid_argument", "op_class"), Refusal(refusal));
+    }
+
+    /// <summary>
+    /// Verifies that an argument name the record does not declare is refused naming that name, on a
+    /// tool of its own rather than only on <c>edit</c>. The binder is shared by every declared tool,
+    /// so a member it dropped would be dropped everywhere.
+    /// </summary>
+    [Fact]
+    public void MintToken_UndeclaredArgument_IsRefusedNamingIt()
+    {
+        var refusal = Refuse(MakeStore(), new { scope_roots = new[] { "test" }, op_class = new[] { "content:read" }, tll = 30 });
+
+        Assert.Equal(("invalid_argument", "tll"), Refusal(refusal));
+        Assert.Contains("takes no argument named \"tll\"", refusal.Message, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// Verifies that the advertised schema states the same rule the binder applies, rather than
+    /// advertising a surface that accepts anything while the binder refuses an unknown member.
+    /// </summary>
+    [Fact]
+    public void InputSchema_AdvertisesThatNoOtherMemberIsAccepted()
+    {
+        foreach (var row in Pinned())
+        {
+            var toolName = (string)row[0]!;
+            Assert.False(SchemaOf(toolName).GetProperty("additionalProperties").GetBoolean(), toolName);
+        }
     }
 
     private static readonly OpClassRegistry OpClasses =

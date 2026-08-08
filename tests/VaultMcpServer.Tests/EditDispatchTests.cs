@@ -282,6 +282,48 @@ public sealed class EditDispatchTests(EditDispatchTests.Fixture fixture) : IClas
         Assert.False(doc.RootElement.TryGetProperty("data", out _));
     }
 
+    /// <summary>
+    /// Verifies that a misspelled <c>expected_content_hash</c> is refused naming the misspelling,
+    /// rather than dropped so that a wholesale body replacement runs with no staleness guard at all.
+    /// A dropped member is the one binding failure that produces a successful call, which is why the
+    /// binder refuses a member no argument record declares.
+    /// </summary>
+    [Fact]
+    public async Task AMisspelledContentHash_IsRefusedNamingTheMisspellingAndWritesNothing()
+    {
+        var before = await File.ReadAllBytesAsync(fixture.NotePath);
+
+        var (isError, text) = await EditAsync(
+            fixture, Fixture.WriteToken,
+            $$$"""{"path":"{{{Note}}}","body":{"content":"# Replaced\n"},"expected_contnt_hash":"{{{new string('a', 64)}}}"}""");
+
+        Assert.True(isError, text);
+        Assert.Equal("invalid_argument", Code(text));
+        using var doc = JsonDocument.Parse(text);
+        Assert.Equal("expected_contnt_hash", doc.RootElement.GetProperty("data").GetProperty("argument").GetString());
+        Assert.Contains("takes no argument named", doc.RootElement.GetProperty("message").GetString()!, StringComparison.Ordinal);
+        Assert.Equal(before, await File.ReadAllBytesAsync(fixture.NotePath));
+    }
+
+    /// <summary>
+    /// Verifies that a hash sent with a frontmatter operation guards it, which is the capability a
+    /// read-modify-write of one key needs: the same call against the note's current hash is admitted,
+    /// and against a hash the file no longer matches it is refused with nothing written.
+    /// </summary>
+    [Fact]
+    public async Task AFrontmatterOperationAgainstAStaleHash_ArrivesAsContentChanged()
+    {
+        var before = await File.ReadAllBytesAsync(fixture.NotePath);
+
+        var (isError, text) = await EditAsync(
+            fixture, Fixture.WriteToken,
+            $$$"""{"path":"{{{Note}}}","operations":[{"op":"set","key":"doc.type","value":"Reference"}],"expected_content_hash":"{{{new string('0', 64)}}}"}""");
+
+        Assert.True(isError, text);
+        Assert.Equal("content_changed", Code(text));
+        Assert.Equal(before, await File.ReadAllBytesAsync(fixture.NotePath));
+    }
+
     public sealed class Fixture : ProgramHostFixtureBase
     {
         public const string WriteToken = "test-edit-write-token";

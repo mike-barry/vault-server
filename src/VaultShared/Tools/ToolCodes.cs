@@ -25,7 +25,7 @@ namespace VaultShared.Tools;
 /// the caller may not reach exists.</item>
 /// </list>
 /// <para>
-/// Four codes may be retried with the identical call: <see cref="VaultUnavailable"/>,
+/// These codes may be retried with the identical call: <see cref="VaultUnavailable"/>,
 /// <see cref="LockTimeout"/>, <see cref="SearchFailed"/> and <see cref="RateLimited"/>. Every other
 /// code requires the call itself to change first, and <see cref="ContentChanged"/> requires a re-read
 /// before it can.

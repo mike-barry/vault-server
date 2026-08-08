@@ -118,6 +118,22 @@ public sealed class ArgumentBindingTests(CliFixture fixture) : IClassFixture<Cli
         Assert.Equal("operations", run.Envelope.GetProperty("data").GetProperty("argument").GetString());
     }
 
+    /// <summary>
+    /// The raw-JSON escape hatch is the one route on this front-end that can carry a member no
+    /// argument record declares, and such a member is refused naming it rather than dropped. The
+    /// option form cannot produce one, because every option is generated from the record's own
+    /// members, so an unrecognized option is a parser usage error instead.
+    /// </summary>
+    [Fact]
+    public void ArgsCarryingAMemberTheRecordDoesNotDeclare_IsRefusedNamingIt()
+    {
+        var run = fixture.Run(["read", "--args", """{"path":"Projects/Widget/Widget.md","prt":"body"}"""]);
+
+        Assert.Equal(ExitCodes.Refused, run.Exit);
+        Assert.Equal(ToolCodes.InvalidArgument, run.Code);
+        Assert.Equal("prt", run.Envelope.GetProperty("data").GetProperty("argument").GetString());
+    }
+
     [Fact]
     public void ArgsCarryingSomethingThatIsNotAnObject_IsRefused()
     {

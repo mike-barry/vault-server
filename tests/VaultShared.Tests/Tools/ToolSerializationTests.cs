@@ -56,7 +56,7 @@ public sealed class ToolSerializationTests
     {
         var schema = NativeToolArguments.SchemaFor(typeof(NoArguments));
 
-        Assert.Equal("""{"type":"object","properties":{}}""", JsonSerializer.Serialize(schema));
+        Assert.Equal("""{"type":"object","properties":{},"additionalProperties":false}""", JsonSerializer.Serialize(schema));
         Assert.IsType<NoArguments>(NativeToolArguments.Bind(typeof(NoArguments), new Dictionary<string, JsonElement>()));
     }
 }

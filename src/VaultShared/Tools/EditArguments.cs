@@ -21,7 +21,7 @@ namespace VaultShared.Tools;
 /// <param name="Operations">Frontmatter operations, applied in order, or null for none.</param>
 /// <param name="Body">A change to the note's body, or null for none.</param>
 /// <param name="ExpectedContentHash">The content hash a prior read returned. Required for a wholesale
-/// body replacement and refused otherwise.</param>
+/// body replacement, and accepted on any other edit, where it guards whatever that edit does.</param>
 public sealed record EditArguments(
     [property: Description("Vault-relative path of the note, carrying the \".md\" extension. The extension is never inferred.")]
     string Path,
@@ -31,7 +31,7 @@ public sealed record EditArguments(
     IReadOnlyList<OperationArgument>? Operations = null,
     [property: Description("A change to the note's body: either a wholesale replacement, or a substitution that must match exactly once.")]
     BodyChange? Body = null,
-    [property: Description("The content hash a prior read returned. Required for a wholesale body replacement, refused otherwise, and refused if the file has changed since.")]
+    [property: Description("The content hash a prior read returned. Required for a wholesale body replacement, optional on any other edit, and the edit is refused if the file has changed since.")]
     string? ExpectedContentHash = null) : IVaultArguments
 {
     /// <summary>
@@ -44,15 +44,16 @@ public sealed record EditArguments(
 
     /// <summary>
     /// Checks everything decidable from the record alone: that the path is named, that the call
-    /// changes something, that the body change is exactly one of its two forms, that the staleness
-    /// guard is present exactly where it can act, and that every operation carries the arguments its
-    /// own operation takes.
+    /// changes something, that the body change is exactly one of its two forms, that a wholesale
+    /// body replacement carries the staleness guard, and that every operation carries the arguments
+    /// its own operation takes.
     /// </summary>
     /// <returns>The first fault found, or null.</returns>
     /// <remarks>
-    /// Both staleness-guard rules live here rather than in the tool, because both are statements
-    /// about the shape of the request: a wholesale replacement has nothing to verify itself against
-    /// and so needs the hash, and a hash without a wholesale replacement cannot change any outcome.
+    /// The staleness guard's shape rule lives here rather than in the tool because it is a statement
+    /// about the request alone: a wholesale replacement overwrites text the caller never saw and has
+    /// nothing to verify itself against, so it must carry the hash. Every other edit may carry one,
+    /// and it then guards whatever that edit does - a stale note refuses instead of applying.
     /// Comparing the hash against the file needs the note and happens in the tool.
     /// </remarks>
     public ArgumentFault? Validate()
@@ -74,13 +75,6 @@ public sealed record EditArguments(
             return new ArgumentFault(
                 "expected_content_hash",
                 "\"expected_content_hash\" is required for a wholesale body replacement - a replacement has no anchor to verify itself against. Take one from a read of the note.");
-        }
-
-        if (Body?.Content is null && ExpectedContentHash is not null)
-        {
-            return new ArgumentFault(
-                "expected_content_hash",
-                "\"expected_content_hash\" guards a wholesale body replacement and nothing else - a substitution self-verifies through its own anchor, and a frontmatter operation addresses what it names.");
         }
 
         for (var i = 0; i < Ordered.Count; i++)

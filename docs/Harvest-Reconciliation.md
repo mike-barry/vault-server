@@ -133,22 +133,10 @@ an undocumented inline `(?i)`.
 embeds naming it. The delete census does handle non-note targets, so the asymmetry sits inside one
 area.
 
-### G11 — `expected_content_hash` is refused except on a wholesale body replacement
-
-`EDT-040`. Deliberate and recorded (`Design-Tool-Vocabulary.md:192`, `Build-Decisions.md:148`), so
-this is raised narrowly: a guarded read-modify-write of a scalar cannot be expressed, and the reason
-given in `src/VaultShared/Tools/EditArguments.cs:55` — that a hash without a wholesale replacement
-cannot change any outcome — is wrong, because refusing is an outcome change.
-
 ## Observations
 
 Not findings. Each is a deliberate choice with a consequence worth confirming.
 
-- **The argument binder accepts unknown members.** `NativeToolArguments.Options` sets no
-  `UnmappedMemberHandling.Disallow` (`src/VaultShared/Tools/NativeToolArguments.cs:44`), so a
-  misspelled argument is silently ignored across every native tool, where the old dispatcher refused
-  unknown argument names outright. Nothing is forced by it today, which is why it was dismissed
-  per-area; it is raised here because it is binder-wide rather than one tool's behavior.
 - **The link ranking rule was reversed by re-measurement.** Character counting is gone; among
   candidates climbing equally far the shallower now wins
   (`src/VaultShared/Access/WikilinkRanking.cs:66`), flipping the winner on a case the old system had

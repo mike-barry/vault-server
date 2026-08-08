@@ -126,13 +126,19 @@ public sealed class ToolExecution(VaultConfig vaultConfig, SearchEngine? engine 
 
     /// <summary>
     /// Binds the raw argument map onto the record type the declaration names, and converts a binding
-    /// failure into a coded refusal. This is the only site that decides how a shape mismatch reaches
+    /// failure into a coded refusal. This is the only site that decides how a binding failure reaches
     /// the wire, so no tool has to derive one from a serializer message.
     /// </summary>
     /// <param name="declaration">The tool's declaration, naming the argument record type.</param>
     /// <param name="arguments">The call's raw argument map.</param>
     /// <returns>The bound argument record.</returns>
     /// <exception cref="ToolRefusal">The arguments do not match the declared shape.</exception>
+    /// <remarks>
+    /// Two binding failures are told apart, because their remedies differ. A member the tool does not
+    /// declare is removed from the call; a member whose value is the wrong shape is corrected. Both
+    /// carry the member's wire name as <c>argument</c>, so either way a caller can lift the name
+    /// straight into the call it retries.
+    /// </remarks>
     private static IToolArguments Bind(ToolDeclaration declaration, IReadOnlyDictionary<string, JsonElement> arguments)
     {
         try
@@ -141,6 +147,14 @@ public sealed class ToolExecution(VaultConfig vaultConfig, SearchEngine? engine 
         }
         catch (JsonException exception)
         {
+            if (NativeToolArguments.UndeclaredMember(declaration.Arguments, exception) is { } undeclared)
+            {
+                throw new ToolRefusal(
+                    ToolCodes.InvalidArgument,
+                    $"Tool \"{declaration.Name}\" takes no argument named \"{undeclared}\". Check the spelling against the arguments it advertises, and send nothing it does not.",
+                    new { argument = undeclared });
+            }
+
             var argument = NativeToolArguments.OffendingArgument(exception);
             throw new ToolRefusal(
                 ToolCodes.InvalidArgument,

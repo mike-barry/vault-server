@@ -59,8 +59,6 @@ Code changes, with their couplings:
 - **Leading-separator trim** - G8
 - **The inline case-insensitive flag named in `grep`'s pattern description** - G9
 - **Attachment embeds repaired through the existing pass** - G10
-- **`expected_content_hash` accepted on any edit** - G11, and **O1** (`UnmappedMemberHandling.Disallow`)
-  lands with it rather than after, for the reason O1 gives
 - **`WikilinkRanking.Compare` rewritten to the re-measured rule** - O3
 - **`Grant.Allows` owning its comparison** - C4
 
@@ -159,37 +157,10 @@ with how notes are emitted, but the editor's own spelling for attachments is unm
 for the next measurement pass, along with the extensionless-target rule itself, which is load-bearing
 here and not yet in `Spec-Obsidian-Link-Behavior.md`.
 
-### G11 — genuine, to fix
-
-Accept `expected_content_hash` on any edit, keeping it required only for a wholesale body
-replacement. This is what `Spec-Tool-Capabilities.md:186` says - the guard is required on the one
-operation that can destroy content the caller never saw, and optional elsewhere - and it makes a
-guarded read-modify-write of a scalar expressible, which it is not today.
-
-The reasoning behind the refusal is corrected with it: that a hash without a wholesale replacement
-cannot change any outcome is false, since with the hash a stale note refuses and without it the edit
-applies, and refusing is an outcome change. The inert-argument rule therefore never reached this
-argument. The claim stands in `EditArguments.cs:55`, `Design-Tool-Vocabulary.md:192` and
-`Build-Decisions.md:148`, and goes from all three.
-
 ## Observations
 
-The parent document's `Observations` section, worked the same way. Its five bullets are numbered here
-in the order they appear there, and each entry carries the grep that finds its bullet.
-
-### O1 (the argument binder) — to fix, with G11
-
-`grep -n -A4 'argument binder accepts unknown members' docs/Harvest-Reconciliation.md`
-
-Set `UnmappedMemberHandling.Disallow` on `NativeToolArguments.Options`. An unknown member is almost
-always a typo, and today it is dropped silently across every native tool. The refusal names the
-offending member and arrives as a coded argument fault rather than an escaping binder exception, the
-same treatment `EnumArgument` already gives an unrecognized enum value.
-
-Land it with G11 rather than after: accepting `expected_content_hash` on any edit otherwise creates a
-case where a typo in that member name turns a guarded write into an unguarded one silently, which is
-the failure the guard exists to prevent. A client attaching metadata to an argument object would be
-refused by this; that is handled if it comes up rather than designed around now.
+The parent document's `Observations` section, worked the same way. Its bullets are numbered here in
+the order they appear there, and each entry carries the grep that finds its bullet.
 
 ### O3 (the reversed ranking rule) — promoted to a finding, to fix
 

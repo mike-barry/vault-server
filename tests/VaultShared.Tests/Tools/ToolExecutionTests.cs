@@ -153,6 +153,70 @@ public sealed class ToolExecutionTests : IDisposable
     }
 
     /// <summary>
+    /// A member no argument record declares is refused rather than dropped, so a misspelled argument
+    /// name cannot silently turn a guarded call into an unguarded one. The refusal names the member,
+    /// and the message says the tool does not take it, which is a different remedy from correcting a
+    /// value: the caller removes the argument.
+    /// </summary>
+    /// <param name="arguments">The argument record type the synthetic tool declares.</param>
+    [Theory]
+    [InlineData(typeof(PlainArguments))]
+    [InlineData(typeof(VaultBearingArguments))]
+    public void UndeclaredArgumentMember_IsInvalidArgumentNamingIt(Type arguments)
+    {
+        var tool = new RecordingTool();
+
+        var refusal = Refused(
+            SyntheticTools.Declaration(arguments: arguments), tool,
+            new { nte = "Widget.md" }, SyntheticTools.Grant(), SyntheticTools.Session);
+
+        Assert.Equal(ToolCodes.InvalidArgument, refusal.Code);
+        Assert.Contains("takes no argument named \"nte\"", refusal.Message, StringComparison.Ordinal);
+        using var envelope = JsonDocument.Parse(ToolRefusalEnvelope.Json(refusal));
+        Assert.Equal("nte", envelope.RootElement.GetProperty("data").GetProperty("argument").GetString());
+        Assert.Equal(0, tool.Invocations);
+    }
+
+    /// <summary>An undeclared member inside a nested argument is named by the path a caller would fix,
+    /// rather than by the outer argument, which the tool does take.</summary>
+    [Fact]
+    public void UndeclaredMemberInsideANestedArgument_IsNamedByItsPath()
+    {
+        var refusal = Refused(
+            SyntheticTools.Declaration(arguments: typeof(EditArguments)), new RecordingTool(),
+            new { path = "Note.md", body = new { contnt = "# New\n" } }, SyntheticTools.Grant(), SyntheticTools.Session);
+
+        Assert.Equal(ToolCodes.InvalidArgument, refusal.Code);
+        using var envelope = JsonDocument.Parse(ToolRefusalEnvelope.Json(refusal));
+        Assert.Equal("body.contnt", envelope.RootElement.GetProperty("data").GetProperty("argument").GetString());
+    }
+
+    /// <summary>An undeclared member inside a list element is named the same way, with the element's
+    /// index carried across so the caller can find the operation it belongs to.</summary>
+    [Fact]
+    public void UndeclaredMemberInsideAListElement_IsNamedByItsPath()
+    {
+        var refusal = Refused(
+            SyntheticTools.Declaration(arguments: typeof(EditArguments)), new RecordingTool(),
+            new { path = "Note.md", operations = new[] { new { op = "set", ky = "doc.title" } } },
+            SyntheticTools.Grant(), SyntheticTools.Session);
+
+        using var envelope = JsonDocument.Parse(ToolRefusalEnvelope.Json(refusal));
+        Assert.Equal("operations[0].ky", envelope.RootElement.GetProperty("data").GetProperty("argument").GetString());
+    }
+
+    /// <summary>A value of the wrong shape keeps its own message. The two failures arrive under the
+    /// same code and the same payload member, and are told apart by what the message says to do.</summary>
+    [Fact]
+    public void ArgumentOfTheWrongType_SaysTheShapeIsWrongRatherThanThatTheToolTakesNoSuchArgument()
+    {
+        var refusal = Refused(SyntheticTools.Declaration(), new RecordingTool(), new { note = 7 }, SyntheticTools.Grant(), SyntheticTools.Session);
+
+        Assert.Contains("does not match the shape", refusal.Message, StringComparison.Ordinal);
+        Assert.DoesNotContain("takes no argument", refusal.Message, StringComparison.Ordinal);
+    }
+
+    /// <summary>
     /// Authorization runs before argument validation so that a caller without authority over a tool
     /// cannot use a malformed call to learn what the tool's arguments are named or what they
     /// reject.

@@ -282,6 +282,67 @@ public sealed class EditToolTests : IDisposable
         Assert.Equal("# Somebody else got here first\n", _vault.TextOf("Inbox/Loose.md"));
     }
 
+    /// <summary>An edit that carries a hash and replaces nothing wholesale is still guarded by it.
+    /// This is how a caller performs a read-modify-write of one key: it reads the note, works out the
+    /// new value from what it read, and sends the hash so that the write lands only if the note is
+    /// still the one it read.</summary>
+    [Fact]
+    public void AFrontmatterOperationAgainstTheCurrentHash_IsAdmitted()
+    {
+        var result = Edit(new
+        {
+            path = "Projects/Widget/Widget.md",
+            operations = new[] { new { op = "set", key = "doc.title", value = "Gizmo" } },
+            expected_content_hash = HashOf(_vault, "Projects/Widget/Widget.md"),
+        });
+
+        Assert.Contains("doc.title: Gizmo", _vault.TextOf("Projects/Widget/Widget.md"), StringComparison.Ordinal);
+        Assert.Equal(["doc.title"], result.ChangedKeys);
+    }
+
+    /// <summary>The same edit against a hash the file no longer matches is refused, and the note is
+    /// left exactly as the other writer left it. Without the hash the operation would have applied on
+    /// top of content the caller never read, which is the outcome the guard exists to prevent.</summary>
+    [Fact]
+    public void AFrontmatterOperationAgainstAStaleHash_IsRefusedAndWritesNothing()
+    {
+        var stale = HashOf(_vault, "Projects/Widget/Widget.md");
+        _vault.WithNote("Projects/Widget/Widget.md", "---\ndoc.title: Renamed\ndoc.type: note\n---\n# Renamed\n");
+        var before = _vault.BytesOf("Projects/Widget/Widget.md");
+
+        var refusal = Refusal(new
+        {
+            path = "Projects/Widget/Widget.md",
+            operations = new[] { new { op = "set", key = "doc.title", value = "Gizmo" } },
+            expected_content_hash = stale,
+        });
+
+        Assert.Equal(ToolCodes.ContentChanged, refusal.Code);
+        Assert.Null(VaultToolHarness.Data(refusal));
+        Assert.Equal(before, _vault.BytesOf("Projects/Widget/Widget.md"));
+    }
+
+    /// <summary>A substitution verifies its own anchor text, and a hash sent with one guards the rest
+    /// of the note as well - the anchor can still be there in a note somebody else has changed
+    /// elsewhere.</summary>
+    [Fact]
+    public void ASubstitutionAgainstAStaleHash_IsRefusedAndWritesNothing()
+    {
+        var stale = HashOf(_vault, "Projects/Widget/Widget.md");
+        _vault.WithNote("Projects/Widget/Widget.md", "---\ndoc.title: Widget\ndoc.type: reference\n---\n# Widget\n\nBody text.\n");
+        var before = _vault.BytesOf("Projects/Widget/Widget.md");
+
+        var refusal = Refusal(new
+        {
+            path = "Projects/Widget/Widget.md",
+            body = new { find = "Body text.", replace = "Different text." },
+            expected_content_hash = stale,
+        });
+
+        Assert.Equal(ToolCodes.ContentChanged, refusal.Code);
+        Assert.Equal(before, _vault.BytesOf("Projects/Widget/Widget.md"));
+    }
+
     // ---- Chaining ----
 
     /// <summary>The result carries the hash of what was written, and it equals the hash a read of

@@ -121,7 +121,9 @@ A fault names the offending argument and says what was wrong with it, and carrie
 
 **Kind is required exactly where the two kinds take different arguments.** `create` and `delete` require it - `Content` and `GitKeep` split on it, and `Recursive` means nothing for a note. `move` makes it optional, because both kinds take the same arguments there and the assertion buys only fail-fast for a caller that thinks it is renaming one note. `read`, `glob` and `grep` have no operand kind to assert.
 
-**An argument that cannot change an outcome for the supplied operand is refused.** `GitKeep` on a note, `Recursive` on a note, `Content` on a folder, `ExpectedContentHash` with no body change: each is a fault from `Validate`, not a value ignored.
+**An argument that cannot change an outcome for the supplied operand is refused.** `GitKeep` on a note, `Recursive` on a note, `Content` on a folder: each is a fault from `Validate`, not a value ignored. `ExpectedContentHash` is not one of these - it changes the outcome of any edit it is sent with, because a stale note refuses instead of applying.
+
+**A member no argument record declares is refused, naming it.** The binder disallows an unmapped member rather than dropping it, so a misspelled argument name is a refusal instead of a call that silently omits what the caller meant to send. The refusal is `invalid_argument` carrying the member's wire path, and the advertised schema states the same rule as `additionalProperties: false` so the two cannot disagree.
 
 **The extension is never inferred.** A note operand ends in `.md`; a folder operand does not. An extensionless path handed to a note-kind operation is refused naming the spelling that would have worked.
 
@@ -189,7 +191,7 @@ A plan runs the identical path and answers the same record with `Applied: false`
 
 The content hash is the SHA-256 of the file's bytes as stored, lowercase hex. It is taken from the same read that produced the content and describes the whole file whichever part was read, so a hash from a read and a hash from a mutation are the same value and chain in either direction. A caller passes one back and never constructs one.
 
-`ExpectedContentHash` is required for a wholesale body replacement, and no other argument record takes one. A hash describes a single file, so it cannot guard `delete` or `move`, which act on sets. Neither destroys content unseen in any case: a move relocates bytes rather than replacing them, and a removal reports its whole plan before a second call authorizes it ([[#The Preview Gate]]). A mismatch refuses without returning the current hash: recovery is a re-read.
+`ExpectedContentHash` is required for a wholesale body replacement and optional on every other edit, and no other argument record takes one. Where it is sent it guards whatever the edit does, so a read-modify-write of one key or one passage of text refuses on a note that has changed instead of applying to it. A hash describes a single file, so it cannot guard `delete` or `move`, which act on sets. Neither destroys content unseen in any case: a move relocates bytes rather than replacing them, and a removal reports its whole plan before a second call authorizes it ([[#The Preview Gate]]). A mismatch refuses without returning the current hash: recovery is a re-read.
 
 ## Path Policy At Removal And Relocation
 
@@ -266,12 +268,14 @@ invalid_value          A value constraint refused, or caller text carried a cont
 shape_mismatch         Scalar written to a block key, or the reverse.
 entry_not_found        An identity or anchor resolved to nothing.
 entry_ambiguous        An identity or anchor resolved to more than one.
+not_found              No tool is registered under the name the call gave.                        data: {tool}
+rate_limited           A transient per-principal throttle.                            data: {limit_per_minute}
 tool_unavailable       The tool needs what this front-end cannot supply. Raised before it runs.
 lock_timeout           The mutex lock was not acquired. Raised at the lock; no tool catches it.   data: {timeout}
 partial_mutation       A multi-target mutation failed partway.                                    data: {applied, not_applied, recovery}
 ```
 
-**Three codes may be retried with the identical call:** `vault_unavailable`, `lock_timeout` and `search_failed`. Every other code needs the call itself to change first, and `content_changed` needs a re-read before it can. Retryability is a property of the code, which is why a caller branches on that rather than on what came back with it.
+**These codes may be retried with the identical call:** `vault_unavailable`, `lock_timeout`, `search_failed` and `rate_limited`. Every other code needs the call itself to change first, and `content_changed` needs a re-read before it can. Retryability is a property of the code, which is why a caller branches on that rather than on what came back with it.
 
 Reporting an operational condition rather than a caller error does not make a code retryable. `dependency_unavailable` is the case that separates the two: nothing about the call is wrong, and no repetition of it succeeds until the deployment changes. Search is where the distinction is load-bearing, because a missing engine binary and an engine that ran and failed arrive at the same surface, and the layer keeps them apart as separate outcomes so this catalogue can give them separate codes.
 
@@ -286,6 +290,8 @@ Three rules govern the payloads. **A payload is liftable into a corrected call**
 - **The source operand is `path` on every tool and the constructed one is `destination`.** The spelling carries the resolve-versus-construct distinction the operand vocabulary draws.
 - **Kind is required on `create` and `delete`, optional on `move`.** The rule is whether the kinds take different arguments; on `move` they do not, and the assertion survives only as a fail-fast.
 - **`edit` takes a body change in two forms, not one.** A wholesale replacement requires a content hash; a substitution matches exactly once and needs none. Rejected: one form with an optional anchor, which makes the hash requirement conditional on a value rather than on a shape.
+- **The content hash is required on a wholesale body replacement and optional on every other edit.** A replacement has nothing to verify itself against; every other edit may still be guarded by one, which is what makes a guarded read-modify-write of a single key expressible. Rejected: refusing it as inert elsewhere, which cannot be right, because a hash sent with any edit changes that edit's outcome on a note somebody else has touched.
+- **An argument member no record declares is refused, not dropped.** The binder disallows unmapped members and the refusal names the member's wire path, so a typo cannot quietly omit an argument the call depended on. Rejected: leaving it to each tool's `Validate`, which cannot see a member that never bound.
 - **The content tier is text, and `read` with a content hash is its one structured member.** Rejected: wrapping every content result in an object for uniformity, which costs tokens on exactly the results a model reads directly.
 - **There is no shared mutation record.** Four per-tool shapes, sharing a member only where every sharer populates it, which is what [[Spec-Tool-Capabilities.md#Result Tiers]] asks for.
 - **A schema violation neither refuses a write nor appears in its result.** Refusing would make a list unaddable because someone else broke an entry in it, which is the failure the touched-keys extent exists to avoid. Reporting has no reader until `lint` arrives.

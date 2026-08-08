@@ -210,13 +210,18 @@ public sealed class EditTool(FrontmatterRegistries registries) : ITool, IVocabul
         };
 
     /// <summary>
-    /// Refuses a wholesale body replacement whose content hash no longer matches the file. This
-    /// guards the one operation that can destroy content the caller never saw.
+    /// Refuses an edit whose content hash no longer matches the file. This runs for every edit that
+    /// carries a hash, whatever the edit does, and it runs before anything is composed or written.
     /// </summary>
     /// <param name="arguments">The validated arguments, carrying the caller's expected hash.</param>
     /// <param name="stored">The note as it was just read.</param>
     /// <exception cref="ToolRefusal">The file changed since the caller took its hash.</exception>
     /// <remarks>
+    /// A wholesale body replacement must carry the hash, because it overwrites text the caller never
+    /// saw and has nothing else to verify itself against. Any other edit may carry one, which is how
+    /// a read-modify-write of a single key or a substitution is guarded against a change made in the
+    /// window between the caller's read and its edit.
+    ///
     /// The hash is compared against the file's stored bytes, which is what makes the hash a read
     /// returns and the hash a write returns the same value.
     ///

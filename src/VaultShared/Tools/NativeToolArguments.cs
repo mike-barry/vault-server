@@ -3,6 +3,7 @@ using System.ComponentModel;
 using System.Text.Json;
 using System.Text.Json.Nodes;
 using System.Text.Json.Schema;
+using System.Text.Json.Serialization;
 using System.Text.Json.Serialization.Metadata;
 
 namespace VaultShared.Tools;
@@ -47,6 +48,13 @@ public static class NativeToolArguments
         // default is what the natives' plain records need.
         TypeInfoResolver = new DefaultJsonTypeInfoResolver(),
         PropertyNamingPolicy = JsonNamingPolicy.SnakeCaseLower,
+        // A member no argument record declares is refused rather than dropped. A misspelled argument
+        // is almost always a typo, and silently ignoring one turns a guarded call into an unguarded
+        // one that reports success: "expected_content_hash" misspelled on a wholesale body
+        // replacement would overwrite the note with no staleness check at all. This also makes the
+        // exporter state "additionalProperties": false on every object it derives, which is what
+        // keeps the advertised schema and the binder saying the same thing.
+        UnmappedMemberHandling = JsonUnmappedMemberHandling.Disallow,
         // An enumerated argument binds by its wire spelling and never refuses here, so an
         // unrecognized value reaches the tool's own Validate rather than escaping as a binder
         // failure. See EnumArgument.
@@ -61,10 +69,16 @@ public static class NativeToolArguments
     /// member callers expect on the wire, so the correct shape is stated here once instead of as a
     /// literal in each tool.
     /// </summary>
+    /// <remarks>
+    /// <c>additionalProperties</c> is false here for the same reason the exporter states it on every
+    /// object it derives: the binder refuses a member no argument record declares, and a tool taking
+    /// no arguments declares none at all, so any member sent to one is refused.
+    /// </remarks>
     public static readonly JsonElement None = JsonSerializer.SerializeToElement(new Dictionary<string, object>
     {
         ["type"] = "object",
         ["properties"] = new Dictionary<string, object>(),
+        ["additionalProperties"] = false,
     });
 
     /// <summary>Derives the MCP <c>inputSchema</c> for an argument record type.</summary>
@@ -96,9 +110,10 @@ public static class NativeToolArguments
     /// <returns>The bound record. A member the caller omitted arrives as null rather than throwing;
     /// the schema's <c>required</c> list advertises the requirement and the tool's own validation
     /// enforces it.</returns>
-    /// <exception cref="JsonException">The arguments do not fit the advertised shape. This is not a
-    /// <c>{code, message, data?}</c> refusal, so a caller must catch it at the tool boundary and
-    /// re-raise it through <see cref="ToolRefusalEnvelope"/> as <c>invalid_argument</c>.</exception>
+    /// <exception cref="JsonException">A value does not fit the advertised shape, or a member the
+    /// record does not declare was sent. This is not a <c>{code, message, data?}</c> refusal, so a
+    /// caller must catch it at the tool boundary and re-raise it through
+    /// <see cref="ToolRefusalEnvelope"/> as <c>invalid_argument</c>.</exception>
     public static T Bind<T>(IReadOnlyDictionary<string, JsonElement> arguments)
     {
         // The naming policy governs member names, not dictionary keys, so the caller's keys survive
@@ -116,7 +131,8 @@ public static class NativeToolArguments
     /// <param name="arguments">The argument record type.</param>
     /// <param name="values">The call's raw argument map.</param>
     /// <returns>The bound record.</returns>
-    /// <exception cref="JsonException">The arguments do not fit the advertised shape.</exception>
+    /// <exception cref="JsonException">A value does not fit the advertised shape, or a member the
+    /// record does not declare was sent.</exception>
     public static IToolArguments Bind(Type arguments, IReadOnlyDictionary<string, JsonElement> values)
     {
         var json = JsonSerializer.SerializeToUtf8Bytes(values, Options);
@@ -139,6 +155,58 @@ public static class NativeToolArguments
         if (end >= 0)
             name = name[..end];
         return name.Length > 0 ? name.ToString() : null;
+    }
+
+    /// <summary>
+    /// Returns the wire path of the member a binding failure is about when the argument record
+    /// declares no such member, which is the one binding failure a caller fixes by removing an
+    /// argument rather than by correcting its value.
+    /// </summary>
+    /// <param name="arguments">The argument record type the call was bound onto.</param>
+    /// <param name="exception">The exception binding threw.</param>
+    /// <returns>The member's wire path, dotted for a nested member (<c>body.contnt</c>), or null when
+    /// every name on the failure's path is declared - which is a value of the wrong shape rather than
+    /// a member the tool does not take.</returns>
+    /// <remarks>
+    /// The failure's <see cref="JsonException.Path"/> is walked against the same
+    /// <see cref="JsonTypeInfo"/> contract the binder used, rather than read out of the exception's
+    /// message, because that message is prose and carries no stable structure. The walk stops and
+    /// answers null at the first name whose type is not an object contract, since a member that
+    /// admits any JSON has no declared member set to be absent from.
+    /// </remarks>
+    public static string? UndeclaredMember(Type arguments, JsonException exception)
+    {
+        if (exception.Path is not { Length: > 2 } path || !path.StartsWith("$.", StringComparison.Ordinal))
+            return null;
+
+        var info = Options.GetTypeInfo(arguments);
+        List<string> reached = [];
+
+        foreach (var segment in path[2..].Split('.'))
+        {
+            var bracket = segment.IndexOf('[');
+            var name = bracket < 0 ? segment : segment[..bracket];
+
+            if (info.Kind != JsonTypeInfoKind.Object)
+                return null;
+            if (info.Properties.FirstOrDefault(p => string.Equals(p.Name, name, StringComparison.Ordinal)) is not { } property)
+                return string.Join('.', reached.Append(name));
+
+            // The segment rather than the name, so a list index stays in the path a caller is given.
+            reached.Add(segment);
+            info = Options.GetTypeInfo(property.PropertyType);
+
+            // One element type per index, so a member inside an array of records is reached under the
+            // record's own contract rather than under the collection's.
+            for (var at = bracket; at >= 0; at = segment.IndexOf('[', at + 1))
+            {
+                if (info.ElementType is null)
+                    return null;
+                info = Options.GetTypeInfo(info.ElementType);
+            }
+        }
+
+        return null;
     }
 
     /// <summary>
