@@ -185,11 +185,17 @@ public sealed class VaultSearchTests : IDisposable
         Assert.IsType<SearchOutcome<VaultPath>.Unreadable>(_vault.Access.SearchFiles("needle", includeDotEntries: true));
     }
 
+    /// <summary>
+    /// An engine that is not where it was said to be is its own outcome at every granularity, so no
+    /// granularity reports a permanent condition as one a retry could clear.
+    /// </summary>
     [Fact]
-    public void AnEngineThatCannotBeRunIsAnOperationalFailure()
+    public void AnEngineThatCannotBeRunIsItsOwnOutcomeRatherThanAGeneralFailure()
     {
         using var missing = Layout(new ScratchVault(engine: new SearchEngine(Path.Combine(_vault.Root, "no-such-engine"))));
 
-        Assert.IsType<SearchOutcome<MatchLine>.Failed>(missing.Access.SearchLines("needle"));
+        Assert.IsType<SearchOutcome<MatchLine>.EngineUnavailable>(missing.Access.SearchLines("needle"));
+        Assert.IsType<SearchOutcome<VaultPath>.EngineUnavailable>(missing.Access.SearchFiles("needle"));
+        Assert.IsType<SearchOutcome<MatchCount>.EngineUnavailable>(missing.Access.SearchCounts("needle"));
     }
 }

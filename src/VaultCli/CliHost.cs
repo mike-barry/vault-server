@@ -84,7 +84,11 @@ public sealed class CliHost
         var frontmatter = FrontmatterRegistries.Load(
             vaultConfig, Path.GetDirectoryName(settings.VaultsConfigPath)!, opClasses, health);
 
-        var engine = settings.RipgrepPath is { Length: > 0 } path ? new SearchEngine(path) : SearchEngine.OnPath;
+        // The engine's configured location resolves against the directory holding the settings file,
+        // which is the file that names it. A location that is not there is recorded as degraded and
+        // still used, so search refuses and every tool that does not search keeps working.
+        var engine = SearchEngines.Load(
+            settings.RipgrepPath, Path.GetDirectoryName(settings.SettingsPath)!, health);
 
         // This order is the order the command tree lists its subcommands in. The two tools that
         // declare RequiresClientSession are not registered here: they change per-process authority

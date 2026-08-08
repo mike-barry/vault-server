@@ -25,11 +25,16 @@ namespace VaultShared.Tools;
 /// the caller may not reach exists.</item>
 /// </list>
 /// <para>
-/// Three codes report operational conditions rather than caller errors, and the identical call may
-/// be retried: <see cref="VaultUnavailable"/>, <see cref="LockTimeout"/> and
-/// <see cref="SearchFailed"/>. Every other code requires the call itself to change first, and
-/// <see cref="ContentChanged"/> requires a re-read before it can. Retryability is a property of the
-/// code, so callers decide from the code alone.
+/// Four codes may be retried with the identical call: <see cref="VaultUnavailable"/>,
+/// <see cref="LockTimeout"/>, <see cref="SearchFailed"/> and <see cref="RateLimited"/>. Every other
+/// code requires the call itself to change first, and <see cref="ContentChanged"/> requires a re-read
+/// before it can.
+/// </para>
+/// <para>
+/// Reporting an operational condition rather than a caller error does not make a code retryable, and
+/// <see cref="DependencyUnavailable"/> is the case that separates the two: nothing about the call is
+/// wrong, and no repetition of it succeeds until the deployment changes. Retryability is a property
+/// of the code, so callers decide from the code alone.
 /// </para>
 /// </remarks>
 public static class ToolCodes
@@ -188,7 +193,11 @@ public static class ToolCodes
     /// retryable condition into a branch that never retries.</summary>
     public const string RateLimited = "rate_limited";
 
-    /// <summary>A server-side prerequisite the call cannot influence. Neither the caller's authority
-    /// nor its arguments would change the outcome.</summary>
+    /// <summary>A server-side prerequisite the call cannot influence, such as the search engine's
+    /// executable not being where the host was configured to find it. Neither the caller's authority
+    /// nor its arguments would change the outcome. Operational; not retryable - repeating the
+    /// identical call cannot succeed until the deployment is corrected, so do not route this into a
+    /// branch that retries. No payload: what is missing is a server-side path the caller may not read
+    /// and cannot act on, and the operator reads the condition off health state.</summary>
     public const string DependencyUnavailable = "dependency_unavailable";
 }

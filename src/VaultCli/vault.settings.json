@@ -15,6 +15,7 @@
   "VaultsConfigPath": "../../../../../vaults.json",
   "GrantsConfigPath": "../../../../../grants.json",
 
-  // Where ripgrep is. Unset means rg as PATH resolves it.
+  // Where ripgrep is. Unset means rg as PATH resolves it. A path set here that is not on disk is
+  // reported by the health check and refuses glob and grep; every other tool keeps working.
   "RipgrepPath": ""
 }

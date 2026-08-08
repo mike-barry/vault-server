@@ -157,8 +157,10 @@ public static class ToolRefusalEnvelope
     /// <summary>
     /// Maps an enumeration or content-search failure onto a code. This is the only site that does so.
     /// A malformed pattern the caller supplied is <see cref="ToolCodes.InvalidPattern"/> and needs
-    /// the call to change; every other failure is <see cref="ToolCodes.SearchFailed"/> and the
-    /// identical call may be retried.
+    /// the call to change; an engine that could not be started is
+    /// <see cref="ToolCodes.DependencyUnavailable"/> and no retry of the identical call can succeed;
+    /// every other failure is <see cref="ToolCodes.SearchFailed"/> and the identical call may be
+    /// retried.
     /// </summary>
     /// <typeparam name="TResult">The search result type.</typeparam>
     /// <param name="outcome">A failed search outcome.</param>
@@ -166,6 +168,11 @@ public static class ToolRefusalEnvelope
     /// <exception cref="ArgumentException"><paramref name="outcome"/> is a result, not a
     /// failure.</exception>
     /// <remarks>
+    /// An engine that could not be started carries no payload. The platform's message names the
+    /// executable the host configured, which is a server-side path the caller may not read and cannot
+    /// act on; the deployment is what has to change, and the operator reads the same condition off
+    /// health state, where it is recorded when the host interprets the configured location.
+    ///
     /// A file the search could not read is a search failure, not a read failure.
     /// <see cref="ToolCodes.ReadFailed"/> names a path in its payload, and the file that failed is
     /// one the engine met while walking the whole vault, before scope filtering. Naming it would
@@ -192,6 +199,10 @@ public static class ToolRefusalEnvelope
                 ToolCodes.SearchFailed,
                 "The search engine failed.",
                 new { detail = failed.Reason }),
+
+            SearchOutcome<TResult>.EngineUnavailable => new ToolRefusal(
+                ToolCodes.DependencyUnavailable,
+                "The search engine could not be started, so no search or enumeration can run until the deployment is corrected."),
 
             _ => throw new ArgumentException("A result is not a refusal.", nameof(outcome)),
         };

@@ -24,9 +24,10 @@ public interface IConfigProblemSink
     /// <param name="detail">What failed.</param>
     void RecordFatal(string source, string detail);
 
-    /// <summary>Records a per-entry skip - one grants.json row, one vaults.json entry - that leaves
-    /// the rest of the file usable.</summary>
+    /// <summary>Records a partial loss that leaves the host serving what the failure does not touch: a
+    /// skipped entry that leaves the rest of its file usable, or a configured dependency that is not
+    /// there and refuses only the operations that need it.</summary>
     /// <param name="source">The subsystem that found it.</param>
-    /// <param name="detail">Which entry was skipped and why.</param>
+    /// <param name="detail">What was lost and why, and what still works without it.</param>
     void RecordDegraded(string source, string detail);
 }

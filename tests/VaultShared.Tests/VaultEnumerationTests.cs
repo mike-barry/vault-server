@@ -187,12 +187,17 @@ public sealed class VaultEnumerationTests : IDisposable
         Assert.NotEmpty(refusal.Reason);
     }
 
+    /// <summary>
+    /// An engine that is not where it was said to be is its own outcome rather than the general
+    /// operational failure, because no repetition of the identical call can start an executable that
+    /// is not there.
+    /// </summary>
     [Fact]
-    public void AnEngineThatCannotBeRunIsAnOperationalFailure()
+    public void AnEngineThatCannotBeRunIsItsOwnOutcomeRatherThanAGeneralFailure()
     {
         using var missing = Layout(new ScratchVault(engine: new SearchEngine(Path.Combine(_vault.Root, "no-such-engine"))));
 
-        var failure = Assert.IsType<SearchOutcome<VaultPath>.Failed>(missing.Access.EnumerateNotes());
+        var failure = Assert.IsType<SearchOutcome<VaultPath>.EngineUnavailable>(missing.Access.EnumerateNotes());
 
         Assert.NotEmpty(failure.Reason);
     }

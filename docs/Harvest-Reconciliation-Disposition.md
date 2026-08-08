@@ -54,7 +54,6 @@ What triage produced, for whoever works the fix step. Every item is detailed in 
 
 Code changes, with their couplings:
 
-- **Search engine unavailable: its own code, plus a startup and health check** - R7
 - **Folder-create occupancy probe** - R8
 - **The vault named in the inherited-lock message** - G6
 - **Leading-separator trim** - G8
@@ -77,21 +76,6 @@ records the link-ranking reversal as deliberate and spec-backed, which O3 establ
 the wrong surface. The appendix is not edited; a reader should not take that entry at face value.
 
 ## Dispositions
-
-### R7 — genuine, to fix in both halves
-
-The classification half is spec-required: `Spec-Tool-Capabilities.md:163` holds that a permanent
-refusal must not route into a retrying branch, and `:162` names search as the pair most easily
-collapsed. A missing engine binary reports `search_failed`, documented retryable, so an automated
-caller retries a call that can never succeed. `SearchEngine` already separates a failed launch from a
-failed run (`LaunchFailed`), so the distinction exists and is discarded above it: give the engine
-being unavailable its own code. Error codes are not part of the advertised declaration, so a new one
-costs nothing in a session's tool listing.
-
-The eager-validation half is spec-silent and was taken as well: check an explicitly configured
-ripgrep path for existence at resolution time and report it on the health surface, so a mistyped path
-is named at startup rather than at the first search. It touches retained health code, which is why it
-was decided separately.
 
 ### R8 — genuine, to fix
 

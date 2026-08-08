@@ -24,8 +24,11 @@ namespace VaultCli;
 /// <param name="OpClassesConfigPath">The full path to the op-class configuration file.</param>
 /// <param name="VaultsConfigPath">The full path to the vault configuration file.</param>
 /// <param name="GrantsConfigPath">The full path to the grant configuration file.</param>
-/// <param name="RipgrepPath">The full path to the ripgrep executable, or null to find it on
-/// <c>PATH</c>.</param>
+/// <param name="RipgrepPath">The ripgrep executable's location exactly as the settings file holds
+/// it, which may be relative to the directory holding that file, or null when the setting is absent
+/// or empty and the executable is found on <c>PATH</c>. It is carried unresolved because the shared
+/// layer that interprets it applies the same resolution base and existence check for both
+/// front-ends.</param>
 public sealed record CliSettings(
     string SettingsPath,
     string? GrantId,
@@ -58,7 +61,7 @@ public sealed record CliSettings(
     /// </summary>
     /// <param name="path">The settings file to read. It may be relative to the working
     /// directory.</param>
-    /// <returns>The settings, with every configured path resolved to a full path.</returns>
+    /// <returns>The settings, with the three configuration file paths resolved to full paths.</returns>
     /// <exception cref="CliFailure">The file is absent, unreadable, or not a JSON object of
     /// settings.</exception>
     public static CliSettings Load(string path)
@@ -91,7 +94,7 @@ public sealed record CliSettings(
             OpClassesConfigPath: Resolve(directory, Text(values, "OpClassesConfigPath") ?? "op-classes.json"),
             VaultsConfigPath: Resolve(directory, Text(values, "VaultsConfigPath") ?? "vaults.json"),
             GrantsConfigPath: Resolve(directory, Text(values, "GrantsConfigPath") ?? "grants.json"),
-            RipgrepPath: Text(values, "RipgrepPath") is { Length: > 0 } engine ? Resolve(directory, engine) : null);
+            RipgrepPath: Text(values, "RipgrepPath"));
 
         static string? Text(Dictionary<string, JsonElement> values, string key) =>
             values.TryGetValue(key, out var value) && value.ValueKind == JsonValueKind.String && value.GetString() is { Length: > 0 } text

@@ -215,15 +215,29 @@ public sealed class SearchToolTests : IDisposable
         Assert.Equal("rg: <unreadable file>: denied", VaultToolHarness.Data(refusal)!["detail"]);
     }
 
-    [Fact]
-    public void AnEngineThatCannotBeRunIsASearchFailureCarryingWhatItSaid()
+    /// <summary>
+    /// An engine that is not there refuses as an unavailable dependency rather than as a failed
+    /// search, driven through the real tool surface rather than through the outcome mapping alone.
+    /// <c>search_failed</c> is documented as retryable with the identical call, and no retry can start
+    /// an executable that is not on disk, so the two must not share a code.
+    ///
+    /// The refusal carries no payload. The platform's message names the executable the host was
+    /// configured with, which is a server-side path the caller cannot act on.
+    /// </summary>
+    [Theory]
+    [InlineData("glob")]
+    [InlineData("grep")]
+    public void AnEngineThatCannotBeStartedIsRefusedAsAnUnavailableDependency(string tool)
     {
         using var broken = Layout(new ScratchVault(engine: new SearchEngine(Path.Combine(_vault.Root, "no-such-engine"))));
 
-        var refusal = VaultToolHarness.Refusal(new GlobTool(), GlobTool.Declaration, broken, new { pattern = "**" });
+        var refusal = tool == "glob"
+            ? VaultToolHarness.Refusal(new GlobTool(), GlobTool.Declaration, broken, new { pattern = "**" })
+            : VaultToolHarness.Refusal(new GrepTool(), GrepTool.Declaration, broken, new { pattern = "needle" });
 
-        Assert.Equal(ToolCodes.SearchFailed, refusal.Code);
-        Assert.NotEmpty(VaultToolHarness.Data(refusal)!["detail"]);
+        Assert.Equal(ToolCodes.DependencyUnavailable, refusal.Code);
+        Assert.Null(VaultToolHarness.Data(refusal));
+        Assert.DoesNotContain("no-such-engine", refusal.Message, StringComparison.OrdinalIgnoreCase);
     }
 
     // ---- Mapping search outcomes to refusal codes ----
@@ -240,16 +254,20 @@ public sealed class SearchToolTests : IDisposable
         Assert.Equal(ToolCodes.InvalidPattern, ToolRefusalEnvelope.Translate(new SearchOutcome<VaultPath>.BadPattern("bad glob")).Code);
         Assert.Equal(ToolCodes.SearchFailed, ToolRefusalEnvelope.Translate(new SearchOutcome<VaultPath>.Unreadable("A.md", "denied")).Code);
         Assert.Equal(ToolCodes.SearchFailed, ToolRefusalEnvelope.Translate(new SearchOutcome<VaultPath>.Failed("engine gone")).Code);
+        Assert.Equal(ToolCodes.DependencyUnavailable, ToolRefusalEnvelope.Translate(new SearchOutcome<VaultPath>.EngineUnavailable("cannot start")).Code);
     }
 
-    /// <summary>Only the operational failures carry engine text in <c>detail</c>. A malformed
-    /// pattern is the caller's own, so there is nothing to report back about it.</summary>
+    /// <summary>Only the failures a caller may retry with the identical call carry engine text in
+    /// <c>detail</c>. A malformed pattern is the caller's own, so there is nothing to report back
+    /// about it, and an engine that is not on disk reports a server-side path the caller can neither
+    /// read nor act on.</summary>
     [Fact]
-    public void OnlyTheOperationalFailuresCarryEngineDetail()
+    public void OnlyTheRetryableFailuresCarryEngineDetail()
     {
         Assert.Null(VaultToolHarness.Data(ToolRefusalEnvelope.Translate(new SearchOutcome<VaultPath>.BadPattern("bad glob"))));
         Assert.Equal("denied", VaultToolHarness.Data(ToolRefusalEnvelope.Translate(new SearchOutcome<VaultPath>.Unreadable("A.md", "denied")))!["detail"]);
         Assert.Equal("engine gone", VaultToolHarness.Data(ToolRefusalEnvelope.Translate(new SearchOutcome<VaultPath>.Failed("engine gone")))!["detail"]);
+        Assert.Null(VaultToolHarness.Data(ToolRefusalEnvelope.Translate(new SearchOutcome<VaultPath>.EngineUnavailable(@"C:\engines\rg.exe not found"))));
     }
 
     [Fact]

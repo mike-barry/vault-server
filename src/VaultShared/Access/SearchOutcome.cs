@@ -2,11 +2,11 @@ namespace VaultShared.Access;
 
 /// <summary>
 /// Represents the result of an enumeration or a content search: a possibly empty list of results,
-/// or one of three failures. The private constructor closes the hierarchy, so a caller that handles
+/// or one of four failures. The private constructor closes the hierarchy, so a caller that handles
 /// every nested record has handled every case.
 /// </summary>
 /// <remarks>
-/// One type serves both surfaces because both distinguish the same four outcomes, and because an
+/// One type serves both surfaces because both distinguish the same outcomes, and because an
 /// enumeration carrying a pattern is itself a search over names and paths.
 ///
 /// An empty <see cref="Results"/> is the correct answer to a well-formed question that matched
@@ -48,11 +48,23 @@ public abstract record SearchOutcome<TResult>
     public sealed record Unreadable(string Path, string Reason) : SearchOutcome<TResult>;
 
     /// <summary>
-    /// Anything else the engine reported, or a failure to run it at all. This is an operational
-    /// failure of one call, and this layer writes nothing to health state for it.
+    /// Anything else the engine reported once it was running. This is an operational failure of one
+    /// call, and this layer writes nothing to health state for it.
     /// </summary>
-    /// <param name="Reason">What the engine reported, or why it could not be started.</param>
+    /// <param name="Reason">What the engine reported.</param>
     public sealed record Failed(string Reason) : SearchOutcome<TResult>;
+
+    /// <summary>
+    /// The engine could not be started at all: it is not where the host said it was, or the platform
+    /// refused to launch it. It is separate from <see cref="Failed"/> because repeating the identical
+    /// call cannot change the answer, while a run that started and failed may succeed on a retry, and
+    /// a caller decides whether to retry from which of the two it got.
+    /// </summary>
+    /// <param name="Reason">
+    /// Why the launch failed, as the platform reported it. It names the executable the host
+    /// configured, so it belongs in an operator-facing log rather than in an answer to a caller.
+    /// </param>
+    public sealed record EngineUnavailable(string Reason) : SearchOutcome<TResult>;
 }
 
 /// <summary>Represents one matching line and where it is: the richest search granularity.</summary>

@@ -256,6 +256,8 @@ body_match_not_found   A substitution anchor matched nothing.
 body_match_ambiguous   A substitution anchor matched more than once.                              data: {count}
 invalid_pattern        A malformed glob or regular expression. Caller error.
 search_failed          The engine failed.                                                         data: {detail}
+dependency_unavailable A server-side prerequisite the call cannot influence, such as the search
+                       engine's executable not being where the host was told. No payload.
 frontmatter_unparsable The stored block will not parse, or is not a mapping.
 fence_conflict         A write would create or destroy a fence, or the note's first line makes one ambiguous.
 frontmatter_unavailable The registry is absent or would not load. Frontmatter writes only.
@@ -269,7 +271,9 @@ lock_timeout           The mutex lock was not acquired. Raised at the lock; no t
 partial_mutation       A multi-target mutation failed partway.                                    data: {applied, not_applied, recovery}
 ```
 
-**Three codes are operational rather than caller errors, and the identical call may be retried:** `vault_unavailable`, `lock_timeout` and `search_failed`. Every other code needs the call itself to change first, and `content_changed` needs a re-read before it can. Retryability is a property of the code, which is why a caller branches on that rather than on what came back with it.
+**Three codes may be retried with the identical call:** `vault_unavailable`, `lock_timeout` and `search_failed`. Every other code needs the call itself to change first, and `content_changed` needs a re-read before it can. Retryability is a property of the code, which is why a caller branches on that rather than on what came back with it.
+
+Reporting an operational condition rather than a caller error does not make a code retryable. `dependency_unavailable` is the case that separates the two: nothing about the call is wrong, and no repetition of it succeeds until the deployment changes. Search is where the distinction is load-bearing, because a missing engine binary and an engine that ran and failed arrive at the same surface, and the layer keeps them apart as separate outcomes so this catalogue can give them separate codes.
 
 Three rules govern the payloads. **A payload is liftable into a corrected call** - `suggested`, `parent`, and `plan` are; `out_of_scope` and `content_changed` therefore carry nothing. **A payload names the caller's own coordinates only** - `authority_required` names the keys or paths the caller supplied, never what the grant holds and never the subset that failed. **A payload never answers a question the refusal withheld** - no code discloses whether a target the caller may not reach exists.
 
@@ -301,4 +305,5 @@ Three rules govern the payloads. **A payload is liftable into a corrected call**
 - **One table maps `RefusalReason` to a code**, applied where the envelope is rendered. Rejected: each tool catching and re-coding, which reintroduces per-tool reasoning about a refusal it did not raise.
 - **`path_not_found` rather than `not_found`.** The retained dispatcher already spends `not_found` on an unknown tool name, and a caller branching on one code for two unrelated conditions is the collapse the vocabulary exists to prevent.
 - **The catalogue is the first pass's set and extends additively.** A failure it does not carry earns a new code under the spec's distinctions and the payload rules, rather than a widened or repurposed existing one.
+- **An engine that could not be started refuses `dependency_unavailable`, and carries no payload.** The code already means a server-side prerequisite the call cannot influence, which is the condition exactly, so nothing is widened by using it. The payload is empty because the platform's message names the executable the host configured, which is a path the caller may not read and cannot lift into a corrected call; the operator reads the same condition off health state. Rejected: a search-specific code beside it, which would give callers two codes with one remedy.
 - **Snake_case governs results as well as arguments**, through the same serializer options the binder uses, so nothing translates between a sent name and a returned one.

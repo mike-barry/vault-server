@@ -125,10 +125,13 @@ internal static class VaultSearch
     }
 
     /// <summary>
-    /// Classifies a completed run into one of the four outcomes, from the exit code and the streams
+    /// Classifies a completed run into one of the five outcomes, from the exit code and the streams
     /// rather than from message text wherever possible.
     /// </summary>
     /// <remarks>
+    /// A run that never started is its own outcome rather than a general failure, because no retry of
+    /// the identical call can start an executable that is not there.
+    ///
     /// The engine refuses a malformed glob or regex before it walks anything, so such a run
     /// produces no output at all. Every other exit tells us it ran: it either completed (0 or 1) or
     /// completed and also reported a problem (2, with the output it had already produced). That is
@@ -152,7 +155,7 @@ internal static class VaultSearch
         EngineRun run, Vault vault, Func<string, SearchOutcome<TResult>> parse)
     {
         if (run.ExitCode == SearchEngine.LaunchFailed)
-            return new SearchOutcome<TResult>.Failed(run.StandardError);
+            return new SearchOutcome<TResult>.EngineUnavailable(run.StandardError);
 
         var ran = run.ExitCode is 0 or 1 || run.StandardOutput.Length > 0;
 

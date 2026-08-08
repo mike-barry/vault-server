@@ -3,8 +3,10 @@ namespace VaultShared.Health;
 /// <summary>How serious a recorded <see cref="HealthProblem"/> is.</summary>
 public enum ProblemSeverity
 {
-    /// <summary>A per-entry skip - one grants.json row, one vaults.json entry, one tool script - that
-    /// leaves the rest of that file usable. A startup-only load records it append-only through
+    /// <summary>A partial loss that leaves the host serving what the failure does not touch: one
+    /// skipped grants.json row, one skipped vaults.json entry, one tool script that would not load, or
+    /// one configured dependency that is not where configuration said it was, which refuses the
+    /// operations needing it and no others. A startup-only load records it append-only through
     /// <see cref="IConfigProblemSink.RecordDegraded"/>; a host whose sources re-scan at runtime holds
     /// it in a replaceable per-source set that a later scan can clear.</summary>
     Degraded,

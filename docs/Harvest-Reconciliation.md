@@ -95,21 +95,6 @@ in *ordering* — what is validated, and when, relative to what is written.
 
 ## Regressions
 
-### R7 — a missing search binary is never validated, and its failure is marked retryable
-
-- **Old:** an explicit or configured ripgrep path was validated as an existing leaf at resolution
-  time and reported `dependency_unavailable` (`ENU-013`, `ENU-035`, `ENU-039`, `ENU-041`).
-- **New:** both hosts construct the engine straight from the configured path
-  (`src/VaultCli/CliHost.cs:87`, `src/VaultMcpServer/Program.cs:96`). There is no existence check in
-  `SearchEngine` and nothing on the health surface mentions it. Failure surfaces per call as
-  `search_failed`, which `src/VaultShared/Tools/ToolCodes.cs:132` documents as "Operational;
-  retryable".
-- **Lost:** a mistyped path passes startup and health silently, and an automated caller retries a
-  call that can never succeed.
-- **Test:** none.
-- **Recorded:** the layer-side folding is spec-closed; the loss of eager validation and the retryable
-  classification are not.
-
 ### R8 — a folder create over an existing folder succeeds silently
 
 - **Old:** an occupied target was refused (`CRD-018`).

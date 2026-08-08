@@ -1,5 +1,6 @@
 using Microsoft.AspNetCore.Http;
 using VaultMcpServer.Auth;
+using VaultShared.Access;
 using VaultShared.Auth;
 using VaultMcpServer.Health;
 using VaultShared.Health;
@@ -88,15 +89,19 @@ var toolsDir = Path.GetFullPath(Path.Combine(
 var scriptToolRegistry = new ScriptToolRegistry(toolsDir, opClassRegistry, healthState);
 builder.Services.AddSingleton(scriptToolRegistry);
 
+// The search engine both the native tools and the tool scripts use, interpreted once from the
+// RipgrepPath setting. A relative setting resolves against the content root, and a configured
+// executable that is not there is recorded as a degraded problem and still used, so search and
+// enumeration refuse dependency_unavailable while the six tools that never search keep serving.
+var searchEngine = SearchEngines.Load(builder.Configuration["RipgrepPath"], builder.Environment.ContentRootPath, healthState);
+
 // The runner is given the host's resolved vaults.json path so it can set VAULT_MCP_VAULTS_JSON
 // before every script invocation. A script reads that variable to locate vaults.json, and
 // re-asserting the path each call stops one tool script from redirecting a later one through the
-// process-wide variable. The ripgrep path (the RipgrepPath setting, passed as VAULT_MCP_RG_PATH)
-// works the same way; when it is unset a script falls back to rg on PATH.
-var ripgrepPath = builder.Configuration["RipgrepPath"] is { Length: > 0 } rgp
-    ? Path.GetFullPath(Path.Combine(builder.Environment.ContentRootPath, rgp))
-    : null;
-var scriptToolRunner = new ScriptToolRunner(vaultsConfigPath, ripgrepPath);
+// process-wide variable. The engine's location (passed as VAULT_MCP_RG_PATH) works the same way;
+// when it is unset a script falls back to rg on PATH, which is the same fallback the native tools
+// take.
+var scriptToolRunner = new ScriptToolRunner(vaultsConfigPath, searchEngine.Executable);
 builder.Services.AddSingleton(scriptToolRunner);
 
 // Constructed and registered directly rather than through AddHttpContextAccessor(), so
@@ -155,7 +160,7 @@ builder.Services.AddSingleton(toolRegistry);
 ILogger? executionLogger = null;
 var toolExecution = new ToolExecution(
     vaultConfig,
-    engine: null,
+    searchEngine,
     onInheritedLock: message => executionLogger?.LogWarning("{Message}", message));
 builder.Services.AddSingleton(toolExecution);
 
