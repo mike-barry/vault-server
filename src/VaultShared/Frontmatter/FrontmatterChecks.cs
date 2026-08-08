@@ -207,11 +207,23 @@ internal static class FrontmatterChecks
             return violations;
         }
 
+        // A required field is satisfied by text rather than by presence. A value that is null,
+        // empty, or whitespace only is empty, so a required field written with nothing under it is
+        // reported exactly as an absent one: an entry whose identity field is empty has no identity
+        // to address, and nothing can then name it for removal.
         foreach (var (name, field) in variant.Fields)
-            if (field.Required && entry.Field(name) is null)
+        {
+            if (!field.Required)
+                continue;
+            if (entry.Field(name) is not { } text)
                 violations.Add(new Violation(
                     ViolationRule.MissingRequiredField, key, position, name,
                     $"Variant \"{variant.Name}\" requires the field \"{name}\"."));
+            else if (OperationText.IsEmpty(text))
+                violations.Add(new Violation(
+                    ViolationRule.MissingRequiredField, key, position, name,
+                    $"Variant \"{variant.Name}\" requires a value for the field \"{name}\"."));
+        }
 
         foreach (var name in entry.Fields)
             if (!variant.Fields.ContainsKey(name))

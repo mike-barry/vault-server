@@ -95,24 +95,6 @@ in *ordering* — what is validated, and when, relative to what is written.
 
 ## Regressions
 
-### R3 — an entry field's *value* is never tested for emptiness
-
-Found from two areas; one rule, two sites.
-
-- **Old:** a required entry field had to carry non-whitespace text, and an empty payload value was
-  refused (`REG-056`, `REG-063`, `FMC-052`, `FMC-079`).
-- **New:** the validator tests presence alone — `field.Required && entry.Field(name) is null`
-  (`src/VaultShared/Frontmatter/FrontmatterChecks.cs:211`) — while scalar keys eighty lines earlier
-  go through `OperationText.IsEmpty` (`:127`). The write path mirrors it, testing `IsEmpty` on a
-  mapping field's *name* and never its value
-  (`src/VaultShared/Frontmatter/FrontmatterWrite.cs:333`).
-- **Lost:** `description: ""` validates clean. `pinned: ''` is accepted with zero violations and the
-  entry is then permanently unremovable — it has no identity to address, an empty removal target is
-  refused, and wholesale removal is refused for that variant. Confirmed by probe.
-- **Test:** none on either site.
-- **Recorded:** nowhere, and it is the one place `Spec-Frontmatter-Substrate.md:113`'s "emptiness is
-  tested one way" rule is not met.
-
 ### R7 — a missing search binary is never validated, and its failure is marked retryable
 
 - **Old:** an explicit or configured ripgrep path was validated as an existing leaf at resolution
@@ -138,13 +120,6 @@ Found from two areas; one rule, two sites.
 - **Recorded:** nowhere.
 
 ## Gaps
-
-### G5 — the unknown-key refusal no longer names the known set, and its replacement is unwired
-
-`REG-014`. The refusal at `src/VaultShared/Frontmatter/FrontmatterWrite.cs:267` names no
-alternatives. `FrontmatterVocabulary.Keys` is built for that purpose
-(`src/VaultShared/Frontmatter/FrontmatterVocabulary.cs:47`) but `EditTool.Schema` consumes only
-`Branches`, so a caller has no route to the vocabulary at all.
 
 ### G6 — the inherited-lock warning lost its remediation content
 

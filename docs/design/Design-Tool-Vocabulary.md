@@ -259,7 +259,7 @@ search_failed          The engine failed.                                       
 frontmatter_unparsable The stored block will not parse, or is not a mapping.
 fence_conflict         A write would create or destroy a fence, or the note's first line makes one ambiguous.
 frontmatter_unavailable The registry is absent or would not load. Frontmatter writes only.
-unknown_key            No declaration recognizes the key.
+unknown_key            No declaration recognizes the key.                                        data: {declared_keys}
 invalid_value          A value constraint refused, or caller text carried a control character.    data: {expected}
 shape_mismatch         Scalar written to a block key, or the reverse.
 entry_not_found        An identity or anchor resolved to nothing.

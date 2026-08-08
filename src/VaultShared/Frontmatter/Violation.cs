@@ -64,7 +64,10 @@ public enum ViolationRule
     /// fallback.</summary>
     EntryMatchesSeveralVariants,
 
-    /// <summary>An entry missing a field its variant declares required.</summary>
+    /// <summary>An entry that does not carry a field its variant declares required, either because
+    /// the field is absent or because it is written with no value. A value that is null, empty, or
+    /// whitespace only is empty, and the remedy is the same for both: supply text under the
+    /// field.</summary>
     MissingRequiredField,
 
     /// <summary>An entry carrying a field its variant does not declare.</summary>

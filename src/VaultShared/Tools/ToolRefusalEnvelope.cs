@@ -82,9 +82,10 @@ public static class ToolRefusalEnvelope
     /// not raise.
     /// </summary>
     /// <param name="refusal">The refusal the frontmatter layer raised.</param>
-    /// <returns>The refusal in this vocabulary. Its payload carries only the refusal's own
-    /// coordinates - the keys it locates and the index of the operation that owns them - both of
-    /// which the caller supplied. Nothing about the grant reaches it.</returns>
+    /// <returns>The refusal in this vocabulary. Its payload carries the refusal's own coordinates -
+    /// the keys it locates and the index of the operation that owns them, both of which the caller
+    /// supplied - and, for an undeclared key, the vault's declared key names. Nothing about the
+    /// grant reaches it.</returns>
     /// <exception cref="ArgumentOutOfRangeException">The reason has no declared wire code.</exception>
     public static ToolRefusal Translate(FrontmatterRefusal refusal)
     {
@@ -119,7 +120,7 @@ public static class ToolRefusalEnvelope
             _ => throw new ArgumentOutOfRangeException(nameof(refusal), refusal.Reason, "No wire code is declared for this refusal reason."),
         };
 
-        return new ToolRefusal(code, refusal.Message, Coordinates(refusal));
+        return new ToolRefusal(code, refusal.Message, Payload(refusal));
     }
 
     /// <summary>
@@ -206,18 +207,29 @@ public static class ToolRefusalEnvelope
     public static ToolRefusal Translate(AuthorityRefusal refusal) =>
         new(ToolCodes.AuthorityRequired, refusal.Message);
 
-    /// <summary>Returns the refusal's own coordinates, or null where it locates neither a key nor an
-    /// operation. Uses a dictionary rather than an anonymous type because both members are
-    /// conditional and an absent member must not appear as null.</summary>
-    /// <param name="refusal">The refusal to read coordinates from.</param>
+    /// <summary>
+    /// Returns the refusal's payload: the coordinates it locates, and the declared key names where
+    /// it carries them. Null where it carries none of these.
+    /// </summary>
+    /// <param name="refusal">The refusal to read the payload from.</param>
     /// <returns>The payload, or null when there is nothing to report.</returns>
-    private static object? Coordinates(FrontmatterRefusal refusal)
+    /// <remarks>
+    /// A dictionary rather than an anonymous type, because every member is conditional and an
+    /// absent member must not appear as null. Its keys are written verbatim, so they are spelled
+    /// <c>snake_case</c> here to match the rest of the wire vocabulary.
+    /// </remarks>
+    private static object? Payload(FrontmatterRefusal refusal)
     {
         var data = new Dictionary<string, object>();
         if (refusal.Keys.Count > 0)
             data["keys"] = refusal.Keys;
         if (refusal.Operation is { } operation)
             data["operation"] = operation;
+        // The declared keys are what the caller lifts into a corrected call, which is what a
+        // payload is for. They are the vault's own declared vocabulary and are not filtered against
+        // what this caller may write, so listing them tells the caller nothing about its grant.
+        if (refusal.DeclaredKeys.Count > 0)
+            data["declared_keys"] = refusal.DeclaredKeys;
         return data.Count > 0 ? data : null;
     }
 }

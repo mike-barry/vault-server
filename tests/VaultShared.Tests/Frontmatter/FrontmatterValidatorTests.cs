@@ -131,6 +131,22 @@ public sealed class FrontmatterValidatorTests
     }
 
     [Fact]
+    public void ARequiredFieldPresentButCarryingNoValueIsTheSameViolationAsAnAbsentOne()
+    {
+        // A value that is null, empty, or whitespace only is empty, and a required field written
+        // with nothing under it is reported exactly as an absent one. An entry whose identity field
+        // is empty has no identity, so nothing could ever name it for removal.
+        foreach (var written in new[] { "pinned:", "pinned: ''", "pinned: '   '" })
+        {
+            var violation = Single($"doc.notes:\n  - {written}");
+
+            Assert.Equal(ViolationRule.MissingRequiredField, violation.Rule);
+            Assert.Equal("pinned", violation.Field);
+            Assert.Equal(1, violation.EntryPosition);
+        }
+    }
+
+    [Fact]
     public void AnUnknownField()
     {
         var violation = Single("doc.notes:\n  - routed: skill-a\n    invented: x");

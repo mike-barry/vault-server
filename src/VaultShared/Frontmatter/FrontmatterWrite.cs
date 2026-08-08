@@ -229,7 +229,15 @@ public static class FrontmatterWrite
                     RefusalReason.ControlCharacter, key, $"The value of \"{key}\" carries a control character.");
 
             foreach (var violation in FrontmatterChecks.CheckKey(request.Registry, tree, key))
-                throw FrontmatterRefusal.OnKey(Reason(violation.Rule), key, violation.Reasoning);
+            {
+                // An undeclared key refuses the same way here as it does per operation, payload
+                // included, so a caller does not meet one unknown_key that names the declared keys
+                // and another that does not.
+                var reason = Reason(violation.Rule);
+                throw reason == RefusalReason.UnknownKey
+                    ? FrontmatterRefusal.Undeclared(key, DeclaredKeys(request.Registry), null, violation.Reasoning)
+                    : FrontmatterRefusal.OnKey(reason, key, violation.Reasoning);
+            }
         }
 
         // Supplying a key that requires elevation is itself asserted here, ahead of and
@@ -263,8 +271,8 @@ public static class FrontmatterWrite
 
         // The allowlist comes first, so an undeclared key is refused before its shape matters.
         if (!registry.Keys.TryGetValue(operation.Key, out var declaration))
-            throw FrontmatterRefusal.At(
-                RefusalReason.UnknownKey, index, operation.Key, $"No declaration recognizes the key \"{operation.Key}\".");
+            throw FrontmatterRefusal.Undeclared(
+                operation.Key, DeclaredKeys(registry), index, $"No declaration recognizes the key \"{operation.Key}\".");
 
         switch (operation)
         {
@@ -319,7 +327,7 @@ public static class FrontmatterWrite
     /// <param name="index">Its index in the request's operation list.</param>
     /// <param name="schema">The schema the entry must satisfy.</param>
     /// <exception cref="FrontmatterRefusal">The payload carries a control character, is empty, has
-    /// an unnamed field, or does not satisfy exactly one variant.</exception>
+    /// an unnamed field or a field with no value, or does not satisfy exactly one variant.</exception>
     private static void ValidatePayload(FrontmatterOperation.AddEntry add, int index, EntrySchema schema)
     {
         switch (add.Entry)
@@ -337,6 +345,13 @@ public static class FrontmatterWrite
                     RefuseControlCharacters(field.Value, add, index, $"the field \"{field.Name}\"");
                     if (OperationText.IsEmpty(field.Name))
                         throw FrontmatterRefusal.At(RefusalReason.ValueRefused, index, add.Key, "The entry has an unnamed field.");
+                    // A field's value is tested for emptiness exactly as its name is, where empty
+                    // means null, empty, or whitespace only. An entry whose field carries no text
+                    // may have no identity to address, and an entry with no identity cannot be
+                    // named by a later removal.
+                    if (OperationText.IsEmpty(field.Value))
+                        throw FrontmatterRefusal.At(
+                            RefusalReason.ValueRefused, index, add.Key, $"The field \"{field.Name}\" has no value.");
                 }
                 break;
         }
@@ -672,6 +687,20 @@ public static class FrontmatterWrite
                 RefusalReason.Unparsable, "The note's frontmatter block will not parse."),
         };
     }
+
+    /// <summary>
+    /// Returns every key name the declaration recognizes, sorted ordinally so a refusal carrying
+    /// them carries the same list on every call.
+    /// </summary>
+    /// <param name="registry">The vault's loaded declaration.</param>
+    /// <returns>The declared key names, in ordinal order.</returns>
+    /// <remarks>
+    /// The declared-keys map alone. A namespace rule widens the authority a matching key requires
+    /// and never adds a key, and the only caller of this is a refusal raised because a key is not
+    /// in that map, so no prefix could have admitted it.
+    /// </remarks>
+    private static IReadOnlyList<string> DeclaredKeys(FrontmatterRegistry registry) =>
+        [.. registry.Keys.Keys.Order(StringComparer.Ordinal)];
 
     /// <summary>Returns the declaration's own spelling of a key, which canonicalization uses where
     /// the note does not already carry it.</summary>

@@ -128,6 +128,34 @@ public sealed class ToolRefusalEnvelopeTests
         Assert.Equal(2, data.GetProperty("operation").GetInt32());
     }
 
+    /// <summary>An undeclared key carries the vault's declared key names, spelled
+    /// <c>declared_keys</c> on the wire, so the caller can lift one of them into a corrected
+    /// call.</summary>
+    [Fact]
+    public void Translate_AnUndeclaredKey_CarriesTheDeclaredKeyNamesAndNothingAboutThem()
+    {
+        var refusal = ToolRefusalEnvelope.Translate(FrontmatterRefusal.Undeclared(
+            "status", ["doc.title", "doc.type"], operation: 0, "No declaration recognizes \"status\"."));
+
+        using var doc = JsonDocument.Parse(ToolRefusalEnvelope.Json(refusal));
+        var data = doc.RootElement.GetProperty("data");
+        Assert.Equal(["status"], data.GetProperty("keys").EnumerateArray().Select(k => k.GetString()));
+        Assert.Equal(
+            ["doc.title", "doc.type"],
+            data.GetProperty("declared_keys").EnumerateArray().Select(k => k.GetString()));
+    }
+
+    /// <summary>Every refusal but an undeclared key leaves <c>declared_keys</c> out of the payload,
+    /// because the declared set is not what its caller needs to correct the call.</summary>
+    [Fact]
+    public void Translate_ARefusalOverADeclaredKey_CarriesNoDeclaredKeys()
+    {
+        var refusal = ToolRefusalEnvelope.Translate(FrontmatterRefusal.At(
+            RefusalReason.ValueRefused, operation: 0, key: "doc.created", "The value must be a date."));
+
+        Assert.DoesNotContain("declared_keys", ToolRefusalEnvelope.Json(refusal), StringComparison.Ordinal);
+    }
+
     /// <summary>A refusal that names neither a key nor an operation carries no payload at all,
     /// rather than an object of nulls.</summary>
     [Fact]

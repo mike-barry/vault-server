@@ -54,10 +54,8 @@ What triage produced, for whoever works the fix step. Every item is detailed in 
 
 Code changes, with their couplings:
 
-- **Mapping field emptiness** - R3
 - **Search engine unavailable: its own code, plus a startup and health check** - R7
 - **Folder-create occupancy probe** - R8
-- **`unknown_key` payload** - G5
 - **The vault named in the inherited-lock message** - G6
 - **Leading-separator trim** - G8
 - **The inline case-insensitive flag named in `grep`'s pattern description** - G9
@@ -79,13 +77,6 @@ records the link-ranking reversal as deliberate and spec-backed, which O3 establ
 the wrong surface. The appendix is not edited; a reader should not take that entry at face value.
 
 ## Dispositions
-
-### R3 — genuine, to fix
-
-The spec already requires the old behavior: `Spec-Frontmatter-Substrate.md:113` holds that emptiness
-is tested one way across an operation's additive and subtractive forms. Test `OperationText.IsEmpty`
-on a mapping field's value in `FrontmatterWrite.ValidatePayload`, and fail the validator's
-required-field check on empty text as well as absent text. Neither site has a test today.
 
 ### R7 — genuine, to fix in both halves
 
@@ -120,21 +111,6 @@ non-recursive directory create that fails when the target exists. The departure 
 reason behind the rule does not apply here - checking before a file write risks destroying content
 that appeared in between, while checking before a folder create risks only reporting a creation that
 another writer had just made. Nothing is destroyed either way. A line for the spec-amendment step.
-
-### G5 — genuine, to fix
-
-The `unknown_key` refusal names no alternatives and `FrontmatterVocabulary.Keys`, built for that
-purpose, is consumed by nothing - `EditTool.Schema` reads only `Branches`. Carry the declared key
-names as the refusal's payload, which satisfies the payload test in `Spec-Tool-Capabilities.md:169`
-(the caller lifts the right key into a corrected call) and breaches no oracle rule, since the key set
-is the vault's own vocabulary rather than anything filtered against authority the caller lacks.
-
-Names only, sorted ordinally so the payload is stable across calls. No nearest-match suggestion: a
-second matching rule is one more thing to own and get wrong, and the caller can read the right key
-out of the list. The payload lists the declared-keys map alone - the refusal fires before namespace
-prefixes matter - and the comment says so, so the omission reads as deliberate. Advertising the keys
-in the schema instead was rejected: the tool listing is paid for by every session and an error
-payload only by the call that erred.
 
 ### G6 — partly genuine, narrow fix
 

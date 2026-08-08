@@ -177,6 +177,27 @@ public sealed class FrontmatterRefusalTests
     }
 
     [Fact]
+    public void UnknownKey_TheRefusalCarriesTheDeclaredKeyNamesSortedOrdinally()
+    {
+        // A payload exists so the caller can lift a value into a corrected call, and the corrected
+        // call for an undeclared key is one naming a declared one. Both raise sites carry it, so a
+        // caller does not meet the same refusal with a payload one way and without it the other.
+        string[] declared = [.. Synthetic.Registry.Keys.Keys.Order(StringComparer.Ordinal)];
+
+        Assert.Equal(declared, Refused(Body, [Set("invented.key", "x")]).DeclaredKeys);
+        Assert.Equal(declared, Refused(string.Empty, suppliedBlock: "invented.key: x", newBody: Body).DeclaredKeys);
+    }
+
+    [Fact]
+    public void UnknownKey_IsTheOnlyRefusalCarryingDeclaredKeys()
+    {
+        // Every other refusal names a key the declaration already recognizes, so the declared set
+        // is not what its caller needs.
+        Assert.Empty(Refused(Body, [Set("doc.created", "yesterday")]).DeclaredKeys);
+        Assert.Empty(Refused(Body, [Set("doc.notes", "x")]).DeclaredKeys);
+    }
+
+    [Fact]
     public void ValueRefused_AFailedValueConstraintRefusesOnTheEditPathAsOnTheCreationPath()
     {
         Assert.Equal(RefusalReason.ValueRefused, Refused(Body, [Set("doc.created", "yesterday")]).Reason);
@@ -222,6 +243,37 @@ public sealed class FrontmatterRefusalTests
         Assert.Equal(
             RefusalReason.ValueRefused,
             Refused(Body, [new FrontmatterOperation.RemoveEntry("doc.notes", new EntryTarget.Identity("   "))]).Reason);
+    }
+
+    [Fact]
+    public void ValueRefused_AnEntryFieldCarryingNoValueIsRefusedAsAnUnnamedFieldIs()
+    {
+        // Empty and whitespace-only text are the same emptiness, and a field's value is tested for
+        // it exactly as the field's name is. An entry added this way would carry no identity, so no
+        // later removal could name it.
+        FrontmatterOperation Pinned(string value) =>
+            new FrontmatterOperation.AddEntry(
+                "doc.notes", new EntryPayload.Mapping([new EntryFieldValue("pinned", value)]), null);
+
+        Assert.Equal(RefusalReason.ValueRefused, Refused(Body, [Pinned(string.Empty)]).Reason);
+        Assert.Equal(RefusalReason.ValueRefused, Refused(Body, [Pinned("   ")]).Reason);
+    }
+
+    [Fact]
+    public void ValueRefused_AnOptionalEntryFieldCarryingNoValueIsRefusedToo()
+    {
+        // The test is applied to every field of the payload rather than to the ones the schema
+        // requires. Sending a field with nothing under it is a caller error whose remedy is to omit
+        // the field.
+        var refusal = Refused(Body,
+        [
+            new FrontmatterOperation.AddEntry(
+                "doc.notes",
+                new EntryPayload.Mapping([new EntryFieldValue("routed", "skill-a"), new EntryFieldValue("when", " ")]),
+                null)
+        ]);
+
+        Assert.Equal(RefusalReason.ValueRefused, refusal.Reason);
     }
 
     [Fact]

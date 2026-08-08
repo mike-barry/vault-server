@@ -180,7 +180,7 @@ The registry's whole-block assertion on a supplied tree runs in the validate pha
 
 ## Refusals And Violations
 
-**A hard refusal throws.** One exception type carries a reason from a closed enumeration and the coordinates that locate the problem - which operation, which key - and nothing else.
+**A hard refusal throws.** One exception type carries a reason from a closed enumeration, the coordinates that locate the problem - which operation, which key - and, for a key no declaration recognizes, the declared key names. Nothing else.
 
 ```csharp
 public sealed class FrontmatterRefusal : Exception { public RefusalReason Reason { get; } }
@@ -250,5 +250,7 @@ Absent and unloadable refuse identically and report differently, because an oper
 - **The fence guard is an equality, not a pair of checks.** Comparing the re-split facet covers introduction and destruction at once, so neither depends on somebody having enumerated it.
 - **Hard refusals throw with a reason from a closed enumeration; violations return as data.** Rejected: one result carrying both, which lets a caller read the violation list and never notice the refusal beside it.
 - **A violation carries a rule enumeration rather than a message to match.** A remedy branches on the rule; the reasoning is for the human beside it.
+- **The undeclared-key refusal carries the declared key names**, so the caller lifts one into a corrected call. Names only, sorted ordinally so the list is the same every call, and from both raise sites, so the code never arrives with a payload one way and without it the other. The list is the declared-keys map alone, since the refusal fires before a namespace prefix could matter, and it offers no nearest match: the caller reads the right key out of the list. Rejected: advertising the keys in the tool's schema, which every session pays for, where an error payload is paid for only by the call that erred.
+- **A required entry field carrying no value fails as `MissingRequiredField`.** Empty means null, empty, or whitespace-only, so a field written with nothing under it fails the check an absent one fails and only the reasoning differs. The write path refuses an added entry's empty field the same way. Rejected: a rule of its own, which widens a closed enumeration every remedy branches on to separate two cases with one remedy.
 - **A load answers three cases, and null is not one of them.** Rejected: an empty registry standing in for a failed load, which reads as a vocabulary that recognizes nothing and turns fail-closed into a vault with nothing protected.
 - **A failed load is Degraded, not Fatal.** Everything but frontmatter writes is still correct, and taking the host down would refuse operations the failure does not touch.

@@ -6,9 +6,10 @@ namespace VaultShared.Frontmatter;
 /// (<see cref="Violation"/>), because throwing on any schema violation would refuse a sweeping fix
 /// pass on exactly the notes carrying pre-existing problems.
 ///
-/// The exception carries a reason from a closed enumeration and the coordinates that locate the
-/// problem - which operation, which key - and nothing else. What each reason is called on the wire
-/// belongs to the tool vocabulary.
+/// The exception carries a reason from a closed enumeration, the coordinates that locate the
+/// problem - which operation, which key - and, for an undeclared key, the declared key names a
+/// caller chooses a replacement from. Nothing else. What each reason is called on the wire belongs
+/// to the tool vocabulary.
 /// </summary>
 public sealed class FrontmatterRefusal : Exception
 {
@@ -17,12 +18,17 @@ public sealed class FrontmatterRefusal : Exception
     /// <param name="message">The human-readable message.</param>
     /// <param name="operation">The index of the operation that owns it, or null.</param>
     /// <param name="keys">The keys the refusal locates.</param>
-    private FrontmatterRefusal(RefusalReason reason, string message, int? operation, IReadOnlyList<string> keys)
+    /// <param name="declaredKeys">The declared key names the caller may choose from, empty where
+    /// the refusal offers none.</param>
+    private FrontmatterRefusal(
+        RefusalReason reason, string message, int? operation, IReadOnlyList<string> keys,
+        IReadOnlyList<string>? declaredKeys = null)
         : base(message)
     {
         Reason = reason;
         Operation = operation;
         Keys = keys;
+        DeclaredKeys = declaredKeys ?? [];
     }
 
     /// <summary>Gets which distinction this refusal is.</summary>
@@ -41,6 +47,18 @@ public sealed class FrontmatterRefusal : Exception
     /// nothing.
     /// </summary>
     public IReadOnlyList<string> Keys { get; }
+
+    /// <summary>
+    /// Gets the key names the declaration recognizes, for a refusal over a key it does not, and
+    /// empty on every other refusal. It is what the caller picks a replacement from, which is why
+    /// it is separate from <see cref="Keys"/>: that names the key at fault, and this names the ones
+    /// that would have worked.
+    ///
+    /// The list is sorted ordinally, so it is the same on every call. It is the vault's own
+    /// declared vocabulary rather than a set filtered against what this caller may write, so naming
+    /// it discloses nothing about the caller's authority.
+    /// </summary>
+    public IReadOnlyList<string> DeclaredKeys { get; }
 
     /// <summary>Returns a refusal that no operation owns.</summary>
     /// <param name="reason">Which distinction this refusal is.</param>
@@ -66,6 +84,18 @@ public sealed class FrontmatterRefusal : Exception
     /// <returns>The refusal.</returns>
     public static FrontmatterRefusal OnKey(RefusalReason reason, string key, string message) =>
         new(reason, message, null, [key]);
+
+    /// <summary>Returns a refusal over a key no declaration recognizes, carrying the declared key
+    /// names so the caller can lift one of them into a corrected call.</summary>
+    /// <param name="key">The key the caller named.</param>
+    /// <param name="declaredKeys">Every key name the declaration recognizes, sorted ordinally.</param>
+    /// <param name="operation">The index of the operation that named it, into the request's
+    /// operation list, or null where no single operation did.</param>
+    /// <param name="message">The human-readable message.</param>
+    /// <returns>The refusal.</returns>
+    public static FrontmatterRefusal Undeclared(
+        string key, IReadOnlyList<string> declaredKeys, int? operation, string message) =>
+        new(RefusalReason.UnknownKey, message, operation, [key], declaredKeys);
 
     /// <summary>
     /// Returns an authority denial. It names the changed key set and never an operation index,
