@@ -68,13 +68,10 @@ Code changes, with their couplings:
   lands with it rather than after, for the reason O1 gives
 - **`WikilinkRanking.Compare` rewritten to the re-measured rule** - O3
 - **`Grant.Allows` owning its comparison** - C4
-- **Three comment rewrites** - O4, O5, and the whitespace class named in G3
 
-Decisions to record in the design documents: R1, R4 with R5, G1 with G2, G3, G4, G7, O2.
-
-Four spec amendments, each landing with the group that makes it true: the Markdig arbiter line (G3),
-the check-and-write rule that cannot hold for directory creation (R8), the extensionless-target rule
-measured 2026-08-08 (G10), and attachment emit form written in as an open measurement (G10).
+Three spec amendments, each landing with the group that makes it true: the check-and-write rule that
+cannot hold for directory creation (R8), the extensionless-target rule measured 2026-08-08 (G10),
+and attachment emit form written in as an open measurement (G10).
 
 Carried to the suite sweep: C1-C3, which are test gaps rather than code defects and are that step's
 highest-value entries.
@@ -84,15 +81,6 @@ records the link-ranking reversal as deliberate and spec-backed, which O3 establ
 the wrong surface. The appendix is not edited; a reader should not take that entry at face value.
 
 ## Dispositions
-
-### R1 — accepted, no change
-
-`delete` cannot require the elevated class for a note identified by its *keys* rather than its
-location. Ruled not an issue: the two agentic classes that matter are already covered. Guides under
-a dot-directory are unreachable by every tool, and a folder note is a declarable shape
-(`PathPolicy`'s `folder_note` structural rule), which `delete` does consult. The shipped
-`vaults.json` declares no `mutation_requires`, which is a configuration choice rather than a code
-defect.
 
 ### R2 — genuine, to fix
 
@@ -107,21 +95,6 @@ The spec already requires the old behavior: `Spec-Frontmatter-Substrate.md:113` 
 is tested one way across an operation's additive and subtractive forms. Test `OperationText.IsEmpty`
 on a mapping field's value in `FrontmatterWrite.ValidatePayload`, and fail the validator's
 required-field check on empty text as well as absent text. Neither site has a test today.
-
-### R4 — accepted, record the choice
-
-The spec is silent, and partial failure is a designed, reported state
-(`Spec-Tool-Capabilities.md:282`): a failure names what landed and what did not and carries ordered
-recovery steps, which a `move` does. A writability pre-flight would narrow the window rather than
-close it - a note can be read-only, locked by another process, or on a full disk, and only the first
-is cheaply probeable - so the partial path stays either way. Record the rule in
-`Design-Tool-Vocabulary.md`'s `What This Closes`: no mutating pass pre-flights its write targets.
-
-### R5 — accepted, record with R4
-
-The same trade as R4, and settled the same way. A removal is the costlier case, since what a
-half-finished delete removed is gone where a half-finished move re-runs idempotently, but a
-pre-flight would not close that window either. Record it in the same rule.
 
 ### R6 — genuine, to fix with R2
 
@@ -176,50 +149,6 @@ outside the moved set are already correct and pass through. The plan keeps namin
 current paths, which it must to write them, so the existing plan-level test stands and the new test
 belongs at the result level.
 
-### G1 — accepted, record the choice
-
-Intentional. A rule of the form "a note at this path must carry this key" is a higher-level
-convention, enforced at the composite or skill level rather than by the access layer or the tools.
-The specs already carry the shape of that decision - `Spec-Frontmatter-Substrate.md:174` gives the
-validator content and registry and nothing else, and `lint` is out of the first pass - so nothing is
-amended. Record in `Design-Frontmatter-Surface.md`'s `What This Closes` that path-conditional schema
-rules are deliberately not the layer's, and with it the consequence that absence of frontmatter can
-never be a violation here: the validator judges what a note carries, so a note carrying nothing has
-nothing to fail.
-
-### G2 — accepted, record with G1
-
-The same boundary. `Spec-Frontmatter-Substrate.md:97` holds that placement is explicit or an append,
-with ordering conventions belonging to the tool composing the write - which is the composite or skill
-level, not `edit`, which applies the operations a caller ordered and knows nothing of a note's
-purpose. The old default (a new link grouped before the first folder entry) is such a convention. The
-layer's affordance for it is `EntryAnchor`: a composer reads the list and anchors before or after a
-named entry. Record with G1 in `Design-Frontmatter-Surface.md`.
-
-### G3 — accepted, with two follow-ups
-
-Markdig was originally intended to serve a role, no tool needed it, and its behavior was harvested
-into the spec before the dependency was dropped. There is no oracle to restore: the rule it arbitrated
-is now written down, and re-adding the package to test against it would check a rule the spec already
-states. The corpus harness is N/A - this repo cannot reach a vault.
-
-Two things come out of it. The trailing-whitespace class at `NoteSplit.cs:131` is `char.IsWhiteSpace`
-where the harvested behavior trimmed `" \t\r"`, so `---` followed by a non-breaking space closes a
-block here and did not before; the wider class is kept, and the comment at that line states it
-explicitly and what changing it breaks, rather than leaving the choice looking incidental. And
-`Spec-Frontmatter-Substrate.md:22` still names Markdig the arbiter, which is no longer true - a line
-for the spec-amendment step at the end of triage.
-
-### G4 — accepted, record the choice
-
-The same boundary as G1 and G2. `edit` reports on the operation it performed; assessing what a note
-already carries is `lint`'s, which is out of the first pass. A violation the write path collects under
-a touched key is usually a sibling entry someone else wrote, and returning it on a successful call
-invites the reading `Spec-Frontmatter-Substrate.md:143` names - a single-note tool treating a
-non-empty list as failure - while not honouring it. Dropping the refusal is already spec-closed.
-`WriteOutcome.Violations` stays unread by `EditTool` and gets a comment there saying so and why, since
-a computed value nobody reads otherwise looks like an oversight.
-
 ### G5 — genuine, to fix
 
 The `unknown_key` refusal names no alternatives and `FrontmatterVocabulary.Keys`, built for that
@@ -246,19 +175,6 @@ The old message's remediation half - that the vault may be torn, and that `git s
 diagnoses it - is deliberately not restored. It is a claim about repository state this build performs
 no repository operations to support, and the message states a fact about the dead process rather than
 a verdict on the vault.
-
-### G7 — accepted, record the choice
-
-The same boundary as G1, G2 and G4: that a folder ought to carry a folder note is a convention about
-vault structure rather than a property of the file operation, so it is `lint`'s finding, and `lint` is
-out of the first pass. `delete` and `move` did what was asked and report it. A vault declaring the
-`folder_note` structural rule prices the operation instead, which is an authority refusal rather than
-a warning - there is no middle state, by design.
-
-Record the asymmetry with it, since it is the part that otherwise reads as an oversight: `move` does
-maintain the invariant where maintaining it is mechanical - a folder rename carries its folder note
-and `MoveResult.FolderNote` says where it landed - and stays silent where the question is a judgment
-about what a folder should have.
 
 ### G8 — genuine, to fix
 
@@ -343,16 +259,6 @@ case where a typo in that member name turns a guarded write into an unguarded on
 the failure the guard exists to prevent. A client attaching metadata to an argument object would be
 refused by this; that is handled if it comes up rather than designed around now.
 
-### O2 (`.claude/guides` unreachable) — confirmed, no change
-
-`grep -n -A4 'unreachable by every frontmatter tool' docs/Harvest-Reconciliation.md`
-
-A dot-directory is outside the vault as far as these tools are concerned. They exist for vault
-operations, and nothing in the set is meant to read or write those files, so the loss of the old
-`.claude/skills`-prefix carve-out that left `guides` writable is not a loss. The code-fixed
-whole-segment rule is also stronger than the prefix it replaces: there is no prefix string for a path
-to climb back past, and no declaration can grant access above it.
-
 ### O3 (the reversed ranking rule) — promoted to a finding, to fix
 
 `grep -n -A5 'link ranking rule was reversed' docs/Harvest-Reconciliation.md`
@@ -391,34 +297,6 @@ spelling.
 The parent document's `Improvements Taken` entry for LNK-025 records this reversal as deliberate and
 spec-backed. It is now known to have been measured on the wrong surface. Nothing there is edited, but
 a reader of that appendix should not take the entry at face value.
-
-### O4 (the lock's identity derivation) — confirmed, one comment
-
-`grep -n -A4 "identity derivation has no second party" docs/Harvest-Reconciliation.md`
-
-Correct as built and in the right place. The derivation exists so two processes agree on one mutex
-over one vault, and there is no second process yet: `src/VaultWatcher` is a stub with no `VaultShared`
-reference. The five tests pin the derivation as written, which is not the same property - they would
-pass identically if the scheme were unusable by the watcher, because nothing can disagree with it. A
-fake second party would assert this build against itself and prove nothing further.
-
-Name the intended second consumer in `Vault.LockName`'s remarks, which currently speak of "two
-processes" abstractly, so whoever wires the watcher up finds the contract rather than inventing a
-second derivation.
-
-### O5 (`VaultWidePass` reporting) — confirmed, one remark
-
-`grep -n -A5 'VaultWidePass. is the boundary' docs/Harvest-Reconciliation.md`
-
-No defect. The pass reads notes the caller's grant cannot see, and none of that content escapes: the
-report types carry a path, a line and the link targets, with no field note content could travel in,
-and no result is logged. What the observation found is a remark deferring the constraint to "above
-this type" without saying what was deferred.
-
-Reword it to place responsibility rather than shape: this pass hands out access the caller's grant
-does not have, and what may be reported out of it is the consumer's to decide. Naming today's report
-types would go stale the first time a new consumer appears, and stating a narrow contract would read
-as binding on consumers it was never written for.
 
 ## Containment properties with no test
 

@@ -95,18 +95,6 @@ in *ordering* — what is validated, and when, relative to what is written.
 
 ## Regressions
 
-### R1 — `delete` no longer classifies a note by its frontmatter
-
-- **Old:** removal of a note carrying an agentic key required the elevated class, classified from the
-  note's own frontmatter (`CRD-102`, `CRD-103`, `CRD-112`).
-- **New:** `DeleteTool` asserts only the vault's path policy per entry
-  (`src/VaultShared/Tools/DeleteTool.cs:107`). Nothing reads the note's keys.
-- **Lost:** the shipped `vaults.json` declares no `mutation_requires` at all, so today a
-  `content:write` grant can delete a note carrying `agent.instructions` that the same grant could
-  not create and could not edit. Destroying an agentic directive is the cheaper operation.
-- **Test:** none. The authority pass is asserted, the classification is not.
-- **Recorded:** nowhere.
-
 ### R2 — a `move` rewrites the vault before it validates the move
 
 - **Old:** destination occupancy, missing parent and destination-name grammar were decided before
@@ -140,25 +128,6 @@ Found from two areas; one rule, two sites.
 - **Test:** none on either site.
 - **Recorded:** nowhere, and it is the one place `Spec-Frontmatter-Substrate.md:113`'s "emptiness is
   tested one way" rule is not met.
-
-### R4 — no read-only pre-flight before a `move`'s rewrites
-
-- **Old:** rewrite targets were checked for writability first, so an unwritable note cost nothing
-  (`MOV-077`).
-- **New:** no pre-flight; the pass writes until one fails.
-- **Lost:** one unwritable note leaves the link graph half-rewritten where it previously left it
-  untouched.
-- **Test:** none.
-- **Recorded:** nowhere.
-
-### R5 — no removability pre-flight before a `delete`
-
-- **Old:** a read-only file refused the whole delete as `readonly_targets`, with zero mutation
-  (`CRD-114`).
-- **New:** removal proceeds until one entry fails, raising `partial_mutation`.
-- **Lost:** a read-only file now half-deletes a folder.
-- **Test:** none.
-- **Recorded:** nowhere.
 
 ### R6 — no folder-into-itself check
 
@@ -205,41 +174,6 @@ Found from two areas; one rule, two sites.
 
 ## Gaps
 
-### G1 — no path-conditioned schema rule exists, in any form
-
-Found from two areas (`FMW-020`, `REG-066`–`REG-072`).
-
-`FrontmatterValidator.Validate` takes `(content, registry)` and no path
-(`src/VaultShared/Frontmatter/FrontmatterValidator.cs:32`), and the declaration language has no
-vocabulary for a path-conditional requirement. The old rule requiring a `Tasks.md` to carry
-directives is gone, including its sole-exception case where *absence* of frontmatter was itself the
-violation — such a note now reads as vacuously clean. Nothing in the specs, designs or
-`Build-Decisions.md` records the omission.
-
-### G2 — the default insert point for a nav entry has no owner
-
-Found from two areas (`FMW-043`, `FMC-057`–`FMC-059`).
-
-Both specs relocated default placement — links grouped before the first folder entry — to "the tool
-composing the write". No tool computes an anchor: the only `EntryAnchor` construction in `src/`
-decodes a caller-supplied one. Appending at the end is now unconditional. The relocation is recorded
-twice; that the destination was never built is recorded nowhere.
-
-### G3 — the Markdig differential oracle is gone while the spec still names it arbiter
-
-`FMC-128`, `FMC-129`. The grammar was checked row-by-row against Markdig and across a corpus; both
-harnesses are absent, and `Spec-Frontmatter-Substrate.md:22` still names Markdig the arbiter. Hand
-comparison found one divergence (`char.IsWhiteSpace` trims any Unicode whitespace where the old
-trimmed `" \t\r"`). The loss is that nothing would have reported it.
-
-### G4 — `edit` computes schema violations and discards them
-
-`EDT-085`. `FrontmatterWrite.Apply` returns `WriteOutcome.Violations`
-(`src/VaultShared/Frontmatter/FrontmatterWrite.cs:768`); `EditTool` never reads the member and
-`EditResult` has no field for it. Dropping the *refusal* is spec-closed. Dropping the *reporting* is
-argued nowhere, and `Spec-Frontmatter-Substrate.md:143` says a single-note tool treats a non-empty
-list as failure. No test asserts either side.
-
 ### G5 — the unknown-key refusal no longer names the known set, and its replacement is unwired
 
 `REG-014`. The refusal at `src/VaultShared/Frontmatter/FrontmatterWrite.cs:267` names no
@@ -254,13 +188,6 @@ alternatives. `FrontmatterVocabulary.Keys` is built for that purpose
 `git status`/`git diff` is the diagnosis, and identifies the lock by SHA-256 mutex name rather than
 by vault. A `move` holds the lock across N rewrites plus the file move, so the tear is real, and
 `partial_mutation` covers only a tear this process caused.
-
-### G7 — folder-note orphaning is now observed by nothing
-
-Found from two areas (`CRD-087`, `MOV-057`, `MOV-058`). Neither tool signals that a folder note was
-orphaned. Only a vault declaring a `folder_note` policy entry notices, and it notices as an
-authority refusal rather than a warning. `lint` is out of the first pass, so the invariant break has
-no other observer.
 
 ### G8 — a leading separator is now malformed, with no recovery
 
@@ -297,24 +224,11 @@ Not findings. Each is a deliberate choice with a consequence worth confirming.
   misspelled argument is silently ignored across every native tool, where the old dispatcher refused
   unknown argument names outright. Nothing is forced by it today, which is why it was dismissed
   per-area; it is raised here because it is binder-wide rather than one tool's behavior.
-- **`.claude/guides/*.md` are now unreachable by every frontmatter tool.** The exclusion rule is
-  "nothing under a dot-directory", fixed in code rather than as a path prefix, which closes the old
-  climb-back-in evasion by construction. Those guides are vault notes carrying vault frontmatter.
-  Spec-closed at `Spec-Tool-Capabilities.md:84`; worth confirming the trade was made with that
-  content in view.
 - **The link ranking rule was reversed by re-measurement.** Character counting is gone; among
   candidates climbing equally far the shallower now wins
   (`src/VaultShared/Access/WikilinkRanking.cs:66`), flipping the winner on a case the old system had
   measured and re-confirmed. Spec'd, commented and tested — but a deliberate contradiction of prior
   measurement is worth a second look from whoever can adjudicate the two.
-- **The write lock's identity derivation has no second party.** It landed in shared code as required
-  (`src/VaultShared/Access/Vault.cs:63`) and five tests assert it, but `src/VaultWatcher` is still a
-  stub with no `VaultShared` reference, so the cross-process contract is unexercised.
-- **`VaultWidePass` is the boundary's one deliberate hole** — unscoped enumerate, read and write for
-  wikilink maintenance, reachable only through `VaultAccess.BypassingScope` so every site is findable
-  with one search. Its own remarks defer how much of an out-of-scope note may appear in a result,
-  preview or log to "a separate constraint on the report, decided above this type". Whether anything
-  enforces that is not answered by this pass.
 
 ## Containment properties with no test
 

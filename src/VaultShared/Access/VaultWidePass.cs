@@ -16,8 +16,8 @@ namespace VaultShared.Access;
 /// Its operations take a <see cref="VaultPath"/>, which is proof of containment and nothing more.
 /// That is all this pass has and all it needs.
 ///
-/// How much of an out-of-scope note may appear in a result, a preview, or a log is a separate
-/// constraint on the report, decided above this type.
+/// This pass reaches notes the caller's own grant cannot. What may then be reported out of one of
+/// them is the calling tool's to decide, and nothing here decides it.
 /// </remarks>
 public sealed class VaultWidePass
 {

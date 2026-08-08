@@ -19,7 +19,7 @@ Three things break if the line moves. A tool acting on one named note cannot ans
 - **An unclosed opening fence is not a block**, and the whole file is body. A parser treating a dangling opener as an unterminated block silently swallows the note's content.
 - **A fence pair with nothing between them is a block with empty frontmatter.** Nothing here emits one, but one found on disk reads and edits normally.
 
-**Frontmatter has no official standard. Markdig's convention is the reference**, and it settles anything this doc leaves open.
+**Frontmatter has no official standard, so the rules in this section are the whole of the grammar.** They match Markdig's convention, which is where they were taken from, but no code in the build reads that library and no test compares against it. A case these rules do not answer is settled by amending them.
 
 Detection needs no markdown library. Bounded fence scanning answers it.
 

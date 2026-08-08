@@ -176,7 +176,11 @@ public sealed class EditTool(FrontmatterRegistries registries) : ITool, IVocabul
             SuppliedBlock: null,
             NewBody: body));
 
-        // Apply.
+        // Apply. The outcome's violation list is deliberately not read. A violation still standing
+        // after a successful write was in the note before the call - usually an entry someone else
+        // wrote - and this tool reports on the operation it performed rather than on the note's
+        // condition. Refusing over one would make an entry unaddable because a sibling entry is
+        // malformed.
         return new ToolResult.Data(new EditResult(
             Store(path, arguments.Path, outcome.Content, stored.ContentHash),
             outcome.FrontmatterChanged,

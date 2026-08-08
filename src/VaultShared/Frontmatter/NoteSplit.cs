@@ -125,6 +125,13 @@ public readonly record struct NoteSplit(bool HasBlock, string InnerText, string 
     /// <param name="opening">True to test for an opening fence, which must be <c>---</c>; false for
     /// a closing fence, which may also be <c>...</c>.</param>
     /// <returns>True when the line is a fence of the requested kind.</returns>
+    /// <remarks>
+    /// Trailing whitespace is every character <see cref="char.IsWhiteSpace(char)"/> accepts, which
+    /// is wider than the space, tab and carriage return a narrow reading would allow - so <c>---</c>
+    /// followed by a non-breaking space is a fence here. Keep the wide class. Narrowing it makes
+    /// such a line ordinary text, and a note that has frontmatter today would read as having none
+    /// with its whole content in the body facet.
+    /// </remarks>
     private static bool IsFence(string text, int start, int textEnd, bool opening)
     {
         var end = textEnd;
