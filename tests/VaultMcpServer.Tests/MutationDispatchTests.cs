@@ -205,7 +205,10 @@ public sealed class MutationDispatchTests(MutationDispatchTests.Fixture fixture)
             """{"path":"Inbox/Note-Loose-Thought.md","destination":"Resources/Gizmo-Reference.md","apply":true}""");
 
         Assert.True(isError, text);
-        Assert.Contains(Code(text), new[] { "already_exists", "partial_mutation" });
+
+        // Occupancy is decided before the link repair runs, so the refusal is the plain one whether
+        // or not any link named the note being moved.
+        Assert.Equal("already_exists", Code(text));
     }
 
     // ---- The editor's resolution rule, end to end ----

@@ -1,4 +1,3 @@
-using System.Text.Json;
 using VaultShared.Access;
 using VaultShared.Scope;
 using VaultShared.Tools;
@@ -7,8 +6,9 @@ namespace VaultShared.Tests.Tools;
 
 /// <summary>
 /// Tests the <c>move</c> tool against a real directory tree: the note and folder forms, the
-/// repair-before-move order, the preview gate, the two kinds of path policy rule a relocation is
-/// priced by, and what a move that stops partway reports.
+/// refusals decided before anything is written, the repair-before-move order, the preview gate, the
+/// post-move paths every member reports, and the two kinds of path policy rule a relocation is
+/// priced by.
 /// </summary>
 public sealed class MoveToolTests : IDisposable
 {
@@ -33,9 +33,6 @@ public sealed class MoveToolTests : IDisposable
 
     private static ToolRefusal Refusal(ScratchVault vault, object arguments) =>
         VaultToolHarness.Refusal(new MoveTool(), MoveTool.Declaration, vault, arguments);
-
-    private static string[] Strings(ToolRefusal refusal, string member) =>
-        [.. JsonDocument.Parse(VaultToolHarness.Data(refusal)![member]).RootElement.EnumerateArray().Select(v => v.GetString()!)];
 
     private static string[] Rendered(IEnumerable<VaultShared.Links.LinkRewrite> rewrites) =>
         [.. rewrites.Select(r => $"{r.Path}:{r.Line} {r.From} -> {r.To}").Order(StringComparer.Ordinal)];
@@ -151,25 +148,51 @@ public sealed class MoveToolTests : IDisposable
     }
 
     /// <summary>
-    /// Link repairs are written before the files move, because the repair pass locates links by the
-    /// paths the notes still have. A move that then fails leaves those repairs in place and reports
-    /// the partial state.
+    /// An occupied destination is refused before the repair pass writes anything, so a move that
+    /// cannot land leaves the link graph exactly as it was rather than pointing at a destination
+    /// nothing arrived at.
     /// </summary>
     [Fact]
-    public void RepairIsWrittenBeforeTheMoveAndAFailedMoveReportsThePartialState()
+    public void AnOccupiedDestinationIsRefusedBeforeAnyLinkIsRepaired()
     {
-        // The destination is occupied, so the move cannot land, but the links were repaired first.
+        // A link names the note being moved, so the repair pass has work to do and would have done
+        // it first if the refusal came from the move itself.
         _vault.WithNote("Archive/Notes.md", "# Occupant\n");
 
         var refusal = Refusal(new { path = "Projects/Widget/Notes.md", destination = "Archive/Notes.md", apply = true });
 
-        Assert.Equal(ToolCodes.PartialMutation, refusal.Code);
+        Assert.Equal(ToolCodes.AlreadyExists, refusal.Code);
         Assert.Contains("already there", refusal.Message, StringComparison.Ordinal);
-        Assert.NotEmpty(Strings(refusal, "applied"));
-        Assert.Contains("move Projects/Widget/Notes.md -> Archive/Notes.md", Strings(refusal, "not_applied"));
-        Assert.NotEmpty(Strings(refusal, "recovery"));
+        Assert.Equal("# Widget\n\nSee [[Notes]].\n", _vault.TextOf("Projects/Widget/Widget.md"));
         Assert.True(_vault.HasFile("Projects/Widget/Notes.md"));
         Assert.Equal("# Occupant\n", _vault.TextOf("Archive/Notes.md"));
+    }
+
+    /// <summary>
+    /// A preview refuses an occupied destination as well, because a preview runs the same validation
+    /// a real call does. A preview that reported success for a move its own applied call cannot make
+    /// is worse than no preview.
+    /// </summary>
+    [Fact]
+    public void APreviewRefusesAnOccupiedDestination()
+    {
+        _vault.WithNote("Archive/Notes.md", "# Occupant\n");
+
+        var refusal = Refusal(new { path = "Projects/Widget/Notes.md", destination = "Archive/Notes.md" });
+
+        Assert.Equal(ToolCodes.AlreadyExists, refusal.Code);
+        Assert.Equal("# Widget\n\nSee [[Notes]].\n", _vault.TextOf("Projects/Widget/Widget.md"));
+    }
+
+    /// <summary>The same holds for a folder destination that is already there.</summary>
+    [Fact]
+    public void APreviewRefusesAnOccupiedFolderDestination()
+    {
+        _vault.WithFolder("Archive/Gizmo");
+
+        Assert.Equal(
+            ToolCodes.AlreadyExists,
+            Refusal(new { path = "Projects/Widget", destination = "Archive/Gizmo" }).Code);
     }
 
     /// <summary>When no link needed repairing there is no partial state, so an occupied destination
@@ -185,6 +208,40 @@ public sealed class MoveToolTests : IDisposable
         Assert.Equal("# Occupant\n", _vault.TextOf("Archive/Guide.md"));
     }
 
+    /// <summary>
+    /// A repair pass that fails on the first note it writes leaves the vault as it was, so the
+    /// refusal is a plain write failure rather than a partial mutation. A caller told a mutation was
+    /// partial goes looking for state to repair, and here there is none.
+    /// </summary>
+    [Fact]
+    public void ARepairThatWritesNothingIsAPlainWriteFailure()
+    {
+        // The only note that names the note being moved, held so the repair's write fails while the
+        // plan's read of it still succeeds.
+        using var held = _vault.Unwritable("Projects/Widget/Widget.md");
+
+        var refusal = Refusal(new { path = "Projects/Widget/Notes.md", destination = "Archive/Jottings.md", apply = true });
+
+        Assert.Equal(ToolCodes.WriteFailed, refusal.Code);
+        Assert.Equal("Projects/Widget/Widget.md", VaultToolHarness.Data(refusal)!["path"]);
+        Assert.Contains("nothing in the vault changed", refusal.Message, StringComparison.Ordinal);
+        Assert.True(_vault.HasFile("Projects/Widget/Notes.md"));
+        Assert.False(_vault.HasFile("Archive/Jottings.md"));
+        Assert.Equal("# Widget\n\nSee [[Notes]].\n", _vault.TextOf("Projects/Widget/Widget.md"));
+    }
+
+    /// <summary>A missing destination parent is refused in the preview too, before the repair pass
+    /// runs.</summary>
+    [Fact]
+    public void APreviewRefusesAMissingDestinationParentBeforeAnyLinkIsRepaired()
+    {
+        var refusal = Refusal(new { path = "Projects/Widget/Notes.md", destination = "Nowhere/Notes.md" });
+
+        Assert.Equal(ToolCodes.ParentMissing, refusal.Code);
+        Assert.Equal("Nowhere", VaultToolHarness.Data(refusal)!["parent"]);
+        Assert.Equal("# Widget\n\nSee [[Notes]].\n", _vault.TextOf("Projects/Widget/Widget.md"));
+    }
+
     [Fact]
     public void AMissingDestinationParentIsNamedInVaultRelativeTerms()
     {
@@ -198,6 +255,18 @@ public sealed class MoveToolTests : IDisposable
     public void AMissingSourceIsAFailureEvenInThePreview()
     {
         Assert.Equal(ToolCodes.PathNotFound, Refusal(new { path = "Reference/Absent.md", destination = "Archive/Absent.md" }).Code);
+    }
+
+    /// <summary>A missing source is reported ahead of an occupied destination. Both are true, and
+    /// the caller's own operand being absent is the one it has to fix first.</summary>
+    [Fact]
+    public void AMissingSourceIsReportedAheadOfAnOccupiedDestination()
+    {
+        _vault.WithNote("Archive/Absent.md", "# Occupant\n");
+
+        Assert.Equal(
+            ToolCodes.PathNotFound,
+            Refusal(new { path = "Reference/Absent.md", destination = "Archive/Absent.md" }).Code);
     }
 
     /// <summary>A rename that changes only letter case is performed and flagged in the result. Git
@@ -221,6 +290,43 @@ public sealed class MoveToolTests : IDisposable
 
         Assert.Equal(ToolCodes.InvalidArgument, refusal.Code);
         Assert.Equal("destination", VaultToolHarness.Data(refusal)!["argument"]);
+    }
+
+    /// <summary>
+    /// A rewrite inside a note the move relocates is reported at the path the note has afterwards,
+    /// which is the path the caller can read. The plan names notes by the paths they have now,
+    /// because that is where it has to write them.
+    /// </summary>
+    [Fact]
+    public void ARewriteInsideARelocatedNoteIsReportedAtItsPostMovePath()
+    {
+        using var vault = new ScratchVault(opClasses: ["content:write"])
+            .WithNote("Old/Inner.md", "# Inner\n")
+            .WithNote("Old/Ref.md", "See [[Old/Inner]].\n")
+            .WithFolder("Archive");
+
+        var result = Move(vault, new { path = "Old", destination = "Archive/Old", apply = true });
+
+        Assert.Equal(["Archive/Old/Ref.md:1 Old/Inner -> Inner"], Rendered(result.RepairedLinks));
+        Assert.True(vault.HasFile("Archive/Old/Ref.md"));
+    }
+
+    /// <summary>
+    /// A pin inside the moved note itself is reported at the note's post-move path, the same as a
+    /// repair. A note renamed to a basename another note already carries can take its own bare link
+    /// away from that note, so the pin lands in the file being moved.
+    /// </summary>
+    [Fact]
+    public void APinInsideTheMovedNoteIsReportedAtItsPostMovePath()
+    {
+        using var vault = new ScratchVault(opClasses: ["content:write"])
+            .WithNote("Reference/Guide.md", "# The guide\n")
+            .WithNote("Inbox/Draft.md", "# Draft\n\nSee [[Guide]].\n");
+
+        var result = Move(vault, new { path = "Inbox/Draft.md", destination = "Inbox/Guide.md", apply = true });
+
+        Assert.Equal(["Inbox/Guide.md:3 Guide -> Reference/Guide"], Rendered(result.PinnedLinks!));
+        Assert.Contains("[[Reference/Guide]]", vault.TextOf("Inbox/Guide.md"));
     }
 
     // ---- The folder form ----
@@ -265,6 +371,61 @@ public sealed class MoveToolTests : IDisposable
 
         Assert.Equal(["Reference/Guide.md:3 Widget -> Gizmo"], Rendered(result.RepairedLinks));
         Assert.Contains("[[Gizmo]]", _vault.TextOf("Reference/Guide.md"));
+    }
+
+    /// <summary>
+    /// A folder cannot be moved inside itself. The refusal is decidable from the two paths alone, so
+    /// it is raised before the repair pass writes anything: the directory rename would fail, and the
+    /// recovery a failure prints - re-run the identical move - could never succeed.
+    /// </summary>
+    [Fact]
+    public void AFolderMovedBeneathItselfIsRefusedBeforeAnyLinkIsRepaired()
+    {
+        var refusal = Refusal(new { path = "Projects/Widget", destination = "Projects/Widget/Inner", apply = true });
+
+        Assert.Equal(ToolCodes.InvalidArgument, refusal.Code);
+        Assert.Equal("destination", VaultToolHarness.Data(refusal)!["argument"]);
+        Assert.True(_vault.HasFolder("Projects/Widget"));
+        Assert.Equal("# Guide\n\nSee [[Widget]].\n", _vault.TextOf("Reference/Guide.md"));
+    }
+
+    /// <summary>
+    /// A folder that is not there is reported ahead of an occupied destination, the same as for a
+    /// note. A folder move reads no content, so its operand's presence is established on its own.
+    /// </summary>
+    [Fact]
+    public void AMissingFolderSourceIsReportedAheadOfAnOccupiedDestination()
+    {
+        _vault.WithFolder("Archive/Gizmo");
+
+        Assert.Equal(
+            ToolCodes.PathNotFound,
+            Refusal(new { path = "Projects/Absent", destination = "Archive/Gizmo" }).Code);
+    }
+
+    /// <summary>The same refusal at any depth below the folder being moved.</summary>
+    [Fact]
+    public void AFolderMovedDeepBeneathItselfIsRefused()
+    {
+        _vault.WithFolder("Projects/Widget/Deep");
+
+        Assert.Equal(
+            ToolCodes.InvalidArgument,
+            Refusal(new { path = "Projects/Widget", destination = "Projects/Widget/Deep/Gizmo" }).Code);
+    }
+
+    /// <summary>
+    /// A case-only folder rename is performed rather than read as an occupied destination. On a
+    /// case-insensitive file system the destination already exists, because it is the source.
+    /// </summary>
+    [Fact]
+    public void ACaseOnlyFolderRenameIsNotReadAsAnOccupiedDestination()
+    {
+        var result = Move(new { path = "Projects/Widget", destination = "Projects/WIDGET", apply = true });
+
+        Assert.True(result.Applied);
+        Assert.True(result.CaseOnly);
+        Assert.Equal("WIDGET", _vault.SpellingOf("Projects/Widget"));
     }
 
     [Fact]

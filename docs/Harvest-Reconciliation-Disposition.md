@@ -54,11 +54,9 @@ What triage produced, for whoever works the fix step. Every item is detailed in 
 
 Code changes, with their couplings:
 
-- **`MoveTool` plan-phase refusals** - R2 and R6 are the same few lines and land together
 - **Mapping field emptiness** - R3
 - **Search engine unavailable: its own code, plus a startup and health check** - R7
 - **Folder-create occupancy probe** - R8
-- **Post-move paths in `MoveResult`** - R9
 - **`unknown_key` payload** - G5
 - **The vault named in the inherited-lock message** - G6
 - **Leading-separator trim** - G8
@@ -82,28 +80,12 @@ the wrong surface. The appendix is not edited; a reader should not take that ent
 
 ## Dispositions
 
-### R2 — genuine, to fix
-
-The spec already requires the old behavior (`Spec-Tool-Capabilities.md:151`, `:280`), so nothing is
-amended and the code moves. Decide destination occupancy, missing parent and destination-name
-grammar in `MoveTool`'s plan phase, ahead of `WikilinkMaintenance.Apply`, with the refusal mapping in
-`MoveTool.Refused` moving with them.
-
 ### R3 — genuine, to fix
 
 The spec already requires the old behavior: `Spec-Frontmatter-Substrate.md:113` holds that emptiness
 is tested one way across an operation's additive and subtractive forms. Test `OperationText.IsEmpty`
 on a mapping field's value in `FrontmatterWrite.ValidatePayload`, and fail the validator's
 required-field check on empty text as well as absent text. Neither site has a test today.
-
-### R6 — genuine, to fix with R2
-
-The same root as R2 and the same spec line (`Spec-Tool-Capabilities.md:280`): a refusal decidable
-from the arguments alone is being discovered by the apply path. `MoveTool` compares source and
-destination spellings for equality only, so a folder moved beneath itself is planned, the repair is
-written, and `Directory.Move` then fails - leaving a rewritten link graph and printing a recovery
-step ("re-run the identical move") that can never succeed. Refuse a destination at or beneath the
-source in the plan phase, with the R2 checks.
 
 ### R7 — genuine, to fix in both halves
 
@@ -138,16 +120,6 @@ non-recursive directory create that fails when the target exists. The departure 
 reason behind the rule does not apply here - checking before a file write risks destroying content
 that appeared in between, while checking before a folder create risks only reporting a creation that
 another writer had just made. Nothing is destroyed either way. A line for the spec-amendment step.
-
-### R9 — genuine, to fix
-
-`MoveResult`'s own summary promises every path-valued member reports a post-move path, and
-`LinkRewrite.Path` documents itself as usable in a later call. Rewrites inside notes the move
-relocates are reported where the plan found them, so those two statements are false for exactly that
-subset. Translate `LinkRewrite.Path` through the relocation map when `MoveResult` is built; paths
-outside the moved set are already correct and pass through. The plan keeps naming notes by their
-current paths, which it must to write them, so the existing plan-level test stands and the new test
-belongs at the result level.
 
 ### G5 — genuine, to fix
 

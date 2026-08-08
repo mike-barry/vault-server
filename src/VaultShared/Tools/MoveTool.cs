@@ -119,6 +119,38 @@ public sealed class MoveTool : ITool
                 "\"destination\" is the path already given - a move relocates or renames, and a case-only rename is the one spelling of this call that names the same entry twice.",
                 new { argument = "destination" });
 
+        if (kind == OperandKind.Folder && Encloses(source.Path, destination.Path))
+            throw new ToolRefusal(
+                ToolCodes.InvalidArgument,
+                $"\"{arguments.Destination}\" is inside \"{arguments.Path}\", and a folder cannot be moved into itself. Move it to a folder outside the one being moved.",
+                new { argument = "destination" });
+
+        // Every refusal the move itself would raise is decided here, before the wikilink pass plans
+        // or writes anything. A preview that skipped these would report success for a move that
+        // cannot happen, and an applied call would discover the refusal with the whole vault's links
+        // already rewritten for a move that never lands.
+        //
+        // This does not replace the check inside the move. The move is still what decides, because
+        // another writer can occupy the destination between this call and the move. Reading it here
+        // narrows that window and keeps the work in between off a doomed move; reading it again in
+        // the move is what makes the answer true at the moment the entry is relocated. Neither one
+        // is redundant.
+        //
+        // The operand's own absence is answered before anything about the destination. Both can be
+        // true of one call, and a caller whose source is not there has to fix that first; an answer
+        // about the destination sends it to fix something else. A note's source is established by
+        // reading it, which the hash needs in any case and which tells a note that is not there from
+        // one that is there and cannot be read - a presence probe cannot tell those apart, so a
+        // folder, which has no such read, gets the probe and a note does not.
+        var stored = kind == OperandKind.Note ? SourceContent(source, arguments.Path) : null;
+
+        var refusing = kind == OperandKind.Note
+            ? VaultFiles.PreflightMoveFile(source, destination)
+            : VaultFiles.PreflightMoveFolder(source, destination);
+
+        if (refusing is not null)
+            throw Refused(refusing, arguments);
+
         // Plan.
         var pass = vault.BypassingScope();
         var planned = kind == OperandKind.Note
@@ -137,7 +169,7 @@ public sealed class MoveTool : ITool
         // than replacing them, and where the repair pass rewrites the moved note itself, the plan
         // already holds the text it will write. Computing it here, once, is what makes a preview's
         // hash and the applied call's hash the same value.
-        var hash = kind == OperandKind.Note ? HashAfter(source, arguments.Path, plan) : null;
+        var hash = stored is null ? null : HashAfter(stored, source, plan);
         var caseOnly = source.Path.Equals(destination.Path) && !source.Path.HasSameSpellingAs(destination.Path);
 
         var moved = kind == OperandKind.Note
@@ -148,17 +180,51 @@ public sealed class MoveTool : ITool
         if (arguments.Apply)
             Perform(vault, pass, kind, arguments, source, destination, plan);
 
+        // The plan names each note by the path it has now, because that is where it has to write it.
+        // A rewrite inside a note this move relocates is therefore reported where the plan found it,
+        // and the caller is owed the path it can read afterwards.
+        var landing = plan.Relocated.ToDictionary(
+            pair => pair.From.Value, pair => pair.To.Value, StringComparer.OrdinalIgnoreCase);
+
         return new ToolResult.Data(new MoveResult(
             arguments.Apply,
             destination.Path.Value,
             hash,
             caseOnly,
             moved,
-            plan.Repairs,
-            plan.Pins,
+            AtPostMovePaths(plan.Repairs, landing),
+            AtPostMovePaths(plan.Pins, landing),
             plan.FolderNote?.Value,
             asserted));
     }
+
+    /// <summary>
+    /// Reports each rewrite at the path its note has after the move.
+    /// </summary>
+    /// <param name="rewrites">The rewrites as the plan named them, by the path each note has
+    /// now.</param>
+    /// <param name="landing">Where each note the move relocates lands, keyed by the path it has
+    /// now.</param>
+    /// <returns>The rewrites, with a relocated note's path replaced by where it lands. A rewrite in
+    /// a note the move leaves alone is already at its final path and passes through.</returns>
+    private static IReadOnlyList<LinkRewrite> AtPostMovePaths(
+        IReadOnlyList<LinkRewrite> rewrites, Dictionary<string, string> landing) =>
+        [.. rewrites.Select(rewrite =>
+            landing.TryGetValue(rewrite.Path, out var lands) ? rewrite with { Path = lands } : rewrite)];
+
+    /// <summary>
+    /// Determines whether one folder path contains another, at any depth.
+    /// </summary>
+    /// <param name="folder">The containing folder.</param>
+    /// <param name="candidate">The path that may sit under it.</param>
+    /// <returns>True when the candidate is strictly below the folder. A path equal to the folder is
+    /// not below it, so a case-only rename is not caught here.</returns>
+    /// <remarks>
+    /// The comparison is case-insensitive, matching how two paths are read as naming one entry.
+    /// </remarks>
+    private static bool Encloses(VaultPath folder, VaultPath candidate) =>
+        candidate.Segments.Count > folder.Segments.Count
+        && candidate.Value.StartsWith(folder.Value + "/", StringComparison.OrdinalIgnoreCase);
 
     /// <summary>
     /// Repairs the wikilink graph, performs the move, and renames a moved folder's folder note.
@@ -171,13 +237,15 @@ public sealed class MoveTool : ITool
     /// <param name="destination">The admitted destination path.</param>
     /// <param name="plan">The planned wikilink rewrites.</param>
     /// <exception cref="ToolRefusal">Any step refused. The write lock stops other tools from
-    /// interleaving but does not make this atomic, so a failure partway names exactly what landed and
-    /// what did not.</exception>
+    /// interleaving but does not make this atomic, so a failure that landed part of the work names
+    /// exactly what landed and what did not. One that landed none of it is an ordinary
+    /// refusal.</exception>
     /// <remarks>
-    /// The move itself runs second, before the folder note's rename, because that is where the
-    /// refusals are. An occupied destination and a missing parent are both decided by the folder
-    /// rename, and meeting them before the folder note has been touched leaves one fewer partial
-    /// state to report.
+    /// Every refusal that can be decided from the arguments and the vault as it stands has already
+    /// been raised before this runs, so a failure here is one only the attempt could report - a note
+    /// that could not be written, or an entry another writer took hold of. The move itself runs
+    /// before the folder note's rename, so a move that cannot land leaves the folder note untouched
+    /// and one fewer partial state to report.
     /// </remarks>
     private static void Perform(
         VaultAccess vault,
@@ -189,22 +257,31 @@ public sealed class MoveTool : ITool
         WikilinkPlan plan)
     {
         if (!plan.IsEmpty && WikilinkMaintenance.Apply(pass, plan) is LinkApplyOutcome.Failed stopped)
-            throw MutationSupport.Partial(
-                $"\"{stopped.Path}\" could not be rewritten, so the repair this move needs is only partly in place and \"{arguments.Path}\" was not moved.",
-                [.. stopped.Written.Select(Render)],
-                [.. stopped.Unwritten.Select(Render), $"move {arguments.Path} -> {arguments.Destination}"],
-                [
-                    $"Nothing was moved: \"{arguments.Path}\" is still where it was, and the notes already rewritten name \"{arguments.Destination}\", which is not there yet.",
-                    $"Resolve what is holding \"{stopped.Path}\".",
-                    "Re-run the identical move - the pass is planned fresh against the vault as it is, and repairs only what still names the source.",
-                ]);
+            throw stopped.Written.Count == 0
+                // The pass stopped on the first note it tried, so nothing was written and the vault
+                // is as it was. Reporting a partial mutation here would send the caller to repair
+                // state that does not exist, and a caller cannot tell the two apart from anything
+                // but the code.
+                ? new ToolRefusal(
+                    ToolCodes.WriteFailed,
+                    $"\"{stopped.Path}\" could not be rewritten, so \"{arguments.Path}\" was not moved and nothing in the vault changed.",
+                    new { path = stopped.Path })
+                : MutationSupport.Partial(
+                    $"\"{stopped.Path}\" could not be rewritten, so the repair this move needs is only partly in place and \"{arguments.Path}\" was not moved.",
+                    [.. stopped.Written.Select(Render)],
+                    [.. stopped.Unwritten.Select(Render), $"move {arguments.Path} -> {arguments.Destination}"],
+                    [
+                        $"Nothing was moved: \"{arguments.Path}\" is still where it was, and the notes already rewritten name \"{arguments.Destination}\", which is not there yet.",
+                        $"Resolve what is holding \"{stopped.Path}\".",
+                        "Re-run the identical move - the pass is planned fresh against the vault as it is, and repairs only what still names the source.",
+                    ]);
 
         var outcome = kind == OperandKind.Note
             ? VaultFiles.MoveFile(source, destination)
             : VaultFiles.MoveFolder(source, destination);
 
         if (outcome is not MoveOutcome.Moved)
-            throw Refused(outcome, arguments, plan);
+            throw AfterRepair(Refused(outcome, arguments), arguments, plan);
 
         RenameFolderNote(vault, arguments, source, destination, plan);
     }
@@ -263,20 +340,14 @@ public sealed class MoveTool : ITool
             : throw new InvalidOperationException($"Composed folder-note path \"{value}\" is not a vault path: {reason}");
 
     /// <summary>
-    /// Builds the refusal for a move that did not happen.
+    /// Builds the refusal for a move that did not happen, with nothing written.
     /// </summary>
-    /// <param name="outcome">Why the move did not happen.</param>
+    /// <param name="outcome">Why the move did not happen, or would not.</param>
     /// <param name="arguments">The validated arguments, quoted in the message.</param>
-    /// <param name="plan">The planned wikilink rewrites, which say whether anything was already
-    /// written.</param>
-    /// <returns>A clean refusal where no link had been rewritten yet, keeping
-    /// <c>already_exists</c> distinguishable because a caller's next step after an occupied
-    /// destination differs from every other refusal. Where the repair pass had already written, a
-    /// partial-mutation refusal, because the graph now names a destination nothing arrived
-    /// at.</returns>
-    private static ToolRefusal Refused(MoveOutcome outcome, MoveArguments arguments, WikilinkPlan plan)
-    {
-        var clean = outcome switch
+    /// <returns>The refusal. <c>already_exists</c> stays distinguishable from every other one,
+    /// because a caller's next step after an occupied destination differs from all of them.</returns>
+    private static ToolRefusal Refused(MoveOutcome outcome, MoveArguments arguments) =>
+        outcome switch
         {
             MoveOutcome.SourceMissing => new ToolRefusal(
                 ToolCodes.PathNotFound,
@@ -302,37 +373,49 @@ public sealed class MoveTool : ITool
                 ToolCodes.WriteFailed, $"\"{arguments.Path}\" could not be moved ({other.GetType().Name})."),
         };
 
-        if (plan.IsEmpty)
-            return clean;
-
-        return MutationSupport.Partial(
-            $"{clean.Message} The wikilink repair this move planned had already been written.",
-            [.. plan.Rewrites.Select(Render)],
-            [$"move {arguments.Path} -> {arguments.Destination}"],
-            [
-                $"Nothing was moved: \"{arguments.Path}\" is still where it was.",
-                $"{plan.Rewrites.Count} link targets across the vault now name \"{arguments.Destination}\", which is not there.",
-                "Resolve what the refusal above names, then re-run the identical move - the pass is planned fresh and repairs only what still names the source.",
-            ]);
-    }
+    /// <summary>
+    /// Restates a refusal raised by the move itself as a partial mutation where the repair pass had
+    /// already written.
+    /// </summary>
+    /// <param name="clean">The refusal for the move that did not happen.</param>
+    /// <param name="arguments">The validated arguments, quoted in the message.</param>
+    /// <param name="plan">The planned wikilink rewrites, which say whether anything was
+    /// written.</param>
+    /// <returns>The refusal unchanged where the plan wrote nothing, and a partial-mutation refusal
+    /// where it wrote, because the link graph then names a destination nothing arrived at.</returns>
+    /// <remarks>
+    /// Every refusal decidable before the move is raised before the repair pass runs, so reaching
+    /// this with a non-empty plan means the move failed for a reason only the attempt could report.
+    /// </remarks>
+    private static ToolRefusal AfterRepair(ToolRefusal clean, MoveArguments arguments, WikilinkPlan plan) =>
+        plan.IsEmpty
+            ? clean
+            : MutationSupport.Partial(
+                $"{clean.Message} The wikilink repair this move planned had already been written.",
+                [.. plan.Rewrites.Select(Render)],
+                [$"move {arguments.Path} -> {arguments.Destination}"],
+                [
+                    $"Nothing was moved: \"{arguments.Path}\" is still where it was.",
+                    $"{plan.Rewrites.Count} link targets across the vault now name \"{arguments.Destination}\", which is not there.",
+                    "Resolve what the refusal above names, then re-run the identical move - the pass is planned fresh and repairs only what still names the source.",
+                ]);
 
     /// <summary>
-    /// Returns the note's content hash after the move.
+    /// Reads the note being moved, and refuses where it is not there or cannot be read.
     /// </summary>
     /// <param name="source">The admitted source path.</param>
     /// <param name="named">The path as the caller spelled it, used in refusal messages.</param>
-    /// <param name="plan">The planned wikilink rewrites.</param>
-    /// <returns>The source's own stored hash, because a move relocates bytes rather than replacing
-    /// them - or, where the repair pass rewrites the moved note itself, the hash of the text the plan
-    /// will write.</returns>
+    /// <returns>The note's stored content and its hash.</returns>
     /// <exception cref="ToolRefusal">The note is not there, or could not be read.</exception>
     /// <remarks>
-    /// Reading here is also what keeps a preview honest about a source that is not there. A preview
-    /// that predicted a move of nothing would predict something its own applied call cannot do.
+    /// This is what establishes that a note move has an operand at all, on a preview as on a real
+    /// call: a preview that predicted a move of nothing would predict something its own applied call
+    /// cannot do. It is a read rather than a presence probe because the two failures are different
+    /// answers to the caller - one has nothing to move, the other has something it cannot get at -
+    /// and only reading tells them apart.
     /// </remarks>
-    private static string HashAfter(WritePath source, string named, WikilinkPlan plan)
-    {
-        var stored = VaultFiles.Read(source.AsRead()) switch
+    private static ReadOutcome.Content SourceContent(WritePath source, string named) =>
+        VaultFiles.Read(source.AsRead()) switch
         {
             ReadOutcome.Content content => content,
             ReadOutcome.NotFound => throw new ToolRefusal(ToolCodes.PathNotFound, $"No note is at \"{named}\"."),
@@ -343,6 +426,17 @@ public sealed class MoveTool : ITool
             var other => throw new InvalidOperationException($"Unhandled read outcome {other.GetType().Name}."),
         };
 
+    /// <summary>
+    /// Returns the note's content hash after the move.
+    /// </summary>
+    /// <param name="stored">The note's content as it is now.</param>
+    /// <param name="source">The admitted source path.</param>
+    /// <param name="plan">The planned wikilink rewrites.</param>
+    /// <returns>The note's own stored hash, because a move relocates bytes rather than replacing
+    /// them - or, where the repair pass rewrites the moved note itself, the hash of the text the plan
+    /// will write.</returns>
+    private static string HashAfter(ReadOutcome.Content stored, WritePath source, WikilinkPlan plan)
+    {
         var rewritten = plan.Notes.FirstOrDefault(note => note.Note.Equals(source.Path));
         return rewritten is null ? stored.ContentHash : VaultFiles.DigestOf(rewritten.Content);
     }

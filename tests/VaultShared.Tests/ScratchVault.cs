@@ -148,6 +148,35 @@ internal sealed class ScratchVault : IDisposable
         return File.Open(absolute, FileMode.Open, FileAccess.ReadWrite, FileShare.None);
     }
 
+    /// <summary>
+    /// Makes one file readable but not writable for as long as the returned handle is held, so a
+    /// pass that reads every note and then writes some of them has a file it must fail on at the
+    /// write. On Windows this holds the file open for reading and shares it with other readers,
+    /// which admits a read and blocks a write, because a write opens the file sharing nothing and so
+    /// fails while any other handle is open; elsewhere it clears the write mode bits and restores
+    /// them on dispose.
+    /// </summary>
+    /// <param name="relativePath">The vault-relative path of an existing file.</param>
+    /// <returns>A handle that makes the file writable again when disposed.</returns>
+    public IDisposable Unwritable(string relativePath)
+    {
+        var absolute = Absolute(relativePath);
+        if (!OperatingSystem.IsWindows())
+        {
+            var original = File.GetUnixFileMode(absolute);
+            File.SetUnixFileMode(absolute, UnixFileMode.UserRead);
+            // The platform test is repeated inside the restore because the analyzer reads the
+            // lambda on its own, not at the site it was built from.
+            return new Restore(() =>
+            {
+                if (!OperatingSystem.IsWindows())
+                    File.SetUnixFileMode(absolute, original);
+            });
+        }
+
+        return File.Open(absolute, FileMode.Open, FileAccess.Read, FileShare.Read);
+    }
+
     /// <summary>Runs an action when disposed.</summary>
     /// <param name="undo">The action to run on dispose.</param>
     private sealed class Restore(Action undo) : IDisposable

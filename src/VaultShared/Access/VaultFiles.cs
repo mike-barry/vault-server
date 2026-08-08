@@ -13,6 +13,12 @@ namespace VaultShared.Access;
 /// it names and neither form may guess. Inspecting the target to choose would be the kind of
 /// preliminary check every primitive here avoids.
 ///
+/// A primitive decides its own refusals from the attempt rather than from a check run first, so no
+/// window opens between the two in which another writer changes the answer. The two move probes
+/// (<see cref="PreflightMoveFile"/>, <see cref="PreflightMoveFolder"/>) are the exception, and they
+/// replace nothing: they report what a move would refuse, for a caller that has work to do before
+/// the move and must not do it for a move that cannot happen. The move still decides.
+///
 /// The class is static and holds nothing. A primitive's authority is the type of the path it is
 /// handed - <see cref="ReadPath"/> to read, <see cref="WritePath"/> to write, create, move, or
 /// remove - so there is no per-call state to carry. The scope check happened where those proofs
@@ -338,6 +344,95 @@ public static class VaultFiles
         {
             return new MoveOutcome.Failed(from.Value, Describe(ex, from, to));
         }
+    }
+
+    /// <summary>
+    /// Reports the refusal a file move would raise for a reason readable from the filesystem before
+    /// the move runs, or null when it would raise none of them.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// The three reasons are a destination name outside the name grammar, a missing destination
+    /// parent, and an occupied destination. <see cref="MoveFile"/> decides all three as part of the
+    /// move itself and its answer is the authoritative one, because anything read here can stop
+    /// being true before the move runs. This exists for a caller that must do other work before the
+    /// move - a preview that writes nothing, or a mutation that rewrites other files first - so that
+    /// the refusal arrives before that work instead of after it. Both are needed: without this, such
+    /// a caller reports success for a move that cannot happen or leaves earlier writes behind a
+    /// refusal; without the check in the move, the answer would come from state read a moment
+    /// earlier.
+    /// </para>
+    /// <para>
+    /// The destination is not an occupant when it names the source under another spelling, which is
+    /// what lets a case-only rename proceed on a case-insensitive filesystem. Both a file and a
+    /// directory at the destination count as an occupant.
+    /// </para>
+    /// <para>
+    /// Only the destination is read. Whether the file to move is there is left to the caller,
+    /// because a file that is present and cannot be read is a different answer from one that is not
+    /// there and only reading it tells those apart. <see cref="PreflightMoveFolder"/> does report a
+    /// missing source, since a folder move has no such read.
+    /// </para>
+    /// </remarks>
+    /// <param name="source">The file that would move.</param>
+    /// <param name="destination">Where it would end up.</param>
+    /// <returns>The outcome the move would answer, or null when none of the three applies.</returns>
+    public static MoveOutcome? PreflightMoveFile(WritePath source, WritePath destination)
+    {
+        var name = destination.Path.Segments[^1];
+        return Preflight(
+            source.Path, destination.Path, VaultName.IsNoteName(name) || VaultName.IsFolderName(name));
+    }
+
+    /// <summary>
+    /// Reports the refusal a folder move would raise for a reason readable from the filesystem
+    /// before the move runs, or null when it would raise none of them.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// The destination reasons and the relationship to the move itself are the same as for
+    /// <see cref="PreflightMoveFile"/>, except that a folder destination is held to the folder
+    /// grammar alone.
+    /// </para>
+    /// <para>
+    /// A folder that is not there is reported as well, and ahead of every reason about the
+    /// destination: both can be true of one call, and a caller whose operand is missing has to fix
+    /// that before anything about where it was going matters. A folder move reads no content, so
+    /// there is nothing else to establish that the operand exists.
+    /// </para>
+    /// </remarks>
+    /// <param name="source">The folder that would move.</param>
+    /// <param name="destination">Where it would end up.</param>
+    /// <returns>The outcome the move would answer, or null when none of them applies.</returns>
+    public static MoveOutcome? PreflightMoveFolder(WritePath source, WritePath destination) =>
+        !Directory.Exists(source.Path.Absolute)
+            ? new MoveOutcome.SourceMissing(source.Path.Value)
+            : Preflight(source.Path, destination.Path, VaultName.IsFolderName(destination.Path.Segments[^1]));
+
+    /// <summary>
+    /// Reports the refusal a move would raise for a reason readable before the move runs.
+    /// </summary>
+    /// <param name="from">Where the entry is now.</param>
+    /// <param name="to">Where it would end up.</param>
+    /// <param name="nameAccepted">Whether the destination's own name satisfies the grammar the
+    /// caller's form checks it against.</param>
+    /// <returns>The outcome the move would answer, or null when none applies.</returns>
+    private static MoveOutcome? Preflight(VaultPath from, VaultPath to, bool nameAccepted)
+    {
+        if (!nameAccepted)
+            return new MoveOutcome.InvalidName(to.Segments[^1]);
+
+        var parent = Directory.GetParent(to.Absolute);
+        if (parent is null || !parent.Exists)
+            return to.ParentValue is { } missing
+                ? new MoveOutcome.MissingParent(missing)
+                : new MoveOutcome.Failed(to.Value, RootMissing);
+
+        // Equality is case-insensitive, so the source under another spelling is not an occupant.
+        if (!from.Equals(to) && (File.Exists(to.Absolute) || Directory.Exists(to.Absolute)))
+            return new MoveOutcome.DestinationOccupied(to.Value);
+
+        return null;
     }
 
     /// <summary>

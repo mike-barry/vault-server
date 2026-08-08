@@ -232,6 +232,135 @@ public sealed class VaultFilesMoveTests : IDisposable
             VaultFiles.MoveFolder(_vault.ToWrite("Projects/Widget"), _vault.ToWrite("Projects/Gizmo.md")));
     }
 
+    // ---- Reading a move's refusals before the move ----
+
+    /// <summary>
+    /// Checks that the probe answers the same three refusals the move itself answers, so a caller
+    /// with work to do first is not made to do it for a move that cannot happen.
+    /// </summary>
+    [Fact]
+    public void Preflight_AnswersTheOccupiedDestinationTheMoveWouldAnswer()
+    {
+        _vault.WithNote("Inbox/Widget.md", "# Source\n").WithNote("Projects/Widget.md", "# Destination\n");
+
+        var outcome = Assert.IsType<MoveOutcome.DestinationOccupied>(
+            VaultFiles.PreflightMoveFile(_vault.ToWrite("Inbox/Widget.md"), _vault.ToWrite("Projects/Widget.md")));
+
+        Assert.Equal("Projects/Widget.md", outcome.Path);
+        Assert.Equal("# Destination\n", _vault.TextOf("Projects/Widget.md"));
+        Assert.True(_vault.HasFile("Inbox/Widget.md"));
+    }
+
+    [Fact]
+    public void Preflight_NamesAMissingDestinationParent()
+    {
+        _vault.WithNote("Inbox/Widget.md", "# Widget\n");
+
+        var outcome = Assert.IsType<MoveOutcome.MissingParent>(
+            VaultFiles.PreflightMoveFile(_vault.ToWrite("Inbox/Widget.md"), _vault.ToWrite("Projects/Widget/Widget.md")));
+
+        Assert.Equal("Projects/Widget", outcome.Parent);
+        Assert.False(_vault.HasFolder("Projects"));
+    }
+
+    [Fact]
+    public void Preflight_RefusesADestinationNameOutsideTheGrammar()
+    {
+        _vault.WithNote("Inbox/Widget.md", "# Widget\n").WithFolder("Projects");
+
+        var outcome = Assert.IsType<MoveOutcome.InvalidName>(
+            VaultFiles.PreflightMoveFile(_vault.ToWrite("Inbox/Widget.md"), _vault.ToWrite("Projects/new widget.md")));
+
+        Assert.Equal("new widget.md", outcome.Name);
+    }
+
+    [Fact]
+    public void Preflight_AnswersNothingForAMoveThatCanHappen()
+    {
+        _vault.WithNote("Inbox/Widget.md", "# Widget\n").WithFolder("Projects");
+
+        Assert.Null(VaultFiles.PreflightMoveFile(_vault.ToWrite("Inbox/Widget.md"), _vault.ToWrite("Projects/Widget.md")));
+    }
+
+    /// <summary>
+    /// Checks that the source under another spelling is not an occupant, so a case-only rename is
+    /// not refused before it is attempted. This matters on a case-insensitive file system, where the
+    /// destination of such a rename already exists.
+    /// </summary>
+    [Fact]
+    public void Preflight_DoesNotReadACaseOnlyRenameAsAnOccupiedDestination()
+    {
+        _vault.WithNote("Projects/widget.md", "# Widget\n");
+
+        Assert.Null(VaultFiles.PreflightMoveFile(_vault.ToWrite("Projects/widget.md"), _vault.ToWrite("Projects/Widget.md")));
+    }
+
+    [Fact]
+    public void PreflightFolder_AnswersTheOccupiedDestinationAndAllowsACaseOnlyRename()
+    {
+        _vault.WithFolder("Projects/Widget").WithFolder("Archive/Gizmo");
+
+        Assert.IsType<MoveOutcome.DestinationOccupied>(
+            VaultFiles.PreflightMoveFolder(_vault.ToWrite("Projects/Widget"), _vault.ToWrite("Archive/Gizmo")));
+
+        Assert.Null(VaultFiles.PreflightMoveFolder(_vault.ToWrite("Projects/Widget"), _vault.ToWrite("Projects/WIDGET")));
+    }
+
+    /// <summary>
+    /// Checks that a folder that is not there is reported ahead of every reason about the
+    /// destination. Both are true of this call, and a caller whose operand is missing has to fix
+    /// that before anything about where it was going matters.
+    /// </summary>
+    [Fact]
+    public void PreflightFolder_ReportsAMissingSourceAheadOfAnOccupiedDestination()
+    {
+        _vault.WithFolder("Archive/Gizmo");
+
+        var outcome = Assert.IsType<MoveOutcome.SourceMissing>(
+            VaultFiles.PreflightMoveFolder(_vault.ToWrite("Projects/Absent"), _vault.ToWrite("Archive/Gizmo")));
+
+        Assert.Equal("Projects/Absent", outcome.Path);
+    }
+
+    /// <summary>
+    /// Checks that the file form reports nothing about its source. A file that is present and
+    /// cannot be read is a different answer from one that is not there, and only reading it tells
+    /// those apart, so the caller establishes the source itself.
+    /// </summary>
+    [Fact]
+    public void Preflight_SaysNothingAboutAMissingSource()
+    {
+        _vault.WithFolder("Projects");
+
+        Assert.Null(VaultFiles.PreflightMoveFile(_vault.ToWrite("Inbox/Absent.md"), _vault.ToWrite("Projects/Widget.md")));
+    }
+
+    /// <summary>
+    /// Checks that a folder destination is held to the folder grammar alone, unlike a file
+    /// destination, which may be spelled either way.
+    /// </summary>
+    [Fact]
+    public void PreflightFolder_ChecksTheDestinationAgainstTheFolderGrammar()
+    {
+        _vault.WithFolder("Projects/Widget");
+
+        Assert.IsType<MoveOutcome.InvalidName>(
+            VaultFiles.PreflightMoveFolder(_vault.ToWrite("Projects/Widget"), _vault.ToWrite("Projects/Gizmo.md")));
+    }
+
+    /// <summary>
+    /// Checks that a file at the destination refuses a folder move. A folder move that ran would
+    /// fail on it, and the probe reports the same answer.
+    /// </summary>
+    [Fact]
+    public void PreflightFolder_CountsAFileAtTheDestinationAsAnOccupant()
+    {
+        _vault.WithFolder("Projects/Widget").WithNote("Archive/Gizmo", "# Not a folder\n");
+
+        Assert.IsType<MoveOutcome.DestinationOccupied>(
+            VaultFiles.PreflightMoveFolder(_vault.ToWrite("Projects/Widget"), _vault.ToWrite("Archive/Gizmo")));
+    }
+
     // ---- The .gitkeep placeholder ----
 
     /// <summary>

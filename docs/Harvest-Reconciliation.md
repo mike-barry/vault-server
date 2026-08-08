@@ -95,22 +95,6 @@ in *ordering* — what is validated, and when, relative to what is written.
 
 ## Regressions
 
-### R2 — a `move` rewrites the vault before it validates the move
-
-- **Old:** destination occupancy, missing parent and destination-name grammar were decided before
-  anything was written, and a preview evaluated all three (`MOV-092`, and `MOV-013`/`014`/`015`/
-  `025`/`069`/`088`/`089`).
-- **New:** those checks live inside `VaultFiles.MoveFile`/`MoveFolder`, which only the apply path
-  reaches — occupancy surfaces as a caught `IOException`
-  (`src/VaultShared/Access/VaultFiles.cs:271`). `MoveTool.Invoke` plans and applies wikilink
-  maintenance first (`src/VaultShared/Tools/MoveTool.cs:147`).
-- **Lost:** a preview never evaluates them, so it reports success for a move that cannot happen; an
-  applied call discovers them only after every link in the vault has been rewritten. The tool's own
-  declaration promises "an occupied destination is refused, and the destination's parent must
-  already exist", and its remarks promise a preview running "every refusal a real call would raise".
-- **Test:** none covers a preview against an occupied destination.
-- **Recorded:** nowhere. `Design-Tool-Vocabulary.md` states the opposite.
-
 ### R3 — an entry field's *value* is never tested for emptiness
 
 Found from two areas; one rule, two sites.
@@ -128,16 +112,6 @@ Found from two areas; one rule, two sites.
 - **Test:** none on either site.
 - **Recorded:** nowhere, and it is the one place `Spec-Frontmatter-Substrate.md:113`'s "emptiness is
   tested one way" rule is not met.
-
-### R6 — no folder-into-itself check
-
-- **Old:** moving a folder beneath itself was refused up front (`MOV-013`).
-- **New:** `MoveTool.cs:116` compares spellings only. The repair is written, then `Directory.Move`
-  fails.
-- **Lost:** the vault is left with rewritten links and no move, and the recovery the refusal prints —
-  re-run the identical move — can never succeed.
-- **Test:** none.
-- **Recorded:** nowhere.
 
 ### R7 — a missing search binary is never validated, and its failure is marked retryable
 
@@ -161,15 +135,6 @@ Found from two areas; one rule, two sites.
 - **Lost:** the call reports a creation that did not happen, contradicting the tool's own declaration
   text.
 - **Test:** none.
-- **Recorded:** nowhere.
-
-### R9 — rewrites inside relocated notes are reported at pre-move paths
-
-- **Old:** reported paths were post-move (`MOV-089`, `MOV-090`).
-- **New:** pre-move paths, pinned by `tests/VaultShared.Tests/Links/WikilinkRepairTests.cs:466`.
-- **Lost:** `MoveResult`'s own summary states every path-valued member is post-move, so a caller
-  reading the result cannot locate the files it names.
-- **Test:** the current behavior is pinned, so a fix breaks a test that asserts the defect.
 - **Recorded:** nowhere.
 
 ## Gaps
