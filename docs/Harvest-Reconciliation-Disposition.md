@@ -2,13 +2,13 @@
 
 Triage of `Harvest-Reconciliation.md` is **complete**: every finding, observation and untested
 containment property in it has been worked and decided with the operator. This file records those
-decisions. What follows triage is the fix step, then the suite sweep, then the spec amendments -
-`Plan.md` carries them.
+decisions. What follows triage is the fix step, then the suite sweep - `Plan.md` carries both.
 
-**The parent document is deliberately unmodified.** It tells a reader to delete a finding once it is
-closed, so that a stale entry cannot compete with the code. That rule applies to the **fix** step: an
-entry is cleared as its fix lands. Triage decided things and changed no code, so nothing was cleared.
-Do not delete from the parent document on the strength of an entry here.
+**An entry is deleted from this file and from the parent document together, in the commit that makes
+it true.** A group of coupled changes lands its code, its tests, the design document's text and the
+spec amendment where it has one, and clears both documents' entries for what it closed. Both files
+are empty when the work is done: they carry context until it is written somewhere permanent, and
+nothing in them is a record. Triage decided things and changed no code, so nothing was cleared then.
 
 ## What an entry is, and what it is not
 
@@ -72,10 +72,12 @@ Code changes, with their couplings:
 
 Decisions to record in the design documents: R1, R4 with R5, G1 with G2, G3, G4, G7, O2.
 
-Carried to later steps. The suite sweep takes C1-C3 as its highest-value entries. The spec-amendment
-step takes four inputs: the Markdig arbiter line (G3), the check-and-write rule that cannot hold for
-directory creation (R8), the extensionless-target rule measured 2026-08-08 (G10), and attachment emit
-form as an open measurement (G10).
+Four spec amendments, each landing with the group that makes it true: the Markdig arbiter line (G3),
+the check-and-write rule that cannot hold for directory creation (R8), the extensionless-target rule
+measured 2026-08-08 (G10), and attachment emit form written in as an open measurement (G10).
+
+Carried to the suite sweep: C1-C3, which are test gaps rather than code defects and are that step's
+highest-value entries.
 
 One correction to the parent document's own appendix: its `Improvements Taken` entry for LNK-025
 records the link-ranking reversal as deliberate and spec-backed, which O3 establishes was measured on
