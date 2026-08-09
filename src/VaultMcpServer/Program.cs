@@ -191,7 +191,6 @@ var app = builder.Build();
 app.UseMiddleware<BearerGrantMiddleware>();
 app.MapMcp("/mcp");
 
-scriptToolDispatcher.AttachLogger(app.Services.GetRequiredService<ILogger<ScriptToolDispatcher>>());
 executionLogger = app.Services.GetRequiredService<ILogger<ToolExecution>>();
 autoDenyApprover.AttachLogger(app.Services.GetRequiredService<ILogger<AutoDenyElevationApprover>>());
 var scriptToolsWatcher = new ScriptToolsWatcher(

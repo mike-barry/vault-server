@@ -1,7 +1,5 @@
 using System.Text.Json;
 using Microsoft.AspNetCore.Http;
-using Microsoft.Extensions.Logging;
-using Microsoft.Extensions.Logging.Abstractions;
 using ModelContextProtocol.Protocol;
 using ModelContextProtocol.Server;
 using VaultShared.Auth;
@@ -86,14 +84,6 @@ public sealed class ScriptToolDispatcher(ScriptToolRegistry registry, ToolRegist
             InputSchema = r.AdvertisedSchema(vaultConfig.DefaultVault),
         })
     ];
-
-    // This type is constructed before builder.Build(), so no ILogger is resolvable at
-    // construction time. Program.cs calls AttachLogger once the service provider exists.
-    private ILogger<ScriptToolDispatcher> _logger = NullLogger<ScriptToolDispatcher>.Instance;
-
-    /// <summary>Sets the logger used for dispatch diagnostics.</summary>
-    /// <param name="logger">The logger to write to.</param>
-    public void AttachLogger(ILogger<ScriptToolDispatcher> logger) => _logger = logger;
 
     /// <summary>Answers an MCP <c>tools/list</c> request.</summary>
     /// <param name="context">The request context. The listing does not depend on it.</param>
