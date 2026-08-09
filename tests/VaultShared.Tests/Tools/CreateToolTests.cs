@@ -123,26 +123,21 @@ public sealed class CreateToolTests : IDisposable
     [Fact]
     public void AKeyRequiringElevationIsAssertedAndReported()
     {
-        using var denied = Scratch(opClasses: Synthetic.OpenClass);
-        var refusal = Refusal(denied, new
+        // A key name is taken from the parsed block rather than from the text the caller wrote, so a
+        // key spelled in quotes is the same key and is charged the same elevation.
+        foreach (var content in new[] { "---\nagent.mode: auto\n---\n# Agentic\n", "---\n\"agent.mode\": auto\n---\n# Agentic\n" })
         {
-            path = "Inbox/Agentic.md",
-            kind = "note",
-            content = "---\nagent.mode: auto\n---\n# Agentic\n",
-        });
+            using var denied = Scratch(opClasses: Synthetic.OpenClass);
+            var refusal = Refusal(denied, new { path = "Inbox/Agentic.md", kind = "note", content });
 
-        Assert.Equal(ToolCodes.AuthorityRequired, refusal.Code);
-        Assert.False(denied.HasFile("Inbox/Agentic.md"));
+            Assert.Equal(ToolCodes.AuthorityRequired, refusal.Code);
+            Assert.False(denied.HasFile("Inbox/Agentic.md"));
 
-        using var granted = Scratch(opClasses: [Synthetic.OpenClass, Synthetic.ElevatedClass]);
-        var result = Create(granted, new
-        {
-            path = "Inbox/Agentic.md",
-            kind = "note",
-            content = "---\nagent.mode: auto\n---\n# Agentic\n",
-        });
+            using var granted = Scratch(opClasses: [Synthetic.OpenClass, Synthetic.ElevatedClass]);
+            var result = Create(granted, new { path = "Inbox/Agentic.md", kind = "note", content });
 
-        Assert.Contains(Synthetic.ElevatedClass, result.AssertedAuthority);
+            Assert.Contains(Synthetic.ElevatedClass, result.AssertedAuthority);
+        }
     }
 
     /// <summary>The path policy can require elevation for the target path too, and a note creation

@@ -170,6 +170,38 @@ public sealed class FrontmatterWritePathTests
         Assert.Equal(Body, outcome.Split.Body);
     }
 
+    [Theory]
+    [InlineData("A line with trailing spaces.   \n")]
+    [InlineData("A\ttabbed\tline.\n")]
+    [InlineData("Café, naïve, résumé.\n")]
+    [InlineData("```\nkey: not frontmatter\n```\n")]
+    [InlineData("Before the rule.\n---\nAfter the rule.\n")]
+    [InlineData("key: value\n")]
+    [InlineData("No final newline.")]
+    public void AnOperationLeavesEveryByteOfAnAwkwardBodyAlone(string body)
+    {
+        // The body is concatenated after the block with no inspection, so nothing in it is
+        // trimmed, terminated, expanded, or re-encoded on the way through.
+        var outcome = FrontmatterWrite.Apply(Synthetic.Write(
+            "---\ndoc.title: Widget\n---\n" + body, Everything,
+            operations: [new FrontmatterOperation.SetScalar("doc.type", "guide")]));
+
+        Assert.Equal("---\ndoc.title: Widget\ndoc.type: guide\n---\n" + body, outcome.Content);
+    }
+
+    [Fact]
+    public void AnUntouchedBooleanSpellingComesBackAsTheTextTheNoteCarried()
+    {
+        // A scalar is carried as its parsed text rather than as a decoded value, so a key spelled
+        // `no` survives a reserialization the note's other keys caused as plain `no`, neither
+        // coerced to false nor quoted.
+        var outcome = FrontmatterWrite.Apply(Synthetic.Write(
+            Note("doc.published: no\ndoc.draft: yes\ndoc.title: Widget"), Everything,
+            operations: [new FrontmatterOperation.SetScalar("doc.type", "guide")]));
+
+        Assert.Equal(Note("doc.published: no\ndoc.draft: yes\ndoc.title: Widget\ndoc.type: guide"), outcome.Content);
+    }
+
     [Fact]
     public void LineTerminatorsNormalizeOnEntry()
     {

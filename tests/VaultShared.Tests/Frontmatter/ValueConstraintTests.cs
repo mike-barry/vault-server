@@ -14,10 +14,17 @@ public sealed class ValueConstraintTests
     [InlineData("02/08/2026", false)]
     [InlineData("2026-08-02T00:00:00", false)]
     [InlineData("not a date", false)]
+    [InlineData("2026-13-45", false)]
+    [InlineData("2026-02-30", false)]
     public void Date_IsAFormatCheckOnTheTextAsWritten(string text, bool satisfied)
     {
         // The check is on the text as written rather than on a parsed date, because parsing and
         // reformatting would test a value the caller never wrote.
+        //
+        // Matching is done by the date parser rather than by a pattern, so text fitting the
+        // format's shape while naming no real day is rejected along with text that does not fit
+        // the shape at all. Nothing downstream re-checks the value, so a date admitted here is one
+        // a later sort or range query has to parse.
         Assert.Equal(satisfied, new DateConstraint(DateConstraint.IsoDate).Check(text).IsSatisfied);
     }
 

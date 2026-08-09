@@ -97,6 +97,14 @@ public sealed class VaultEnumerationTests : IDisposable
             Values(_vault.Access.EnumerateNotes("Notes/**")));
     }
 
+    [Fact]
+    public void APatternLeadingWithAHyphenIsMatchedAsAPatternRatherThanTakenAsAnOption()
+    {
+        // Reaching the engine as an option instead of as the caller's glob, "-i" would leave the
+        // walk unnarrowed and answer with every note in the vault.
+        Assert.Empty(Values(_vault.Access.EnumerateNotes("-i")));
+    }
+
     // ---- The markdown restriction ----
 
     [Fact]

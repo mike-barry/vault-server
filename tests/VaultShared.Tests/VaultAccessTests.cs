@@ -79,6 +79,15 @@ public sealed class VaultAccessTests : IDisposable
     }
 
     [Fact]
+    public void ForWrite_AdmitsTheGrantsRootFolderItselfAndNotOnlyWhatIsUnderIt()
+    {
+        // A root names the folder as well as its contents, so the grant reaches the one folder it
+        // most obviously owns: listing it, creating a note directly in it, and removing it are all
+        // in scope.
+        Assert.Equal("Projects/Widget", Admitted(Narrow.ForWrite("Projects/Widget")).Value);
+    }
+
+    [Fact]
     public void AnAdmittedPathCarriesTheVaultItWasAdmittedIn()
     {
         Assert.Same(_vault, Admitted(Narrow.ForRead(InScope)).Vault);

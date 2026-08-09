@@ -99,6 +99,19 @@ public sealed class WikilinkRankingTests
             Ranked("Aa/Bb/Note.md", "Aa/Bb/Zzz/Dupe.md", "Aa/Bb/Dupe.md"));
     }
 
+    [Fact]
+    public void AFolderNamedInADifferentCaseIsStillTheSameSharedFolder()
+    {
+        // The vault sits on a case-insensitive filesystem, where "Aa" and "aA" are one folder, so
+        // the candidate shares both of the linking file's folders and needs no climb. That puts it
+        // inside the subtree and ahead of the root copy, which needs two climbs. Comparing the
+        // folder names case-sensitively would share nothing, leave the candidate outside the
+        // subtree at "../../aA/Bb/Dupe.md", and hand the link to the root copy instead.
+        Assert.Equal(
+            ["aA/Bb/Dupe.md", "Dupe.md"],
+            Ranked("Aa/Bb/Note.md", "Dupe.md", "aA/Bb/Dupe.md"));
+    }
+
     // ---- The shorter spelling ----
 
     [Fact]

@@ -132,6 +132,22 @@ public sealed class DeleteToolTests : IDisposable
         Assert.True(_vault.HasFile("Projects/Widget/Widget.md"));
     }
 
+    /// <summary>The guard matches the path segment and never asks whether the entry is a directory.
+    /// A <c>.git</c> file is the pointer a submodule or a linked worktree leaves behind, naming a
+    /// repository with its own history just as a <c>.git</c> directory does, so it refuses the whole
+    /// removal too.</summary>
+    [Fact]
+    public void AGitFileRefusesTheWholeRemovalTheSameWayAGitDirectoryDoes()
+    {
+        _vault.WithNote("Projects/Widget/Vendored/.git", "gitdir: ../../../.git/modules/Vendored\n");
+
+        var refusal = Refusal(new { path = "Projects/Widget", kind = "folder", recursive = true, apply = true });
+
+        Assert.Equal(ToolCodes.GitDirectoryPresent, refusal.Code);
+        Assert.Equal(["Projects/Widget/Vendored/.git"], Strings(refusal, "paths"));
+        Assert.True(_vault.HasFile("Projects/Widget/Vendored/.git"));
+    }
+
     /// <summary>The second guard. A non-recursive folder removal that meets contents is refused,
     /// and the refusal carries the full set a recursive removal would destroy so the caller can
     /// retry knowing the file list.</summary>
@@ -178,6 +194,18 @@ public sealed class DeleteToolTests : IDisposable
         Assert.Equal(ToolCodes.NotEmpty, Refusal(new { path = "Projects/Held", kind = "folder", apply = true }).Code);
     }
 
+    /// <summary>The exemption is the one name <c>.gitkeep</c> rather than a rule about dot-prefixed
+    /// or hidden files. Any other dot-file is a caller's own content, so the folder holding it is
+    /// not empty and a call that did not ask to recurse leaves it alone.</summary>
+    [Fact]
+    public void AFolderHoldingOnlySomeOtherDotFileIsNotEmpty()
+    {
+        _vault.WithNote("Projects/Held/.placeholder", "");
+
+        Assert.Equal(ToolCodes.NotEmpty, Refusal(new { path = "Projects/Held", kind = "folder", apply = true }).Code);
+        Assert.True(_vault.HasFile("Projects/Held/.placeholder"));
+    }
+
     /// <summary>The third guard. The whole plan is authorized before anything is removed, so a
     /// refusal cannot arrive with part of the work already done.</summary>
     [Fact]
@@ -220,6 +248,28 @@ public sealed class DeleteToolTests : IDisposable
             plan.Backlinks.Select(b => $"{b.Path}:{b.Line} {b.Target}"));
         // Nothing was rewritten; what the caller wants a surviving link to point at is not known here.
         Assert.Contains("[[Widget]]", _vault.TextOf("Reference/Guide.md"));
+    }
+
+    /// <summary>The census covers every note in the vault rather than the part the caller's grant
+    /// reaches. A link from a note the caller cannot see is exactly the one the caller cannot find
+    /// or fix on its own, so a report that stopped at the scope boundary would go quiet where the
+    /// truth matters most.</summary>
+    [Fact]
+    public void ReportsAWikilinkFromANoteOutsideTheCallersScope()
+    {
+        using var scoped = new ScratchVault(VaultScope.Of(["Projects"]), opClasses: ["content:write"])
+            .WithNote("Projects/Widget/Notes.md", "# Notes\n")
+            .WithNote("Reference/Guide.md", "# Guide\n\nSee [[Projects/Widget/Notes]].\n");
+
+        // The grant does not admit this note for reading, so the census reporting it below cannot be
+        // explained by the scoped surface reaching it.
+        Assert.IsType<PathResolution<ReadPath>.OutOfScope>(scoped.Access.ForRead("Reference/Guide.md"));
+
+        var plan = Delete(scoped, new { path = "Projects/Widget/Notes.md", kind = "note" });
+
+        Assert.Equal(
+            ["Reference/Guide.md:3 Projects/Widget/Notes"],
+            plan.Backlinks.Select(b => $"{b.Path}:{b.Line} {b.Target}"));
     }
 
     /// <summary>A census that ran and found no backlinks reports an empty list, never a null one.</summary>

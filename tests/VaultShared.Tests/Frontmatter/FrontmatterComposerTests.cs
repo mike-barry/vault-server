@@ -141,9 +141,11 @@ public sealed class FrontmatterComposerTests
     [Fact]
     public void ADateShapedScalarComesBackAsTheTextThatWasWritten()
     {
+        // A boolean spelling is text in the same way a date shape is: the node layer carries what
+        // was written, so nothing decodes `no` to false or quotes it to keep it a string.
         Assert.Equal(
-            "created: 2024-01-31\nstamped: 2024-01-31T09:30:00Z\n",
-            FrontmatterComposer.Emit(Parsed("created: 2024-01-31\nstamped: 2024-01-31T09:30:00Z")));
+            "created: 2024-01-31\nstamped: 2024-01-31T09:30:00Z\nflag: no\nother: yes\n",
+            FrontmatterComposer.Emit(Parsed("created: 2024-01-31\nstamped: 2024-01-31T09:30:00Z\nflag: no\nother: yes")));
     }
 
     [Fact]
@@ -189,6 +191,25 @@ public sealed class FrontmatterComposerTests
         var split = NoteSplit.Of(content);
 
         Assert.Equal(content, FrontmatterComposer.Compose(Parsed(split.InnerText), split.Body));
+    }
+
+    [Fact]
+    public void ComposingWhatAComposeProducedMovesNoFurtherByte()
+    {
+        // One pass over an arbitrarily quoted block lands in the emitter's own shape, and a second
+        // pass over that result has nothing left to change. A note that is composed again is
+        // therefore not rewritten, so composing is what settles the block rather than something
+        // that moves it a little further each time.
+        const string content =
+            "---\ntitle: 'Widget'\nsummary: \"has: colon\"\nnote: >\n  one\n  two\ntags:\n- a\n- b\n---\nBody text.\n";
+
+        var tree = Of(content);
+        tree.Set("title", "Gizmo");
+        var once = FrontmatterComposer.Compose(tree, NoteSplit.Of(content).Body);
+
+        var again = FrontmatterComposer.Compose(Of(once), NoteSplit.Of(once).Body);
+
+        Assert.Equal(once, again);
     }
 
     [Fact]

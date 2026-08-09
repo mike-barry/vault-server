@@ -160,6 +160,32 @@ public sealed class SearchToolTests : IDisposable
         Assert.DoesNotContain("Attachments/Data.txt", Lines(Grep(_vault, new { pattern = "needle", granularity = "files" })));
     }
 
+    /// <summary>
+    /// A note the grant cannot read is left out of every granularity's answer, neither as a path nor
+    /// as the text of one of its lines, and nothing in the result says it was withheld.
+    ///
+    /// Each granularity is its own run of the search engine with its own output shape and its own
+    /// parse, so the scope filter is applied three separate times and one of them holding says
+    /// nothing about the other two. The result set is asserted exactly for that reason.
+    /// </summary>
+    [Theory]
+    [InlineData("lines", new[]
+    {
+        "Projects/Widget/Tasks.md:1:needle in tasks",
+        "Projects/Widget/Widget.md:2:plain",
+        "Projects/Widget/Widget.md:3:needle again",
+    })]
+    [InlineData("files", new[] { "Projects/Widget/Tasks.md", "Projects/Widget/Widget.md" })]
+    [InlineData("counts", new[] { "Projects/Widget/Tasks.md:1", "Projects/Widget/Widget.md:2" })]
+    public void Grep_FiltersWhatTheGrantCannotReadAtEveryGranularity(string granularity, string[] expected)
+    {
+        using var scoped = Layout(new ScratchVault(VaultScope.Of(["Projects"])));
+
+        // The pattern matches text the out-of-scope note already carries, so scope is the only thing
+        // keeping it out of the answer.
+        Assert.Equal(expected, Lines(Grep(scoped, new { pattern = "in", granularity })));
+    }
+
     // ---- Search outcomes, over the real engine ----
 
     [Fact]

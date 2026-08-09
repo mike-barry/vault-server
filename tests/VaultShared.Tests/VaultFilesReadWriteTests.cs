@@ -71,6 +71,26 @@ public sealed class VaultFilesReadWriteTests : IDisposable
     }
 
     [Fact]
+    public void Read_ANoteAnotherHandleHoldsOpenIsAFailureRatherThanNothingThereToRead()
+    {
+        // A note that is on disk but cannot be opened right now is a failure, never an absence.
+        // Widening the not-found case to every I/O error would report a note held by another writer
+        // as gone and let a caller conclude the name is free.
+        //
+        // The mechanism differs by platform. On Windows the note is held with no sharing, which
+        // raises a plain I/O error, and that is the case this assertion distinguishes from the two
+        // not-found kinds. Elsewhere the note's mode bits are cleared instead, which raises an
+        // access error that reaches the same failure classification by a different route.
+        _vault.WithNote("Projects/Widget.md", "# Widget\n");
+        using var held = _vault.Unreadable("Projects/Widget.md");
+
+        var outcome = Assert.IsType<ReadOutcome.Failed>(VaultFiles.Read(_vault.ToRead("Projects/Widget.md")));
+
+        Assert.Equal("Projects/Widget.md", outcome.Path);
+        Assert.NotEmpty(outcome.Reason);
+    }
+
+    [Fact]
     public void Read_AFailureReasonCarriesNoAbsolutePath()
     {
         _vault.WithFolder("Projects/Widget.md");

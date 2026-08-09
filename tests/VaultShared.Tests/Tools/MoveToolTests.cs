@@ -126,6 +126,29 @@ public sealed class MoveToolTests : IDisposable
     }
 
     /// <summary>
+    /// The repair runs over the whole vault rather than the caller's scoped view. A link in a note
+    /// the grant admits neither for reading nor for writing still follows the moved note, because a
+    /// link left naming a path nothing is at is broken for every reader of the vault, not only for
+    /// the caller that moved it.
+    /// </summary>
+    [Fact]
+    public void TheRepairFollowsTheMovedNoteIntoANoteOutsideTheCallersScope()
+    {
+        using var scoped = new ScratchVault(scope: VaultScope.Of(["Projects"]), opClasses: ["content:write"])
+            .WithNote("Projects/Widget/Notes.md", "# Notes\n")
+            .WithNote("Reference/Guide.md", "# Guide\n\nSee [[Notes]].\n");
+
+        // The grant does not admit this note for reading, so the rewrite below cannot be explained
+        // by the scoped surface reaching it.
+        Assert.IsType<PathResolution<ReadPath>.OutOfScope>(scoped.Access.ForRead("Reference/Guide.md"));
+
+        var result = Move(scoped, new { path = "Projects/Widget/Notes.md", destination = "Projects/Jottings.md", apply = true });
+
+        Assert.Equal(["Reference/Guide.md:3 Notes -> Jottings"], Rendered(result.RepairedLinks));
+        Assert.Equal("# Guide\n\nSee [[Jottings]].\n", scoped.TextOf("Reference/Guide.md"));
+    }
+
+    /// <summary>
     /// A link the move does not target, but whose resolution the move would change, is rewritten to
     /// name what it resolves to today and reported as pinned rather than repaired.
     /// </summary>

@@ -19,7 +19,7 @@ The software is built and working. The access layer, the tool layer, the MCP ser
 Current state, which any step should re-verify rather than trust:
 
 - `dotnet build --no-incremental` - 0 warnings, 0 errors
-- `dotnet test` - 1538 passing: 1174 `VaultShared`, 305 `VaultMcpServer`, 59 `VaultCli`
+- `dotnet test` - 1576 passing: 1212 `VaultShared`, 305 `VaultMcpServer`, 59 `VaultCli`
 
 ## Done
 
@@ -31,43 +31,19 @@ Current state, which any step should re-verify rather than trust:
 - [x] **Harvest and reconcile** - 944 behavioral cases taken blind from the preserved old repo and checked against this build: 679 matched, 20 findings
 - [x] **Triage** - every finding decided with the operator
 - [x] **Fix the findings** - all 20 closed, each with the tests that would have caught it
+- [x] **Work the coverage list** - fifty candidate gaps triaged against the code and the suite's assertions, twenty-two written, twenty-eight dropped
 
 ## What is left
 
-Three steps. Only the last is risky.
+Two steps. The second is the risky one.
 
-### 1. Work the coverage list
-
-Triage `Test-Coverage-Gaps.md` and add tests only where they earn their place. Expect to reject most of it; a suite of 1538 tests already covers what the specs justify, and this list is a second axis over the same code rather than a set of known defects.
-
-Start with the three the reconciliation promoted. Each is deliberately unscoped, which is exactly what a later reader "tidies up" by adding a scope check:
-
-- `delete`'s backlink census scans every note in the vault, not just the caller's scope. Drive `delete` under a narrow grant and assert it still reports a backlink from outside that scope.
-- `move`'s link repair does the same. Drive `move` under a narrow grant and assert a note outside the scope still gets repaired.
-- Search arguments reach ripgrep as data, never through a shell. Assert that a pattern beginning with `-` is searched for rather than read as a flag.
-
-Three rules keep this from bloating the suite:
-
-- **If you cannot say what breaks silently when the property regresses, skip it.** Some entries hold only because no argument exists to violate them, and there is nothing there to guard.
-- **Covered from another angle is covered.** An entry earns a test only where the property is genuinely unasserted.
-- **Widen a near-miss rather than adding a second test beside it.** Two tests asserting one property both have to be understood and both have to be kept true, and the second buys nothing.
-
-Watch for the shape where the suite itself hides a property: `SearchToolTests` sorts every result before asserting, so a change that started sorting would satisfy the whole suite. That kind of gap is found by reading assertions, not by adding tests.
-
-**Two branches cannot be tested, and this is why.** Do not spend the session rediscovering it:
-
-- `move`'s `partial_mutation` branch needs two notes linking to the moved note with the second write blocked. Note enumeration is unordered, so a fixture cannot control which fails first and any such test passes or fails by luck. `WikilinkRepairTests.AWriteThatFailsNamesWhatLandedAndWhatDidNot` covers the data the tool relays; the tool's branch on it is what stays uncovered.
-- The folder-note rename's partial path needs a folder move to succeed while the note rename inside it fails. The open-handle mechanism cannot arrange that, since the directory rename would have to carry an open handle across.
-
-Delete `Test-Coverage-Gaps.md` when the step is done.
-
-### 2. Fix dangling doc references in the test projects
+### 1. Fix dangling doc references in the test projects
 
 The three test projects do not generate documentation, so a broken `<see cref="..."/>` there is invisible.
 
 Enable `GenerateDocumentationFile` on each, build, fix what it reports, then revert the project files. `conventions/Comment-Sweep.md` has the procedure. Mechanical.
 
-### 3. Cut over to vault-server
+### 2. Cut over to vault-server
 
 This build's commits are layered onto the canonical `vault-server` repo rather than replacing its files, so that repo keeps its identity, its remote, and its history.
 
@@ -87,8 +63,8 @@ Keep this repo afterwards. It is the only intact record of the build and the thi
 
 **`BearerGrantMiddleware` logs every call's full arguments.** `src/VaultMcpServer/Auth/BearerGrantMiddleware.cs:131` writes `args={Args}` to an unrotated log on every request. With `edit` and `create` shipped, that means note content and frontmatter operations land in `logs/`. This is an operator decision that has not been made, and it is not blocked by anything above.
 
-**The harvest and its reconciliation documents are deleted.** They were the work list for a job that is finished, and `Test-Coverage-Gaps.md` holds the only part still owed work. Git history keeps them if anyone ever needs to look; the old case identifiers in that document resolve nowhere else.
+**The harvest, its reconciliation, and the coverage list are deleted.** Each was the work list for a job that is now finished. Git history keeps them if anyone ever needs to look, and nothing outside it resolves the old case identifiers they carried.
 
-**This does not extend to the specs or the design documents, which stay live until cutover.** They are the specification and the shape chosen to meet it, and no old implementation exists to check them against - which is why a change to behavior still lands its spec amendment and rewrites the affected design text in the same commit, exactly as before. A stale spec is undetectable from inside this repository and leaves the archived record describing something that was never decided. Steps 1 and 2 change no behavior and should need neither; a defect the coverage sweep turns up is an ordinary change and carries both.
+**This does not extend to the specs or the design documents, which stay live until cutover.** They are the specification and the shape chosen to meet it, and no old implementation exists to check them against - which is why a change to behavior still lands its spec amendment and rewrites the affected design text in the same commit, exactly as before. A stale spec is undetectable from inside this repository and leaves the archived record describing something that was never decided. Neither remaining step changes behavior, so neither should need one. The coverage sweep turned up no defect: every entry it worked was a behavior already correct and merely unasserted, and no test written for it required a change under `src/`.
 
 **`Questions.md` is empty and unused in this phase.** A gap the specs cannot answer is raised with the operator in session.

@@ -91,6 +91,19 @@ public sealed class FrontmatterRefusalTests
         var refusal = Refused(string.Empty, suppliedBlock: "a: b\n  c: d\n\t- x", newBody: Body);
 
         Assert.Equal(RefusalReason.SuppliedBlockInvalid, refusal.Reason);
+        Assert.Equal("The supplied block will not parse as frontmatter.", refusal.Message);
+    }
+
+    [Fact]
+    public void SuppliedBlockInvalid_TextThatParsesToSomethingOtherThanAMappingSaysSo()
+    {
+        // A sequence is valid YAML, so telling the caller it will not parse would point at the
+        // wrong fix. The reason is shared with the unparsable case because the caller supplied the
+        // text either way, and only the message separates the two mistakes.
+        var refusal = Refused(string.Empty, suppliedBlock: "- a\n- b", newBody: Body);
+
+        Assert.Equal(RefusalReason.SuppliedBlockInvalid, refusal.Reason);
+        Assert.Equal("The supplied block is not a mapping of keys to values.", refusal.Message);
     }
 
     // ---- Perimeter and hygiene ----
@@ -122,14 +135,23 @@ public sealed class FrontmatterRefusalTests
             Synthetic.Write(Body, Everything, [Set("doc.title", "Widget")], path: "  ")));
     }
 
-    [Fact]
-    public void ControlCharacter_InAScalarValueRefusesRatherThanStripping()
+    [Theory]
+    [InlineData("doc.title", "Widget\u001b[31m")]
+    [InlineData("doc.created", "2026-08-02\u001b[31m")]
+    [InlineData("doc.type", "guide\u001b[31m")]
+    [InlineData("doc.title\u001b[31m", "Widget")]
+    public void ControlCharacter_InAScalarValueRefusesRatherThanStripping(string key, string value)
     {
-        var refusal = Refused(Body, [Set("doc.title", "Widget\u001b[31m")]);
+        // The hygiene screen runs ahead of the key's own value constraint and ahead of the lookup
+        // that recognizes the key, so text carrying an escape sequence is reported as such rather
+        // than as a value in the wrong format or as a key nothing declares. A caller told to
+        // reformat a date, or handed the list of declared keys, resubmits the same control
+        // characters.
+        var refusal = Refused(Body, [Set(key, value)]);
 
         Assert.Equal(RefusalReason.ControlCharacter, refusal.Reason);
         Assert.Equal(0, refusal.Operation);
-        Assert.Equal(["doc.title"], refusal.Keys);
+        Assert.Equal([key], refusal.Keys);
     }
 
     [Fact]
@@ -156,24 +178,56 @@ public sealed class FrontmatterRefusalTests
         Assert.Equal("a \"quoted\" line\nand another", FrontmatterTree.Read(outcome.Content).Scalar("doc.title"));
     }
 
-    // ---- Declaration checks ----
-
     [Fact]
-    public void UnknownKey_AnUndeclaredKeyIsRefusedBeforeItsShapeMatters()
+    public void ControlCharacter_AnEntryFieldsNewlinesAreNotRefusedAndCannotBecomeStructure()
     {
-        var refusal = Refused(Body, [Set("invented.key", "x")]);
+        // An entry's field value becomes a tree node the emitter escapes, exactly as a scalar
+        // value does, so text shaped like a fence and a key is written as a value and reads back
+        // as one.
+        var outcome = FrontmatterWrite.Apply(Synthetic.Write(Body, Everything,
+        [
+            new FrontmatterOperation.AddEntry(
+                "doc.notes",
+                new EntryPayload.Mapping([new EntryFieldValue("routed", "skill-a\n---\ninjected: true")]),
+                null)
+        ]));
 
-        Assert.Equal(RefusalReason.UnknownKey, refusal.Reason);
-        Assert.Equal(["invented.key"], refusal.Keys);
+        var tree = FrontmatterTree.Read(outcome.Content);
+        var entry = Assert.Single(tree.Entries("doc.notes"));
+
+        Assert.Equal("skill-a\n---\ninjected: true", entry.Field("routed"));
+        Assert.Equal(FrontmatterShape.Absent, tree.ShapeOf("injected"));
+        Assert.Equal(Body, NoteSplit.Of(outcome.Content).Body);
     }
 
-    [Fact]
-    public void UnknownKey_ASuppliedBlockAdmitsOnlyDeclaredKeys()
+    // ---- Declaration checks ----
+
+    [Theory]
+    [InlineData("invented.key")]
+    [InlineData("agent.smuggled")]
+    public void UnknownKey_AnUndeclaredKeyIsRefusedBeforeItsShapeMatters(string key)
     {
-        // A supplied block is the other way a key can enter a note, and it is checked the same way.
-        var refusal = Refused(string.Empty, suppliedBlock: "invented.key: x", newBody: Body);
+        // Admission is the declared key map alone. A namespace rule sits beside the key
+        // declarations and reads like a second way to declare, but it only widens the authority a
+        // matching key requires, so a key under a declared prefix is as undeclared as one under no
+        // prefix at all. The refusal lands under an authority holding every operation class, which
+        // is what shows the key was never admitted rather than merely unaffordable.
+        var refusal = Refused(Body, [Set(key, "x")]);
 
         Assert.Equal(RefusalReason.UnknownKey, refusal.Reason);
+        Assert.Equal([key], refusal.Keys);
+    }
+
+    [Theory]
+    [InlineData("invented.key")]
+    [InlineData("agent.smuggled")]
+    public void UnknownKey_ASuppliedBlockAdmitsOnlyDeclaredKeys(string key)
+    {
+        // A supplied block is the other way a key can enter a note, and it is checked the same way.
+        var refusal = Refused(string.Empty, suppliedBlock: $"{key}: x", newBody: Body);
+
+        Assert.Equal(RefusalReason.UnknownKey, refusal.Reason);
+        Assert.Equal([key], refusal.Keys);
     }
 
     [Fact]
@@ -296,6 +350,19 @@ public sealed class FrontmatterRefusalTests
         Assert.Equal(
             RefusalReason.ShapeMismatch,
             Refused(Body, [new FrontmatterOperation.AddEntry("doc.title", new EntryPayload.Scalar("x"), null)]).Reason);
+    }
+
+    [Fact]
+    public void ShapeMismatch_AnEmptyInlineValueUnderABlockListKeyRefusesAsANonEmptyOneDoes()
+    {
+        // The shape a key holds is read from the node the block wrote, not from what that node
+        // carries, so a block-list key given an empty scalar is a shape error rather than a key
+        // with no value or a list with no entries. Admitting it as "no entries yet" would let a
+        // note that lost its whole list to a bad write pass as valid.
+        var refusal = Refused(string.Empty, suppliedBlock: "doc.notes: ''", newBody: Body);
+
+        Assert.Equal(RefusalReason.ShapeMismatch, refusal.Reason);
+        Assert.Equal(["doc.notes"], refusal.Keys);
     }
 
     [Fact]

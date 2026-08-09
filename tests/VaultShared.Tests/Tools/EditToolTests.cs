@@ -215,6 +215,44 @@ public sealed class EditToolTests : IDisposable
         Assert.True(result.BodyChanged);
     }
 
+    /// <summary>
+    /// Caller text arrives in whatever line ending the caller uses, and a note on disk carries line
+    /// feeds only. Both forms of a body edit normalize what they store, so neither a wholesale
+    /// replacement nor a substitution can leave a note with a mixture the frontmatter half does not
+    /// share. A substitution normalizes the text it searches for as well as the text it stores, so
+    /// an anchor a caller copied out of a note it read still matches.
+    /// </summary>
+    [Fact]
+    public void ABodyCarryingCarriageReturns_IsStoredWithLineFeedsAlone()
+    {
+        Edit(new
+        {
+            path = "Projects/Widget/Widget.md",
+            body = new { content = "# Rewritten\r\n\r\nFresh text.\r\n" },
+            expected_content_hash = HashOf(_vault, "Projects/Widget/Widget.md"),
+        });
+
+        Assert.Equal(
+            "---\ndoc.title: Widget\ndoc.type: note\n---\n# Rewritten\n\nFresh text.\n",
+            _vault.TextOf("Projects/Widget/Widget.md"));
+
+        Edit(new
+        {
+            path = "Inbox/Loose.md",
+            body = new { find = "No block at all.", replace = "One line.\r\nAnother line." },
+        });
+
+        Assert.Equal("# Loose\n\nOne line.\nAnother line.\n", _vault.TextOf("Inbox/Loose.md"));
+
+        Edit(new
+        {
+            path = "Inbox/Loose.md",
+            body = new { find = "One line.\r\nAnother line.", replace = "Replaced." },
+        });
+
+        Assert.Equal("# Loose\n\nReplaced.\n", _vault.TextOf("Inbox/Loose.md"));
+    }
+
     [Fact]
     public void ASubstitutionMatchingNothing_IsRefusedAndWritesNothing()
     {
@@ -472,6 +510,22 @@ public sealed class EditToolTests : IDisposable
             new RegistryState.Absent("declaration.json"));
 
         Assert.Contains("Other text.", _vault.TextOf("Projects/Widget/Widget.md"), StringComparison.Ordinal);
+    }
+
+    /// <summary>A body-only edit reads no key and composes no block, so a note whose frontmatter
+    /// will not parse stays editable in its body. The block is carried through byte for byte rather
+    /// than reserialized, which is what lets a caller repair the note by hand.</summary>
+    [Fact]
+    public void ABodyOnlyEditOnANoteWhoseBlockWillNotParse_RunsAndLeavesTheBlockUntouched()
+    {
+        using var vault = new ScratchVault(opClasses: [Synthetic.OpenClass])
+            .WithNote("Broken.md", "---\nnot: [a mapping\n---\n# Broken\n\nBody text.\n");
+
+        var result = Edit(vault, new { path = "Broken.md", body = new { find = "Body text.", replace = "Different text." } });
+
+        Assert.Equal("---\nnot: [a mapping\n---\n# Broken\n\nDifferent text.\n", vault.TextOf("Broken.md"));
+        Assert.True(result.BodyChanged);
+        Assert.False(result.FrontmatterChanged);
     }
 
     // ---- How the write path's refusals reach the caller ----

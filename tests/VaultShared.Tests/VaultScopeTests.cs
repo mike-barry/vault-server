@@ -66,6 +66,7 @@ public sealed class VaultScopeTests
         { "unscoped grant allows anything", "test", "Inbox/Note-Loose-Thought.md", Scopes(("test", VaultScope.Unscoped)), Outcome.InScope },
         { "path directly under a single-segment root", "test", "Projects/Widget/Widget.md", Scopes(("test", Rooted("Projects"))), Outcome.InScope },
         { "path directly under a multi-segment root", "test", "Projects/Widget/Inbox/Plan-Widget-Assembly.md", Scopes(("test", Rooted("Projects/Widget"))), Outcome.InScope },
+        { "path equal to the root itself", "test", "Projects/Widget", Scopes(("test", Rooted("Projects/Widget"))), Outcome.InScope },
         { "path equal to the root plus one segment", "test", "Projects/Widget/Tasks.md", Scopes(("test", Rooted("Projects/Widget"))), Outcome.InScope },
         { "path under a different top-level folder is out of scope", "test", "Inbox/Note-Loose-Thought.md", Scopes(("test", Rooted("Projects/Widget"))), Outcome.OutOfScope },
         { "sibling folder sharing a string prefix is out of scope", "test", "Projects/Widget-Retired/Notes.md", Scopes(("test", Rooted("Projects/Widget"))), Outcome.OutOfScope },

@@ -96,6 +96,49 @@ public sealed class VaultSearchTests : IDisposable
     }
 
     [Fact]
+    public void APatternThatReadsAsAnOptionOrAShellFragmentIsMatchedAsData()
+    {
+        using var literal = new ScratchVault()
+            .WithNote("Options/Files.md", "the --files option\n")
+            .WithNote("Options/Ignore.md", "the -i option\n")
+            .WithNote("Options/Shell.md", "the x & echo hi line\n");
+
+        // Handed to the engine positionally, "--files" and "-i" would be taken as its own options
+        // and answered with something plausible; composed into a command line, "x & echo hi" would
+        // reach an interpreter. Each comes back as the single note whose text contains it.
+        Assert.Equal(["Options/Files.md"], Files(literal.Access.SearchFiles("--files")));
+        Assert.Equal(["Options/Files.md"], Paths(literal.Access.SearchLines("--files"), m => m.Path));
+        Assert.Equal(["Options/Files.md"], Paths(literal.Access.SearchCounts("--files"), c => c.Path));
+
+        Assert.Equal(["Options/Ignore.md"], Files(literal.Access.SearchFiles("-i")));
+        Assert.Equal(["Options/Ignore.md"], Paths(literal.Access.SearchLines("-i"), m => m.Path));
+        Assert.Equal(["Options/Ignore.md"], Paths(literal.Access.SearchCounts("-i"), c => c.Path));
+
+        Assert.Equal(["Options/Shell.md"], Files(literal.Access.SearchFiles("x & echo hi")));
+        Assert.Equal(["Options/Shell.md"], Paths(literal.Access.SearchLines("x & echo hi"), m => m.Path));
+        Assert.Equal(["Options/Shell.md"], Paths(literal.Access.SearchCounts("x & echo hi"), c => c.Path));
+    }
+
+    [Fact]
+    public void AContentPatternIsMatchedCaseSensitivelyWhileTheGlobIsNot()
+    {
+        // The two halves of a search differ on purpose: which notes are searched is decided
+        // case-insensitively, and what counts as a match inside them is not. A caller searching for
+        // a proper noun or for TODO gets only the spelling it asked for.
+        using var cased = new ScratchVault().WithNote("Notes/Cased.md", "Needle here\n");
+
+        Assert.Equal(["Notes/Cased.md"], Files(cased.Access.SearchFiles("Needle")));
+        Assert.Equal(["Notes/Cased.md"], Paths(cased.Access.SearchLines("Needle"), m => m.Path));
+        Assert.Equal(["Notes/Cased.md"], Paths(cased.Access.SearchCounts("Needle"), c => c.Path));
+
+        Assert.Empty(Assert.IsType<SearchOutcome<VaultPath>.Results>(cased.Access.SearchFiles("needle")).Items);
+        Assert.Empty(Assert.IsType<SearchOutcome<MatchLine>.Results>(cased.Access.SearchLines("needle")).Items);
+        Assert.Empty(Assert.IsType<SearchOutcome<MatchCount>.Results>(cased.Access.SearchCounts("needle")).Items);
+
+        Assert.Equal(["Notes/Cased.md"], Files(cased.Access.SearchFiles("Needle", "notes/cased.MD")));
+    }
+
+    [Fact]
     public void ANarrowScopeWithholdsSilently()
     {
         using var narrow = Layout(new ScratchVault(VaultScope.Of(["Projects/Widget"])));

@@ -84,10 +84,18 @@ public sealed class FrontmatterValidatorTests
         Assert.Equal(ViolationRule.EmptyBlockList, Single("doc.notes: []").Rule);
     }
 
-    [Fact]
-    public void AnInlineValueWhereABlockListIsDeclared()
+    [Theory]
+    [InlineData("doc.notes: text")]
+    [InlineData("doc.notes: ''")]
+    [InlineData("doc.notes: '   '")]
+    [InlineData("agent.instructions:")]
+    public void AnInlineValueWhereABlockListIsDeclared(string block)
     {
-        Assert.Equal(ViolationRule.InlineValueWhereBlockListDeclared, Single("doc.notes: text").Rule);
+        // Shape is read from the node the note wrote, not from what the node holds, so an empty or
+        // whitespace-only inline value under a block-list key is the same violation as a non-empty
+        // one rather than a key carrying no value or a list with no entries. A note that lost its
+        // whole list to a bad write reports as damaged rather than as valid.
+        Assert.Equal(ViolationRule.InlineValueWhereBlockListDeclared, Single(block).Rule);
     }
 
     [Fact]
