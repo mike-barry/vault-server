@@ -345,10 +345,13 @@ public static class FrontmatterWrite
                     RefuseControlCharacters(field.Value, add, index, $"the field \"{field.Name}\"");
                     if (OperationText.IsEmpty(field.Name))
                         throw FrontmatterRefusal.At(RefusalReason.ValueRefused, index, add.Key, "The entry has an unnamed field.");
-                    // A field's value is tested for emptiness exactly as its name is, where empty
-                    // means null, empty, or whitespace only. An entry whose field carries no text
-                    // may have no identity to address, and an entry with no identity cannot be
-                    // named by a later removal.
+                    // Every field's value is tested for emptiness, not only a required one's, where
+                    // empty means null, empty, or whitespace only. It is hygiene over caller text
+                    // applied where an operation is decoded, exactly like the control-character
+                    // refusal beside it. The asymmetry that follows is accepted: a note may already
+                    // hold an entry with an empty optional field and validate clean, while an
+                    // operation adding that same entry is refused. Refusing is the safe direction,
+                    // since an entry with no identity cannot be named by a later removal.
                     if (OperationText.IsEmpty(field.Value))
                         throw FrontmatterRefusal.At(
                             RefusalReason.ValueRefused, index, add.Key, $"The field \"{field.Name}\" has no value.");

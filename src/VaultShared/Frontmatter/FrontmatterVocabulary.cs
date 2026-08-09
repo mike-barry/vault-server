@@ -17,7 +17,12 @@ namespace VaultShared.Frontmatter;
 /// envelope carry it to a client belongs to the tool vocabulary, because this layer must not know
 /// which front-end is asking.
 /// </summary>
-/// <param name="Keys">Every declared key, so a client can name one.</param>
+/// <param name="Keys">Every declared key, so a client can name one. No front-end projects this: the
+/// advertised <c>edit</c> schema is built from <paramref name="Branches"/> alone, and a refusal that
+/// names the declared keys reads them from the declaration itself, because the write path is the
+/// enforcement point and must not depend on an advertising projection. The member is kept because
+/// advertising the key set is this projection's job, and a consumer that needs it should not have to
+/// re-derive it from the enforcement path.</param>
 /// <param name="Branches">One branch per entry variant across every block-list key. Empty where no
 /// declaration is loaded, which is how a failed load reaches a client: <c>edit</c> stays advertised
 /// with its ordinary argument surface and its variant branches simply absent.</param>
