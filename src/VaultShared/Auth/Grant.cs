@@ -73,8 +73,16 @@ public sealed record Grant(string Id, IReadOnlySet<string> OpClasses, IReadOnlyS
 
     /// <summary>Reports whether the grant may operate in a vault.</summary>
     /// <param name="vault">The vault name.</param>
-    /// <returns>True where the grant reaches it.</returns>
-    public bool CanAccessVault(string vault) => Vaults.Contains(vault);
+    /// <returns>True where the grant reaches it, compared without regard to case.</returns>
+    /// <remarks>
+    /// The comparison is stated here rather than taken from whichever comparer built
+    /// <see cref="Vaults"/>, and matches <see cref="ScopeIn"/>, which reads its own map without
+    /// regard to case. The two answer one question between them - whether this grant reaches a vault,
+    /// and how far into it - so a set built with the ordinal default would let them disagree about a
+    /// vault named in another case, denying access here while a scope entry sat waiting there.
+    /// </remarks>
+    public bool CanAccessVault(string vault) =>
+        Vaults.Any(held => string.Equals(held, vault, StringComparison.OrdinalIgnoreCase));
 
     /// <summary>Reports whether the grant has expired.</summary>
     /// <param name="now">The instant to compare against.</param>
