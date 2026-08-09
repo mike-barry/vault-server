@@ -233,6 +233,31 @@ public sealed class CreateToolTests : IDisposable
         Assert.Null(result.PinnedLinks);
     }
 
+    /// <summary>
+    /// A folder already at the target is refused, exactly as an occupied note path is. The tool's
+    /// declaration promises an occupied target is refused, and it holds for both kinds.
+    /// </summary>
+    [Fact]
+    public void AnOccupiedFolderTargetIsRefusedRatherThanReportedAsACreation()
+    {
+        var refusal = Refusal(new { path = "Projects/Widget", kind = "folder" });
+
+        Assert.Equal(ToolCodes.AlreadyExists, refusal.Code);
+        Assert.Contains("Projects/Widget", refusal.Message);
+    }
+
+    /// <summary>
+    /// A folder creation refused for an occupied target seeds no placeholder, so a caller cannot
+    /// drop a file into a folder someone else made by asking to create it again.
+    /// </summary>
+    [Fact]
+    public void AnOccupiedFolderTargetSeedsNoPlaceholder()
+    {
+        Refusal(new { path = "Projects/Widget", kind = "folder", git_keep = true });
+
+        Assert.False(_vault.HasFile("Projects/Widget/.gitkeep"));
+    }
+
     /// <summary>The <c>.gitkeep</c> placeholder is derived from the requested folder rather than
     /// named by the caller, and it is created empty.</summary>
     [Fact]

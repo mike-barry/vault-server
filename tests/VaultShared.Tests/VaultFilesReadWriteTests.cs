@@ -210,6 +210,34 @@ public sealed class VaultFilesReadWriteTests : IDisposable
         Assert.True(_vault.HasFolder("Projects"));
     }
 
+    /// <summary>
+    /// A folder already at the target is reported as such rather than as a creation. The platform's
+    /// directory creation is idempotent, so without the probe the call would report making something
+    /// that was already there.
+    /// </summary>
+    [Fact]
+    public void CreateFolder_ReportsAnOccupiedTargetRatherThanACreationThatDidNotHappen()
+    {
+        _vault.WithFolder("Projects/Widget");
+
+        var outcome = Assert.IsType<WriteOutcome.AlreadyExists>(VaultFiles.CreateFolder(_vault.ToWrite("Projects/Widget")));
+
+        Assert.Equal("Projects/Widget", outcome.Path);
+    }
+
+    /// <summary>
+    /// A file occupying the folder's path is not a folder that is already there, so it is reported
+    /// from the attempt like any other write failure rather than as an occupied target.
+    /// </summary>
+    [Fact]
+    public void CreateFolder_OverAFileIsAFailureRatherThanAnOccupiedTarget()
+    {
+        _vault.WithNote("Projects/Widget", "Not a folder.\n");
+
+        Assert.IsNotType<WriteOutcome.Written>(VaultFiles.CreateFolder(_vault.ToWrite("Projects/Widget")));
+        Assert.IsNotType<WriteOutcome.AlreadyExists>(VaultFiles.CreateFolder(_vault.ToWrite("Projects/Widget")));
+    }
+
     [Fact]
     public void CreateFolder_RefusesANameOutsideTheGrammar()
     {

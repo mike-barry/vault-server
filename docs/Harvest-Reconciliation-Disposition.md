@@ -49,13 +49,9 @@ What triage produced, for whoever works the fix step. Every item is detailed in 
 
 Code changes, with their couplings:
 
-- **Folder-create occupancy probe** - R8
 - **The vault named in the inherited-lock message** - G6
 - **The inline case-insensitive flag named in `grep`'s pattern description** - G9
 - **`Grant.Allows` owning its comparison** - C4
-
-One spec amendment, landing with the group that makes it true: the check-and-write rule that cannot
-hold for directory creation (R8).
 
 Carried to the suite sweep: C1-C3, which are test gaps rather than code defects and are that step's
 highest-value entries.
@@ -67,25 +63,6 @@ autocomplete popup rather than on what following a link does, so the entry's jud
 The appendix is not edited; a reader should not take that entry at face value.
 
 ## Dispositions
-
-### R8 — genuine, to fix
-
-`create`'s advertised description promises an occupied target is refused, and a note honours it while
-a folder does not: `Directory.CreateDirectory` is idempotent and `VaultFiles.CreateFolder` probes
-nothing, so creating an existing folder reports a creation that did not happen. Probe for the folder
-before creating it and return the existing `already_exists` outcome. This makes one layer primitive
-an exception to the no-preliminary-probe convention, so the remarks on `VaultFiles.CreateFolder` are
-rewritten to carry why: the platform cannot report the distinction and the tool's contract requires
-it. The probe is racy against a non-tool writer, which narrows the wrong answer rather than removing
-it.
-
-This departs from `Spec-Access-Layer-Capabilities.md:77`, which holds that a creating form refuses an
-occupied target and that the write itself decides it, so a check and a write are never two operations.
-The spec's outcome and its mechanism cannot both hold for a folder: the platform offers no
-non-recursive directory create that fails when the target exists. The departure is taken because the
-reason behind the rule does not apply here - checking before a file write risks destroying content
-that appeared in between, while checking before a folder create risks only reporting a creation that
-another writer had just made. Nothing is destroyed either way. A line for the spec-amendment step.
 
 ### G6 — partly genuine, narrow fix
 

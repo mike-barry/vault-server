@@ -82,6 +82,8 @@ A write brings no directory into existence, and a missing parent is named in vau
 
 **Directory creation is a separate primitive, and only the tool that owns creation calls it.** It creates one folder under a parent that already exists, and refuses a missing parent exactly as a write does. Keeping it out of the write is what makes materializing a path one tool's decision rather than something every writer does as a side effect.
 
+**It refuses an occupied target too, and is the one place where the check and the write are two operations.** The platform offers no non-recursive directory creation that fails when the target is already there, so the outcome above and the one-operation rule cannot both hold, and the outcome is what a caller is owed: a creating form that reported making a folder someone else had already made would contradict what creation means everywhere else. The check-and-write rule is kept everywhere it protects something. What it protects is content appearing in the gap and being destroyed by the write that follows, and a folder create destroys nothing - losing the race means reporting an occupied target that appeared a moment earlier, or a creation another writer had just made. Neither answer costs a caller anything it cannot re-ask for.
+
 ## Moving
 
 Move is a layer primitive: the one mutating operation touching two paths, both resolved and scope-checked by the same construction (`Spec-Vault-Access-Design.md:What The Layer Owns`). Only the relocation is the primitive - wikilink repair, the folder note's rename, protective pinning, and partial-failure reporting are tool-layer work composed above it.

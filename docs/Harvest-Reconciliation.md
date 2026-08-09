@@ -93,17 +93,6 @@ The containment boundary came through with nothing lost, and several of its old 
 unrepresentable rather than checked. The losses concentrate in the mutating tools, and specifically
 in *ordering* — what is validated, and when, relative to what is written.
 
-## Regressions
-
-### R8 — a folder create over an existing folder succeeds silently
-
-- **Old:** an occupied target was refused (`CRD-018`).
-- **New:** `Directory.CreateDirectory` is idempotent and nothing checks first.
-- **Lost:** the call reports a creation that did not happen, contradicting the tool's own declaration
-  text.
-- **Test:** none.
-- **Recorded:** nowhere.
-
 ## Gaps
 
 ### G6 — the inherited-lock warning lost its remediation content

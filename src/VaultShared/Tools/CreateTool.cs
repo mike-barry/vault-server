@@ -200,6 +200,10 @@ public sealed class CreateTool(FrontmatterRegistries registries) : ITool
         {
             case WriteOutcome.Written:
                 break;
+            case WriteOutcome.AlreadyExists:
+                throw new ToolRefusal(
+                    ToolCodes.AlreadyExists,
+                    $"\"{arguments.Path}\" is already there. Creation never overwrites and never merges - use it, or create under a different name.");
             case WriteOutcome.InvalidName invalid:
                 throw MutationSupport.InvalidName(invalid.Name);
             case WriteOutcome.MissingParent missing:

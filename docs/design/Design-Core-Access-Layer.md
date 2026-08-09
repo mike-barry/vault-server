@@ -116,7 +116,9 @@ The layer reports these to its caller and writes nothing to health state. A fail
 
 **Two write forms, and the creating one refuses an existing target as part of the write.** The refusal is the filesystem's, from an atomic create, not a check the layer performs first. It is distinguishable from every other write failure.
 
-**Directory creation is its own primitive**, so materializing a path is a deliberate call rather than a side effect of writing. It creates one folder under an existing parent.
+**Directory creation is its own primitive**, so materializing a path is a deliberate call rather than a side effect of writing. It creates one folder under an existing parent, and refuses an occupied one.
+
+**That refusal is the one place a primitive probes before it acts.** The platform's directory creation is idempotent and reports no difference between making a folder and finding one, so nothing but a prior check can answer whether the target was occupied. The probe is racy in the way every check-then-act is, and the exception holds because a folder create destroys nothing: losing the race misreports which writer made the folder, where checking before a note write would risk destroying content that appeared in between.
 
 **Nothing creates a parent on the way past.** A missing parent is named in vault-relative terms, which the path type can render since it holds segments and its vault.
 
@@ -154,7 +156,7 @@ What may be *reported* out of such a pass - how much of an out-of-scope note rea
 
 ## What A Path Does Not Assert
 
-**Existence.** Containment is textual and touches no filesystem, so a path to something that does not exist resolves normally - `create` needs exactly that. No member offers an existence answer, because one would invite the check-then-act pattern the specs forbid for both creation and reading.
+**Existence.** Containment is textual and touches no filesystem, so a path to something that does not exist resolves normally - `create` needs exactly that. No member offers an existence answer, because a general one would invite the check-then-act pattern the specs forbid: a reader and a note writer both take their answer from the attempt. Folder creation is the single exception and probes inside its own primitive, where the platform reports no difference between making a folder and finding one ([[#The File Primitives]]).
 
 **A conforming name.** Names already on disk are not checked, so a note predating the grammar stays readable, searchable, and movable from.
 
@@ -180,6 +182,7 @@ The derivation of the lock name from the vault root ([[Spec-Vault-Access-Design.
 - **What a leading separator on a caller's path means.** One is dropped, so `/Projects/Widget.md` names what `Projects/Widget.md` names, in either separator spelling and on either platform. Every path a caller spells is measured from the vault root already, so the separator has one available meaning and reading it costs nothing; the wikilink namespace already reads it that way ([[Spec-Obsidian-Link-Behavior.md]]). Two are refused, since `//server/share` is a UNC path and dropping one separator would turn the host's name into a folder segment, and a drive-qualified path is refused as before. Rejected: refusing the spelling outright, which is right for a spelling with more than one possible meaning and buys nothing for one with a single meaning.
 - **Which enumeration domains the vault-wide pass offers.** Both of them, neither admitting dot entries, since a relocation needs the notes it reads and rewrites and the non-note files a folder rename carries, and neither question wants a dot path. Rejected: note enumeration widened to answer both, which would put every attachment into the list the pass reads and rewrites.
 - **Matching is a piece of its own, beside recognition and ranking.** Rejected: folding it into ranking, which is handed its candidates and finds none itself.
-- **Removal is two operations rather than one.** A path does not say which it names, and inspecting the target would be the probe every other primitive avoids.
+- **Removal is two operations rather than one.** A path does not say which it names, and inspecting the target would be a probe where the attempt already answers.
+- **Folder creation refuses an occupied target, and probes to do it.** No non-recursive directory create fails when the target exists, so the outcome a creating form owes its caller and the rule that a check and a write are one operation cannot both hold. The outcome wins: what that rule protects is content destroyed by the write following the gap, and a folder create destroys nothing. Rejected: reporting the platform's idempotent success, which tells a caller it made something that was already there.
 - **What the path type does not assert.** Neither existence, nor a conforming name, nor whether it names a file or a folder. Each is checked by the operation that needs it, where it needs it.
 - **Where the lock name derivation sits.** On `Vault`, in the layer, because the watcher must take it as code and is not a front-end.

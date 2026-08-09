@@ -135,14 +135,23 @@ public static class VaultFiles
     /// side effect of writing. The folder's name is checked against the name grammar.
     /// </summary>
     /// <remarks>
-    /// A folder that is already there is not an error. The platform's directory creation is
-    /// idempotent and cannot report the difference without a preliminary check, which every
-    /// primitive here avoids.
+    /// This is the one primitive here that probes before it acts. Every other one lets the attempt
+    /// decide, so that no gap exists in which another writer changes the answer between the check
+    /// and the act. The platform's directory creation is idempotent and reports no difference
+    /// between creating a folder and finding one, so a probe is the only way to answer whether the
+    /// target was occupied, which a caller is told.
+    ///
+    /// The probe is racy in the same way any check-then-act is, and the exception is taken because
+    /// what the race costs here is different. Losing it means reporting an occupied target that
+    /// another writer created a moment earlier, or reporting a creation that another writer had just
+    /// made. No content is destroyed either way, where checking before a file write would risk
+    /// destroying whatever appeared in between.
     /// </remarks>
     /// <param name="path">The folder to create.</param>
     /// <returns>
-    /// <see cref="WriteOutcome.Written"/> with a null hash, since a folder has no content, or a
-    /// classified failure.
+    /// <see cref="WriteOutcome.Written"/> with a null hash, since a folder has no content,
+    /// <see cref="WriteOutcome.AlreadyExists"/> where a folder is already there, or a classified
+    /// failure.
     /// </returns>
     public static WriteOutcome CreateFolder(WritePath path)
     {
@@ -157,6 +166,9 @@ public static class VaultFiles
         var parent = Directory.GetParent(target.Absolute);
         if (parent is null || !parent.Exists)
             return MissingParent(target);
+
+        if (Directory.Exists(target.Absolute))
+            return new WriteOutcome.AlreadyExists(target.Value);
 
         try
         {
