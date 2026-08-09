@@ -112,6 +112,11 @@ area. This is the audit trail for the filter: a judgment that is not here was no
 verbatim from the per-area reconciliations in `harvest/`, each of which also carries its own
 case-by-case verdicts and the cases that matched outright.
 
+Later work has made three entries describe a build that no longer exists. An entry is never edited,
+because a verbatim entry is the whole of what makes this auditable, so each of the three carries a
+nested **Reads against the build as it is now** note instead. The note is this document's, not the
+reconciling pass's; every unannotated entry is the pass's own words.
+
 ### Scope, path resolution, I/O, configuration
 
 - **SCP-018** — the old string-prefix-plus-trailing-separator containment check against the vault
@@ -303,12 +308,23 @@ case-by-case verdicts and the cases that matched outright.
 
 - **LNK-002** — heading is no longer a separately addressable capture; an occurrence is three extents (whole link, target, alias) — the target extent stops at the first `|` or `#` so everything after it survives a substitution byte-for-byte, which is the guarantee LNK-003 actually needs; `docs/Build-Decisions.md:48` records it.
 - **LNK-004** — no `IsEmbed` flag; the whole-link extent covers the leading `!` and a consumer tests for it (`ValueConstraint.cs:200`) — the distinction is still available and no maintenance consumer needs it, since `WikilinkUniverse` indexes notes only, so an attachment embed resolves to nothing and is never rewritten.
+  - **Reads against the build as it is now.** The universe indexes files, and a folder relocation does
+    repair the embeds naming a non-note file the move carries. The judgment holds for a different
+    reason than the one given: a rewrite replaces the target extent and leaves everything around it
+    alone, so an embed is repaired by the same code path as a link and no consumer needs to tell them
+    apart.
 - **LNK-010** — a backslash in a link *target* is now an ordinary character that names nothing, rather than folding to `/` — measured Obsidian behavior (`Spec-Obsidian-Link-Behavior.md:9`); path normalization still folds separators, so only the link namespace changed.
 - **LNK-012** — no function keys an arbitrary name, so there is no empty-name input to tolerate; `WikilinkName.StemOf` is total. N/A.
 - **LNK-015** — the leading component of a target may now be cut mid-character (`sign/Spec-Tool` names `.../Redesign/Spec-Tool`) — a measured widening recorded in `Spec-Obsidian-Link-Behavior.md:13`; the defect LNK-015 guarded against (a partial *final* component) is still refused and tested (`TheFinalComponentIsNeverPartial`), and interior components still cannot be cut (`OnlyTheLeadingComponentMayBeCut`).
 - **LNK-018** — an empty candidate component list cannot be represented: `VaultPath` always carries at least one segment. Enforced by construction. N/A.
 - **LNK-022** — the tie-break is now `string.CompareOrdinal` (case-sensitive) where the old was ordinal case-*insensitive* — matches `Spec-Obsidian-Link-Behavior.md:15`; it changes only pairs differing solely by case, which is a state a case-insensitive filesystem barely admits, and `TheTieBreakIsOrdinalRatherThanCultural` pins it.
 - **LNK-025** — **reversed** by the 2026-08-04 re-measurement: character count is gone, and among candidates climbing equally far the shallower wins, so T11's winner flips — deliberate, spec'd (`Spec-Obsidian-Link-Behavior.md:15`) and commented at `WikilinkRanking.cs:66-69`; called out in the summary because it contradicts a case the old system had measured twice.
+  - **Reads against the build as it is now.** Do not take this entry at face value. The reversal it
+    records was measured on the autocomplete suggestion popup, which orders a duplicated basename by
+    a rule of its own and is not a preview of what following a link opens, so the entry's grounds do
+    not support its judgment. Ranking has since been re-measured against what following a link does,
+    and the cited line range no longer says what the entry claims. `WikilinkRanking` and
+    `Spec-Obsidian-Link-Behavior.md` carry the rule that holds.
 - **LNK-028** — no relative path is ever spelled, so its character length cannot be a key — replaced by shared-prefix depth; the property LNK-028 existed to pin (that the spelling *is* the rule) has no analogue and nothing depends on it. N/A.
 - **LNK-029** — the longest-common-directory-prefix walk is gone as a path constructor and survives only as `SharedDepth`'s counter, which keeps the case-insensitive comparison. N/A.
 - **LNK-046** — the 60-second default and `VAULT_MCP_WRITE_LOCK_TIMEOUT_SECONDS` are replaced by a 30-second constant with no configuration path — `VaultWriteLock.cs:19-25` and `docs/Build-Decisions.md:120` both state the reason (a tunable liveness diagnostic gets raised until it stops reporting), and the timeout parameter that remains exists only so the refusal is testable.
@@ -471,6 +487,11 @@ should not expect to find the shared corpus mechanism.
   note, so a block is fenced or absent.
 - **CRD-006** — backslashes still fold (`ScopePath.Normalize`), but a leading `/` is now refused as
   rooted rather than trimmed — refusing a spelling is safer than silently reinterpreting it.
+  - **Reads against the build as it is now.** There is no divergence left here to have judged. One
+    leading separator is trimmed, as the old system trimmed it, because a vault-relative path is
+    measured from the vault root already and the separator has the one meaning. Two are refused, since
+    `//server/share` names a host rather than a folder. The backslash-folding half of the entry still
+    holds.
 - **CRD-007** — surrounding whitespace is no longer trimmed off the path; the segment fails the name
   grammar — same reason, and the grammar refusal names a spelling that would have worked.
 - **CRD-008** — `capabilitiesUsed`/`filesSkippedUnreadable` replaced by `AssertedAuthority`, present

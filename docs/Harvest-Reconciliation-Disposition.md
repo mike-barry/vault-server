@@ -39,13 +39,9 @@ A finding's own case IDs resolve into `harvest/` by their three-letter prefix; t
 The fix step is done: every finding it covered is closed, and its code, tests, design text and spec
 amendments have landed. What is left below belongs to the suite sweep.
 
-One warning about the parent document's own appendix, which the sweep clears along with the rest.
-Its `Improvements Taken` entries for LNK-004, LNK-025 and CRD-006 each record a reason that no
-longer holds: LNK-025 defends the link-ranking reversal as spec-backed and cites a line range in
-`WikilinkRanking.cs` that says something else, LNK-004 says the link universe indexes notes only,
-and CRD-006 says a leading separator is refused rather than trimmed. The judgments they defend still
-stand; their stated reasons do not. The appendix is a verbatim audit trail and is not edited, so a
-reader should not take those three at face value.
+Three entries in the parent document's `Improvements Taken` appendix - LNK-004, LNK-025 and CRD-006 -
+describe a build that later work replaced. They are annotated there rather than edited, since a
+verbatim entry is what makes that appendix an audit trail, and the annotation travels with the file.
 
 ## Containment properties with no test
 
