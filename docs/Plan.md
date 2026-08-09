@@ -28,28 +28,15 @@ Current state, which any step should re-verify rather than trust:
 - [x] **Build** - core access layer, frontmatter surface, tool infrastructure, all eight tools, both front-ends, and the suite
 - [x] **Comment passes** - chronology removed, then rewritten into the MSDN register with `CS1573` holding parameter completeness
 - [x] **Obsidian re-measurement** - link resolution measured again and the layer corrected against it
-- [x] **Harvest** - 944 behavioral cases taken blind from the preserved old repo, in `harvest/`
-- [x] **Reconcile** - the harvest checked against this build: 679 matched, 20 findings
+- [x] **Harvest and reconcile** - 944 behavioral cases taken blind from the preserved old repo and checked against this build: 679 matched, 20 findings
 - [x] **Triage** - every finding decided with the operator
 - [x] **Fix the findings** - all 20 closed, each with the tests that would have caught it
 
 ## What is left
 
-Four steps. Only the last is risky.
+Three steps. Only the last is risky.
 
-### 1. Extract the coverage gaps, then delete the harvest
-
-The reconciling pass listed roughly fifty behaviors that are present and correct in the code with nothing in the suite asserting them - a `Present in code, unasserted by the suite` section in each of the ten area files under `harvest/`. That list is the only thing in 840 KB of harvest material that still has a job.
-
-Lift it into `docs/Test-Coverage-Gaps.md`, then delete `harvest/`, `Harvest-Reconciliation.md` and `Harvest-Reconciliation-Disposition.md` in the same commit.
-
-**Each entry must stand alone**, because nothing will be left to look the case up in: the property, the code site, what the suite asserts today and what it does not, and what would break silently if the property regressed. Keep the old case IDs as provenance only - they resolve nowhere afterwards, and git history holds the source.
-
-**Extract everything; triage nothing.** Deciding what earns a test is step 2's job, done against the whole list. An entry dropped during extraction is one nobody can weigh.
-
-`C1`-`C3` from the reconciliation's own summary are three of these fifty rather than three beyond them - `CRD-095`, `MOV-043` and `ENU-046`/`ENU-030`. They were promoted for being the most severe, so carry them across marked as such. One list, not two.
-
-### 2. Work the coverage list
+### 1. Work the coverage list
 
 Triage `Test-Coverage-Gaps.md` and add tests only where they earn their place. Expect to reject most of it; a suite of 1538 tests already covers what the specs justify, and this list is a second axis over the same code rather than a set of known defects.
 
@@ -74,13 +61,13 @@ Watch for the shape where the suite itself hides a property: `SearchToolTests` s
 
 Delete `Test-Coverage-Gaps.md` when the step is done.
 
-### 3. Fix dangling doc references in the test projects
+### 2. Fix dangling doc references in the test projects
 
 The three test projects do not generate documentation, so a broken `<see cref="..."/>` there is invisible.
 
 Enable `GenerateDocumentationFile` on each, build, fix what it reports, then revert the project files. `conventions/Comment-Sweep.md` has the procedure. Mechanical.
 
-### 4. Cut over to vault-server
+### 3. Cut over to vault-server
 
 This build's commits are layered onto the canonical `vault-server` repo rather than replacing its files, so that repo keeps its identity, its remote, and its history.
 
@@ -100,8 +87,8 @@ Keep this repo afterwards. It is the only intact record of the build and the thi
 
 **`BearerGrantMiddleware` logs every call's full arguments.** `src/VaultMcpServer/Auth/BearerGrantMiddleware.cs:131` writes `args={Args}` to an unrotated log on every request. With `edit` and `create` shipped, that means note content and frontmatter operations land in `logs/`. This is an operator decision that has not been made, and it is not blocked by anything above.
 
-**The harvest and its reconciliation documents are not maintained, and step 1 deletes them.** They were the work list for a job that is finished. Do not audit them, annotate them, or keep their prose true in the meantime. The harvest is a blind snapshot of a deleted system, already consumed, and git history keeps it if anyone ever needs to look.
+**The harvest and its reconciliation documents are deleted.** They were the work list for a job that is finished, and `Test-Coverage-Gaps.md` holds the only part still owed work. Git history keeps them if anyone ever needs to look; the old case identifiers in that document resolve nowhere else.
 
-**This does not extend to the specs or the design documents, which stay live until cutover.** They are the specification and the shape chosen to meet it, and no old implementation exists to check them against - which is why a change to behavior still lands its spec amendment and rewrites the affected design text in the same commit, exactly as before. A stale spec is undetectable from inside this repository and leaves the archived record describing something that was never decided. Steps 1-3 change no behavior and should need neither; a defect the coverage sweep turns up is an ordinary change and carries both.
+**This does not extend to the specs or the design documents, which stay live until cutover.** They are the specification and the shape chosen to meet it, and no old implementation exists to check them against - which is why a change to behavior still lands its spec amendment and rewrites the affected design text in the same commit, exactly as before. A stale spec is undetectable from inside this repository and leaves the archived record describing something that was never decided. Steps 1 and 2 change no behavior and should need neither; a defect the coverage sweep turns up is an ordinary change and carries both.
 
 **`Questions.md` is empty and unused in this phase.** A gap the specs cannot answer is raised with the operator in session.
