@@ -71,16 +71,6 @@ variables, filesystem timestamp granularity); anything requiring the suite to
 serialize; a production seam existing only so a test can observe something;
 non-determinism, including unguaranteed enumeration order; elevation.
 
-## What is not yours to edit
-
-**Test method names are documentation.** They are not rewritten, however long or
-oddly phrased. Where a name no longer describes its body, raise it rather than
-editing it quietly. The same holds for test data.
-
-**String literals are wire contract.** Refusal messages, error codes, tool
-`Description` strings and schema text are caller-visible. A test asserting one is
-doing its job, and pinning one is not over-pinning.
-
 ## Widening against adding
 
 **The default is to widen** - another `[InlineData]` row or another assertion in
