@@ -19,11 +19,29 @@ public static class ScopePath
     /// Configured scope roots are validated and canonicalized through this at load time, and a
     /// candidate path is normalized through it again at request time, so both sides read a root the
     /// same way.
+    ///
+    /// One leading separator is dropped, so <c>/Projects/Widget.md</c> names the same note as
+    /// <c>Projects/Widget.md</c>. Every path here is measured from the vault root already, so a
+    /// leading separator has the one meaning and reinterpreting it silently costs nothing. Two
+    /// leading separators are refused instead: <c>//server/share</c> is a UNC path, and admitting it
+    /// would turn the server's name into an ordinary folder segment.
     /// </remarks>
     public static string[] Normalize(string path)
     {
         if (string.IsNullOrWhiteSpace(path))
             throw new ArgumentException("Scope path is empty.", nameof(path));
+
+        if (IsSeparator(path[0]))
+        {
+            if (path.Length > 1 && IsSeparator(path[1]))
+                throw new ArgumentException($"Scope path must be vault-relative, not rooted: {path}", nameof(path));
+            path = path[1..];
+        }
+
+        // Both separators are tested by hand rather than through the platform's rooted check, so a
+        // path spelled with backslashes is refused or accepted the same way on either platform. The
+        // check below still runs, and is what refuses a drive-qualified path, which carries no
+        // leading separator to drop.
         if (Path.IsPathRooted(path))
             throw new ArgumentException($"Scope path must be vault-relative, not rooted: {path}", nameof(path));
 
@@ -45,4 +63,9 @@ public static class ScopePath
             throw new ArgumentException($"Scope path resolves to the vault root: {path}", nameof(path));
         return [.. segments];
     }
+
+    /// <summary>Returns whether the character separates path segments in either spelling.</summary>
+    /// <param name="character">The character to test.</param>
+    /// <returns>True for a forward slash or a backslash.</returns>
+    private static bool IsSeparator(char character) => character is '/' or '\\';
 }

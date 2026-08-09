@@ -39,6 +39,8 @@ public sealed class VaultPathTests
     [InlineData("./Projects/Widget/Widget.md")]
     [InlineData("Projects/Gizmo/../Widget/Widget.md")]
     [InlineData("Projects//Widget/Widget.md")]
+    [InlineData("/Projects/Widget/Widget.md")]
+    [InlineData(@"\Projects\Widget\Widget.md")]
     public void TryCreate_RendersOneSeparatorConventionWhateverTheInput(string input)
     {
         // A caller quotes an emitted path back into a later call, so every spelling of one path
@@ -53,7 +55,8 @@ public sealed class VaultPathTests
     [Theory]
     [InlineData("../outside.md", "escaping")]
     [InlineData("Projects/../../outside.md", "escaping past the root after normalizing")]
-    [InlineData("/Projects/Widget.md", "rooted")]
+    [InlineData("//server/share.md", "two leading separators name a host rather than a folder")]
+    [InlineData("C:/Projects/Widget.md", "drive-qualified")]
     [InlineData("", "empty")]
     [InlineData("   ", "blank")]
     [InlineData(".", "denoting the vault root")]

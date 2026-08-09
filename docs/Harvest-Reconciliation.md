@@ -114,13 +114,6 @@ in *ordering* — what is validated, and when, relative to what is written.
 by vault. A `move` holds the lock across N rewrites plus the file move, so the tear is real, and
 `partial_mutation` covers only a tear this process caused.
 
-### G8 — a leading separator is now malformed, with no recovery
-
-`RDT-024`. `ScopePath.Normalize` rejects anything `Path.IsPathRooted` accepts
-(`src/VaultShared/Scope/ScopePath.cs:27`), so `/Projects/Widget.md` is refused where the old system
-trimmed the slash and read the note. The refusal carries no `suggested` payload, and behavior
-differs by platform for `\Projects`.
-
 ### G9 — `grep` lost its case-insensitivity opt-in
 
 `RDT-076`. The old tool declared `ignore_case`; `GrepArguments` is `Pattern`, `Granularity`,

@@ -55,6 +55,16 @@ public sealed class ReadToolTests : IDisposable
         Assert.Equal(Fenced, Read(new { path = "Projects/Widget/Widget.md" }));
     }
 
+    /// <summary>
+    /// A leading separator on an operand names the vault root, which is where every operand is
+    /// measured from already, so the note is read rather than the spelling refused.
+    /// </summary>
+    [Fact]
+    public void ALeadingSeparatorOnTheOperandNamesTheVaultRoot()
+    {
+        Assert.Equal(Fenced, Read(new { path = "/Projects/Widget/Widget.md" }));
+    }
+
     [Fact]
     public void Frontmatter_AnswersTheBlocksInnerTextWithoutItsFences()
     {

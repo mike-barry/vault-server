@@ -33,6 +33,10 @@ public sealed class ScopePathTests
     // Case is preserved, not folded: the comparison is case-insensitive, the segments are not
     // rewritten, so a root keeps the spelling the operator configured.
     [InlineData("projects/WIDGET", new[] { "projects", "WIDGET" })]
+    // One leading separator is dropped, in either spelling. Every path here is measured from the
+    // vault root already, so the separator names the place the path was going to be read from.
+    [InlineData("/Projects/Widget.md", new[] { "Projects", "Widget.md" })]
+    [InlineData(@"\Projects\Widget.md", new[] { "Projects", "Widget.md" })]
     public void Normalize_SegmentsAContainedRelativePath(string path, string[] expected)
     {
         Assert.Equal(expected, ScopePath.Normalize(path));
@@ -62,11 +66,14 @@ public sealed class ScopePathTests
     [InlineData("", "empty")]
     [InlineData("   ", "whitespace only")]
     [InlineData("\t", "whitespace only")]
-    [InlineData("/Projects", "rooted")]
-    [InlineData(@"C:\Projects", "rooted")]
+    [InlineData(@"C:\Projects", "drive-qualified, and carries no leading separator to drop")]
+    [InlineData("C:/Projects", "drive-qualified in the other spelling")]
+    [InlineData("//server/share", "two leading separators name a host, not a folder")]
+    [InlineData(@"\\server\share", "the same in the other spelling")]
     [InlineData("../outside", "escapes the vault")]
     [InlineData("Projects/../../outside", "escapes by way of a segment it had entered")]
     [InlineData("..", "escapes the vault")]
+    [InlineData("/..", "one separator drops, and what is left still escapes the vault")]
     public void Normalize_RefusesWhatIsNotAContainedRelativePath(string path, string why)
     {
         Assert.True(Record.Exception(() => ScopePath.Normalize(path)) is ArgumentException, why);
@@ -81,6 +88,7 @@ public sealed class ScopePathTests
     [InlineData(".")]
     [InlineData("./")]
     [InlineData("Projects/..")]
+    [InlineData("/")]
     public void Normalize_RefusesTheRootRatherThanAnsweringNoSegments(string path)
     {
         Assert.Throws<ArgumentException>(() => ScopePath.Normalize(path));

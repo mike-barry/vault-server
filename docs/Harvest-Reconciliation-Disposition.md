@@ -51,7 +51,6 @@ Code changes, with their couplings:
 
 - **Folder-create occupancy probe** - R8
 - **The vault named in the inherited-lock message** - G6
-- **Leading-separator trim** - G8
 - **The inline case-insensitive flag named in `grep`'s pattern description** - G9
 - **`Grant.Allows` owning its comparison** - C4
 
@@ -99,26 +98,6 @@ The old message's remediation half - that the vault may be torn, and that `git s
 diagnoses it - is deliberately not restored. It is a claim about repository state this build performs
 no repository operations to support, and the message states a fact about the dead process rather than
 a verdict on the vault.
-
-### G8 — genuine, to fix
-
-`ScopePath.Normalize` refuses anything `Path.IsPathRooted` accepts, so `/Projects/Widget.md` is
-malformed where the old system trimmed the slash and read the note. Trim a single leading separator
-instead. In a vault-relative namespace a leading slash has exactly one available meaning, and this
-build already reads it that way in its other namespace: `Spec-Obsidian-Link-Behavior.md:9` measured
-that a link target beginning with `/` is addressed from the vault root, so today `[[/Projects/Widget]]`
-resolves while `read /Projects/Widget.md` refuses.
-
-Two guards. Only one leading separator is trimmed - two are refused, which keeps a UNC path from
-becoming a folder named for the server, and matches the editor, where `//Delta` names nothing. And
-the drive-qualified refusal stays, since `C:/...` carries no leading separator and would otherwise
-pass. Normalization still runs before the scope check, so containment is unchanged, and `/..` trims
-to `..` and is refused as before.
-
-This reverses the reasoning recorded for `CRD-006` and `SCP-057`, that refusing a spelling beats
-silently reinterpreting it. That reasoning holds for a spelling with more than one possible meaning;
-this one has a single meaning. Recorded as a reversal so it is reviewable rather than quiet. No
-`suggested` payload is needed, since nothing is refused any more.
 
 ### G9 — design accepted, one description tweak
 

@@ -128,7 +128,7 @@ public sealed class VaultAccessTests : IDisposable
 
     [Theory]
     [InlineData("../outside.md")]
-    [InlineData("/rooted.md")]
+    [InlineData("//server/share.md")]
     [InlineData("")]
     [InlineData("Projects/..")]
     public void ForRead_MalformedTextIsItsOwnRefusal(string input)

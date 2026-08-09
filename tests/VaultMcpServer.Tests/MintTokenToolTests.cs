@@ -111,7 +111,7 @@ public sealed class MintTokenToolTests(TestVaultFixture fixture) : IClassFixture
 
     [Theory]
     [InlineData("test/../escape")]  // ".." escaping past the vault root
-    [InlineData("test//rooted")]    // an empty leading segment -> a rooted remainder
+    [InlineData("test///share")]    // two leading separators on the subtree -> a UNC host name
     public void Invoke_ScopeRootSubtreeThatCannotBeCanonicalized_IsRejectedAsError(string scopeRoot)
     {
         var store = MakeStore();
@@ -125,11 +125,15 @@ public sealed class MintTokenToolTests(TestVaultFixture fixture) : IClassFixture
         Assert.Equal(scopeRoot, result.Data!["scope_root"]);
     }
 
-    [Fact]
-    public void Invoke_ScopeRootSubtreeWithRedundantSegments_IsCanonicalized()
+    [Theory]
+    [InlineData("test/Projects/./Foo")]
+    // One leading separator on the subtree drops. A subtree is measured from the vault root
+    // already, so "/Projects/Foo" names what "Projects/Foo" names.
+    [InlineData("test//Projects/Foo")]
+    public void Invoke_ScopeRootSubtreeWithRedundantSegments_IsCanonicalized(string scopeRoot)
     {
         var store = MakeStore();
-        var result = Mint(store, Arguments(["test/Projects/./Foo"], ["content:read"]), "admin-token");
+        var result = Mint(store, Arguments([scopeRoot], ["content:read"]), "admin-token");
 
         Assert.False(result.IsError == true);
         using var minted = JsonDocument.Parse(result.Payload);
