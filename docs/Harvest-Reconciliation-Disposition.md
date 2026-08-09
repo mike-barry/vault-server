@@ -53,12 +53,10 @@ Code changes, with their couplings:
 - **The vault named in the inherited-lock message** - G6
 - **Leading-separator trim** - G8
 - **The inline case-insensitive flag named in `grep`'s pattern description** - G9
-- **Attachment embeds repaired through the existing pass** - G10
 - **`Grant.Allows` owning its comparison** - C4
 
-Three spec amendments, each landing with the group that makes it true: the check-and-write rule that
-cannot hold for directory creation (R8), the extensionless-target rule measured 2026-08-08 (G10),
-and attachment emit form written in as an open measurement (G10).
+One spec amendment, landing with the group that makes it true: the check-and-write rule that cannot
+hold for directory creation (R8).
 
 Carried to the suite sweep: C1-C3, which are test gaps rather than code defects and are that step's
 highest-value entries.
@@ -132,26 +130,6 @@ What that decision assumed is that the capability stays reachable, which quietly
 reads regex documentation rather than tool schemas. An agent caller plans around what is advertised.
 Name the inline case-insensitive flag in `GrepArguments.Pattern`'s description - a dozen tokens in the
 tool listing, against an argument nobody finds.
-
-### G10 — genuine, to fix through the existing pass
-
-A folder move physically carries an attachment and nothing rewrites the embeds naming it, because the
-universe is built from note enumeration. The operand perimeter is about what a tool may be given as
-an operand; a wikilink is note content, and keeping a note consistent through a mutation the tool
-performed is the tool's job.
-
-Fix by giving the relocation pass file enumeration and extending the relocation map to the files the
-folder carried - no second repair mechanism, since a prefix substitution of its own would be a second
-answer to "does this target name a moved file?", which `Design-Core-Access-Layer.md:137` exists to
-prevent. Nothing else changes: `WikilinkName.StemOf` strips only the note extension, so `diagram.png`
-registers under that name alone and a bare `[[diagram]]` still cannot reach it, matching the measured
-editor behavior that an extensionless target only ever names a `.md`.
-
-Two details for the doing. Dot entries stay out of the repair pass, unlike the destruction census that
-admits them. And a unique attachment basename will emit bare, which is a legal form and consistent
-with how notes are emitted, but the editor's own spelling for attachments is unmeasured - a candidate
-for the next measurement pass, along with the extensionless-target rule itself, which is load-bearing
-here and not yet in `Spec-Obsidian-Link-Behavior.md`.
 
 ## Containment properties with no test
 

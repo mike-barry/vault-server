@@ -20,8 +20,11 @@ namespace VaultShared.Links;
 /// Every pass runs over every note in the vault, through <see cref="VaultWidePass"/>, never only
 /// the notes inside the caller's scope. Links to a moved note can be anywhere, so a scoped pass
 /// leaves the rest of the vault pointing at nothing or stops a census short. Note enumeration is
-/// also the domain that decides whether an emitted link is short or qualified. The separate census
-/// a removal runs over the file surface belongs to the removing tool and is not this.
+/// also the domain that decides whether an emitted link is short or qualified. A folder relocation
+/// asks the file surface as well, for the one question note enumeration cannot answer: which
+/// non-note files the directory rename carries, so that an embed naming one of them is repaired
+/// with the rest. The separate census a removal runs over the file surface belongs to the removing
+/// tool and is not this.
 ///
 /// Nothing here asserts authority. The consumer asserts the wikilink dimension; the notes rewritten
 /// here contribute none of their own, because a rewrite is maintenance rather than authoring and
@@ -53,13 +56,13 @@ public static class WikilinkMaintenance
     /// <param name="to">Where the note will be.</param>
     /// <returns>The plan, or the failure that stopped the pass.</returns>
     public static LinkPassOutcome<WikilinkPlan> PlanNoteRelocation(VaultWidePass pass, VaultPath from, VaultPath to) =>
-        Relocate(pass, _ => new RelocationMap([new NoteRelocation(from, to)], null));
+        Relocate(pass, [], _ => new RelocationMap([new NoteRelocation(from, to)], [], null));
 
     /// <summary>
     /// Plans the link repair a folder's relocation causes, against the vault as it is now.
     /// </summary>
     /// <remarks>
-    /// Contained names do not change, so the map is a single prefix substitution over every note
+    /// Contained names do not change, so the map is a single prefix substitution over everything
     /// under the folder. The folder note is the one exception: it is renamed to match its new
     /// folder, and a folder without one does not get one created.
     ///
@@ -67,13 +70,36 @@ public static class WikilinkMaintenance
     /// and a repair computed against the folder note's old name would leave every link to it wrong.
     /// <see cref="WikilinkPlan.Relocated"/> and <see cref="WikilinkPlan.FolderNote"/> carry the map
     /// out so the relocating tool moves exactly what this planned against.
+    ///
+    /// The substitution runs over the vault's non-note files as well as its notes, because a
+    /// directory rename physically carries an attachment under the folder and an embed naming that
+    /// attachment names the old path afterwards. One substitution answers both, so nothing has to
+    /// decide twice whether a target names something the move carried. What the substitution produces
+    /// for a non-note file stays inside this pass: those files are repaired against, and are not part
+    /// of the relocation map the tool is given, which is the set of notes whose paths change.
+    ///
+    /// The non-note files elsewhere in the vault are read as well, and not only the carried ones.
+    /// They are what says whether an attachment's name is unique after the move, which is what
+    /// decides whether a repaired embed is emitted bare or as a full vault path.
     /// </remarks>
     /// <param name="pass">The vault-wide pass to enumerate and read through.</param>
     /// <param name="from">Where the folder is now.</param>
     /// <param name="to">Where the folder will be.</param>
     /// <returns>The plan, or the failure that stopped the pass.</returns>
-    public static LinkPassOutcome<WikilinkPlan> PlanFolderRelocation(VaultWidePass pass, VaultPath from, VaultPath to) =>
-        Relocate(pass, notes => ContainedBy(notes, from, to));
+    public static LinkPassOutcome<WikilinkPlan> PlanFolderRelocation(VaultWidePass pass, VaultPath from, VaultPath to)
+    {
+        var listed = pass.EnumerateFiles();
+        if (listed is not SearchOutcome<VaultPath>.Results census)
+            return new LinkPassOutcome<WikilinkPlan>.EnumerationFailed(listed);
+
+        // The notes among them arrive by note enumeration, which is the list the pass reads and
+        // measures its positions against.
+        var files = census.Items
+            .Where(file => !file.Value.EndsWith(VaultName.NoteExtension, StringComparison.OrdinalIgnoreCase))
+            .ToArray();
+
+        return Relocate(pass, files, notes => ContainedBy(notes, files, from, to));
+    }
 
     /// <summary>
     /// Plans the pins a note's creation requires, against the vault as it is now and before the new
@@ -259,12 +285,24 @@ public static class WikilinkMaintenance
     /// link is decided by comparing the two. Resolution depends only on where files are, not on what
     /// other links say, so the rewrites do not interact and every answer is computed against the
     /// same pair.
+    ///
+    /// Both universes index the enumerated notes first and the non-note files after them, so a
+    /// position below the note count is a note. That is what lets the rewrite loop use one index for
+    /// a note's text, its old path and its new one, while a link naming an attachment still resolves
+    /// and is repaired.
+    ///
+    /// A note relocation is given no files. Its emitted form is decided by the notes sharing the
+    /// moved note's basename, and a non-note file never shares one: a target with no extension names
+    /// only a note, and one carrying an extension never matches a name without it. Enumerating the
+    /// file surface for a note move would cost a second walk of the vault and change no answer.
     /// </remarks>
     /// <param name="pass">The vault-wide pass to enumerate and read through.</param>
+    /// <param name="files">Every non-note file in the vault, or empty where the relocation cannot
+    /// move one.</param>
     /// <param name="expand">Produces the relocation map from the enumerated notes.</param>
     /// <returns>The plan, or the failure that stopped the pass.</returns>
     private static LinkPassOutcome<WikilinkPlan> Relocate(
-        VaultWidePass pass, Func<IReadOnlyList<VaultPath>, RelocationMap> expand)
+        VaultWidePass pass, IReadOnlyList<VaultPath> files, Func<IReadOnlyList<VaultPath>, RelocationMap> expand)
     {
         var listed = pass.EnumerateNotes();
         if (listed is not SearchOutcome<VaultPath>.Results results)
@@ -273,11 +311,16 @@ public static class WikilinkMaintenance
         var notes = results.Items;
         var map = expand(notes);
 
-        var relocated = map.Pairs.ToDictionary(pair => pair.From, pair => pair.To);
+        IReadOnlyList<VaultPath> indexed = files.Count == 0 ? notes : [.. notes, .. files];
+
+        var relocated = map.Pairs
+            .Select(pair => (pair.From, pair.To))
+            .Concat(map.Carried)
+            .ToDictionary(pair => pair.From, pair => pair.To);
         var moved = new HashSet<int>();
-        var destinations = notes.ToArray();
-        for (var i = 0; i < notes.Count; i++)
-            if (relocated.TryGetValue(notes[i], out var destination))
+        var destinations = indexed.ToArray();
+        for (var i = 0; i < indexed.Count; i++)
+            if (relocated.TryGetValue(indexed[i], out var destination))
             {
                 destinations[i] = destination;
                 moved.Add(i);
@@ -287,7 +330,7 @@ public static class WikilinkMaintenance
         if (unreadable is not null)
             return new LinkPassOutcome<WikilinkPlan>.ReadFailed(unreadable.Path, unreadable.Reason);
 
-        var before = new WikilinkUniverse(notes);
+        var before = new WikilinkUniverse(indexed);
         var after = new WikilinkUniverse(destinations);
 
         var planned = new List<NoteRewrite>();
@@ -304,13 +347,13 @@ public static class WikilinkMaintenance
                     if (before.Resolve(wasAt, target) is not { } held)
                         return null;
 
-                    // The link named the relocated note, so re-emit it at the destination. This is
-                    // a repair.
+                    // The link named something the relocation moves, so re-emit it at the
+                    // destination. This is a repair.
                     if (moved.Contains(held))
                         return new Replacement(
                             Emit(after, destinations[held]),
                             Pinned: false,
-                            Alias: Refreshed(alias, notes[held], destinations[held]));
+                            Alias: Refreshed(alias, indexed[held], destinations[held]));
 
                     // A bystander link. Its target did not move, but the move may have put a nearer
                     // same-named candidate in its way, or moved the linking note itself. Resolution
@@ -327,14 +370,25 @@ public static class WikilinkMaintenance
     }
 
     /// <summary>
-    /// Builds a folder relocation's map as a prefix substitution over the enumerated notes under the
-    /// folder, with the folder note's rename overriding its own prefix mapping.
+    /// Builds a folder relocation's map as a prefix substitution over everything under the folder,
+    /// with the folder note's rename overriding its own prefix mapping.
     /// </summary>
-    /// <param name="notes">Every note the enumeration found.</param>
+    /// <remarks>
+    /// The notes and the other files are substituted by the one rule and separated only by where
+    /// each is reported. A directory rename carries both, so a target naming either of them names
+    /// the old path afterwards, and answering that question twice is how two answers come to
+    /// disagree.
+    ///
+    /// The file list is the whole vault's, so most of it is outside the folder and produces no pair.
+    /// </remarks>
+    /// <param name="notes">Every note the note enumeration found.</param>
+    /// <param name="files">Every non-note file in the vault.</param>
     /// <param name="from">Where the folder is now.</param>
     /// <param name="to">Where the folder will be.</param>
-    /// <returns>The contained notes' before and after paths, and where the folder note lands.</returns>
-    private static RelocationMap ContainedBy(IReadOnlyList<VaultPath> notes, VaultPath from, VaultPath to)
+    /// <returns>The contained notes' before and after paths, the same for the non-note files the
+    /// folder carries, and where the folder note lands.</returns>
+    private static RelocationMap ContainedBy(
+        IReadOnlyList<VaultPath> notes, IReadOnlyList<VaultPath> files, VaultPath from, VaultPath to)
     {
         var prefix = from.Value + '/';
         var folderNoteWas = prefix + from.Segments[^1] + VaultName.NoteExtension;
@@ -357,7 +411,17 @@ public static class WikilinkMaintenance
             pairs.Add(new NoteRelocation(note, moved));
         }
 
-        return new RelocationMap(pairs, folderNote);
+        var carried = new List<(VaultPath From, VaultPath To)>();
+
+        foreach (var file in files)
+        {
+            if (!file.Value.StartsWith(prefix, StringComparison.OrdinalIgnoreCase))
+                continue;
+
+            carried.Add((file, At(from.Vault, to.Value + file.Value[from.Value.Length..])));
+        }
+
+        return new RelocationMap(pairs, carried, folderNote);
     }
 
     /// <summary>
@@ -518,10 +582,17 @@ public static class WikilinkMaintenance
         return (texts, null);
     }
 
-    /// <summary>Represents which notes a relocation moves, and where its folder note lands.</summary>
-    /// <param name="Pairs">Each moved note's path before and after.</param>
+    /// <summary>Represents what a relocation moves, and where its folder note lands.</summary>
+    /// <param name="Pairs">Each moved note's path before and after. This is what the plan carries out
+    /// to the relocating tool.</param>
+    /// <param name="Carried">Each moved non-note file's path before and after, empty for a note
+    /// relocation. Repaired against and not reported: the tool moves these by renaming the directory
+    /// that holds them, and their names do not change.</param>
     /// <param name="FolderNote">Where the folder note lands, or null when there is none.</param>
-    private sealed record RelocationMap(IReadOnlyList<NoteRelocation> Pairs, VaultPath? FolderNote);
+    private sealed record RelocationMap(
+        IReadOnlyList<NoteRelocation> Pairs,
+        IReadOnlyList<(VaultPath From, VaultPath To)> Carried,
+        VaultPath? FolderNote);
 
     /// <summary>
     /// Converts character offsets into one-based line numbers, scanning the text forward only once.

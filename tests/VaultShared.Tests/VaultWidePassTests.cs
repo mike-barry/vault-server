@@ -67,6 +67,33 @@ public sealed class VaultWidePassTests : IDisposable
     }
 
     [Fact]
+    public void EnumerateFiles_ReachesEveryFileWhateverTheGrantAdmits()
+    {
+        Assert.Equal(
+            ["Archive/Deep/Beta.md", "Notes/Alpha.md", "Notes/Data.txt", "Projects/Widget.md"],
+            Values(_vault.Access.BypassingScope().EnumerateFiles()));
+    }
+
+    [Fact]
+    public void EnumerateFiles_AnswersAFileWhateverItsExtension()
+    {
+        // A folder relocation asks this surface for the non-note files a directory rename carries,
+        // which is exactly what note enumeration cannot see.
+        Assert.Contains("Notes/Data.txt", Values(_vault.Access.BypassingScope().EnumerateFiles()));
+    }
+
+    [Fact]
+    public void EnumerateFiles_LeavesOutDotEntries()
+    {
+        // The wider domain does not widen the dot rule. The destruction census admits dot entries
+        // because it reports what it destroys; a repair rewrites link text, and no link may name a
+        // path under a dot directory.
+        _vault.WithNote(".obsidian/workspace.json", "{}\n");
+
+        Assert.DoesNotContain(".obsidian/workspace.json", Values(_vault.Access.BypassingScope().EnumerateFiles()));
+    }
+
+    [Fact]
     public void Read_ReachesANoteTheGrantCannotRead()
     {
         var outcome = Assert.IsType<ReadOutcome.Content>(_vault.Access.BypassingScope().Read(At("Notes/Alpha.md")));

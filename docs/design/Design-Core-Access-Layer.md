@@ -144,7 +144,9 @@ Ranking models what following a link does. The editor's autocomplete popup order
 
 ## The Vault-Wide Pass
 
-Wikilink maintenance is the one pass scope does not bound: it must reach notes the grant can neither read nor write. Those operations - enumerate every note, read one, write one - take merely-contained paths and sit on their own object, obtained from `VaultAccess` by a call that names what it is.
+Wikilink maintenance is the one pass scope does not bound: it must reach notes the grant can neither read nor write. Those operations - enumerate every note, enumerate every file, read a note, write a note - take merely-contained paths and sit on their own object, obtained from `VaultAccess` by a call that names what it is.
+
+Both enumeration domains are here because a relocation asks both, for different questions: which notes the pass reads, rewrites and counts basenames over, and which non-note files a folder rename physically carries, so that an embed naming a carried attachment is repaired with the rest. Neither admits dot entries, unlike the scoped file surface, which offers the switch a destruction census needs. Reading and writing stay note-only - the pass rewrites link text, and nothing else in the vault holds any.
 
 The separate object is the whole of the mechanism. The operations themselves are ordinary, so a consumer composes what it needs rather than asking for a new primitive each time. What the seam buys is that bypassing scope is a deliberate call rather than a method within reach on an object a caller already holds, and that every site doing it is one grep away.
 
@@ -175,6 +177,7 @@ The derivation of the lock name from the vault root ([[Spec-Vault-Access-Design.
 - **No per-call operation writes to health state.** An operational failure is returned to its caller. The only thing the layer records is what it found while interpreting configuration handed to it at startup, which is a condition of the host rather than of one call.
 - **Where the engine's configured location is interpreted.** In the layer, once, from the configured text and a resolution base a front-end supplies: unset or empty means `rg` on `PATH`, a relative value resolves against the directory holding the host's own configuration, and an explicitly configured executable that is not there is recorded as degraded and still used, so search refuses while every operation that does not search keeps working. Fatal is rejected: it would take a host down over the two tools that search and refuse the six that do not.
 - **How the vault-wide pass sits outside the ladder.** Unscoped enumerate, read and write live on their own object, so bypassing scope is deliberate and greppable. Rejected: a single operation exchanging link occurrences for substitutions, which confines the pass to link text but makes every consumer wanting anything else a new primitive.
+- **Which enumeration domains the vault-wide pass offers.** Both of them, neither admitting dot entries, since a relocation needs the notes it reads and rewrites and the non-note files a folder rename carries, and neither question wants a dot path. Rejected: note enumeration widened to answer both, which would put every attachment into the list the pass reads and rewrites.
 - **Matching is a piece of its own, beside recognition and ranking.** Rejected: folding it into ranking, which is handed its candidates and finds none itself.
 - **Removal is two operations rather than one.** A path does not say which it names, and inspecting the target would be the probe every other primitive avoids.
 - **What the path type does not assert.** Neither existence, nor a conforming name, nor whether it names a file or a folder. Each is checked by the operation that needs it, where it needs it.

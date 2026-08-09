@@ -3,47 +3,54 @@ using VaultShared.Access;
 namespace VaultShared.Links;
 
 /// <summary>
-/// Indexes a set of notes by the names that can name them, and resolves bare wikilinks against it.
-/// Answers which note a target opens and how many notes share a basename.
+/// Indexes a set of files by the names that can name them, and resolves bare wikilinks against it.
+/// Answers which file a target opens and how many files share a name.
 /// </summary>
 /// <remarks>
 /// A relocation or a creation builds two of these, one for the vault before the change and one for
-/// after it, and decides each link by comparing the two answers. A note is identified by its
+/// after it, and decides each link by comparing the two answers. A file is identified by its
 /// position in the list rather than by its path, so it keeps the same identity across the pair even
 /// though its path may differ between them. Both universes must therefore be built from lists in
 /// the same order.
+///
+/// A caller whose question is about notes alone gives it notes alone. A relocation also gives it the
+/// non-note files a folder move carries, because an embed naming one of them has to be re-emitted at
+/// its destination like any other link.
 /// </remarks>
 internal sealed class WikilinkUniverse
 {
     private readonly IReadOnlyList<VaultPath> _paths;
 
     /// <summary>
-    /// Every name that names a note, mapped to the positions bearing it. A note is registered under
-    /// its final segment and under that segment's stem, because a link target may omit the
-    /// extension and both spellings name the same file.
+    /// Every name that names a file, mapped to the positions bearing it. A file is registered under
+    /// its final segment and, for a note, under that segment's stem as well, because a link target
+    /// may omit the note extension and both spellings name the same note.
     /// </summary>
     private readonly Dictionary<string, List<int>> _byName = new(StringComparer.OrdinalIgnoreCase);
 
     /// <summary>
-    /// Every whole vault path that names a note, mapped to the position bearing it, in both the
-    /// spelled-out form and the extensionless form the editor writes. A target spelling a note's
-    /// whole path takes that note outright, ahead of every same-named candidate.
+    /// Every whole vault path that names a file, mapped to the position bearing it - for a note, in
+    /// both the spelled-out form and the extensionless form the editor writes. A target spelling a
+    /// file's whole path takes that file outright, ahead of every same-named candidate.
     /// </summary>
     /// <remarks>
-    /// A note at the vault root is indexed here under its basename, because there its basename and
+    /// A file at the vault root is indexed here under its basename, because there its basename and
     /// its whole path are the same string. That is what makes a root note unreachable by ranking:
     /// it holds every bare link to its name however deeply a same-named note is created, and
     /// creating one at the root takes every such link across the vault at once.
     /// </remarks>
     private readonly Dictionary<string, int> _byPath = new(StringComparer.OrdinalIgnoreCase);
 
-    /// <summary>Initializes a universe over the given notes, indexed by position.</summary>
-    /// <param name="paths">The notes to resolve against. Positions index into this list.</param>
+    /// <summary>Initializes a universe over the given files, indexed by position.</summary>
+    /// <param name="paths">The files to resolve against. Positions index into this list.</param>
     public WikilinkUniverse(IReadOnlyList<VaultPath> paths)
     {
         _paths = paths;
         for (var i = 0; i < paths.Count; i++)
         {
+            if (!Nameable(paths[i]))
+                continue;
+
             var name = paths[i].Segments[^1];
             Register(name, i);
 
@@ -60,27 +67,29 @@ internal sealed class WikilinkUniverse
         // that target to the note whose whole path it is. Registering both forms together would
         // hand it to whichever note enumerated later instead.
         for (var i = 0; i < paths.Count; i++)
-            _byPath.TryAdd(WikilinkName.StemOf(paths[i].Value), i);
+            if (Nameable(paths[i]))
+                _byPath.TryAdd(WikilinkName.StemOf(paths[i].Value), i);
     }
 
-    /// <summary>Gets the note at the given position.</summary>
+    /// <summary>Gets the file at the given position.</summary>
     /// <param name="position">A position produced by <see cref="Resolve"/> or by construction order.</param>
     public VaultPath this[int position] => _paths[position];
 
     /// <summary>
-    /// Returns how many notes a bare target of this text names.
+    /// Returns how many files a bare target of this text names.
     /// </summary>
     /// <remarks>
     /// A count of one is what lets a link be emitted in its short form. Emission is canonical, not
-    /// minimal: a unique basename is written bare and a duplicated one is written as the full vault
+    /// minimal: a unique name is written bare and a duplicated one is written as the full vault
     /// path.
     /// </remarks>
-    /// <param name="name">The bare name to count, with or without the note extension.</param>
-    /// <returns>The number of notes bearing the name, or zero when none do.</returns>
+    /// <param name="name">The bare name to count: a note's name with or without the note extension,
+    /// and any other file's name with its own extension.</param>
+    /// <returns>The number of files bearing the name, or zero when none do.</returns>
     public int Bearers(string name) => _byName.TryGetValue(name, out var found) ? found.Count : 0;
 
     /// <summary>
-    /// Returns the position of the note a bare <paramref name="target"/> opens when written in
+    /// Returns the position of the file a bare <paramref name="target"/> opens when written in
     /// <paramref name="linkingNote"/>, or null when nothing carries the name. The answer is always
     /// deterministic, so a pass can decide a bare link without treating ambiguity as a failure.
     /// </summary>
@@ -95,9 +104,9 @@ internal sealed class WikilinkUniverse
     ///
     /// Resolution runs in two tiers, which is Obsidian's observed behaviour, over the address
     /// <see cref="WikilinkTarget.Address"/> produces. A target naming a whole vault path takes the
-    /// note at that path outright; only a target naming no path is ranked against the notes sharing
-    /// its basename. Collapsing the two would let a nested note take a link belonging to a root
-    /// note, and would miss the pins a root-level creation owes.
+    /// file at that path outright; only a target naming no path is ranked against the files sharing
+    /// its name. Collapsing the two would let a nested note take a link belonging to a root note,
+    /// and would miss the pins a root-level creation owes.
     ///
     /// A whole path is read from the vault root, never from the linking note's folder, so the first
     /// tier is never satisfied by a note sitting beside the linking note. An anchored target reaches
@@ -111,7 +120,7 @@ internal sealed class WikilinkUniverse
     /// <param name="linkingNote">The note the link is written in. Ranking distance and an anchored
     /// target are both measured from it.</param>
     /// <param name="target">The target text as the note carries it.</param>
-    /// <returns>The position of the note the target opens, or null when no note bears the name.</returns>
+    /// <returns>The position of the file the target opens, or null when nothing bears the name.</returns>
     public int? Resolve(VaultPath linkingNote, string target)
     {
         if (WikilinkTarget.Address(target, linkingNote) is not { } address)
@@ -153,6 +162,21 @@ internal sealed class WikilinkUniverse
             _byName[name] = bearers = [];
         bearers.Add(position);
     }
+
+    /// <summary>
+    /// Returns whether any target spelling can name the file, and so whether it belongs in the
+    /// index at all.
+    /// </summary>
+    /// <remarks>
+    /// Measured by following links in Obsidian: a target carrying no extension opens a markdown note
+    /// and never a file of any other type, and a file with another extension is opened only by a
+    /// target carrying that extension. A file whose name carries no extension is therefore named by
+    /// nothing. Indexing one would let a bare target reach a file the editor never opens with it, and
+    /// let that file displace the note of the same name.
+    /// </remarks>
+    /// <param name="path">The file to test.</param>
+    /// <returns>True when the file's name carries an extension.</returns>
+    private static bool Nameable(VaultPath path) => path.Segments[^1].LastIndexOf('.') > 0;
 }
 
 /// <summary>
@@ -171,15 +195,15 @@ internal static class WikilinkName
             : name;
 
     /// <summary>Returns the short form of a target: the basename alone, used when the name is unique.</summary>
-    /// <param name="path">The note being linked to.</param>
-    /// <returns>The note's basename without the note extension.</returns>
+    /// <param name="path">The file being linked to.</param>
+    /// <returns>The file's basename, without the note extension where it has one.</returns>
     public static string Bare(VaultPath path) => StemOf(path.Segments[^1]);
 
     /// <summary>
     /// Returns the qualified form of a target: the whole vault path. Used when the basename is
     /// duplicated, and always used for a pin, which has to name one file unambiguously.
     /// </summary>
-    /// <param name="path">The note being linked to.</param>
-    /// <returns>The note's vault-relative path without the note extension.</returns>
+    /// <param name="path">The file being linked to.</param>
+    /// <returns>The file's vault-relative path, without the note extension where it has one.</returns>
     public static string Qualified(VaultPath path) => StemOf(path.Value);
 }

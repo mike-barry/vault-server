@@ -127,12 +127,6 @@ differs by platform for `\Projects`.
 `PathGlob`. The case-sensitive default is correctly preserved, but the opt-in is expressible only as
 an undocumented inline `(?i)`.
 
-### G10 — embeds of attachments inside a relocated folder are neither repaired nor reported
-
-`MOV-072`. A folder move physically carries the attachment, and nothing rewrites or reports the
-embeds naming it. The delete census does handle non-note targets, so the asymmetry sits inside one
-area.
-
 ## Containment properties with no test
 
 Behavior present and correct in the code, with nothing asserting it. Listed only where the property

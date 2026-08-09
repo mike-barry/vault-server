@@ -203,7 +203,7 @@ Wikilink repair contributes nothing for the notes it rewrites. Those rewrites ar
 
 **Named is loud, swept is silent.** An excluded path given as an operand refuses with `path_excluded`, distinguishably from a miss and from a scope denial. That refusal comes from path resolution, before either tool's own validate phase runs.
 
-A sweeping pass runs no skip of its own. The note passes ask an enumeration that drops dot entries by default, so no excluded path reaches them. The destruction census is the one pass admitting dot entries, and it destroys what it finds ([[#Reporting Out Of The Vault-Wide Pass]]).
+A sweeping pass runs no skip of its own. The repair, pinning and census passes ask enumerations that drop dot entries, so no excluded path reaches them. The destruction census is the one pass admitting dot entries, and it destroys what it finds ([[#Reporting Out Of The Vault-Wide Pass]]).
 
 ## Reporting Out Of The Vault-Wide Pass
 
@@ -211,7 +211,7 @@ The three passes reach notes the caller's grant cannot read, so what they report
 
 **A pass reports identities and positions, never content.** `LinkRewrite` and `LinkOccurrence` carry a path, a line, and the link target - values the caller already named or the operation itself produced. No surrounding text, no note excerpt, and no key value leaves a note the grant does not admit. A caller therefore learns that some note links to the thing it named, which is the minimum a repair report can be, and nothing else about that note.
 
-Each pass asks the domain its question needs: note enumeration for the repair, the pinning census and the backlink scan; the file census, with dot entries admitted, for the destruction plan alone.
+Each pass asks the domain its question needs: note enumeration for the pinning census and the backlink scan; both surfaces for a relocation's repair, which rewrites notes and must also follow the non-note files a folder rename carries; the file census, with dot entries admitted, for the destruction plan alone.
 
 **That plan is the operation's footprint, not the caller's perimeter** ([[Spec-Tool-Capabilities.md#The Operand Perimeter]]). A caller cannot name a dot path, and a recursive removal still destroys every dot entry under the folder it was given. `.git` is the one exception and refuses the whole removal. No other dot directory is excepted.
 
@@ -303,6 +303,7 @@ Three rules govern the payloads. **A payload is liftable into a corrected call**
 - **`edit` is the only tool taking a content hash.** A hash describes one file and cannot guard the sets `delete` and `move` act on; their guard is the preview gate.
 - **A staleness refusal returns no hash.** Returning the current one would let a caller retry into content it never read.
 - **A sweeping pass runs no exclusion filter.** What a pass can see follows from the enumeration domain it asks for.
+- **A relocation repairs the links naming the non-note files a folder carries, and reports the files themselves nowhere.** `MoveResult.Moved` stays the notes whose paths change and artifact authority is priced over the same set. A directory rename carries an attachment under a name that does not change, so a caller has nothing to translate and no operand of its own to price; what does change is the target text of every embed naming it, which is a repair like any other. Rejected: widening the relocation map to every carried file, which would make both members answer a question about non-note content that no tool operand can name.
 - **A vault-wide pass reports identities and positions, never content.** The bound is on the report rather than on the primitive, because the primitive must reach notes the grant cannot.
 - **`delete` takes its authority from path policy alone and never reads the note it is removing.** A vault that wants a note priced above the ordinary write class names its path, or declares the `folder_note` structural rule that prices every folder note at once. Reading a note's own keys to classify its removal would put a second authority mechanism beside the declared one, and the paths that carry agent instructions are already nameable.
 - **Neither `delete` nor `move` reports that a folder note was left orphaned.** Whether a folder ought to have one is a judgment about how the vault is arranged rather than a property of the operation, so both tools do what was asked and report what they did. `move` still maintains the invariant where maintaining it is mechanical: a folder rename carries its folder note along, and `MoveResult.FolderNote` says where it landed. A vault that wants the operation priced rather than observed declares the structural rule, which refuses instead of warning.

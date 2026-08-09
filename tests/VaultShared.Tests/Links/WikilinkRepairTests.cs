@@ -407,6 +407,96 @@ public sealed class WikilinkRepairTests : IDisposable
         Assert.Equal(["Old/Note.md:1 Dupe -> Aa/Dupe"], LinkPass.Apply(_vault, plan));
     }
 
+    // ---- Files the folder carries ----
+
+    /// <summary>
+    /// A folder move is a directory rename, so it physically carries the attachments under the
+    /// folder and the embeds naming one of them have to follow it.
+    /// </summary>
+    [Fact]
+    public void AnEmbedOfAnAttachmentTheFolderCarriesIsRepaired()
+    {
+        _vault
+            .WithNote("Old/Old.md", "The folder note.\n")
+            .WithNote("Old/Resources/diagram.png", "Not really a PNG.\n")
+            .WithNote("Notes/Ref.md", "Embed ![[Old/Resources/diagram.png]].\n");
+
+        var plan = LinkPass.Plan(MoveFolder("Old", "New"));
+
+        // The name is unique after the move, so the canonical form is the short one.
+        Assert.Equal(["Notes/Ref.md:1 Old/Resources/diagram.png -> diagram.png"], LinkPass.Apply(_vault, plan));
+
+        // The relocation map the tool is given stays the notes whose paths change. The folder's
+        // other content moves with the directory under names that do not change.
+        Assert.Equal(
+            ["Old/Old.md -> New/New.md"],
+            plan.Relocated.Select(r => $"{r.From.Value} -> {r.To.Value}").Order(StringComparer.Ordinal));
+    }
+
+    [Fact]
+    public void AnAttachmentNameStillDuplicatedAfterTheMoveIsEmittedAsTheFullVaultPath()
+    {
+        // An attachment is emitted by the same canonical rule a note is: bare where the name is
+        // unique, the full vault path where it is not.
+        _vault
+            .WithNote("Old/diagram.png", "The one that moves.\n")
+            .WithNote("Other/diagram.png", "The one that keeps the name duplicated.\n")
+            .WithNote("Notes/Ref.md", "Embed ![[Old/diagram.png]].\n");
+
+        var plan = LinkPass.Plan(MoveFolder("Old", "New"));
+
+        Assert.Equal(["Notes/Ref.md:1 Old/diagram.png -> New/diagram.png"], LinkPass.Apply(_vault, plan));
+    }
+
+    [Fact]
+    public void AnExtensionlessTargetDoesNotNameAnAttachmentTheFolderCarries()
+    {
+        // A target carrying no extension only ever opens a markdown note, so neither spelling here
+        // names the attachment and neither is rewritten.
+        _vault
+            .WithNote("Old/diagram.png", "Not really a PNG.\n")
+            .WithNote("Notes/Ref.md", "See [[diagram]] and embed ![[Old/diagram]].\n");
+
+        var plan = LinkPass.Plan(MoveFolder("Old", "New"));
+
+        Assert.Empty(plan.Rewrites);
+        Assert.Equal("See [[diagram]] and embed ![[Old/diagram]].\n", _vault.TextOf("Notes/Ref.md"));
+    }
+
+    [Fact]
+    public void AFileWhoseNameCarriesNoExtensionIsNamedByNothingAndDisplacesNoNote()
+    {
+        // A file with no extension is reached by no target spelling at all: an extensionless target
+        // names a note, and a target carrying an extension does not match a name that has none. The
+        // bare link opens the note of that name from anywhere, including from beside the file, and
+        // moving the folder holding the file changes nothing about it.
+        _vault
+            .WithNote("Notes/Old/LICENSE", "Not a note.\n")
+            .WithNote("Docs/LICENSE.md", "# The note of that name\n")
+            .WithNote("Notes/Ref.md", "See [[LICENSE]].\n");
+
+        var plan = LinkPass.Plan(MoveFolder("Notes/Old", "Archive/Old"));
+
+        Assert.Empty(plan.Rewrites);
+        Assert.Equal("See [[LICENSE]].\n", _vault.TextOf("Notes/Ref.md"));
+    }
+
+    [Fact]
+    public void AFileUnderADotDirectoryInTheFolderIsNotRepaired()
+    {
+        // The repair pass leaves dot entries out of both of the domains it asks. A destruction
+        // census admits them because it reports what it destroys; a repair rewrites link text, and
+        // no path under a dot directory is reachable by the tool set at all.
+        _vault
+            .WithNote("Old/.cache/diagram.png", "Not really a PNG.\n")
+            .WithNote("Notes/Ref.md", "Embed ![[Old/.cache/diagram.png]].\n");
+
+        var plan = LinkPass.Plan(MoveFolder("Old", "New"));
+
+        Assert.Empty(plan.Rewrites);
+        Assert.Equal("Embed ![[Old/.cache/diagram.png]].\n", _vault.TextOf("Notes/Ref.md"));
+    }
+
     // ---- Rewriting the note text ----
 
     [Fact]

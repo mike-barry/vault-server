@@ -14,6 +14,8 @@ A target is first read as an **address**, then resolved in two tiers. Both steps
 
 Those candidates fall into two groups: those inside the linking file's own folder subtree and those outside it. Climbing out of that subtree costs more than descending into it at any depth, so a candidate three folders below the linking file beats one a single folder above it. Within either group the shortest relative path wins, measured in characters, each `..` costing only the three it is written with - so a candidate two folders down under short names beats one a single folder down under a long one. Only then are ties broken by ordinal comparison of the candidates' **vault paths**.
 
+**A target carrying no extension names a note and nothing else** (measured 2026-08-08). Both tiers read such a target as naming a markdown file, whatever path it spells and however deep it sits: `[[Diagram]]` and `[[Resources/Diagram]]` open `Diagram.md` and `Resources/Diagram.md` and never `Resources/Diagram.png`. A file with any other extension is named only by a target carrying that extension, so `Resources/Diagram.png` is reached by `[[Resources/Diagram.png]]` and by the bare `[[Diagram.png]]`, and by nothing shorter. A file whose name carries no extension at all is therefore named by nothing: no target spelling reaches it, and it takes no link from the note of that name however close it sits to the linking file.
+
 A path-qualified link is therefore not safe from re-aiming: it reaches its file by a rule wider than that file's own path, so a file created at the path the target spells takes the link from it. Only a target spelling a file's whole path is immune, which is what a pin writes.
 
 The two tiers together are what make a **vault-root file special**: a bare `[[Name]]` is the exact vault path of a root-level `Name.md`, so a root file holds every bare link to its basename unconditionally and cannot be displaced by a same-named file created anywhere below it. The same fact runs the other way - creating a file at the vault root captures every bare link to that basename across the whole vault at once, which is the widest re-aiming any single change can cause.
@@ -36,3 +38,9 @@ The autocomplete suggestion popup for a duplicated basename orders its candidate
 ## Coexistence
 
 An external tool rewriting links while Obsidian is open is safe: Obsidian re-indexes the result cleanly and performs no competing edits.
+
+## Not Yet Measured
+
+Open questions, each a measurement to take rather than a rule to infer from the ones above.
+
+**The form the editor emits a target in when the target is not a note.** Everything under "Maintenance Rules" was measured on links to notes. What the editor writes when it re-emits a link or an embed whose target is an attachment - whether a unique attachment basename collapses to the bare `![[Diagram.png]]` as a unique note basename collapses to `[[Note]]`, or the path is kept - has not been measured. The two answers differ for every embed of an attachment that a folder move carries. External tooling emits it bare, on the grounds that this is the form the note rule gives and that a unique basename resolves to the same file either way; nothing measured establishes that the editor agrees, and if it does not, every such embed is a link the editor rewrites on its next touch.

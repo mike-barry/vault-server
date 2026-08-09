@@ -374,6 +374,26 @@ public sealed class MoveToolTests : IDisposable
     }
 
     /// <summary>
+    /// An embed of an attachment the moved folder carries is repaired like any other link, and the
+    /// attachment itself is not reported among the moved notes: the directory rename carries it
+    /// under a name that does not change.
+    /// </summary>
+    [Fact]
+    public void EmbedsOfAnAttachmentARelocatedFolderCarriesAreRepaired()
+    {
+        _vault
+            .WithNote("Projects/Widget/Diagram.png", "Not really a PNG.\n")
+            .WithNote("Reference/Embeds.md", "Embed ![[Projects/Widget/Diagram.png]].\n");
+
+        var result = Move(new { path = "Projects/Widget", destination = "Archive/Gizmo", apply = true });
+
+        Assert.Contains("Reference/Embeds.md:1 Projects/Widget/Diagram.png -> Diagram.png", Rendered(result.RepairedLinks));
+        Assert.Equal("Embed ![[Diagram.png]].\n", _vault.TextOf("Reference/Embeds.md"));
+        Assert.True(_vault.HasFile("Archive/Gizmo/Diagram.png"));
+        Assert.Equal(["Archive/Gizmo/Gizmo.md", "Archive/Gizmo/Notes.md"], result.Moved);
+    }
+
+    /// <summary>
     /// A folder cannot be moved inside itself. The refusal is decidable from the two paths alone, so
     /// it is raised before the repair pass writes anything: the directory rename would fail, and the
     /// recovery a failure prints - re-run the identical move - could never succeed.

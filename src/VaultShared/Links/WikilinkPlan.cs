@@ -57,6 +57,10 @@ public sealed class WikilinkPlan
     /// Planning has to derive this map anyway, because a link's emitted form depends on where every
     /// note ends up. Exposing it lets the relocating tool move exactly what the plan was computed
     /// against instead of deriving a second map that could differ.
+    ///
+    /// The non-note files a folder carries are not here, though the pass does repair the links
+    /// naming them. A single directory rename relocates them under names that do not change, so a
+    /// caller has nothing to translate for them and the tool has nothing to move for them by name.
     /// </remarks>
     public IReadOnlyList<NoteRelocation> Relocated { get; }
 

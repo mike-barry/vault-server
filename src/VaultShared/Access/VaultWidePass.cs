@@ -1,11 +1,11 @@
 namespace VaultShared.Access;
 
 /// <summary>
-/// Enumerates, reads and writes notes across the whole vault, ignoring the caller's scope. Wikilink
-/// maintenance is the only work that needs this: moving a note changes what every link to it must
-/// say, and creating a note whose basename already exists changes what bare links to that basename
-/// resolve to. Either set of links can be anywhere, so the pass must reach notes the grant can
-/// neither read nor write.
+/// Enumerates the vault's files, and reads and writes its notes, across the whole vault and
+/// ignoring the caller's scope. Wikilink maintenance is the only work that needs this: moving a note
+/// changes what every link to it must say, and creating a note whose basename already exists changes
+/// what bare links to that basename resolve to. Either set of links can be anywhere, so the pass
+/// must reach notes the grant can neither read nor write.
 /// </summary>
 /// <remarks>
 /// Being a separate object is the whole of the mechanism. Reach it only through
@@ -46,6 +46,24 @@ public sealed class VaultWidePass
     public SearchOutcome<VaultPath> EnumerateNotes() =>
         VaultSearch.Enumerate(Vault, _engine, pattern: null, pruneDotEntries: true, path =>
             !path.HasDotSegment && path.Value.EndsWith(VaultName.NoteExtension, StringComparison.OrdinalIgnoreCase));
+
+    /// <summary>
+    /// Returns every file in the vault whatever its extension, whatever the grant's scope admits.
+    /// Dot entries are left out, exactly as note enumeration leaves them out.
+    /// </summary>
+    /// <remarks>
+    /// A relocation asks this alongside note enumeration. Renaming a folder physically carries the
+    /// non-note files under it, so an embed naming one of those files has to be re-emitted with the
+    /// rest of the repair, and the pass cannot see such a file through note enumeration.
+    ///
+    /// A caller asks both domains rather than taking the notes out of this one. They are separate
+    /// questions - which files a folder rename carries, and which notes the pass reads and rewrites -
+    /// and a caller that confused them would try to read and rewrite every attachment in the vault as
+    /// though it were a note.
+    /// </remarks>
+    /// <returns>The files, or a search failure.</returns>
+    public SearchOutcome<VaultPath> EnumerateFiles() =>
+        VaultSearch.Enumerate(Vault, _engine, pattern: null, pruneDotEntries: true, path => !path.HasDotSegment);
 
     /// <summary>
     /// Reads one note, classifying a failure exactly as the scoped read does. A pass over every
