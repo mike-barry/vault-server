@@ -148,7 +148,9 @@ Proposed changes to retained code, for approval with this document.
 
 **Stays in `VaultMcpServer`:** `ToolError`'s wrapping of that envelope in a `CallToolResult`, which is MCP's alone; the dispatcher, less the two checks below; HTTP authentication; host wiring; and the script-loading framework.
 
-**Rewritten:** the dispatcher's op-class floor check and its vault-membership check both move into the execute path, the second widened to compiled tools. The dispatcher keeps `tools/list`, `tools/call` routing, session tracking, and the script-tool branch.
+**Rewritten:** the dispatcher's op-class floor check and its vault-membership check both move into the execute path, the second widened to compiled tools. The dispatcher keeps `tools/list`, `tools/call` routing and the script-tool branch.
+
+**Deleted:** the dispatcher's set of per-request `McpServer` handles and the `notifications/tools/list_changed` broadcast the script-tools watcher drove from it. The watcher still refreshes the script-tool registry and records health; a client sees a changed tool set by re-issuing `tools/list`. An approved change to retained code.
 
 **Follows:** the three retained compiled tools return through the neutral result, so their camelCase members convert to snake_case with it - a breaking change for any existing caller of `health_check`, `mint_token` or `request_elevation`, and one `NativeToolSchemaTests` partly pins.
 
@@ -163,6 +165,7 @@ Proposed changes to retained code, for approval with this document.
 - **The execute path's steps precede a tool's five phases rather than interleaving.**
 - **The floor is checked before arguments are bound.** The retained dispatcher's ordering, kept, and it costs nothing since the lock is later than both.
 - **Whether a call targets a vault is a type on the argument record.** Rejected: matching a member named `vault`, as the dispatcher does for scripts. It is the only option for a `param()` block, but a compiled tool spelling the operand differently would escape the check silently - the same gap in a new place.
+- **The dispatcher tracks no sessions and sends no tools-list-changed notification.** The HTTP transport is stateless, where the SDK refuses an unsolicited server-to-client message, so the push could never arrive while the set of server handles grew by one entry per request. Rejected: pruning the set, which tidies a broadcast that cannot broadcast.
 - **An inherited lock proceeds and is logged.** There is nothing to replay and nothing to repair.
 - **The lock timeout is a constant, not a setting.**
 - **The CLI's grant is a setting naming an ordinary row.** No id is special-cased in code, so a default is re-pointed by one edit rather than by renaming grants.

@@ -18,16 +18,32 @@ One consequence worth knowing before deleting: if the watcher ever did fire, eve
 
 ## Acceptance criteria
 
-- [ ] `_sessions`, `TrackSession`, its two call sites, `NotifyCount`, and `NotifyToolsListChangedAsync` are removed from `ScriptToolDispatcher`, along with the `NotifyAsync` wrapper and the notify paragraph in `ScriptToolsWatcher`. Roughly 40 lines across the two files, plus the usings that fall out.
-- [ ] `ScriptToolsWatcher` keeps doing its actual job — refreshing `ScriptToolRegistry` and reporting health. Only the notification limb goes.
-- [ ] `tests/VaultMcpServer.Tests/ScriptToolsWatcherTests.cs` is updated: it would otherwise fail to compile, since two assertion lines read `NotifyCount` (`:97`, `:175`) and the dispatcher is threaded through `MakeRegistryAndDispatcher`. The other six tests cover registry refresh, debounce, a missing directory, health transitions and dispose, and must pass unchanged.
-- [ ] No test is written to replace the two removed assertions. They asserted a counter no caller can observe, against a push the file's own remarks concede there is nothing to receive — `conventions/Unit-Tests.md` does not admit that as a behaviour.
-- [ ] Any text in `docs/design/Design-Front-End-Projection.md` describing the dispatcher's session handling or the tools-list-changed notification is rewritten in the same commit, or confirmed not to mention it. No spec covers this subject.
+- [x] `_sessions`, `TrackSession`, its two call sites, `NotifyCount`, and `NotifyToolsListChangedAsync` are removed from `ScriptToolDispatcher`, along with the `NotifyAsync` wrapper and the notify paragraph in `ScriptToolsWatcher`. Roughly 40 lines across the two files, plus the usings that fall out.
+- [x] `ScriptToolsWatcher` keeps doing its actual job — refreshing `ScriptToolRegistry` and reporting health. Only the notification limb goes.
+- [x] `tests/VaultMcpServer.Tests/ScriptToolsWatcherTests.cs` is updated: it would otherwise fail to compile, since two assertion lines read `NotifyCount` (`:97`, `:175`) and the dispatcher is threaded through `MakeRegistryAndDispatcher`. The other six tests cover registry refresh, debounce, a missing directory, health transitions and dispose, and must pass unchanged.
+- [x] No test is written to replace the two removed assertions. They asserted a counter no caller can observe, against a push the file's own remarks concede there is nothing to receive — `conventions/Unit-Tests.md` does not admit that as a behaviour.
+- [x] Any text in `docs/design/Design-Front-End-Projection.md` describing the dispatcher's session handling or the tools-list-changed notification is rewritten in the same commit, or confirmed not to mention it. No spec covers this subject.
 - [ ] The commit message carries why the mechanism was deleted rather than fixed — that it cannot deliver under a stateless transport — since that is the fact a future reader will otherwise re-derive from the SDK docs.
-- [ ] `dotnet build --no-incremental` clean, `dotnet test` green.
+- [x] `dotnet build --no-incremental` clean, `dotnet test` green.
 
 ## Notes
 
 Reinstating a working push later, if script tools are ever shipped, is unaffected by this deletion. It would require a transport decision — either `Stateless = false`, which now runs against the SDK's own post-SEP-2567 default and needs session affinity behind any load balancer, or accepting that clients rediscover a changed tool set by re-issuing `tools/list`. Re-typing a concurrent set and a broadcast loop is not the expensive part of that.
 
 The three deferred tools (`lint`, `lint_suppressions`, `sync`) are compiled declared tools per `docs/Brief-Vault-Access-Build.md`, not `.ps1` files dropped into `tools/`, so picking them up would not revive the watcher on its own.
+
+### Implementation notes
+
+**The watcher's `dispatcher` constructor parameter went too.** With `NotifyAsync` gone the field had no reader, and the parameter could not be documented truthfully — `CS1573` requires a `<param>` for it, and the only honest one would say it is unused. Removing it is the tail of the notification limb rather than a separate change. It reaches `src/VaultMcpServer/Program.cs:197`, which now constructs `new ScriptToolsWatcher(toolsDir, scriptToolRegistry, logger)`. The dispatcher itself is unaffected: it is still constructed at `Program.cs:167` and still supplies both MCP handlers at `Program.cs:186-187`.
+
+**The test file lost its `RunnerFixture` and its `IClassFixture`.** `_runner`, `ToolRegistry`, `ToolExecution`, `HttpContextAccessor` and `VaultConfig` existed in `MakeRegistryAndDispatcher` only to construct the dispatcher the watcher no longer takes. The helper is now `MakeRegistry`, returning the registry and the health state. The `using Microsoft.AspNetCore.Http;` and `using VaultShared.Tools;` lines fell out with them. Nothing else in the class used the shared `ScriptToolRunner`, so no test now starts a runspace pool — the class is cheaper than it was.
+
+**`AddingScript_RefreshesRegistryAndNotifies` was renamed to `AddingScript_RefreshesRegistry`.** `conventions/Code-Comments.md` says a test method name is documentation and is not rewritten; it also says a comment describing a world that no longer exists is rewritten in the same commit. The second governs here, because the `AndNotifies` half named the assertion this task deletes. This is the only rename.
+
+**`ScriptToolDispatcher._logger` and `AttachLogger` are now dead and were deliberately left.** The notify catch at the old `:428` was the logger's only reader. The field is still assigned from `Program.cs:194` and produces no build warning, so nothing forces the issue, and neither member is named by the acceptance criteria. Anyone removing them touches `Program.cs` and the field-initializer comment at `ScriptToolDispatcher.cs:91-92` explaining why the logger is attached after `builder.Build()`.
+
+**Verified nothing else referenced the mechanism.** A repository-wide grep for `list_changed`, `ListChanged`, `session tracking`, `_sessions` and `TrackSession` finds only this task file and the design paragraph after the edit. No document under `docs/spec/` mentions either subject.
+
+**`docs/design/Design-Front-End-Projection.md` carried it in two places.** `What Moves And What Stays` listed session tracking among what the dispatcher keeps; that line now names only `tools/list`, `tools/call` routing and the script-tool branch, with a `Deleted:` paragraph beside it. A `What This Closes` bullet carries the rule and the rejected alternative, per `docs/design/README.md`.
+
+**Suite unchanged at 1560.** No test method was removed, only the two `NotifyCount` assertions: 1203 VaultShared, 298 VaultMcpServer, 59 VaultCli.

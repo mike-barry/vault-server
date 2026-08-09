@@ -195,7 +195,7 @@ scriptToolDispatcher.AttachLogger(app.Services.GetRequiredService<ILogger<Script
 executionLogger = app.Services.GetRequiredService<ILogger<ToolExecution>>();
 autoDenyApprover.AttachLogger(app.Services.GetRequiredService<ILogger<AutoDenyElevationApprover>>());
 var scriptToolsWatcher = new ScriptToolsWatcher(
-    toolsDir, scriptToolRegistry, scriptToolDispatcher, app.Services.GetRequiredService<ILogger<ScriptToolsWatcher>>());
+    toolsDir, scriptToolRegistry, app.Services.GetRequiredService<ILogger<ScriptToolsWatcher>>());
 
 // Logs every problem ServerHealthState collected during the config loads above, which all ran
 // before builder.Build() and so had no ILogger to write to. Fatal problems log as errors and

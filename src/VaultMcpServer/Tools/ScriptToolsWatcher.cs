@@ -9,9 +9,8 @@ namespace VaultMcpServer.Tools;
 /// An editor's save can fire several events in a row, so events are debounced behind one timer
 /// that is pushed back on each event and one save produces one refresh.
 ///
-/// After a refresh the watcher broadcasts <c>notifications/tools/list_changed</c> through
-/// <see cref="ScriptToolDispatcher.NotifyToolsListChangedAsync"/>, which is best-effort for the
-/// reasons documented there.
+/// A refresh is not announced to connected clients. A client sees a changed tool set the next
+/// time it issues <c>tools/list</c>.
 ///
 /// A missing tools directory is not watched, matching <see cref="ScriptToolLoader.Load"/>, which
 /// treats a missing folder as zero tools rather than a startup failure.
@@ -21,7 +20,6 @@ public sealed class ScriptToolsWatcher : IDisposable
     private static readonly TimeSpan DebounceWindow = TimeSpan.FromMilliseconds(300);
 
     private readonly ScriptToolRegistry _registry;
-    private readonly ScriptToolDispatcher _dispatcher;
     private readonly ILogger<ScriptToolsWatcher> _logger;
     private readonly FileSystemWatcher? _watcher;
     private readonly Timer _debounceTimer;
@@ -29,12 +27,10 @@ public sealed class ScriptToolsWatcher : IDisposable
     /// <summary>Starts watching the tools directory, if it exists.</summary>
     /// <param name="toolsDir">The directory to watch for <c>.ps1</c> changes.</param>
     /// <param name="registry">The registry re-scanned after a debounced change.</param>
-    /// <param name="dispatcher">Broadcasts the tools-list-changed notification after a refresh.</param>
     /// <param name="logger">Receives watcher status and failure messages.</param>
-    public ScriptToolsWatcher(string toolsDir, ScriptToolRegistry registry, ScriptToolDispatcher dispatcher, ILogger<ScriptToolsWatcher> logger)
+    public ScriptToolsWatcher(string toolsDir, ScriptToolRegistry registry, ILogger<ScriptToolsWatcher> logger)
     {
         _registry = registry;
-        _dispatcher = dispatcher;
         _logger = logger;
         _debounceTimer = new Timer(_ => OnDebounceElapsed(), null, Timeout.Infinite, Timeout.Infinite);
 
@@ -79,21 +75,6 @@ public sealed class ScriptToolsWatcher : IDisposable
             // enumerating the folder, and keeps the previously loaded tool set rather than
             // crashing the watcher.
             _logger.LogWarning(ex, "Failed to refresh script tools after a tools directory change; keeping the previous tool set.");
-            return;
-        }
-
-        _ = NotifyAsync();
-    }
-
-    private async Task NotifyAsync()
-    {
-        try
-        {
-            await _dispatcher.NotifyToolsListChangedAsync(CancellationToken.None);
-        }
-        catch (Exception ex)
-        {
-            _logger.LogWarning(ex, "Failed to broadcast a tools list_changed notification.");
         }
     }
 

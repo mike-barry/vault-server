@@ -1,4 +1,3 @@
-using System.Collections.Concurrent;
 using System.Text.Json;
 using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.Logging;
@@ -39,14 +38,6 @@ namespace VaultMcpServer.Tools;
 /// denial reaching a client has the same <c>{code, message, data?}</c> shape a tool script's own
 /// error carries, so a caller can branch on <c>code</c> whichever layer refused.
 /// </para>
-/// <para>
-/// The dispatcher also tracks the <see cref="McpServer"/> of every session that has made a
-/// request, so <see cref="ScriptToolsWatcher"/> can push a
-/// <c>notifications/tools/list_changed</c> message after a refresh. Under the stateless HTTP
-/// transport a session's <c>McpServer</c> is normally torn down as soon as its single
-/// request completes, so the notification is best-effort: a session that has already finished
-/// will not receive it, and a failed send drops that session from the tracked set.
-/// </para>
 /// </remarks>
 /// <param name="registry">Supplies the current script tools.</param>
 /// <param name="toolRegistry">Supplies the declared tools and their declarations.</param>
@@ -57,8 +48,6 @@ namespace VaultMcpServer.Tools;
 /// <param name="vaultConfig">Supplies the default vault for schemas and vault resolution.</param>
 public sealed class ScriptToolDispatcher(ScriptToolRegistry registry, ToolRegistry toolRegistry, ToolExecution execution, ScriptToolRunner runner, IHttpContextAccessor httpContextAccessor, ServerHealthState healthState, VaultConfig vaultConfig)
 {
-    private readonly ConcurrentDictionary<McpServer, byte> _sessions = new();
-
     /// <summary>
     /// The script-tool parameter name that targets a vault. A schema exposes it verbatim from
     /// the script's <c>param()</c> block, which spells it in snake_case. It is still matched
@@ -106,21 +95,12 @@ public sealed class ScriptToolDispatcher(ScriptToolRegistry registry, ToolRegist
     /// <param name="logger">The logger to write to.</param>
     public void AttachLogger(ILogger<ScriptToolDispatcher> logger) => _logger = logger;
 
-    /// <summary>
-    /// Gets the number of times <see cref="NotifyToolsListChangedAsync"/> has run. Tests read it
-    /// to confirm the watcher calls the dispatcher after a refresh, whether or not any session
-    /// was still reachable to receive the notification.
-    /// </summary>
-    public int NotifyCount { get; private set; }
-
     /// <summary>Answers an MCP <c>tools/list</c> request.</summary>
-    /// <param name="context">The request context, which also carries the calling session's server.</param>
+    /// <param name="context">The request context. The listing does not depend on it.</param>
     /// <param name="cancellationToken">Not used; the listing is assembled from state already in memory.</param>
     /// <returns>The declared tools, then the loaded script tools, then one entry per broken script.</returns>
     public ValueTask<ListToolsResult> ListToolsAsync(RequestContext<ListToolsRequestParams> context, CancellationToken cancellationToken)
     {
-        TrackSession(context.Server);
-
         // A script that fails to load produces no ScriptTool instance, so there is nothing to
         // mark as broken. Instead one listing entry is synthesized per current script-tool
         // problem, so a broken script still appears in tools/list rather than vanishing from
@@ -144,7 +124,6 @@ public sealed class ScriptToolDispatcher(ScriptToolRegistry registry, ToolRegist
     /// <returns>The tool's result, or an <c>isError</c> result carrying a refusal envelope.</returns>
     public async ValueTask<CallToolResult> CallToolAsync(RequestContext<CallToolRequestParams> context, CancellationToken cancellationToken)
     {
-        TrackSession(context.Server);
         var name = context.Params?.Name ?? "";
 
         // Declared tools are checked first. A name collision between the two surfaces would be
@@ -395,39 +374,4 @@ public sealed class ScriptToolDispatcher(ScriptToolRegistry registry, ToolRegist
         IsError = true,
         Content = [new TextContentBlock { Text = message }],
     };
-
-    /// <summary>Records a session's server so it can be notified of tool-list changes.</summary>
-    /// <param name="server">The calling session's server, ignored when null.</param>
-    private void TrackSession(McpServer? server)
-    {
-        if (server is not null)
-            _sessions[server] = 0;
-    }
-
-    /// <summary>
-    /// Broadcasts <c>notifications/tools/list_changed</c> to every session tracked so far.
-    /// <see cref="ScriptToolsWatcher"/> calls this after a refresh. A session whose send fails,
-    /// usually because its request has already completed under the stateless transport, is
-    /// dropped from the tracked set rather than retried.
-    /// </summary>
-    /// <param name="cancellationToken">Cancels the outstanding sends.</param>
-    /// <returns>A task that completes once every tracked session has been tried.</returns>
-    public async Task NotifyToolsListChangedAsync(CancellationToken cancellationToken)
-    {
-        NotifyCount++;
-        foreach (var server in _sessions.Keys)
-        {
-            try
-            {
-                await server.SendMessageAsync(
-                    new JsonRpcNotification { Method = NotificationMethods.ToolListChangedNotification },
-                    cancellationToken);
-            }
-            catch (Exception ex)
-            {
-                _logger.LogDebug(ex, "Dropping a tracked session that could not be notified of a tools list change.");
-                _sessions.TryRemove(server, out _);
-            }
-        }
-    }
 }
