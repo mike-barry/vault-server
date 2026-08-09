@@ -234,6 +234,21 @@ public sealed class VaultFilesMoveTests : IDisposable
             VaultFiles.MoveFolder(_vault.ToWrite("Projects/Widget"), _vault.ToWrite("Projects/Gizmo.md")));
     }
 
+    /// <summary>
+    /// Checks that the folder form refuses two paths from different vaults exactly as the file form
+    /// does. It is a defect in the calling layer rather than an answer a caller can be given, so it
+    /// throws, and the folder form has its own guard because neither form can reach the other's.
+    /// </summary>
+    [Fact]
+    public void MoveFolder_RefusesTwoPathsFromDifferentVaults()
+    {
+        _vault.WithFolder("Projects/Widget");
+        using var elsewhere = new ScratchVault();
+
+        Assert.Throws<ArgumentException>(() =>
+            VaultFiles.MoveFolder(_vault.ToWrite("Projects/Widget"), elsewhere.ToWrite("Gizmo")));
+    }
+
     // ---- Reading a move's refusals before the move ----
 
     /// <summary>

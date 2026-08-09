@@ -349,6 +349,12 @@ public sealed class FrontmatterRefusalTests
         Assert.Equal(
             RefusalReason.ShapeMismatch,
             Refused(Note("doc.notes:\n  - a hint"), [Set("doc.notes", "x")]).Reason);
+        // The note alone: doc.title is declared a scalar, so nothing in the declaration objects, and
+        // only the block this note gives the key does. The two cases above are both refused by the
+        // declaration, since doc.notes is declared a block list whatever any note holds.
+        Assert.Equal(
+            RefusalReason.ShapeMismatch,
+            Refused(Note("doc.title:\n  - one\n  - two"), [Set("doc.title", "Widget")]).Reason);
         Assert.Equal(
             RefusalReason.ShapeMismatch,
             Refused(Body, [new FrontmatterOperation.AddEntry("doc.title", new EntryPayload.Scalar("x"), null)]).Reason);

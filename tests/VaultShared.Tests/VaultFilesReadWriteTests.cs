@@ -275,9 +275,12 @@ public sealed class VaultFilesReadWriteTests : IDisposable
     {
         _vault.WithFolder("Projects");
 
-        VaultFiles.CreateFolder(_vault.ToWrite("Projects/Widget"));
+        var outcome = Assert.IsType<WriteOutcome.Written>(VaultFiles.CreateFolder(_vault.ToWrite("Projects/Widget")));
 
         Assert.Empty(Directory.EnumerateFileSystemEntries(_vault.Absolute("Projects/Widget")));
+        // Folder creation is the one write that stores no content, so it is the one that reports no
+        // hash. A digest here would describe bytes nothing wrote.
+        Assert.Null(outcome.ContentHash);
     }
 
     // ---- Encoding and line endings ----
@@ -316,5 +319,64 @@ public sealed class VaultFilesReadWriteTests : IDisposable
         VaultFiles.Replace(_vault.ToWrite("Projects/Widget.md"), "# Widget\r\nBody.\r\n");
 
         Assert.Equal(new UTF8Encoding(false).GetBytes("# Widget\nBody.\n"), _vault.BytesOf("Projects/Widget.md"));
+    }
+
+    // ---- The content hash ----
+
+    /// <summary>
+    /// The SHA-256 of the nine bytes <c>"# Widget\n"</c> encodes to as UTF-8 without a byte-order
+    /// mark, in lowercase hex. It is stated as a literal rather than computed here, because a digest
+    /// the test derives the way the code derives it would move with any change to either and pin
+    /// nothing.
+    /// </summary>
+    private const string WidgetDigest = "563b5e3ff9edbef5781f1a064d25fb5f478d6a986462d0561f5f68d1c3969ba6";
+
+    /// <summary>
+    /// Checks that a write reports the digest of the bytes it stored, that the line-ending
+    /// normalization is inside what is hashed, and that a read of the same file answers the same
+    /// value. The last is what lets a caller chain a write onto a write without reading in between,
+    /// and it holds only because both digests are taken over the stored bytes rather than over the
+    /// text either side was handed.
+    /// </summary>
+    [Fact]
+    public void AWriteReportsTheDigestOfTheBytesItStoredAndAReadOfTheSameFileAgrees()
+    {
+        _vault.WithFolder("Projects");
+
+        var created = Assert.IsType<WriteOutcome.Written>(
+            VaultFiles.Create(_vault.ToWrite("Projects/Widget.md"), "# Widget\n"));
+        Assert.Equal(WidgetDigest, created.ContentHash);
+
+        // The same content spelled with carriage returns stores the same bytes, so it reports the
+        // same digest. A hash taken over the caller's text instead of the stored bytes would differ
+        // here, and a later read would then disagree with the write that produced the file.
+        var replaced = Assert.IsType<WriteOutcome.Written>(
+            VaultFiles.Replace(_vault.ToWrite("Projects/Widget.md"), "# Widget\r\n"));
+        Assert.Equal(WidgetDigest, replaced.ContentHash);
+
+        var read = Assert.IsType<ReadOutcome.Content>(VaultFiles.Read(_vault.ToRead("Projects/Widget.md")));
+        Assert.Equal(WidgetDigest, read.ContentHash);
+        Assert.Equal(replaced.ContentHash, read.ContentHash);
+    }
+
+    /// <summary>
+    /// Checks that a write's digest describes what that write stored rather than the file's earlier
+    /// content, so two writes of different content to one note report different values.
+    /// </summary>
+    [Fact]
+    public void TwoWritesOfDifferentContentReportDifferentDigests()
+    {
+        _vault.WithNote("Projects/Widget.md", "# Original\n");
+
+        var first = Assert.IsType<WriteOutcome.Written>(
+            VaultFiles.Replace(_vault.ToWrite("Projects/Widget.md"), "# Widget\n"));
+        var second = Assert.IsType<WriteOutcome.Written>(
+            VaultFiles.Replace(_vault.ToWrite("Projects/Widget.md"), "# Gadget\n"));
+
+        Assert.Equal(WidgetDigest, first.ContentHash);
+        Assert.NotEqual(WidgetDigest, second.ContentHash);
+        Assert.Equal(
+            second.ContentHash,
+            Assert.IsType<ReadOutcome.Content>(VaultFiles.Read(_vault.ToRead("Projects/Widget.md"))).ContentHash);
     }
 }

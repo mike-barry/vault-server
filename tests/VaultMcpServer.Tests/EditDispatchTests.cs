@@ -324,6 +324,38 @@ public sealed class EditDispatchTests(EditDispatchTests.Fixture fixture) : IClas
         Assert.Equal(before, await File.ReadAllBytesAsync(fixture.NotePath));
     }
 
+    /// <summary>
+    /// Verifies the admitting direction of the same guard: a frontmatter operation carrying the note's
+    /// current hash is allowed through and lands on disk. This is the chaining the hash exists for -
+    /// read, decide, write back against what was read - and without it only the refusing direction is
+    /// covered, which a guard that refused every hash would also satisfy.
+    /// </summary>
+    /// <remarks>
+    /// The hash is taken from a read immediately before the call rather than from a constant, because
+    /// the note is this fixture's shared copy and other cases in this class rewrite it.
+    /// </remarks>
+    [Fact]
+    public async Task AFrontmatterOperationAgainstTheCurrentHash_IsAdmittedAndWritesTheNote()
+    {
+        var (readError, read) = await CallAsync(fixture, Fixture.WriteToken, "read", $$$"""{"path":"{{{Note}}}","with_content_hash":true}""");
+        Assert.False(readError, read);
+        using var current = JsonDocument.Parse(read);
+        var hash = current.RootElement.GetProperty("content_hash").GetString()!;
+
+        var (isError, text) = await EditAsync(
+            fixture, Fixture.WriteToken,
+            $$$"""{"path":"{{{Note}}}","operations":[{"op":"set","key":"doc.title","value":"Guarded"}],"expected_content_hash":"{{{hash}}}"}""");
+
+        Assert.False(isError, text);
+        using var doc = JsonDocument.Parse(text);
+        Assert.True(doc.RootElement.GetProperty("frontmatter_changed").GetBoolean());
+        Assert.Equal(["doc.title"], doc.RootElement.GetProperty("changed_keys").EnumerateArray().Select(v => v.GetString()));
+        // The guard admitted the call and the write went through, so the note no longer matches the
+        // hash that authorized it.
+        Assert.NotEqual(hash, doc.RootElement.GetProperty("content_hash").GetString());
+        Assert.Contains("doc.title: Guarded", await File.ReadAllTextAsync(fixture.NotePath), StringComparison.Ordinal);
+    }
+
     public sealed class Fixture : ProgramHostFixtureBase
     {
         public const string WriteToken = "test-edit-write-token";

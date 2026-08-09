@@ -53,11 +53,26 @@ public sealed class FrontmatterOperationTests
     public void SetScalar_AgainstAFieldHoldingABlockIsRefused()
     {
         // Without the shape check, a mistyped key would replace a whole list with a scalar.
-        var refusal = Refused(
+        var declared = Refused(
             Note("doc.notes:\n  - a hint"),
             new FrontmatterOperation.SetScalar("doc.notes", "text"));
 
-        Assert.Equal(RefusalReason.ShapeMismatch, refusal.Reason);
+        Assert.Equal(RefusalReason.ShapeMismatch, declared.Reason);
+        Assert.Equal(
+            "\"doc.notes\" is declared a block list, and a flat scalar operation would replace the list with a string.",
+            declared.Message);
+
+        // The declaration is not the only thing that can hold a block: a key declared a scalar can
+        // still have acquired a list in one note, by hand or by an earlier bad write. Only the note's
+        // own shape refuses that, and the messages are asserted because both refusals carry the same
+        // reason and only one of them is the list this check protects.
+        var byTheNote = Refused(
+            Note("doc.title:\n  - one\n  - two"),
+            new FrontmatterOperation.SetScalar("doc.title", "Widget"));
+
+        Assert.Equal(RefusalReason.ShapeMismatch, byTheNote.Reason);
+        Assert.Equal("\"doc.title\" holds a block in this note, and a scalar set would replace it.", byTheNote.Message);
+        Assert.Equal(["doc.title"], byTheNote.Keys);
     }
 
     [Fact]
@@ -124,6 +139,29 @@ public sealed class FrontmatterOperationTests
 
         Assert.Equal(RefusalReason.WholesaleRemovalRefused, refusal.Reason);
         Assert.Equal(["doc.notes"], refusal.Keys);
+        Assert.Equal(
+            "\"doc.notes\" holds entries that are not clearable wholesale - name them one at a time.",
+            refusal.Message);
+    }
+
+    /// <summary>
+    /// Checks that removing a key the declaration calls a scalar, which this note nonetheless gives a
+    /// block, is refused. Nothing declares what those entries are, so nothing declares them clearable,
+    /// and dropping the key would discard a list no schema was ever consulted about. The message is
+    /// asserted because the other wholesale refusal carries the same reason and a different remedy.
+    /// </summary>
+    [Fact]
+    public void RemoveField_AgainstAScalarKeyThatTheNoteGivesABlockIsRefused()
+    {
+        var refusal = Refused(
+            Note("doc.title:\n  - one\n  - two"),
+            new FrontmatterOperation.RemoveField("doc.title"));
+
+        Assert.Equal(RefusalReason.WholesaleRemovalRefused, refusal.Reason);
+        Assert.Equal(["doc.title"], refusal.Keys);
+        Assert.Equal(
+            "\"doc.title\" is declared a scalar and holds a block in this note, so nothing declares its entries clearable.",
+            refusal.Message);
     }
 
     [Fact]
@@ -206,6 +244,24 @@ public sealed class FrontmatterOperationTests
             Add("doc.notes", AnchorAt(AnchorPlacement.After, "skill-a"), ("routed", "skill-b")));
 
         Assert.Equal(RefusalReason.AmbiguousIdentity, refusal.Reason);
+        Assert.Equal("The anchor \"skill-a\" names more than one entry under \"doc.notes\".", refusal.Message);
+    }
+
+    /// <summary>
+    /// Checks that an add whose own identity already matches several entries is refused rather than
+    /// treated as the duplicate no-op. The no-op is safe only where exactly one entry answers to the
+    /// identity; with two, no single entry is the one the caller meant to be there already, and
+    /// appending a third would deepen the ambiguity instead of reporting it.
+    /// </summary>
+    [Fact]
+    public void AddEntry_AnIdentityAlreadyMatchingSeveralEntriesIsRefused()
+    {
+        var refusal = Refused(
+            Note("doc.notes:\n  - routed: skill-a\n  - routed: SKILL-A"),
+            Add("doc.notes", ("routed", "skill-a")));
+
+        Assert.Equal(RefusalReason.AmbiguousIdentity, refusal.Reason);
+        Assert.Equal("\"skill-a\" already addresses more than one entry under \"doc.notes\".", refusal.Message);
     }
 
     [Fact]

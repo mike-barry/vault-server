@@ -72,12 +72,16 @@ public sealed class VaultPathTests
         Assert.DoesNotContain("(Parameter", reason);
     }
 
-    [Fact]
+    /// <summary>
+    /// Checks that a drive-qualified path is refused rather than being read as a relative one. The
+    /// case is Windows-only, and gated rather than made portable: on a platform whose paths carry no
+    /// drive letter, the same text is an ordinary relative name whose first segment happens to
+    /// contain a colon, and admitting it there is correct.
+    /// </summary>
+    [WindowsOnlyFact]
     public void TryCreate_RefusesAnAbsolutePathOnThisPlatform()
     {
-        var rooted = Path.Combine(Path.GetTempPath(), "elsewhere", "Widget.md");
-
-        Assert.False(VaultPath.TryCreate(TestVault, rooted, out _, out _));
+        Assert.False(VaultPath.TryCreate(TestVault, @"C:\elsewhere\Widget.md", out _, out _));
     }
 
     [Fact]

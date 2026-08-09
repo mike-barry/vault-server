@@ -1,3 +1,4 @@
+using System.Text;
 using VaultShared.Access;
 using VaultShared.Scope;
 
@@ -16,7 +17,22 @@ public sealed class VaultSearchTests : IDisposable
 {
     private readonly ScratchVault _vault = Layout(new ScratchVault());
 
-    public void Dispose() => _vault.Dispose();
+    /// <summary>Holds the stand-in engines <see cref="Faked"/> writes, deleted with the fixture.</summary>
+    private readonly string _standIns = Directory.CreateTempSubdirectory("vault-stand-in-engine-").FullName;
+
+    private int _standInCount;
+
+    public void Dispose()
+    {
+        _vault.Dispose();
+        try
+        {
+            Directory.Delete(_standIns, recursive: true);
+        }
+        catch (IOException)
+        {
+        }
+    }
 
     private static ScratchVault Layout(ScratchVault vault) => vault
         .WithNote("Notes/Alpha.md", "needle here\nplain\nneedle again\n")
@@ -244,5 +260,132 @@ public sealed class VaultSearchTests : IDisposable
         Assert.IsType<SearchOutcome<MatchLine>.EngineUnavailable>(missing.Access.SearchLines("needle"));
         Assert.IsType<SearchOutcome<VaultPath>.EngineUnavailable>(missing.Access.SearchFiles("needle"));
         Assert.IsType<SearchOutcome<MatchCount>.EngineUnavailable>(missing.Access.SearchCounts("needle"));
+    }
+
+    // ---- An engine that answers something the layer cannot use ----
+
+    /// <summary>
+    /// Builds a vault whose search engine is a stand-in script: it ignores every argument, copies
+    /// fixed bytes to each stream, and exits with a fixed code. A real engine cannot be made to
+    /// produce a broken answer, and the engine's location is the seam that lets one be substituted,
+    /// so this is how the failed outcome is reached without a hook in the layer under test.
+    /// </summary>
+    /// <remarks>
+    /// The payloads are copied out of files rather than echoed by the script, because the cases below
+    /// need a NUL separator and text a shell would otherwise interpret. No payload carries a newline,
+    /// so nothing here depends on how either shell's copy command treats line terminators.
+    ///
+    /// The vault is empty. Nothing walks it, because the stand-in never looks at the directory it was
+    /// started in, and a vault path is well-formed or not by its text alone.
+    /// </remarks>
+    /// <param name="standardOutput">What the stand-in writes to standard output.</param>
+    /// <param name="standardError">What the stand-in writes to standard error.</param>
+    /// <param name="exitCode">The code the stand-in exits with.</param>
+    /// <returns>The vault, whose access runs the stand-in. Dispose it.</returns>
+    private ScratchVault Faked(string standardOutput = "", string standardError = "", int exitCode = 0)
+    {
+        var name = $"stand-in-{_standInCount++}";
+        var script = Path.Combine(_standIns, OperatingSystem.IsWindows() ? name + ".cmd" : name);
+        var outPath = Path.Combine(_standIns, name + ".out");
+        var errPath = Path.Combine(_standIns, name + ".err");
+        var utf8 = new UTF8Encoding(encoderShouldEmitUTF8Identifier: false);
+        File.WriteAllText(outPath, standardOutput, utf8);
+        File.WriteAllText(errPath, standardError, utf8);
+
+        string[] lines = OperatingSystem.IsWindows()
+            ? ["@echo off", $"type \"{outPath}\"", $"type \"{errPath}\" 1>&2", $"exit {exitCode}"]
+            : ["#!/bin/sh", $"cat '{outPath}'", $"cat '{errPath}' 1>&2", $"exit {exitCode}"];
+
+        File.WriteAllText(script, string.Join('\n', lines) + "\n", utf8);
+        if (!OperatingSystem.IsWindows())
+            File.SetUnixFileMode(script, UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute);
+
+        return new ScratchVault(engine: new SearchEngine(script));
+    }
+
+    /// <summary>
+    /// Checks that an exit code outside the engine's own vocabulary is a failed search at every
+    /// granularity, and that the code reaches the reason. Codes 0, 1 and 2 mean matched, did not
+    /// match, and completed with a problem; anything else is a run this layer cannot interpret, and
+    /// reporting it as a bad pattern would tell a caller to fix a pattern that was fine.
+    /// </summary>
+    [Fact]
+    public void AnExitCodeTheEngineDoesNotDefineIsAFailedSearch()
+    {
+        using var broken = Faked(exitCode: 7);
+
+        Assert.Equal(
+            "The search engine exited with code 7.",
+            Assert.IsType<SearchOutcome<MatchLine>.Failed>(broken.Access.SearchLines("needle")).Reason);
+        Assert.Equal(
+            "The search engine exited with code 7.",
+            Assert.IsType<SearchOutcome<VaultPath>.Failed>(broken.Access.SearchFiles("needle")).Reason);
+        Assert.Equal(
+            "The search engine exited with code 7.",
+            Assert.IsType<SearchOutcome<MatchCount>.Failed>(broken.Access.SearchCounts("needle")).Reason);
+    }
+
+    /// <summary>
+    /// Checks that a diagnostic naming no entry is a failed search rather than an unreadable file.
+    /// The unreadable outcome carries the entry it was about, so a diagnostic about the engine itself
+    /// has no entry to put there and must not be reported as one.
+    /// </summary>
+    [Fact]
+    public void ADiagnosticNamingNoEntryIsAFailedSearchRatherThanAnUnreadableFile()
+    {
+        using var broken = Faked(standardError: "rg: unexpected internal failure");
+
+        Assert.Equal(
+            "rg: unexpected internal failure",
+            Assert.IsType<SearchOutcome<MatchLine>.Failed>(broken.Access.SearchLines("needle")).Reason);
+        Assert.Equal(
+            "rg: unexpected internal failure",
+            Assert.IsType<SearchOutcome<VaultPath>.Failed>(broken.Access.SearchFiles("needle")).Reason);
+        Assert.Equal(
+            "rg: unexpected internal failure",
+            Assert.IsType<SearchOutcome<MatchCount>.Failed>(broken.Access.SearchCounts("needle")).Reason);
+    }
+
+    /// <summary>
+    /// Checks that a path the engine emitted which is not inside this vault fails the whole search at
+    /// every granularity, naming the text that was emitted. Each granularity reads a different output
+    /// shape and so has its own check, and no granularity may answer with the paths it could parse:
+    /// a result set that dropped one silently would be a wrong answer the caller cannot tell from a
+    /// right one.
+    /// </summary>
+    [Fact]
+    public void APathTheEngineEmittedThatIsNotInThisVaultFailsTheWholeSearch()
+    {
+        const string Prefix = "The search engine emitted \"../outside.md\", which is not a path in this vault:";
+
+        // The file granularity reads NUL-separated paths with its statistics block after the last
+        // separator, so the trailing chunk stands in for that block.
+        using var files = Faked(standardOutput: "../outside.md\0statistics");
+        // The count granularity reads path and count as alternating NUL-separated fields.
+        // The count is concatenated rather than written into the literal, because a NUL escape
+        // followed by a digit reads as a five-digit escape and is not one.
+        using var counts = Faked(standardOutput: "../outside.md\0" + "1");
+        // The line granularity reads one JSON event per line, with the path in its own field.
+        using var lines = Faked(
+            standardOutput: """{"type":"match","data":{"path":{"text":"../outside.md"},"line_number":1,"lines":{"text":"needle here"}}}""");
+
+        Assert.StartsWith(Prefix, Assert.IsType<SearchOutcome<VaultPath>.Failed>(files.Access.SearchFiles("needle")).Reason);
+        Assert.StartsWith(Prefix, Assert.IsType<SearchOutcome<MatchCount>.Failed>(counts.Access.SearchCounts("needle")).Reason);
+        Assert.StartsWith(Prefix, Assert.IsType<SearchOutcome<MatchLine>.Failed>(lines.Access.SearchLines("needle")).Reason);
+    }
+
+    /// <summary>
+    /// Checks that output the count granularity cannot read as a count fails the search rather than
+    /// being skipped or counted as zero. This one is specific to that granularity, because it is the
+    /// only shape carrying a number the layer has to parse.
+    /// </summary>
+    [Fact]
+    public void ACountTheEngineEmittedThatIsNotANumberFailsTheSearch()
+    {
+        using var broken = Faked(standardOutput: "Notes/Alpha.md\0not a number");
+
+        Assert.Equal(
+            "The search engine emitted \"not a number\" where a count was expected.",
+            Assert.IsType<SearchOutcome<MatchCount>.Failed>(broken.Access.SearchCounts("needle")).Reason);
     }
 }
