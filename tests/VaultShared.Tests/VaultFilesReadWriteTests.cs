@@ -246,15 +246,16 @@ public sealed class VaultFilesReadWriteTests : IDisposable
     }
 
     /// <summary>
-    /// A file occupying the folder's path is not a folder that is already there, so it is reported
-    /// from the attempt like any other write failure rather than as an occupied target.
+    /// A file occupying the folder's path takes the name just as a folder does, so it is the same
+    /// occupied-target answer rather than an operational failure the caller has to read a message to
+    /// understand.
     /// </summary>
     [Fact]
-    public void CreateFolder_OverAFileIsAFailureRatherThanAnOccupiedTarget()
+    public void CreateFolder_OverAFileIsAnOccupiedTargetToo()
     {
         _vault.WithNote("Projects/Widget", "Not a folder.\n");
 
-        var outcome = Assert.IsType<WriteOutcome.Failed>(VaultFiles.CreateFolder(_vault.ToWrite("Projects/Widget")));
+        var outcome = Assert.IsType<WriteOutcome.AlreadyExists>(VaultFiles.CreateFolder(_vault.ToWrite("Projects/Widget")));
 
         Assert.Equal("Projects/Widget", outcome.Path);
     }

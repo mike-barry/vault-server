@@ -96,11 +96,14 @@ public static class VaultFiles
     }
 
     /// <summary>
-    /// Creates a note that must not already exist. <see cref="WriteOutcome.AlreadyExists"/> comes
-    /// from the filesystem's atomic create, never from a check made first, because a check would
-    /// leave a window in which something else creates the file and this write then destroys it.
+    /// Creates a note whose name is not already taken, by a file or by a folder.
     /// </summary>
     /// <remarks>
+    /// The refusals come from <see cref="PreflightCreate"/>, so a caller that asked it first is told
+    /// the same thing this call would tell it. The write behind that check is atomic, so a file
+    /// appearing in the window between the two is refused as
+    /// <see cref="WriteOutcome.AlreadyExists"/> rather than destroyed.
+    ///
     /// The note's own name is the one segment this call creates, so it is the only one checked
     /// against the name grammar.
     /// </remarks>
@@ -110,9 +113,8 @@ public static class VaultFiles
     public static WriteOutcome Create(WritePath path, string content)
     {
         var target = path.Path;
-        var name = target.Segments[^1];
-        if (!VaultName.IsNoteName(name))
-            return new WriteOutcome.InvalidName(name);
+        if (PreflightCreate(path) is { } refusal)
+            return refusal;
 
         try
         {
@@ -135,17 +137,14 @@ public static class VaultFiles
     /// side effect of writing. The folder's name is checked against the name grammar.
     /// </summary>
     /// <remarks>
-    /// This is the one primitive here that probes before it acts. Every other one lets the attempt
-    /// decide, so that no gap exists in which another writer changes the answer between the check
-    /// and the act. The platform's directory creation is idempotent and reports no difference
-    /// between creating a folder and finding one, so a probe is the only way to answer whether the
-    /// target was occupied, which a caller is told.
+    /// The platform's directory creation is idempotent and reports no difference between creating a
+    /// folder and finding one, so a probe is the only thing that can answer whether the target was
+    /// occupied, which a caller is told. Note creation probes as well, but has an atomic write
+    /// behind its probe; this one has nothing behind it.
     ///
-    /// The probe is racy in the same way any check-then-act is, and the exception is taken because
-    /// what the race costs here is different. Losing it means reporting an occupied target that
-    /// another writer created a moment earlier, or reporting a creation that another writer had just
-    /// made. No content is destroyed either way, where checking before a file write would risk
-    /// destroying whatever appeared in between.
+    /// The probe is racy in the same way any check-then-act is, and the race is accepted because
+    /// losing it means reporting an occupied target another writer created a moment earlier, or
+    /// reporting a creation another writer had just made. No content is destroyed either way.
     /// </remarks>
     /// <param name="path">The folder to create.</param>
     /// <returns>
@@ -167,7 +166,9 @@ public static class VaultFiles
         if (parent is null || !parent.Exists)
             return MissingParent(target);
 
-        if (Directory.Exists(target.Absolute))
+        // A file occupying the name is the same answer as a folder occupying it, and only a probe
+        // of each kind tells them apart before the attempt.
+        if (Directory.Exists(target.Absolute) || File.Exists(target.Absolute))
             return new WriteOutcome.AlreadyExists(target.Value);
 
         try
@@ -175,6 +176,10 @@ public static class VaultFiles
             Directory.CreateDirectory(target.Absolute);
             // A folder has no content, so there is no hash to report.
             return new WriteOutcome.Written(null);
+        }
+        catch (IOException ex) when (IsAlreadyExists(ex))
+        {
+            return new WriteOutcome.AlreadyExists(target.Value);
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {
@@ -268,9 +273,12 @@ public static class VaultFiles
 
         try
         {
-            // Overwrite only when the destination is the source itself: on a case-insensitive
-            // filesystem the rename would otherwise refuse its own target. Every other occupant is
-            // refused by the catch below.
+            // Overwrite only when the destination is the source itself, which a case-only rename
+            // names and the rename would otherwise refuse. Every other occupant is refused by the
+            // catch below. Windows: sameEntry is case-insensitive path equality, so a case-only
+            // rename reaches this call with overwrite set, and on a filesystem that told the two
+            // spellings apart the same call would hand overwrite a different file and destroy it
+            // silently.
             File.Move(from.Absolute, to.Absolute, overwrite: sameEntry);
             return new MoveOutcome.Moved(caseOnly);
         }
@@ -359,24 +367,24 @@ public static class VaultFiles
     }
 
     /// <summary>
-    /// Reports the refusal a note creation would raise for a reason readable from the filesystem
-    /// before the write runs, or null when it would raise none of them.
+    /// Reports the refusal a note creation would raise, or null when it would raise none.
     /// </summary>
     /// <remarks>
     /// <para>
     /// Three reasons are read: a note name outside the name grammar, a missing parent folder, and a
-    /// file already at the target. <see cref="Create"/> decides all three as part of the write
-    /// itself and its answer is the authoritative one, because anything read here can stop being
-    /// true before the write runs. This exists for a caller that must do other work before the
-    /// write - a pass that rewrites other files first - so that the refusal arrives before that work
-    /// instead of after it. Both are needed: without this, such a caller leaves earlier writes
-    /// behind a refusal; without the check in the write, an occupied target would be decided from
-    /// state read a moment earlier and the write would destroy whatever appeared in between.
+    /// name already taken by a file or a folder. <see cref="Create"/> answers by calling this, so
+    /// the two never disagree, and a caller that must do other work before the write - a pass that
+    /// rewrites other notes first - learns of the refusal before that work rather than after it.
     /// </para>
     /// <para>
-    /// A directory at the target is not reported. It occupies the name, but the platform's answer to
-    /// creating a file over a directory differs between systems, so what a caller is told about it
-    /// comes from the write rather than from two places that could disagree.
+    /// The window between this and the write is not a way to lose content. The write is atomic and
+    /// refuses a file that appeared in between as
+    /// <see cref="WriteOutcome.AlreadyExists"/> rather than overwriting it.
+    /// </para>
+    /// <para>
+    /// Windows: a folder at the target is found here by probing for it, because the write refuses
+    /// one with an access failure that is indistinguishable from a permission problem, and a port
+    /// whose platform reports the two apart could take the answer from the write instead.
     /// </para>
     /// </remarks>
     /// <param name="path">The note that would be created.</param>
@@ -392,7 +400,9 @@ public static class VaultFiles
         if (parent is null || !parent.Exists)
             return MissingParent(target);
 
-        return File.Exists(target.Absolute) ? new WriteOutcome.AlreadyExists(target.Value) : null;
+        return File.Exists(target.Absolute) || Directory.Exists(target.Absolute)
+            ? new WriteOutcome.AlreadyExists(target.Value)
+            : null;
     }
 
     /// <summary>
@@ -654,19 +664,16 @@ public static class VaultFiles
             : text.Replace(paths[0].Vault.Root, paths[0].Vault.Name, StringComparison.OrdinalIgnoreCase);
     }
 
-    // The platform reports "already exists" and "not empty" as a plain IOException, so the code the
-    // OS set is the only thing distinguishing them from a sharing conflict or a device error. The
-    // Windows codes carry the 0x8007 facility; the bare values are the POSIX errnos.
+    // The platform reports "already exists" and "not empty" as a plain IOException, so the error
+    // code it set is the only thing distinguishing them from a sharing conflict or a device error.
+    // Each is the Windows system error carried in the 0x8007 facility.
     private const int ErrorFileExists = unchecked((int)0x80070050);
     private const int ErrorAlreadyExists = unchecked((int)0x800700B7);
     private const int ErrorDirNotEmpty = unchecked((int)0x80070091);
-    private const int Eexist = 17;
-    private const int EnotemptyLinux = 39;
-    private const int EnotemptyBsd = 66;
 
     private static bool IsAlreadyExists(IOException ex) =>
-        ex.HResult is ErrorFileExists or ErrorAlreadyExists or Eexist;
+        ex.HResult is ErrorFileExists or ErrorAlreadyExists;
 
     private static bool IsDirectoryNotEmpty(IOException ex) =>
-        ex.HResult is ErrorDirNotEmpty or EnotemptyLinux or EnotemptyBsd or Eexist;
+        ex.HResult is ErrorDirNotEmpty;
 }

@@ -184,20 +184,19 @@ public sealed class CreateToolTests : IDisposable
     }
 
     /// <summary>
-    /// Pins are written before the note is. Do not reverse the order: if the run is interrupted
-    /// after pinning, existing links still name the target they always named, but if it is
-    /// interrupted after the note is written, bare links have silently changed meaning.
+    /// A folder occupying the note's own path is an occupied target, refused before the pinning pass
+    /// runs, so a creation that cannot land rewrites no bystander on its way to failing.
     /// </summary>
     /// <remarks>
-    /// The two writes are only distinguishable when one of them fails, and a creation that reaches
-    /// its write has already passed every refusal decidable beforehand. A directory occupying the
-    /// note's own path is such a case: no file is at the path, so nothing before the write refuses,
-    /// and the write then fails on what the platform makes of a file created over a directory. The
-    /// refusal's own code is that platform answer and is not asserted here; what is asserted is
-    /// that the pass had already run.
+    /// Pins are written before the note is, and the order matters: interrupted after pinning,
+    /// existing links still name the target they always named, where interrupted after the note was
+    /// written, bare links have silently changed meaning. That ordering is not asserted anywhere.
+    /// The two writes are only distinguishable when one of them fails, and every refusal a creation
+    /// can decide is decided before both of them, so no arrangement reaches one write and not the
+    /// other without a seam existing only for a test.
     /// </remarks>
     [Fact]
-    public void PinsAreAppliedBeforeTheNoteIsWritten()
+    public void AnOccupiedTargetIsRefusedBeforeAnyBystanderIsPinned()
     {
         _vault.WithFolder("Projects/Widget/Notes.md");
         Assert.Contains("[[Notes]]", _vault.TextOf("Projects/Widget/Widget.md"));
@@ -205,7 +204,7 @@ public sealed class CreateToolTests : IDisposable
         Refusal(new { path = "Projects/Widget/Notes.md", kind = "note", content = "# Notes\n" });
 
         Assert.False(_vault.HasFile("Projects/Widget/Notes.md"));
-        Assert.Contains("[[Reference/Notes]]", _vault.TextOf("Projects/Widget/Widget.md"));
+        Assert.Contains("[[Notes]]", _vault.TextOf("Projects/Widget/Widget.md"));
     }
 
     /// <summary>

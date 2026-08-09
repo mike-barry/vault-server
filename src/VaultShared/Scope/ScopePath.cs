@@ -39,9 +39,9 @@ public static class ScopePath
         }
 
         // Both separators are tested by hand rather than through the platform's rooted check, so a
-        // path spelled with backslashes is refused or accepted the same way on either platform. The
-        // check below still runs, and is what refuses a drive-qualified path, which carries no
-        // leading separator to drop.
+        // path spelled with backslashes and one spelled with forward slashes are answered the same
+        // way. The check below still runs, and is what refuses a drive-qualified path, which carries
+        // no leading separator to drop.
         if (Path.IsPathRooted(path))
             throw new ArgumentException($"Scope path must be vault-relative, not rooted: {path}", nameof(path));
 

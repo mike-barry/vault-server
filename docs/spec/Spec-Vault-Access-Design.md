@@ -58,7 +58,7 @@ The reason the CLI exists: the vault must stay fully operable with the server st
 The conformance surface. How they are achieved is free.
 
 - **Containment.** Every path the layer returns or permits an operation on is inside the resolved root. Escaping text is refused, never clamped or normalized into something else
-- **Vault-relative terms.** Emitted paths are vault-relative with one separator convention on every platform, so results can be quoted back into later calls unchanged. Absolute paths never leave the layer
+- **Vault-relative terms.** Emitted paths are vault-relative with one separator convention, so results can be quoted back into later calls unchanged. Absolute paths never leave the layer
 - **Nothing creates a parent directory on the way past.** Writing a note, creating a folder, and moving to a destination all fail under a missing parent, naming what was missing in vault-relative terms. Materializing a path is always a deliberate call
 - **Scope is enforced at the operation.** Every read, write, move, enumeration, and search consults the restriction before touching anything. No entry point opts out. The one pass that is not scope-bound is the next bullet. This is the layer's own obligation - the containment semantics themselves live in the retained scope primitives, and the rest of the seam is `Spec-Auth-Requirements.md`
 - **Wikilink repair is the one write scope does not bound.** Moving a note changes what every link to it must say, and creating a note whose basename already exists changes what bare links to that basename resolve to. Either set of links can be anywhere, so the pass runs over every note in the vault. The operation's own paths are scope-checked normally (`Spec-Tool-Capabilities.md:Authority`)
@@ -90,6 +90,7 @@ Imposed from outside the code, and not negotiable by the implementation.
 - **One mutex lock per vault, covering the whole repository.** Granularity is not the build's to choose; nothing narrower is offered
 - **A second process contends for the mutex lock.** The watcher is a peer, not a subordinate
 - **The editor's link semantics are external** - matched, not defined
+- **Windows is the platform.** The system is built for it and claimed to run nowhere else. What follows is that the filesystem is case-insensitive: `Foo.md` and `foo.md` name one file. Path equality, exclusion matching, scope containment, and an identity naming a file or a wikilink all compare without regard to case, and a rename changing only case names a destination that already exists. Companion specs rest on this constraint rather than restating it. Nothing branches on the operating system, and a port is a separate audit rather than a matter of restoring branches
 - **The vault is a plain directory tree.** No symbolic links, no junctions, no reparse points. The layer assumes this and does nothing to detect or accommodate them
 - **The vault is a git working tree**, and nothing built here reads or writes repository state. What follows from the working tree - a folder that must persist while empty needing a `.gitkeep` - is stated where it applies
 - **Notes are stored with LF line terminators.** Every write that composes content emits them. Nothing detects what was there or preserves another convention
@@ -107,9 +108,9 @@ A cross-process contract with `VaultWatcher`, so it is carried over exactly rath
 Global\VaultWrite-<hash>
 ```
 
-`<hash>` is the first 32 characters of the uppercase hex SHA-256 of the vault root path: canonicalized, trailing separators trimmed, lowercased, UTF-8 encoded. `Global\` is Windows-only; on other platforms the name is `VaultWrite-<hash>` alone.
+`<hash>` is the first 32 characters of the uppercase hex SHA-256 of the vault root path: canonicalized, trailing separators trimmed, lowercased, UTF-8 encoded.
 
-Why each part: hashed because a mutex name is capped at 260 characters and cannot contain a backslash outside the reserved prefix; lowercased on every platform, or a case-only difference in configuration gives two processes different locks on the same files; `Global\` so the mutex spans sessions. Any change here breaks both processes at once.
+Why each part: hashed because a mutex name is capped at 260 characters and cannot contain a backslash outside the reserved prefix; lowercased, or a case-only difference in configuration gives two processes different locks on the same files; `Global\` so the mutex spans sessions. Any change here breaks both processes at once.
 
 ## Frontmatter Emitter Settings
 

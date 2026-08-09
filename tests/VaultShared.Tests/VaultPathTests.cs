@@ -44,7 +44,7 @@ public sealed class VaultPathTests
     public void TryCreate_RendersOneSeparatorConventionWhateverTheInput(string input)
     {
         // A caller quotes an emitted path back into a later call, so every spelling of one path
-        // must render the same way on every platform.
+        // must render the same way.
         var path = Create(input);
 
         Assert.Equal("Projects/Widget/Widget.md", path.Value);
@@ -73,12 +73,11 @@ public sealed class VaultPathTests
     }
 
     /// <summary>
-    /// Checks that a drive-qualified path is refused rather than being read as a relative one. The
-    /// case is Windows-only, and gated rather than made portable: on a platform whose paths carry no
-    /// drive letter, the same text is an ordinary relative name whose first segment happens to
-    /// contain a colon, and admitting it there is correct.
+    /// Checks that a drive-qualified path is refused rather than being read as a relative one whose
+    /// first segment happens to contain a colon. The platform reads such text as rooted, and a
+    /// rooted path is not a vault-relative one whatever it points at.
     /// </summary>
-    [WindowsOnlyFact]
+    [Fact]
     public void TryCreate_RefusesAnAbsolutePathOnThisPlatform()
     {
         Assert.False(VaultPath.TryCreate(TestVault, @"C:\elsewhere\Widget.md", out _, out _));

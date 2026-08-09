@@ -273,7 +273,7 @@ public sealed class VaultSearchTests : IDisposable
     /// <remarks>
     /// The payloads are copied out of files rather than echoed by the script, because the cases below
     /// need a NUL separator and text a shell would otherwise interpret. No payload carries a newline,
-    /// so nothing here depends on how either shell's copy command treats line terminators.
+    /// so nothing here depends on how the command shell's copy command treats line terminators.
     ///
     /// The vault is empty. Nothing walks it, because the stand-in never looks at the directory it was
     /// started in, and a vault path is well-formed or not by its text alone.
@@ -285,20 +285,16 @@ public sealed class VaultSearchTests : IDisposable
     private ScratchVault Faked(string standardOutput = "", string standardError = "", int exitCode = 0)
     {
         var name = $"stand-in-{_standInCount++}";
-        var script = Path.Combine(_standIns, OperatingSystem.IsWindows() ? name + ".cmd" : name);
+        var script = Path.Combine(_standIns, name + ".cmd");
         var outPath = Path.Combine(_standIns, name + ".out");
         var errPath = Path.Combine(_standIns, name + ".err");
         var utf8 = new UTF8Encoding(encoderShouldEmitUTF8Identifier: false);
         File.WriteAllText(outPath, standardOutput, utf8);
         File.WriteAllText(errPath, standardError, utf8);
 
-        string[] lines = OperatingSystem.IsWindows()
-            ? ["@echo off", $"type \"{outPath}\"", $"type \"{errPath}\" 1>&2", $"exit {exitCode}"]
-            : ["#!/bin/sh", $"cat '{outPath}'", $"cat '{errPath}' 1>&2", $"exit {exitCode}"];
+        string[] lines = ["@echo off", $"type \"{outPath}\"", $"type \"{errPath}\" 1>&2", $"exit {exitCode}"];
 
         File.WriteAllText(script, string.Join('\n', lines) + "\n", utf8);
-        if (!OperatingSystem.IsWindows())
-            File.SetUnixFileMode(script, UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute);
 
         return new ScratchVault(engine: new SearchEngine(script));
     }

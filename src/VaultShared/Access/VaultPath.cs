@@ -5,7 +5,7 @@ namespace VaultShared.Access;
 
 /// <summary>
 /// Represents a well-formed, vault-relative path inside a <see cref="Vault"/>, held as segments and
-/// rendered with one separator convention on every platform. It carries its vault so an operation
+/// rendered with one separator convention. It carries its vault so an operation
 /// taking two paths can require them to agree.
 /// </summary>
 /// <remarks>
@@ -103,6 +103,12 @@ public sealed record VaultPath
     /// case-insensitive, matching scope semantics, so two spellings name one file. Move asks the
     /// other question through <see cref="HasSameSpellingAs"/>.
     /// </summary>
+    /// <remarks>
+    /// Windows: the filesystem is case-insensitive, and this comparison is the root of that premise
+    /// for the whole layer - containment, exclusion, scope and identity matching all inherit it from
+    /// here, each assuming it rather than checking it, so a port establishes case-insensitive path
+    /// equality before it looks at anything else.
+    /// </remarks>
     /// <param name="other">The path to compare with.</param>
     /// <returns>True when both paths are in the same vault and name the same entry.</returns>
     public bool Equals(VaultPath? other) =>

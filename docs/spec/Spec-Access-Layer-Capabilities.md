@@ -74,7 +74,9 @@ The classification requirement is the design spec's. The capability statement he
 
 Two forms: replace an existing note's content wholesale, and create a note that must not already exist.
 
-**The creating form refuses a target that already exists, and the write itself decides that.** Checking first and writing second leaves a gap in which the editor, another session, or a person creates the file, and the write then destroys it. The check and the write must be one operation. This is the same rule the design spec applies to reads, where a failure to read is classified from the failure rather than from a separate probe (`Spec-Vault-Access-Design.md:Guarantees To Callers`). The refusal is distinguishable from every other write failure.
+**The creating form refuses a target whose name is already taken, and what occupies it makes no difference.** A file and a folder at the path are one answer: the name is unavailable, and the caller's remedy is the same either way. The refusal is distinguishable from every other write failure, so it is never confused with a permission problem or a device error.
+
+**The refusal is decided before the write, and the write refuses the same condition again.** Creation opens its target in a mode that fails when anything is already there, so a file the editor, another session or a person creates in between is refused rather than overwritten, and is refused as the same thing. Deciding it first is what lets a caller that must do other work before the write - a pass that rewrites other notes first - learn of the refusal before that work instead of after it. Reading is unaffected: a failure to read is still classified from the failure rather than from a separate probe (`Spec-Vault-Access-Design.md:Guarantees To Callers`).
 
 **Encoding is stated rather than inherited: UTF-8 with no byte-order mark.** The editor and the repository own these files jointly, and a byte-order mark appearing on rewritten notes is a diff on every file the tooling touches - the failure is invisible per-file and unmistakable across a sync. Line terminators are settled in `Spec-Frontmatter-Substrate.md`, and the answer is the same for a whole-note write.
 
@@ -82,13 +84,13 @@ A write brings no directory into existence, and a missing parent is named in vau
 
 **Directory creation is a separate primitive, and only the tool that owns creation calls it.** It creates one folder under a parent that already exists, and refuses a missing parent exactly as a write does. Keeping it out of the write is what makes materializing a path one tool's decision rather than something every writer does as a side effect.
 
-**It refuses an occupied target too, and is the one place where the check and the write are two operations.** The platform offers no non-recursive directory creation that fails when the target is already there, so the outcome above and the one-operation rule cannot both hold, and the outcome is what a caller is owed: a creating form that reported making a folder someone else had already made would contradict what creation means everywhere else. The check-and-write rule is kept everywhere it protects something. What it protects is content appearing in the gap and being destroyed by the write that follows, and a folder create destroys nothing - losing the race means reporting an occupied target that appeared a moment earlier, or a creation another writer had just made. Neither answer costs a caller anything it cannot re-ask for.
+**It refuses an occupied target too, on the same terms as a note creation.** A file and a folder at the path are one answer there as well. The platform offers no non-recursive directory creation that fails when the target is already there, so unlike a note creation the check is the only thing that can answer: a creating form that reported making a folder someone else had already made would contradict what creation means everywhere else. Losing the race means reporting an occupied target that appeared a moment earlier, or a creation another writer had just made, and neither answer costs a caller anything it cannot re-ask for.
 
 ## Moving
 
 Move is a layer primitive: the one mutating operation touching two paths, both resolved and scope-checked by the same construction (`Spec-Vault-Access-Design.md:What The Layer Owns`). Only the relocation is the primitive - wikilink repair, the folder note's rename, protective pinning, and partial-failure reporting are tool-layer work composed above it.
 
-**An occupied destination is an error.** Move never overwrites and never merges. The one carve-out is the source itself: on a case-insensitive filesystem a case-only rename names a destination that already exists, so occupancy is compared against the resolved source case-sensitively.
+**An occupied destination is an error.** Move never overwrites and never merges. The one carve-out is the source itself: a case-only rename names a destination that already exists (`Spec-Vault-Access-Design.md:Fixed Constraints`), so occupancy is compared against the resolved source case-sensitively.
 
 **A missing destination parent is an error.** Move brings no folder into existence; the destination's parent must already be there.
 

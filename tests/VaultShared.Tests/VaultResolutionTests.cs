@@ -127,7 +127,7 @@ public sealed class VaultLockNameTests
 {
     private static Vault At(string root) => new("test", root, PathPolicy.None);
 
-    private static readonly string Prefix = OperatingSystem.IsWindows() ? @"Global\VaultWrite-" : "VaultWrite-";
+    private const string Prefix = @"Global\VaultWrite-";
 
     [Fact]
     public void LockName_IsThePrefixAnd32UppercaseHexCharacters()

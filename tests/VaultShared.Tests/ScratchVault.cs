@@ -124,66 +124,24 @@ internal sealed class ScratchVault : IDisposable
 
     /// <summary>
     /// Makes one file unreadable for as long as the returned handle is held, so a search has a file
-    /// it must fail on. On Windows this opens the file exclusively, which blocks a second reader;
-    /// elsewhere it clears the Unix mode bits and restores them on dispose.
+    /// it must fail on. The file is opened exclusively, which blocks a second reader.
     /// </summary>
     /// <param name="relativePath">The vault-relative path of an existing file.</param>
     /// <returns>A handle that makes the file readable again when disposed.</returns>
-    public IDisposable Unreadable(string relativePath)
-    {
-        var absolute = Absolute(relativePath);
-        if (!OperatingSystem.IsWindows())
-        {
-            var original = File.GetUnixFileMode(absolute);
-            File.SetUnixFileMode(absolute, UnixFileMode.None);
-            // The platform test is repeated inside the restore because the analyzer reads the
-            // lambda on its own, not at the site it was built from.
-            return new Restore(() =>
-            {
-                if (!OperatingSystem.IsWindows())
-                    File.SetUnixFileMode(absolute, original);
-            });
-        }
-
-        return File.Open(absolute, FileMode.Open, FileAccess.ReadWrite, FileShare.None);
-    }
+    public IDisposable Unreadable(string relativePath) =>
+        File.Open(Absolute(relativePath), FileMode.Open, FileAccess.ReadWrite, FileShare.None);
 
     /// <summary>
     /// Makes one file readable but not writable for as long as the returned handle is held, so a
     /// pass that reads every note and then writes some of them has a file it must fail on at the
-    /// write. On Windows this holds the file open for reading and shares it with other readers,
-    /// which admits a read and blocks a write, because a write opens the file sharing nothing and so
-    /// fails while any other handle is open; elsewhere it clears the write mode bits and restores
-    /// them on dispose.
+    /// write. The file is held open for reading and shared with other readers, which admits a read
+    /// and blocks a write, because a write opens the file sharing nothing and so fails while any
+    /// other handle is open.
     /// </summary>
     /// <param name="relativePath">The vault-relative path of an existing file.</param>
     /// <returns>A handle that makes the file writable again when disposed.</returns>
-    public IDisposable Unwritable(string relativePath)
-    {
-        var absolute = Absolute(relativePath);
-        if (!OperatingSystem.IsWindows())
-        {
-            var original = File.GetUnixFileMode(absolute);
-            File.SetUnixFileMode(absolute, UnixFileMode.UserRead);
-            // The platform test is repeated inside the restore because the analyzer reads the
-            // lambda on its own, not at the site it was built from.
-            return new Restore(() =>
-            {
-                if (!OperatingSystem.IsWindows())
-                    File.SetUnixFileMode(absolute, original);
-            });
-        }
-
-        return File.Open(absolute, FileMode.Open, FileAccess.Read, FileShare.Read);
-    }
-
-    /// <summary>Runs an action when disposed.</summary>
-    /// <param name="undo">The action to run on dispose.</param>
-    private sealed class Restore(Action undo) : IDisposable
-    {
-        /// <summary>Runs the undo action.</summary>
-        public void Dispose() => undo();
-    }
+    public IDisposable Unwritable(string relativePath) =>
+        File.Open(Absolute(relativePath), FileMode.Open, FileAccess.Read, FileShare.Read);
 
     /// <summary>Reads a file in the vault as text.</summary>
     /// <param name="relativePath">The vault-relative file path, using forward slashes.</param>

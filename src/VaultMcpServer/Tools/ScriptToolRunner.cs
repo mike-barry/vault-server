@@ -45,7 +45,7 @@ public sealed class ScriptToolRunner : IDisposable
 
         // The (min, max, InitialSessionState, PSHost) overload requires a non-null host, so the
         // initial session state is set through the (InitialSessionState)-only overload and the
-        // min and max are applied after construction. Bypass is required on Windows: the default
+        // min and max are applied after construction. Bypass is required because the default
         // Restricted execution policy blocks running a .ps1 file from a hosted runspace, not
         // just from an interactive console.
         var state = InitialSessionState.CreateDefault();

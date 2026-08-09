@@ -59,9 +59,11 @@ public sealed record Vault(string Name, string Root, PathPolicy Policy)
     /// below in its own code.
     ///
     /// Each step is load-bearing. The location is hashed because a mutex name is capped at 260
-    /// characters and cannot contain a backslash outside the reserved prefix. It is lowercased on
-    /// every platform, or a case-only difference between two configurations produces two names. The
-    /// <c>Global\</c> prefix, which only Windows understands, makes the mutex span sessions.
+    /// characters and cannot contain a backslash outside the reserved prefix. It is lowercased, or a
+    /// case-only difference between two configurations produces two names. Windows: the
+    /// <c>Global\</c> prefix is what makes the mutex span sessions, and a port needs whatever scopes
+    /// a mutex that way on its own platform, or the watcher and the server take different locks over
+    /// the same vault.
     /// </remarks>
     public string LockName
     {
@@ -71,7 +73,7 @@ public sealed record Vault(string Name, string Root, PathPolicy Policy)
                 .TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar)
                 .ToLowerInvariant();
             var hash = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(canonical)))[..32];
-            return OperatingSystem.IsWindows() ? $@"Global\VaultWrite-{hash}" : $"VaultWrite-{hash}";
+            return $@"Global\VaultWrite-{hash}";
         }
     }
 
