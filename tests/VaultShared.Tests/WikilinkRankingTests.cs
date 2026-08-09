@@ -10,9 +10,13 @@ namespace VaultShared.Tests;
 /// <remarks>
 /// The ordering reproduces how Obsidian resolves a bare wikilink, which is a requirement rather
 /// than a choice, because the vault's existing content already depends on which file a link opens.
-/// These tests are the record of that behaviour, measured on 2026-08-04 against Obsidian
+/// These tests are the record of that behaviour, measured on 2026-08-08 against Obsidian
 /// configured with "New link format" set to "shortest path when possible" and "Automatically
 /// update internal links" turned on. A later measurement that disagrees will fail here.
+///
+/// The behaviour recorded is what following a link does. The editor's autocomplete popup orders a
+/// duplicated basename by a different comparator, so a measurement read off the popup will
+/// disagree with these tests without either of them being wrong about its own subject.
 ///
 /// Ranking is the editor's second resolution tier only. A target naming a whole vault path is
 /// taken by the note at that path before ranking is consulted, which the pass-level tests cover.
@@ -30,7 +34,7 @@ public sealed class WikilinkRankingTests
     private static IReadOnlyList<string> Ranked(string linkingNote, params string[] candidates) =>
         [.. WikilinkRanking.Rank(At(linkingNote), candidates.Select(At)).Select(p => p.Value)];
 
-    // ---- Nearest by shared folder prefix ----
+    // ---- Inside the linking file's subtree beats outside it ----
 
     [Fact]
     public void TheCandidateInTheLinkingFilesOwnFolderIsNearest()
@@ -43,9 +47,9 @@ public sealed class WikilinkRankingTests
     [Fact]
     public void ADescentIntoTheLinkingFilesSubtreeBeatsAClimbOutOfIt()
     {
-        // Distance is the shared folder prefix, not the length of the relative path. The subtree
-        // copy shares two folders with the linking file and the other shares none, so it wins even
-        // though "../../Notes/Dupe.md" is the shorter path to write.
+        // The group is decided before either spelling is measured. The subtree copy needs no climb
+        // and the other needs two, so the subtree copy wins even though "../../Notes/Dupe.md" is
+        // the shorter target to write.
         Assert.Equal(
             ["Projects/Widget/Reference-Material/Dupe.md", "Notes/Dupe.md"],
             Ranked("Projects/Widget/Note.md", "Notes/Dupe.md", "Projects/Widget/Reference-Material/Dupe.md"));
@@ -54,8 +58,8 @@ public sealed class WikilinkRankingTests
     [Fact]
     public void ADescentOfAnyDepthBeatsASingleClimb()
     {
-        // Descending costs nothing, so depth below the linking file does not accumulate against
-        // the candidate. Three folders down still outranks one folder up.
+        // Descending costs characters, but no amount of it moves a candidate out of the winning
+        // group. Two folders down still outranks the root copy, which needs two climbs.
         Assert.Equal(
             ["Aa/Bb/Cc/Dd/Dupe.md", "Dupe.md"],
             Ranked("Aa/Bb/Note.md", "Dupe.md", "Aa/Bb/Cc/Dd/Dupe.md"));
@@ -75,9 +79,10 @@ public sealed class WikilinkRankingTests
     [Fact]
     public void TheLinkingFilesOwnFolderBeatsASubfolderOfIt()
     {
-        // Both candidates climb no folders, so the one that descends least wins. The subfolder is
-        // named to sort ahead of the basename, which is what the ordinal comparison would seize on
-        // if descent were not weighed first.
+        // Both candidates are inside the subtree, so the shorter spelling wins: "Dupe.md" is seven
+        // characters against "Aaa/Dupe.md" at eleven. The subfolder is named to sort ahead of the
+        // basename, which is what the ordinal comparison would seize on if the spelling were not
+        // measured first.
         Assert.Equal(
             ["Aa/Bb/Dupe.md", "Aa/Bb/Aaa/Dupe.md"],
             Ranked("Aa/Bb/Note.md", "Aa/Bb/Aaa/Dupe.md", "Aa/Bb/Dupe.md"));
@@ -86,11 +91,41 @@ public sealed class WikilinkRankingTests
     [Fact]
     public void TheOwnFolderWinsWhicheverWayTheSubfolderSorts()
     {
-        // The same pair with the subfolder sorting behind the basename. Ranking must not depend on
-        // the subfolder's name at all.
+        // The same pair with the subfolder sorting behind the basename, and the same eleven
+        // characters against seven. Ranking must not depend on the subfolder's name at all, only on
+        // its length.
         Assert.Equal(
             ["Aa/Bb/Dupe.md", "Aa/Bb/Zzz/Dupe.md"],
             Ranked("Aa/Bb/Note.md", "Aa/Bb/Zzz/Dupe.md", "Aa/Bb/Dupe.md"));
+    }
+
+    // ---- The shorter spelling ----
+
+    [Fact]
+    public void TheShorterSpellingWinsEvenWhereItDescendsFurther()
+    {
+        // The linking note sits at the vault root, so every candidate is inside its subtree and the
+        // group cannot separate them. `a/b/Dupe.md` is eleven characters and
+        // `Extended-Folder/Dupe.md` is twenty-three, so the deeper candidate wins on spelling
+        // length. Ranking by how many folders a candidate sits inside would pick the other one.
+        Assert.Equal(
+            ["a/b/Dupe.md", "Extended-Folder/Dupe.md"],
+            Ranked("Note.md", "Extended-Folder/Dupe.md", "a/b/Dupe.md"));
+    }
+
+    [Fact]
+    public void TheShorterSpellingWinsEvenWhereItSharesLessOfThePrefix()
+    {
+        // Both candidates are outside the linking note's subtree, so both climb and the group
+        // cannot separate them. `Aa/Bb/Extended-Folder/Dupe.md` shares two folders and needs one
+        // climb, which is `../Extended-Folder/Dupe.md` at twenty-six characters;
+        // `Aa/Tt/Dupe.md` shares one and needs two, which is `../../Tt/Dupe.md` at sixteen. The
+        // shorter spelling wins despite sharing less of the prefix, so how much of the prefix a
+        // candidate shares decides only its group and its climb count, never the order within a
+        // group.
+        Assert.Equal(
+            ["Aa/Tt/Dupe.md", "Aa/Bb/Extended-Folder/Dupe.md"],
+            Ranked("Aa/Bb/Cc/Note.md", "Aa/Bb/Extended-Folder/Dupe.md", "Aa/Tt/Dupe.md"));
     }
 
     // ---- Breaking a tie ----
@@ -98,8 +133,9 @@ public sealed class WikilinkRankingTests
     [Fact]
     public void CandidatesSharingTheSameDepthAreOrderedByTheirVaultPaths()
     {
-        // Neither candidate shares a folder with the linking file, so the ordinal comparison of
-        // the vault paths decides.
+        // Neither candidate shares a folder with the linking file, so both are outside its subtree
+        // at one climb each, and "../Bb/Dupe.md" and "../Zz/Dupe.md" are the same thirteen
+        // characters. The ordinal comparison of the vault paths is all that is left to decide it.
         Assert.Equal(
             ["Bb/Dupe.md", "Zz/Dupe.md"],
             Ranked("Aa/Note.md", "Zz/Dupe.md", "Bb/Dupe.md"));
@@ -108,7 +144,11 @@ public sealed class WikilinkRankingTests
     [Fact]
     public void TheTieBreakIsOrdinalRatherThanCultural()
     {
-        // Both are one hop down from the linking file's folder and share no folder with it.
+        // The linking file is at the vault root, so both candidates are inside its subtree at one
+        // folder down, and their spellings are the same ten characters. The tie-break is then the
+        // only thing separating two names that differ in case alone, and it takes "Aa" ahead of
+        // "aa" because an upper-case letter sorts lower by ordinal value. Deciding it the way the
+        // shared-folder comparison does, case-insensitively, would leave the pair unordered.
         Assert.Equal(
             ["Aa/Dupe.md", "aa/Dupe.md"],
             Ranked("Note.md", "aa/Dupe.md", "Aa/Dupe.md"));
@@ -119,8 +159,9 @@ public sealed class WikilinkRankingTests
     [Fact]
     public void EveryCandidateComesBack()
     {
-        // `Notes/Dupe.md` shares a folder with the linking note; the other two share none and are
-        // ordered by how far they descend.
+        // `Notes/Dupe.md` is inside the linking note's subtree and the other two are outside it, so
+        // it comes first. Between those two, "../Aa/Dupe.md" is thirteen characters and
+        // "../Aa/Bb/Cc/Dupe.md" is nineteen, so the shorter spelling comes next.
         Assert.Equal(
             ["Notes/Dupe.md", "Aa/Dupe.md", "Aa/Bb/Cc/Dupe.md"],
             Ranked("Notes/Note.md", "Aa/Bb/Cc/Dupe.md", "Notes/Dupe.md", "Aa/Dupe.md"));

@@ -138,7 +138,9 @@ Three pure pieces, none of which touches a filesystem.
 A target comes in two forms and each matches its own way. A path-qualified target matches on a suffix of whole path components. A bare target matches on basename alone, and ranking decides which of several same-named candidates it resolves to.
 Repair and the census ask this same question, so one piece answers it for both. Both ways of getting it wrong are silent: a link that repair fails to match is left pointing at nothing, and a link that the census fails to match is an orphan nobody reports.
 
-**Ranking** is a comparator over a candidate set and the linking note's path, ordering candidates by nearest relative path with deterministic tie-breaking. It takes the candidates it is given, finds nothing itself, and is the whole of what [[Spec-Obsidian-Link-Behavior.md]] fixes - so the observed rule sits in one comparator that can be changed in a line or two when the editor's behaviour is re-measured.
+**Ranking** is a comparator over a candidate set and the linking note's path, splitting the candidates into those inside the linking note's folder subtree and those outside it, ordering within each group by the character length of the relative target that reaches the candidate, and breaking a tie on ordinal comparison of the vault paths. It takes the candidates it is given, finds nothing itself, and is the whole of what [[Spec-Obsidian-Link-Behavior.md]] fixes - so the observed rule sits in one comparator that can be changed in a line or two when the editor's behaviour is re-measured.
+
+Ranking models what following a link does. The editor's autocomplete popup orders a duplicated basename by a comparator of its own, and the two consumers - pinning, which asks whether a change alters what an existing link opens, and repair, which asks which note a target names - are both about resolution and neither about the popup. Nothing in the layer models the popup's order.
 
 ## The Vault-Wide Pass
 

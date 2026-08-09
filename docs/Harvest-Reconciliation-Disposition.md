@@ -37,13 +37,8 @@ alongside it.
 grep -n -A20 '^### R2 ' docs/Harvest-Reconciliation.md
 ```
 
-`O#` and `C#` are assigned here. The parent's `Observations` and `Containment properties with no
-test` sections are unlabelled bullets, numbered here in the order they appear there. Each entry below
-carries a grep matching its bullet's own text - for example:
-
-```bash
-grep -n -A4 'argument binder accepts unknown members' docs/Harvest-Reconciliation.md   # O1
-```
+`C#` is assigned here. The parent's `Containment properties with no test` section is unlabelled
+bullets, numbered here in the order they appear there.
 
 A finding's own case IDs resolve into `harvest/` by their three-letter prefix; the parent document's
 "Looking something up" section has those commands.
@@ -59,7 +54,6 @@ Code changes, with their couplings:
 - **Leading-separator trim** - G8
 - **The inline case-insensitive flag named in `grep`'s pattern description** - G9
 - **Attachment embeds repaired through the existing pass** - G10
-- **`WikilinkRanking.Compare` rewritten to the re-measured rule** - O3
 - **`Grant.Allows` owning its comparison** - C4
 
 Three spec amendments, each landing with the group that makes it true: the check-and-write rule that
@@ -70,8 +64,10 @@ Carried to the suite sweep: C1-C3, which are test gaps rather than code defects 
 highest-value entries.
 
 One correction to the parent document's own appendix: its `Improvements Taken` entry for LNK-025
-records the link-ranking reversal as deliberate and spec-backed, which O3 establishes was measured on
-the wrong surface. The appendix is not edited; a reader should not take that entry at face value.
+records the link-ranking reversal as deliberate and spec-backed, and cites a line range in
+`WikilinkRanking.cs` that no longer says what the entry claims. That reversal was measured on the
+autocomplete popup rather than on what following a link does, so the entry's judgment does not hold.
+The appendix is not edited; a reader should not take that entry at face value.
 
 ## Dispositions
 
@@ -156,50 +152,6 @@ admits them. And a unique attachment basename will emit bare, which is a legal f
 with how notes are emitted, but the editor's own spelling for attachments is unmeasured - a candidate
 for the next measurement pass, along with the extensionless-target rule itself, which is load-bearing
 here and not yet in `Spec-Obsidian-Link-Behavior.md`.
-
-## Observations
-
-The parent document's `Observations` section, worked the same way. Its bullets are numbered here in
-the order they appear there, and each entry carries the grep that finds its bullet.
-
-### O3 (the reversed ranking rule) — promoted to a finding, to fix
-
-`grep -n -A5 'link ranking rule was reversed' docs/Harvest-Reconciliation.md`
-
-Not an observation. Measurement on 2026-08-08 established that click resolution and the autocomplete
-popup use different comparators, and that the 2026-08-04 pass had measured the popup. The layer must
-model click resolution, because pinning asks whether a change alters what an existing link opens and
-repair asks which note a target names; neither consumer cares what a popup lists.
-`Spec-Obsidian-Link-Behavior.md` now carries the corrected rule and the corrected statement about the
-popup.
-
-`WikilinkRanking.Compare` implements the popup's rule and needs rewriting to the spec's two groups:
-
-1. A candidate inside the linking file's own folder subtree beats one outside it - that is
-   `SharedDepth == FolderDepth(linkingNote)`, so no climb.
-2. Within a group, the shorter relative spelling wins, measured in characters, each climb costing
-   the three characters of `../` and the remainder being the candidate's segments below the shared
-   prefix joined by `/`, filename and extension included.
-3. Ties break on ordinal comparison of the candidates' vault paths, as now.
-
-`SharedDepth` survives as the input that decides the group and the climb count rather than as the
-ranking key, and `FolderDepth`'s current use as a secondary key goes.
-
-Comments to correct with it. `WikilinkRanking`'s remarks date the rule to 2026-08-04; `Rank`'s summary
-claims the popup orders candidates the same way, which is now known false; and
-`WikilinkRankingTests`'s remarks carry the same date.
-
-Most existing ranking tests keep their outcomes, because inside-beats-outside preserves them - but
-their reasoning comments do not: `ADescentIntoTheLinkingFilesSubtreeBeatsAClimbOutOfIt` says distance
-is the shared folder prefix rather than the relative path's length, which is now the wrong reason for
-a right answer. Two tests are missing and are the ones that discriminate: a shallow candidate under a
-long folder name against a deeper one under short names, which the current implementation gets wrong;
-and two candidates outside the subtree where the one sharing less of the prefix has the shorter
-spelling.
-
-The parent document's `Improvements Taken` entry for LNK-025 records this reversal as deliberate and
-spec-backed. It is now known to have been measured on the wrong surface. Nothing there is edited, but
-a reader of that appendix should not take the entry at face value.
 
 ## Containment properties with no test
 

@@ -133,16 +133,6 @@ an undocumented inline `(?i)`.
 embeds naming it. The delete census does handle non-note targets, so the asymmetry sits inside one
 area.
 
-## Observations
-
-Not findings. Each is a deliberate choice with a consequence worth confirming.
-
-- **The link ranking rule was reversed by re-measurement.** Character counting is gone; among
-  candidates climbing equally far the shallower now wins
-  (`src/VaultShared/Access/WikilinkRanking.cs:66`), flipping the winner on a case the old system had
-  measured and re-confirmed. Spec'd, commented and tested — but a deliberate contradiction of prior
-  measurement is worth a second look from whoever can adjudicate the two.
-
 ## Containment properties with no test
 
 Behavior present and correct in the code, with nothing asserting it. Listed only where the property
