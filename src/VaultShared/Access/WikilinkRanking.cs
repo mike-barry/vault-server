@@ -6,11 +6,10 @@ namespace VaultShared.Access;
 /// </summary>
 /// <remarks>
 /// The rule is not a design choice. It is Obsidian's observed behaviour, and the vault's existing
-/// content already depends on it. It was measured on 2026-08-08 against Obsidian configured with
-/// <i>New link format = shortest path when possible</i> and <i>Automatically update internal links
-/// = on</i>. Re-measure the editor before changing it, because changing it changes which note
-/// existing links open. The rule is confined to <see cref="Compare"/>, which is all a
-/// re-measurement would need to change.
+/// content already depends on it. It holds for Obsidian configured with <i>New link format =
+/// shortest path when possible</i> and <i>Automatically update internal links = on</i>. Re-measure
+/// the editor before changing it, because changing it changes which note existing links open. The
+/// rule is confined to <see cref="Compare"/>, which is all a re-measurement would need to change.
 ///
 /// The rule is stated in full below, so that someone who cannot repeat the measurement can still
 /// implement it. What each candidate is judged on is the relative target a link written in the

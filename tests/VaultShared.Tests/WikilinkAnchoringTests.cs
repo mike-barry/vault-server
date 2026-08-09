@@ -9,8 +9,8 @@ namespace VaultShared.Tests;
 /// </summary>
 /// <remarks>
 /// The linking note is <c>S/T/Spellings.md</c> throughout, which is where every spelling here was
-/// measured against Obsidian on 2026-08-04. These cases assert the address alone; what each address
-/// then opens is asserted by the census tests, which resolve against a real vault.
+/// measured against Obsidian. These cases assert the address alone; what each address then opens is
+/// asserted by the census tests, which resolve against a real vault.
 ///
 /// Nothing here touches the filesystem, so the vault is a value rather than a real directory tree.
 /// </remarks>

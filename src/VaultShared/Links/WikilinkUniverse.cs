@@ -93,7 +93,7 @@ internal sealed class WikilinkUniverse
     /// another in the universe after it, so normalizing once and passing the result to both would
     /// decide the second answer from where the linking note used to be.
     ///
-    /// Resolution runs in two tiers, measured against Obsidian on 2026-08-04, over the address
+    /// Resolution runs in two tiers, which is Obsidian's observed behaviour, over the address
     /// <see cref="WikilinkTarget.Address"/> produces. A target naming a whole vault path takes the
     /// note at that path outright; only a target naming no path is ranked against the notes sharing
     /// its basename. Collapsing the two would let a nested note take a link belonging to a root

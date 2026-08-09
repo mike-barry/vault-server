@@ -19,8 +19,8 @@ namespace VaultShared.Access;
 /// <c>Projects/Vault-MCP-Server/Inbox/Redesign/Spec-Tool-Capabilities</c>, and so does
 /// <c>sign/Spec-Tool-Capabilities</c>: the suffix is measured in characters, so it may cut a folder
 /// name in half. Only the leading component can be cut, because only it sits at the start of the
-/// suffix. The final component is never partial, so <c>Capabilities</c> alone names nothing. This
-/// was measured against Obsidian on 2026-08-04.
+/// suffix. The final component is never partial, so <c>Capabilities</c> alone names nothing. This is
+/// Obsidian's observed behaviour rather than a rule of this build's own.
 ///
 /// Matching is wider than resolution and does not decide anything on its own. Several notes can
 /// match one target; <see cref="WikilinkRanking"/> orders them, and a note whose whole path the
@@ -63,7 +63,7 @@ public static class WikilinkTarget
     /// <c>./</c> unresolved. A target that normalizes to a folder, such as <c>.</c> or <c>..</c>,
     /// needs no rule of its own: it comes back as that folder's path, which no note bears.
     ///
-    /// Every case above was measured against Obsidian on 2026-08-04, in a note at <c>S/T/</c> with
+    /// Every case above is Obsidian's observed behaviour, measured in a note at <c>S/T/</c> with
     /// files at <c>Delta.md</c>, <c>S/T/Delta.md</c> and <c>Zed/S/Delta.md</c> and nothing at
     /// <c>S/Delta.md</c>. Changing any of it changes which note existing links open.
     /// </remarks>

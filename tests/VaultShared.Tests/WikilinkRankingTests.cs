@@ -10,9 +10,9 @@ namespace VaultShared.Tests;
 /// <remarks>
 /// The ordering reproduces how Obsidian resolves a bare wikilink, which is a requirement rather
 /// than a choice, because the vault's existing content already depends on which file a link opens.
-/// These tests are the record of that behaviour, measured on 2026-08-08 against Obsidian
-/// configured with "New link format" set to "shortest path when possible" and "Automatically
-/// update internal links" turned on. A later measurement that disagrees will fail here.
+/// These tests are the record of that behaviour, measured against Obsidian configured with "New
+/// link format" set to "shortest path when possible" and "Automatically update internal links"
+/// turned on. A later measurement that disagrees will fail here.
 ///
 /// The behaviour recorded is what following a link does. The editor's autocomplete popup orders a
 /// duplicated basename by a different comparator, so a measurement read off the popup will

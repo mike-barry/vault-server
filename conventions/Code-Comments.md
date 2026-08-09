@@ -97,14 +97,21 @@ compress them:
   measurement behind them, and what changing one costs.
 - `FrontmatterTree` - why the representation model's node layer is used and its
   object serializer is not.
-- `WikilinkRanking` - the observed Obsidian resolution rule, the date it was
-  measured, and the editor settings it was measured under.
+- `WikilinkRanking` - the observed Obsidian resolution rule, the editor settings
+  it holds under, and that resolution is measured by following a link rather than
+  by reading the autocomplete popup, which orders candidates differently.
 - `Vault.LockName` - the mutex name derivation, and that a separate process
   reimplements it.
 
 When a comment records something measured or agreed, it says what was measured,
 what against, and what changing it breaks. That is what makes it usable by
 someone who cannot repeat the measurement.
+
+It does not carry the date it was measured on. A date is chronology, which rule 6
+keeps out, and it earns no exception here: nothing in this repository can check it,
+so it goes stale silently while reading as though it had been verified. What a
+reader needs instead is the condition the result holds under - the settings, the
+fixture, the version - and how to establish it again.
 
 ## Related
 
