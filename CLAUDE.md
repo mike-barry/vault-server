@@ -25,7 +25,7 @@ dotnet build --no-incremental
 dotnet test
 ```
 
-Both are expected clean: 0 warnings, 0 errors, and 1560 tests passing.
+Both are expected clean: 0 warnings, 0 errors, and 1570 tests passing.
 
 `CS1573` is an error on the three `src/` projects, so a documented member that leaves one of its parameters undocumented fails the build rather than passing quietly.
 
