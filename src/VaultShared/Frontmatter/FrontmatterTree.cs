@@ -172,6 +172,22 @@ public sealed class FrontmatterTree
             : FrontmatterShape.Scalar,
     };
 
+    /// <summary>
+    /// Returns whether this key holds a block list - a sequence of entries - rather than a single
+    /// value or a nested mapping.
+    /// </summary>
+    /// <param name="key">The key to inspect.</param>
+    /// <returns>True where the key is present and holds a sequence.</returns>
+    /// <remarks>
+    /// <see cref="ShapeOf"/> answers <see cref="FrontmatterShape.Block"/> for a nested mapping and
+    /// for a sequence alike, and only a sequence holds entries. Anything that resolves, inserts or
+    /// removes entries asks this instead: a nested mapping resolves to no entries at all, so a check
+    /// written against the shape query alone passes vacuously and lets an entry operation reach a
+    /// structure it cannot address.
+    /// </remarks>
+    public bool HoldsBlockList(string key) =>
+        Find(key) is { } found && root.Children[found] is YamlSequenceNode;
+
     /// <summary>Returns the text under this key.</summary>
     /// <param name="key">The key to read.</param>
     /// <returns>The key's text, or null where the key is absent or holds a block. A key present

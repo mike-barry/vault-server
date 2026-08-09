@@ -224,9 +224,7 @@ public static class FrontmatterWrite
         // than being reported as data. A caller can fix what it sent.
         foreach (var key in tree.Keys)
         {
-            if (OperationText.HasControlCharacter(tree.Scalar(key) ?? string.Empty))
-                throw FrontmatterRefusal.OnKey(
-                    RefusalReason.ControlCharacter, key, $"The value of \"{key}\" carries a control character.");
+            RefuseControlCharacters(tree, key);
 
             foreach (var violation in FrontmatterChecks.CheckKey(request.Registry, tree, key))
             {
@@ -248,6 +246,37 @@ public static class FrontmatterWrite
             request.Authority.Assert(required, keys);
 
         return tree;
+    }
+
+    /// <summary>
+    /// Refuses a supplied key carrying a control character anywhere under it: the key's own value,
+    /// the text of a bare entry in its block list, and every field value of every mapping entry
+    /// there.
+    /// </summary>
+    /// <param name="tree">The caller-supplied block.</param>
+    /// <param name="key">The key whose values are screened, named in the refusal.</param>
+    /// <exception cref="FrontmatterRefusal">Some value under the key carries a control
+    /// character.</exception>
+    /// <remarks>
+    /// The screen reaches the entries rather than the key's own value alone. A terminal escape is a
+    /// control character, the most agent-facing text a note carries lives in its block-list entries,
+    /// and a supplied block is the route that admits the most caller text in one call. The screen
+    /// refuses rather than strips, because silently rewriting a value reports success while changing
+    /// what was asked for.
+    /// </remarks>
+    private static void RefuseControlCharacters(FrontmatterTree tree, string key)
+    {
+        var carries = OperationText.HasControlCharacter(tree.Scalar(key) ?? string.Empty);
+        foreach (var entry in tree.Entries(key))
+        {
+            carries |= OperationText.HasControlCharacter(entry.Value ?? string.Empty);
+            foreach (var field in entry.Fields)
+                carries |= OperationText.HasControlCharacter(entry.Field(field) ?? string.Empty);
+        }
+
+        if (carries)
+            throw FrontmatterRefusal.OnKey(
+                RefusalReason.ControlCharacter, key, $"The value of \"{key}\" carries a control character.");
     }
 
     // ---- Per-operation validation ----
@@ -472,14 +501,23 @@ public static class FrontmatterWrite
     /// <param name="key">The key being removed.</param>
     /// <param name="tree">The working tree holding the entries.</param>
     /// <param name="declaration">The key's declaration.</param>
-    /// <exception cref="FrontmatterRefusal">The key declares no entry schema, or holds an entry
-    /// that is not clearable wholesale.</exception>
+    /// <exception cref="FrontmatterRefusal">The key declares no entry schema, holds a nested mapping
+    /// rather than a block list, or holds an entry that is not clearable wholesale.</exception>
     private static void RequireClearableWholesale(int index, string key, FrontmatterTree tree, KeyDeclaration declaration)
     {
         if (declaration.Entry is not { } schema)
             throw FrontmatterRefusal.At(
                 RefusalReason.WholesaleRemovalRefused, index, key,
                 $"\"{key}\" is declared a scalar and holds a block in this note, so nothing declares its entries clearable.");
+
+        // A nested mapping is a block and is not a block list, and the check below resolves no
+        // entries from one - so it would pass vacuously and the removal would delete a structure no
+        // schema was consulted about. The shape is refused ahead of the resolution rather than after
+        // it.
+        if (!tree.HoldsBlockList(key))
+            throw FrontmatterRefusal.At(
+                RefusalReason.ShapeMismatch, index, key,
+                $"\"{key}\" holds a nested mapping in this note rather than a block list, and nothing declares what such a structure contains.");
 
         var entries = EntryResolver.Entries(tree, key, schema);
         if (entries.Any(e => e.Variant is not { RemovableWholesale: true }))
@@ -508,6 +546,9 @@ public static class FrontmatterWrite
         if (shape == FrontmatterShape.Scalar)
             throw FrontmatterRefusal.At(
                 RefusalReason.ShapeMismatch, index, key, $"\"{key}\" holds an inline value in this note, and entries need a block list.");
+        if (shape != FrontmatterShape.Absent && !tree.HoldsBlockList(key))
+            throw FrontmatterRefusal.At(
+                RefusalReason.ShapeMismatch, index, key, $"\"{key}\" holds a nested mapping in this note, and entries need a block list.");
 
         var schema = declaration.Entry!;
         var entries = EntryResolver.Entries(tree, key, schema);
@@ -564,6 +605,9 @@ public static class FrontmatterWrite
         if (shape == FrontmatterShape.Scalar)
             throw FrontmatterRefusal.At(
                 RefusalReason.ShapeMismatch, index, key, $"\"{key}\" holds an inline value in this note, and entries live in a block list.");
+        if (!tree.HoldsBlockList(key))
+            throw FrontmatterRefusal.At(
+                RefusalReason.ShapeMismatch, index, key, $"\"{key}\" holds a nested mapping in this note, and entries live in a block list.");
 
         var schema = declaration.Entry!;
         var entries = EntryResolver.Entries(tree, key, schema);

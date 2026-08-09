@@ -170,6 +170,27 @@ public sealed class FrontmatterRefusalTests
     }
 
     [Fact]
+    public void ControlCharacter_ASuppliedBlocksEntriesAreScreenedAsItsScalarValuesAre()
+    {
+        // A supplied block admits more caller text in one call than any other route into a note, and
+        // its block-list entries are where the text agents read lives. Both entry forms are
+        // screened: a field of a mapping entry, and the text of a bare scalar entry. Neither value
+        // here is one its own declared constraint would refuse, so what refuses is the hygiene
+        // screen. The escape is written as YAML's own \x1b so the file's bytes carry the escape
+        // sequence and the parser hands back the single control character it denotes.
+        var field = Refused(
+            string.Empty, suppliedBlock: "doc.notes:\n  - routed: \"skill\\x1b[31m-a\"", newBody: Body);
+
+        Assert.Equal(RefusalReason.ControlCharacter, field.Reason);
+        Assert.Equal(["doc.notes"], field.Keys);
+
+        var bare = Refused(string.Empty, suppliedBlock: "doc.notes:\n  - \"a hint\\x1b[31m\"", newBody: Body);
+
+        Assert.Equal(RefusalReason.ControlCharacter, bare.Reason);
+        Assert.Equal(["doc.notes"], bare.Keys);
+    }
+
+    [Fact]
     public void ControlCharacter_NewlinesAndQuotesAreNotRefused()
     {
         // The emitter escapes newlines and quotes, so neither is a hygiene problem.

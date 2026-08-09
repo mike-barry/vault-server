@@ -22,14 +22,33 @@ Exposure is registry-dependent, which is why this is second: a field declared `c
 
 ## Acceptance criteria
 
-- [ ] The block-list operations test for a sequence rather than for "not scalar". A mapping-valued declared block-list key is refused `ShapeMismatch` in `Add`, `Remove`, and `RequireClearableWholesale`, before any entry resolution.
-- [ ] `FrontmatterTree.ShapeOf` keeps returning `Block` for a mapping — that is the spec's three-answer shape query and is not what changes. The new distinction is a separate query on the tree.
-- [ ] `SuppliedTree` screens the supplied tree's values exhaustively: for a sequence-valued key, every entry's scalar value and every field value of every mapping entry, refusing `ControlCharacter` naming the key.
-- [ ] A test drives `add_entry` and `remove_field` against a note whose declared block-list key holds a mapping, asserting a coded refusal in both directions and that the structure survives the refused removal.
-- [ ] A test drives `create` with a supplied block carrying a control character in a `string`-constrained entry field and in a bare scalar entry, asserting `ControlCharacter` in both cases. Hygiene refuses rather than strips, so assert the refusal and not a rewritten value.
-- [ ] Any text in `docs/design/Design-Frontmatter-Surface.md` enumerating the refusals either path raises is rewritten in the same commit, or confirmed to already describe the new behaviour.
-- [ ] `dotnet build --no-incremental` clean, `dotnet test` green.
+- [x] The block-list operations test for a sequence rather than for "not scalar". A mapping-valued declared block-list key is refused `ShapeMismatch` in `Add`, `Remove`, and `RequireClearableWholesale`, before any entry resolution.
+- [x] `FrontmatterTree.ShapeOf` keeps returning `Block` for a mapping — that is the spec's three-answer shape query and is not what changes. The new distinction is a separate query on the tree.
+- [x] `SuppliedTree` screens the supplied tree's values exhaustively: for a sequence-valued key, every entry's scalar value and every field value of every mapping entry, refusing `ControlCharacter` naming the key.
+- [x] A test drives `add_entry` and `remove_field` against a note whose declared block-list key holds a mapping, asserting a coded refusal in both directions and that the structure survives the refused removal.
+- [x] A test drives `create` with a supplied block carrying a control character in a `string`-constrained entry field and in a bare scalar entry, asserting `ControlCharacter` in both cases. Hygiene refuses rather than strips, so assert the refusal and not a rewritten value.
+- [x] Any text in `docs/design/Design-Frontmatter-Surface.md` enumerating the refusals either path raises is rewritten in the same commit, or confirmed to already describe the new behaviour.
+- [x] `dotnet build --no-incremental` clean, `dotnet test` green.
 
 ## Notes
 
 The hygiene finding as first reported used `use_skill: "run\x1b[31m"` as its example. That value is refused already — `use_skill` is declared `charclass alnum-dash` in the fixture registry, so it fails `ValueRefused` on the whole-block path. Use a `string`-constrained field (`rule`, `when`, `description`, `load_when`) or the `hint` scalar variant when writing the test, or it will pass for the wrong reason.
+
+### What was done
+
+The new query is `FrontmatterTree.HoldsBlockList` (`FrontmatterTree.cs:175`), public beside `ShapeOf`, answering true only for a `YamlSequenceNode`. `ShapeOf` is untouched, so `FrontmatterTreeTests.cs:147` still pins `Block` for a mapping.
+
+Three sites now ask it, each after the existing scalar check so the scalar case keeps its own message:
+
+- `Add` (`FrontmatterWrite.cs:521`) — refuses a present-but-not-a-sequence key. The `Absent` case still falls through, because an add creates its key.
+- `Remove` (`FrontmatterWrite.cs:580`) — refuses after the `Absent` early return, so a removal against an absent key is still a no-op.
+- `RequireClearableWholesale` (`FrontmatterWrite.cs:492`) — refuses after the `declaration.Entry is null` check and before `EntryResolver.Entries`. Order matters: a key declared *scalar* that holds a block keeps its existing `WholesaleRemovalRefused`, which a declared block-list key never reaches.
+
+Hygiene: `SuppliedTree`'s inline scalar check became `RefuseControlCharacters(FrontmatterTree, string)` (`FrontmatterWrite.cs:255`), an overload beside the per-operation one. It walks `tree.Scalar(key)`, then every entry from `tree.Entries(key)` — the bare scalar's `Value` and every `Field` of a mapping entry. `Entries` returns empty for a non-sequence, so a nested mapping under a key contributes nothing; that is the criterion's extent, and a control character in a nested mapping's value is still unscreened. The refusal message is unchanged, so nothing pinned to it moves.
+
+### Dead ends and things checked
+
+- Field *names* in a supplied block's entries are not screened. The criterion says "every field value"; a name carrying an escape still refuses, as `UnknownField` → `ValueRefused`, so it is refused with a less accurate code rather than admitted.
+- `ControlCharacter` and `ValueRefused` both translate to `ToolCodes.InvalidValue` (`ToolRefusalEnvelope.cs:104-105`), so a tool-level test cannot tell the hygiene refusal from a constraint refusal. The hygiene test therefore sits at the write-path level in `FrontmatterRefusalTests.cs` and asserts `RefusalReason.ControlCharacter` directly, using the supplied-block call shape that `create` runs. `ShapeMismatch` has its own wire code, so the shape test sits in `EditToolTests.cs` where the file on disk shows the mapping surviving the refused removal.
+- The escape is written into the supplied block as YAML's own `\x1b` inside a double-quoted scalar rather than as a raw control byte emitted by a C# escape, so the block's text is what a caller would actually send.
+- `docs/design/Design-Frontmatter-Surface.md` was read and not edited. Its refusal enumeration (line 189) already names "a shape mismatch" and "a control character in caller text", and its phase list (line 146) already carries hygiene and shape in the validate phase. `Spec-Frontmatter-Substrate.md` already binds hygiene to "entry field values as well as scalar values" and already lists shape mismatch, so neither document describes behaviour this change contradicts. The design's "Shape is a query with three answers" sentence stays true and the new query is not mentioned there.

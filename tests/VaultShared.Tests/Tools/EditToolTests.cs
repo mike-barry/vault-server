@@ -555,6 +555,33 @@ public sealed class EditToolTests : IDisposable
             Refusal(new { path = "Projects/Widget/Widget.md", operations = new[] { new { op = "set", key = "nav.contents", value = "x" } } }).Code);
     }
 
+    /// <summary>
+    /// A nested mapping and a block list are both a block, and only a block list holds entries. A
+    /// declared block-list key holding a mapping is refused for its shape rather than resolving to
+    /// no entries: an add would otherwise reach the tree and fail as an uncoded internal error, and
+    /// a field removal would find no entry objecting to a wholesale clear and delete the mapping
+    /// while reporting success.
+    /// </summary>
+    [Fact]
+    public void ABlockListKeyHoldingAMapping_ReachesTheCallerAsShapeMismatchAndKeepsTheStructure()
+    {
+        using var vault = new ScratchVault(opClasses: [Synthetic.OpenClass])
+            .WithNote("Mapped.md", "---\ndoc.notes:\n  routed: skill-a\n---\n# Mapped\n");
+        var before = vault.BytesOf("Mapped.md");
+
+        Assert.Equal(
+            ToolCodes.ShapeMismatch,
+            Refusal(vault, new { path = "Mapped.md", operations = new[] { new { op = "add_entry", key = "doc.notes", entry = "a hint" } } }).Code);
+        Assert.Equal(
+            ToolCodes.ShapeMismatch,
+            Refusal(vault, new { path = "Mapped.md", operations = new[] { new { op = "remove_entry", key = "doc.notes", target = "skill-a" } } }).Code);
+        Assert.Equal(
+            ToolCodes.ShapeMismatch,
+            Refusal(vault, new { path = "Mapped.md", operations = new[] { new { op = "remove", key = "doc.notes" } } }).Code);
+
+        Assert.Equal(before, vault.BytesOf("Mapped.md"));
+    }
+
     [Fact]
     public void AValueTheDeclarationRefuses_ReachesTheCallerAsInvalidValue()
     {
