@@ -16,4 +16,11 @@ This repository holds the vault access layer, its tool layer, and two front-ends
 - **`conventions/Unit-Tests.md` is the standard for the tests.** A test asserts a behaviour a caller can observe. Read it before adding or changing one.
 - **`conventions/` outlives this work and does not archive with `docs/`.** The specifications, the design documents, and the working files are archived at cutover; the comment and test standards govern the code and travel with it into the canonical repository.
 - **`docs/Plan.md` holds the working plan.** Read it at the start of a session and say which step is in play. It is meant to be revised as the work is understood, with changes proposed to the operator rather than made silently.
-- **`docs/Sidequests.md` holds agreed work that does not block the remaining steps.** Real problems found in passing - a portability defect, a hygiene fix - worth doing but not now. **Only the operator writes to it.** Propose promotion when you find something that fits and say what it costs to leave; do not add an entry yourself, or the file stops being a list of agreed work and becomes somewhere to shed anything inconvenient. Something that blocks a step belongs in the plan, and something the specs cannot answer is an escalation.
+
+## Tasks
+
+`tasks/tasks.md` is the task index, and `tasks/tasks-instructions.md` says how to read and maintain it. **Read the instructions before changing the index or any `task-*.md` file** - they carry the section meanings, the line format, the ID rules, and the archiving flow, and none of that is inferable from the index alone.
+
+Two rules hold whether or not that document has been read. **Only the operator adds a task**, in either form - a line in the index or a task file. An agent that finds something worth doing describes it and waits. And **only the operator archives one**: judging the work finished is not the same as the operator agreeing it is, so say the task looks complete and leave it in place until told.
+
+The index is where work that does not block the current step is parked, including a real problem noticed in passing - a portability defect, a hygiene fix - worth doing but not now. Something that blocks a step is a step in `docs/Plan.md`, and something the specs cannot answer is an escalation to the operator rather than a task.
