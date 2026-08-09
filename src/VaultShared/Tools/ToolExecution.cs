@@ -82,9 +82,8 @@ public sealed class ToolExecution(VaultConfig vaultConfig, SearchEngine? engine 
     {
         var (declaration, tool) = registration;
 
-        // Session. Enforced here rather than by leaving the subcommand out of a front-end's listing,
-        // because a front-end that can still reach the tool by name would make such a filter
-        // cosmetic.
+        // Session. Enforced here so the refusal holds on every route into a tool, whatever a
+        // front-end lists.
         if (declaration.RequiresClientSession && session is null)
             throw new ToolRefusal(
                 ToolCodes.ToolUnavailable,

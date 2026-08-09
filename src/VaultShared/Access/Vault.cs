@@ -54,9 +54,7 @@ public sealed record Vault(string Name, string Root, PathPolicy Policy)
     /// Do not change this derivation. It is a cross-process contract: every process that takes the
     /// write lock over a vault has to arrive at the same name from the same root directory, or two
     /// of them hold different locks over the same files and neither sees the other. The
-    /// <c>VaultWatcher</c> process is the second holder this exists for, and whoever implements it
-    /// must produce this same name, whether by calling this property or by repeating the steps
-    /// below in its own code.
+    /// <c>VaultWatcher</c> process is the second holder this exists for.
     ///
     /// Each step is load-bearing. The location is hashed because a mutex name is capped at 260
     /// characters and cannot contain a backslash outside the reserved prefix. It is lowercased, or a

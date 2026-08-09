@@ -13,9 +13,8 @@ namespace VaultCli;
 /// declaration already states.
 /// </summary>
 /// <remarks>
-/// Declarations that require a client session are left out of the tree. That is presentation only:
-/// the shared execute path refuses such a call by whatever route it arrived, including <c>--args</c>,
-/// which names a tool without going through the tree.
+/// Declarations that require a client session are left out of the tree. The shared execute path
+/// refuses such a call whatever route it arrived by.
 /// </remarks>
 public sealed class ToolCommandTree
 {
