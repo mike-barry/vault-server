@@ -5,7 +5,7 @@ it. Delete this file when the job is done; nothing links to it and nothing depen
 
 ## What this is
 
-The suite is 1538 tests and every one of them passes. That is not the same as every one of them
+The suite is 1576 tests and every one of them passes. That is not the same as every one of them
 earning its place. A test that asserts nothing, that pins an implementation detail, that sorts away
 the property it looks like it is checking, or that duplicates its neighbour, still shows green and
 still has to be read, understood and kept true by everyone who comes after.
@@ -37,7 +37,7 @@ for documentation of the system being replaced.
 Re-verify rather than trust these numbers:
 
 - `dotnet build --no-incremental` - 0 warnings, 0 errors
-- `dotnet test` - 1538 passing: 1174 `VaultShared`, 305 `VaultMcpServer`, 59 `VaultCli`
+- `dotnet test` - 1576 passing: 1212 `VaultShared`, 305 `VaultMcpServer`, 59 `VaultCli`
 
 Three projects under `tests/`:
 
@@ -51,10 +51,8 @@ Three projects under `tests/`:
 
 ## Sequencing
 
-`Plan.md` step 1 adds tests from `coverage/`. That step and this audit touch the same files. Agree
-the order with the operator before starting. Doing the audit first means the new tests are written
-against a suite already cleaned and a guide already written, which is the better order but delays
-step 1.
+This is `Plan.md` step 1 and nothing is queued ahead of it. The code review and the comment sweep
+follow it and read what it leaves behind, so leave the suite in a state you would hand to a reviewer.
 
 ## What you are looking for
 
@@ -112,7 +110,7 @@ defect in `src/`, stop that thread and raise it - do not fix it here.
 
 ## How to run it
 
-Orchestrate with workflows rather than reading 1538 tests yourself, and run the sweep in three
+Orchestrate with workflows rather than reading 1576 tests yourself, and run the sweep in three
 phases. The phase structure below is the shape of the job; settle the details with the operator when
 you start rather than treating this as fixed.
 
@@ -200,7 +198,8 @@ What it must carry:
 
 ## What not to do
 
-- Do not add tests. Adding is `Plan.md` step 1, from `coverage/`.
+- Do not add tests. The coverage step that added them is finished, and a gap you notice here is a
+  finding to raise rather than a test to write.
 - Do not change anything under `src/`.
 - Do not rename test methods, test data, or assertion strings.
 - Do not refactor test files for tidiness - no reordering, no reformatting, no extracting helpers
