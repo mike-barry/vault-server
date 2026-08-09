@@ -61,6 +61,8 @@ public sealed class FrontmatterRefusalTests
     [Fact]
     public void FenceConflict_ABodyWriteMintingABlockRefuses()
     {
+        // Otherwise the body would carry in a block that no operation authored, skipping validation
+        // and the authority assertion.
         var refusal = Refused(Body, newBody: "---\ndoc.title: Widget\n---\nSmuggled.\n");
 
         Assert.Equal(RefusalReason.FenceConflict, refusal.Reason);
@@ -368,6 +370,8 @@ public sealed class FrontmatterRefusalTests
     [Fact]
     public void UnresolvedIdentity_AnAnchorNamingNoEntryRefuses()
     {
+        // An anchor that resolves to nothing refuses rather than falling back to appending, so an
+        // entry never lands somewhere the caller did not ask for.
         var refusal = Refused(
             Note("doc.notes:\n  - routed: skill-a"),
             [
@@ -378,6 +382,7 @@ public sealed class FrontmatterRefusalTests
             ]);
 
         Assert.Equal(RefusalReason.UnresolvedIdentity, refusal.Reason);
+        Assert.Equal(0, refusal.Operation);
     }
 
     [Fact]

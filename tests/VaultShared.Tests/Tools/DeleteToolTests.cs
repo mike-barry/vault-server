@@ -157,7 +157,15 @@ public sealed class DeleteToolTests : IDisposable
         var refusal = Refusal(new { path = "Projects/Widget", kind = "folder", apply = true });
 
         Assert.Equal(ToolCodes.NotEmpty, refusal.Code);
-        Assert.Contains("Projects/Widget/Notes.md", Strings(refusal, "plan"));
+        Assert.Equal(
+            [
+                "Projects/Widget/Assets/Diagram.png",
+                "Projects/Widget/Notes.md",
+                "Projects/Widget/Widget.md",
+                "Projects/Widget/Assets",
+                "Projects/Widget",
+            ],
+            Strings(refusal, "plan"));
         Assert.True(_vault.HasFile("Projects/Widget/Notes.md"));
     }
 

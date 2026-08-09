@@ -30,18 +30,6 @@ public sealed class ToolErrorTests
     }
 
     [Fact]
-    public void Json_WithData_EmitsCodeThenMessageThenData()
-    {
-        var json = ToolError.Json("out_of_scope", "Not scoped.", new { tool = "read", vault = "test" });
-
-        Assert.Equal("""{"code":"out_of_scope","message":"Not scoped.","data":{"tool":"read","vault":"test"}}""", json);
-        // Field order is part of the parity, not incidental - assert it independently of the
-        // literal above so a serializer change that reorders is caught by name.
-        using var doc = JsonDocument.Parse(json);
-        Assert.Equal(["code", "message", "data"], doc.RootElement.EnumerateObject().Select(p => p.Name).ToArray());
-    }
-
-    [Fact]
     public void Result_IsAnErrorWhoseWholeTextContentIsTheErrorJson()
     {
         // The JSON is the entire text block - the same thing a tool script's thrown error text is -

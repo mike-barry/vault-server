@@ -145,40 +145,17 @@ public sealed class BearerGrantMiddlewareTests : IClassFixture<BearerGrantMiddle
         Assert.NotEqual(HttpStatusCode.Unauthorized, response.StatusCode);
     }
 
-    [Fact]
-    public async Task KnownToken_IsNotRejectedByTheGate()
-    {
-        using var client = _fixture.CreateClient();
-        client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", Fixture.AdminToken);
-        using var response = await client.PostAsync("/mcp", JsonBody("""{"jsonrpc":"2.0","id":1,"method":"ping"}"""));
-
-        Assert.NotEqual(HttpStatusCode.Unauthorized, response.StatusCode);
-        Assert.NotEqual(HttpStatusCode.Forbidden, response.StatusCode);
-    }
-
     /// <summary>
-    /// Verifies that naming a vault outside the grant's scope is refused with 403. The gate reads
-    /// the request body before the dispatcher resolves the tool name, so the tool named here does
-    /// not exist - a real name would suggest the refusal depended on one.
-    /// </summary>
-    [Fact]
-    public async Task ToolCallNamingOutOfScopeVault_Returns403()
-    {
-        using var client = _fixture.CreateClient();
-        client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", Fixture.ReadOnlyToken);
-        var body = """{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"some_tool","arguments":{"vault":"not-configured","from":"a","to":"b"}}}""";
-        using var response = await client.PostAsync("/mcp", JsonBody(body));
-
-        Assert.Equal(HttpStatusCode.Forbidden, response.StatusCode);
-    }
-
-    /// <summary>
-    /// Verifies that the gate matches the vault argument name case-insensitively. Tool schemas
-    /// advertise it as "vault", but argument binding accepts any casing, so a client sending
-    /// "Vault" must still reach this 403 rather than the vaguer op-class or path-scope denial one
-    /// layer further in.
+    /// Verifies that naming a vault outside the grant's scope is refused with 403, whatever the
+    /// casing of the vault argument. Tool schemas advertise it as "vault", but argument binding
+    /// accepts any casing, so a client sending "Vault" must still reach this 403 rather than the
+    /// vaguer op-class or path-scope denial one layer further in.
     /// </summary>
     /// <param name="vaultPropertyName">The casing of the vault argument name to send.</param>
+    /// <remarks>
+    /// The gate reads the request body before the dispatcher resolves the tool name, so the tool
+    /// named here does not exist - a real name would suggest the refusal depended on one.
+    /// </remarks>
     [Theory]
     [InlineData("vault")]
     [InlineData("Vault")]

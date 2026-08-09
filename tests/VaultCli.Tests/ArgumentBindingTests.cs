@@ -53,6 +53,9 @@ public sealed class ArgumentBindingTests(CliFixture fixture) : IClassFixture<Cli
         var run = fixture.Run(["read", "--path", "Projects/Widget/Widget.md", "--part", "frontmatter"]);
 
         Assert.Equal(ExitCodes.Success, run.Exit);
+        // The frontmatter block's first key, so the value bound as "frontmatter" rather than the
+        // absence of the body being satisfied by an empty answer.
+        Assert.StartsWith("nav.contents:", run.Output);
         Assert.DoesNotContain("# Widget.md", run.Output);
     }
 
@@ -141,6 +144,9 @@ public sealed class ArgumentBindingTests(CliFixture fixture) : IClassFixture<Cli
 
         Assert.Equal(ExitCodes.Refused, run.Exit);
         Assert.Equal(ToolCodes.InvalidArgument, run.Code);
+        // Named as "args" rather than as a member of the record, because nothing was bound: the
+        // fault is in the option's own value.
+        Assert.Equal("args", run.Envelope.GetProperty("data").GetProperty("argument").GetString());
     }
 
     /// <summary>

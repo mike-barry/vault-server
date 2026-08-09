@@ -168,8 +168,12 @@ public sealed class EditToolTests : IDisposable
         });
 
         var text = _vault.TextOf("Inbox/Loose.md");
+        // Both sides of the placement: an entry that landed at the head of the list would also come
+        // before the one it names, and that is an append to the front rather than an anchored add.
         Assert.True(
-            text.IndexOf("wedged", StringComparison.Ordinal) < text.IndexOf("second", StringComparison.Ordinal),
+            text.IndexOf("first", StringComparison.Ordinal)
+                < text.IndexOf("wedged", StringComparison.Ordinal)
+                && text.IndexOf("wedged", StringComparison.Ordinal) < text.IndexOf("second", StringComparison.Ordinal),
             text);
     }
 
@@ -211,7 +215,11 @@ public sealed class EditToolTests : IDisposable
     {
         var result = Edit(new { path = "Projects/Widget/Widget.md", body = new { find = "Body text.", replace = "Different text." } });
 
-        Assert.Contains("Different text.", _vault.TextOf("Projects/Widget/Widget.md"), StringComparison.Ordinal);
+        // The whole note rather than the replacement alone: the matched text has to be gone, and a
+        // substitution that appended its replacement instead of substituting would still contain it.
+        Assert.Equal(
+            "---\ndoc.title: Widget\ndoc.type: note\n---\n# Widget\n\nDifferent text.\n",
+            _vault.TextOf("Projects/Widget/Widget.md"));
         Assert.True(result.BodyChanged);
     }
 

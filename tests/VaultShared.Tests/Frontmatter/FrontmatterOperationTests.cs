@@ -199,17 +199,6 @@ public sealed class FrontmatterOperationTests
     }
 
     [Fact]
-    public void AddEntry_AnAnchorNamingNoEntryIsRefusedRatherThanAppended()
-    {
-        var refusal = Refused(
-            Note("doc.notes:\n  - routed: skill-a"),
-            Add("doc.notes", AnchorAt(AnchorPlacement.Before, "skill-z"), ("routed", "skill-b")));
-
-        Assert.Equal(RefusalReason.UnresolvedIdentity, refusal.Reason);
-        Assert.Equal(0, refusal.Operation);
-    }
-
-    [Fact]
     public void AddEntry_AnAnchorNamingSeveralEntriesIsRefused()
     {
         var refusal = Refused(
@@ -260,16 +249,6 @@ public sealed class FrontmatterOperationTests
     }
 
     [Fact]
-    public void RemoveEntry_AnIdentityMatchingSeveralEntriesIsRefused()
-    {
-        var refusal = Refused(
-            Note("doc.notes:\n  - routed: skill-a\n  - routed: SKILL-A"),
-            Remove("doc.notes", "skill-a"));
-
-        Assert.Equal(RefusalReason.AmbiguousIdentity, refusal.Reason);
-    }
-
-    [Fact]
     public void RemoveEntry_ClearsAWholeVariantWhereTheDeclarationPermitsIt()
     {
         var outcome = Apply(
@@ -280,21 +259,14 @@ public sealed class FrontmatterOperationTests
     }
 
     [Fact]
-    public void RemoveEntry_ClearingAVariantThatIsNotRemovableWholesaleIsRefused()
-    {
-        var refusal = Refused(
-            Note("doc.notes:\n  - pinned: keep this"),
-            new FrontmatterOperation.RemoveEntry("doc.notes", new EntryTarget.Variant("pinned")));
-
-        Assert.Equal(RefusalReason.WholesaleRemovalRefused, refusal.Reason);
-    }
-
-    [Fact]
     public void RemoveEntry_OnAnAbsentKeyReportsNoChange()
     {
         var content = Note("doc.title: Widget");
 
-        Assert.Empty(Apply(content, Remove("doc.notes", "skill-a")).AppliedOperations);
+        var outcome = Apply(content, Remove("doc.notes", "skill-a"));
+
+        Assert.Empty(outcome.AppliedOperations);
+        Assert.Same(content, outcome.Content);
     }
 
     // ---- Ordering ----

@@ -48,7 +48,7 @@ public sealed class VaultWriteLockTests
         {
             var refusal = Assert.Throws<ToolRefusal>(() => VaultWriteLock.Acquire(name, TimeSpan.FromMilliseconds(50)));
             Assert.Equal(ToolCodes.LockTimeout, refusal.Code);
-            Assert.Contains("\"timeout\"", ToolRefusalEnvelope.Json(refusal));
+            Assert.Contains("\"timeout\":0.05", ToolRefusalEnvelope.Json(refusal));
         }
         finally
         {

@@ -205,6 +205,7 @@ public sealed class NoteSplitTests
         var content = "---\ntitle: Widget\n---\nBody.\n";
         var split = NoteSplit.Of(content);
 
+        Assert.Equal("Body.\n", split.Body);
         Assert.Equal(split.Body, content[split.BodyOffset..]);
     }
 
@@ -230,13 +231,5 @@ public sealed class NoteSplitTests
 
         Assert.Equal("---\ntitle: Widget\ntags:\n  - a\n\n# comment\n---   \nNew body.\n", spliced);
         Assert.Equal(split.InnerText, NoteSplit.Of(spliced).InnerText);
-    }
-
-    [Fact]
-    public void SplicingIntoANoteWithNoBlockReplacesTheWholeNote()
-    {
-        var split = NoteSplit.Of("Just prose.\n");
-
-        Assert.Equal("New body.\n", "Just prose.\n"[..split.BodyOffset] + "New body.\n");
     }
 }

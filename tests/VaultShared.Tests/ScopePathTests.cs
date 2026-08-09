@@ -29,6 +29,7 @@ public sealed class ScopePathTests
     [InlineData("Projects/", new[] { "Projects" })]
     // Relative navigation resolves away rather than being refused, as long as it stays inside.
     [InlineData("./Projects/./Widget", new[] { "Projects", "Widget" })]
+    [InlineData("./Projects/Widget/", new[] { "Projects", "Widget" })]
     [InlineData("Projects/Elsewhere/../Widget", new[] { "Projects", "Widget" })]
     // Case is preserved, not folded: the comparison is case-insensitive, the segments are not
     // rewritten, so a root keeps the spelling the operator configured.
@@ -40,19 +41,6 @@ public sealed class ScopePathTests
     public void Normalize_SegmentsAContainedRelativePath(string path, string[] expected)
     {
         Assert.Equal(expected, ScopePath.Normalize(path));
-    }
-
-    /// <summary>
-    /// Checks that two spellings of one root normalize to the same segments, so load-time
-    /// canonicalization and request-time comparison cannot disagree about what a root is.
-    /// </summary>
-    [Theory]
-    [InlineData("Projects/Widget", @"Projects\Widget")]
-    [InlineData("Projects/Widget", "./Projects/Widget/")]
-    [InlineData("Projects/Widget", "Projects/Gizmo/../Widget")]
-    public void Normalize_TwoSpellingsOfOneRootAgree(string one, string other)
-    {
-        Assert.Equal(ScopePath.Normalize(one), ScopePath.Normalize(other));
     }
 
     // ---- What is refused ----
@@ -105,17 +93,5 @@ public sealed class ScopePathTests
 
         Assert.Contains("../outside", refusal.Message, StringComparison.Ordinal);
         Assert.Equal("path", refusal.ParamName);
-    }
-
-    // ---- Containment is decided textually ----
-
-    /// <summary>
-    /// Checks that normalization is purely textual and never touches the filesystem, so it behaves
-    /// the same for a path that does not exist.
-    /// </summary>
-    [Fact]
-    public void Normalize_TouchesNoFilesystem()
-    {
-        Assert.Equal(["Nothing", "Here", "Exists.md"], ScopePath.Normalize("Nothing/Here/Exists.md"));
     }
 }

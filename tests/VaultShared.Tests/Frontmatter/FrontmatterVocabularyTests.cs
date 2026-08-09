@@ -17,7 +17,9 @@ public sealed class FrontmatterVocabularyTests
     [Fact]
     public void EveryDeclaredKeyIsAdvertisedWithItsShape()
     {
-        Assert.Equal(Synthetic.Registry.Keys.Count, Advertised.Keys.Count);
+        Assert.Equal(
+            Synthetic.Registry.Keys.Keys.OrderBy(k => k, StringComparer.Ordinal),
+            Advertised.Keys.Select(k => k.Key).OrderBy(k => k, StringComparer.Ordinal));
         Assert.Equal(KeyShape.Scalar, Assert.Single(Advertised.Keys, k => k.Key == "doc.title").Shape);
         Assert.Equal(KeyShape.BlockList, Assert.Single(Advertised.Keys, k => k.Key == "doc.notes").Shape);
     }
@@ -128,7 +130,7 @@ public sealed class FrontmatterVocabularyTests
     {
         var projected = FrontmatterVocabulary.Of(new RegistryState.Loaded(Synthetic.Registry));
 
-        Assert.Equal(Advertised.Branches.Count, projected.Branches.Count);
-        Assert.Equal(Advertised.Keys.Count, projected.Keys.Count);
+        Assert.Equal(Advertised.Branches.Select(b => b.Variant), projected.Branches.Select(b => b.Variant));
+        Assert.Equal(Advertised.Keys.Select(k => k.Key), projected.Keys.Select(k => k.Key));
     }
 }

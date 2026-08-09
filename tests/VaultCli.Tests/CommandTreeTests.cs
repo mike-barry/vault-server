@@ -36,9 +36,11 @@ public sealed class CommandTreeTests(CliFixture fixture) : IClassFixture<CliFixt
 
         var root = ToolCommandTree.Build(host.Tools, host, TextWriter.Null, TextWriter.Null);
 
+        // Compared in order, not as sets. The registry's order is the order a front-end lists its
+        // tools in, and the tree is the only thing that carries that order into the CLI's help.
         Assert.Equal(
-            host.Tools.Registrations.Select(r => r.Declaration.Name).Order().ToArray(),
-            root.Subcommands.Select(c => c.Name).Order().ToArray());
+            host.Tools.Registrations.Select(r => r.Declaration.Name).ToArray(),
+            root.Subcommands.Select(c => c.Name).ToArray());
     }
 
     [Fact]
@@ -111,14 +113,14 @@ public sealed class CommandTreeTests(CliFixture fixture) : IClassFixture<CliFixt
                 .GetTypeInfo(registration.Declaration.Arguments)
                 .Properties
                 .Select(p => "--" + ToolOptions.Kebab(p.Name))
-                .Order()
                 .ToArray();
 
             // The globals are recursive and reach every command; what is generated is the rest.
+            // Compared in order, not as sets, because the options are presented in the record's own
+            // member order and that is the order --help lists them in.
             var generated = command.Options
                 .Where(o => o.Name is not ("--grant" or "--output" or "--args" or "--help"))
                 .Select(o => o.Name)
-                .Order()
                 .ToArray();
 
             Assert.Equal(expected, generated);

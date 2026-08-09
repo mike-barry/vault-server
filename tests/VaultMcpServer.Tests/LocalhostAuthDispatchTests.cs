@@ -79,6 +79,12 @@ public sealed class LocalhostAuthDispatchTests : IClassFixture<LocalhostAuthDisp
 
         Assert.Equal(HttpStatusCode.OK, status);
         Assert.False(result!.Value.TryGetProperty("isError", out var isError) && isError.GetBoolean());
+
+        // A minted token in the answer, not just the absence of an error: the selector has to have
+        // reached the admin grant for the tool to have anything to return.
+        using var minted = JsonDocument.Parse(
+            result.Value.GetProperty("content").EnumerateArray().First().GetProperty("text").GetString()!);
+        Assert.False(string.IsNullOrEmpty(minted.RootElement.GetProperty("token").GetString()));
     }
 
     [Fact]
@@ -100,6 +106,12 @@ public sealed class LocalhostAuthDispatchTests : IClassFixture<LocalhostAuthDisp
 
         Assert.Equal(HttpStatusCode.OK, status);
         Assert.True(result!.Value.GetProperty("isError").GetBoolean());
+
+        // The op-class floor is what refuses, not a malformed call: the floor holds no op classes,
+        // so mint_token's declared grants:manage requirement is unmet.
+        using var refusal = JsonDocument.Parse(
+            result.Value.GetProperty("content").EnumerateArray().First().GetProperty("text").GetString()!);
+        Assert.Equal("authority_required", refusal.RootElement.GetProperty("code").GetString());
     }
 
     [Fact]
@@ -160,9 +172,10 @@ public sealed class LocalhostAuthDispatchTests : IClassFixture<LocalhostAuthDisp
     [Fact]
     public async Task NonLoopback_MissingHeader_IsDenied()
     {
-        var (status, _) = await HealthCheckFromAsync(_fixture, token: null, NonLoopback);
+        var (status, body) = await HealthCheckFromAsync(_fixture, token: null, NonLoopback);
 
         Assert.Equal(HttpStatusCode.Unauthorized, status);
+        Assert.Equal(Auth.BearerGrantMiddleware.UnauthorizedBody, body);
     }
 
     /// <summary>

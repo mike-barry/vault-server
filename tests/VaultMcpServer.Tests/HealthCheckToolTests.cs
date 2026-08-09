@@ -60,12 +60,19 @@ public sealed class HealthCheckToolTests(TestVaultFixture fixture) : IClassFixtu
         var problems = doc.RootElement.GetProperty("problems").EnumerateArray().ToList();
         Assert.Equal(2, problems.Count);
 
+        // Each problem is checked as a whole, so a severity or a detail landing on the wrong
+        // problem fails here rather than satisfying a check that only asks whether both values
+        // appear somewhere in the report.
+        var fatal = Assert.Single(problems, p => p.GetProperty("source").GetString() == "GrantStore");
+        Assert.Equal("Fatal", fatal.GetProperty("severity").GetString());
         // Absolute filesystem paths in a problem's Detail string reach this tool's output verbatim.
         // There is no sanitized second rendering.
-        Assert.Contains(problems, p => p.GetProperty("detail").GetString()!.Contains(@"C:\some\absolute\path\grants.json"));
-        Assert.Contains(problems, p => p.GetProperty("detail").GetString()!.Contains(@"C:\vaults\broken"));
-        Assert.Contains(problems, p => p.GetProperty("severity").GetString() == "Fatal");
-        Assert.Contains(problems, p => p.GetProperty("severity").GetString() == "Degraded");
+        Assert.Contains(@"C:\some\absolute\path\grants.json", fatal.GetProperty("detail").GetString()!);
+
+        var degraded = Assert.Single(problems, p => p.GetProperty("source").GetString() == "VaultConfig");
+        Assert.Equal("Degraded", degraded.GetProperty("severity").GetString());
+        Assert.Contains(@"C:\vaults\broken", degraded.GetProperty("detail").GetString()!);
+
         Assert.All(problems, p => Assert.True(p.TryGetProperty("recorded_at_utc", out _)));
     }
 
@@ -76,9 +83,10 @@ public sealed class HealthCheckToolTests(TestVaultFixture fixture) : IClassFixtu
 
         var vaults = doc.RootElement.GetProperty("vaults");
         var configured = vaults.GetProperty("configured").EnumerateArray().Select(e => e.GetString()).ToList();
-        Assert.Contains("test", configured);
-        Assert.Contains("scratch", configured);
-        Assert.Equal(_vaultConfig.DefaultVault, vaults.GetProperty("default_vault").GetString());
+        // The fixture configures exactly these two vaults, so the whole list is asserted in the
+        // case-insensitive order the report promises rather than only that both names appear.
+        Assert.Equal(["scratch", "test"], configured);
+        Assert.Equal("test", vaults.GetProperty("default_vault").GetString());
     }
 
     /// <summary>

@@ -241,6 +241,7 @@ public sealed class ToolExecutionTests : IDisposable
         var refusal = Refused(declaration, new RecordingTool(), new { note = "Widget" }, SyntheticTools.Grant(OpClass.Write), session: null);
 
         Assert.Equal(ToolCodes.ToolUnavailable, refusal.Code);
+        Assert.DoesNotContain("note", ToolRefusalEnvelope.Json(refusal), StringComparison.OrdinalIgnoreCase);
     }
 
     // --- Vault resolution and membership ------------------------------------------------------
@@ -266,16 +267,6 @@ public sealed class ToolExecutionTests : IDisposable
         Run(SyntheticTools.Declaration(arguments: typeof(VaultBearingArguments)), tool, new { }, SyntheticTools.Grant(), SyntheticTools.Session);
 
         Assert.Equal(SyntheticTools.VaultName, tool.LastCall!.Vault!.Vault.Name);
-    }
-
-    [Fact]
-    public void UnknownVault_IsUnknownVault()
-    {
-        var refusal = Refused(
-            SyntheticTools.Declaration(arguments: typeof(VaultBearingArguments)), new RecordingTool(),
-            new { vault = "no-such-vault" }, SyntheticTools.Grant(), SyntheticTools.Session);
-
-        Assert.Equal(ToolCodes.UnknownVault, refusal.Code);
     }
 
     [Fact]

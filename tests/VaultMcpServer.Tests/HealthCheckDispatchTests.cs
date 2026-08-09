@@ -92,7 +92,14 @@ public sealed class HealthCheckDispatchTests : IClassFixture<HealthCheckDispatch
         var content = result.GetProperty("content").EnumerateArray().First().GetProperty("text").GetString()!;
         using var doc = JsonDocument.Parse(content);
         var problems = doc.RootElement.GetProperty("problems").EnumerateArray().ToList();
-        Assert.Contains(problems, p => p.GetProperty("detail").GetString()!.Contains("broken.ps1"));
+        // The severity is asserted on the same problem as the detail. A script that failed to load
+        // must degrade the server rather than fatally degrade it, because a fatal problem makes the
+        // middleware reject every request with 503.
+        //
+        // The file name is matched with its directory separator in front, because the detail
+        // carries the script's full path and "schema_broken.ps1" ends with "broken.ps1" too.
+        var problem = Assert.Single(problems, p => p.GetProperty("detail").GetString()!.Contains($"{Path.DirectorySeparatorChar}broken.ps1"));
+        Assert.Equal("Degraded", problem.GetProperty("severity").GetString());
     }
 
     [Fact]

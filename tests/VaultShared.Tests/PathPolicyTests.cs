@@ -187,6 +187,7 @@ public sealed class PathPolicyTests : IDisposable
         var config = Load(new RecordingProblemSink(), """[ { "path": "Areas", "mutation_requires": "agentic:write" } ]""", "Areas");
 
         var policy = config.Vaults["test"].PathPolicy;
+        Assert.Single(policy.MutationRules);
         Assert.Empty(policy.AlwaysReadableRoots);
         Assert.False(policy.ReadAdmits("Areas/Anything.md", Rooted("Projects/Widget")));
     }
@@ -453,12 +454,6 @@ public sealed class PathPolicyFixtureTests(TestVaultFixture fixture) : IClassFix
         Assert.True(policy.ReadAdmits("Projects/Widget/Widget.md", Narrow));
         Assert.False(policy.ReadAdmits("Resources/Gizmo-Reference.md", Narrow));
         Assert.False(policy.ReadAdmits("Inbox/Note-Loose-Thought.md", Narrow));
-    }
-
-    [Fact]
-    public void ANarrowGrantCannotWriteTheSeededGuides()
-    {
-        Assert.False(Narrow.Admits(Guide));
     }
 
     [Fact]

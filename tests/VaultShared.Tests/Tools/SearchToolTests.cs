@@ -31,8 +31,14 @@ public sealed class SearchToolTests : IDisposable
     private string Grep(ScratchVault vault, object arguments) =>
         VaultToolHarness.Text(new GrepTool(), GrepTool.Declaration, vault, arguments);
 
+    /// <summary>Splits a tool's answer into its lines and orders them, so an assertion states which
+    /// results came back rather than which order the search engine walked the tree in. The engine
+    /// makes no ordering promise and neither tool imposes one. The ordering is ordinal, so the
+    /// expected sets below read the same on every machine whatever the current culture is.</summary>
+    /// <param name="text">The tool's answer.</param>
+    /// <returns>The answer's lines, ordered ordinally, or an empty array for an empty answer.</returns>
     private static string[] Lines(string text) =>
-        text.Length == 0 ? [] : [.. text.Split('\n').Order()];
+        text.Length == 0 ? [] : [.. text.Split('\n').Order(StringComparer.Ordinal)];
 
     // ---- The declarations ----
 
@@ -50,6 +56,12 @@ public sealed class SearchToolTests : IDisposable
 
     // ---- glob ----
 
+    /// <summary>
+    /// The pattern reaches the caller's own notes at every depth beneath it. The markdown
+    /// restriction is applied to the engine's results and must never be appended to the caller's
+    /// pattern: appending <c>.md</c> to <c>Projects/**</c> turns the recursive wildcard into a
+    /// single <c>*</c>, and both notes asserted here are nested one level deeper than that reaches.
+    /// </summary>
     [Fact]
     public void Glob_AnswersNewlineJoinedVaultRelativePaths()
     {
@@ -58,27 +70,19 @@ public sealed class SearchToolTests : IDisposable
             Lines(Glob(_vault, new { pattern = "Projects/**" })));
     }
 
-    /// <summary>Enumeration covers markdown notes only. No tool here operates on an attachment, so
-    /// one is never listed.</summary>
+    /// <summary>
+    /// Enumeration covers markdown notes only. No tool here operates on an attachment, so one is
+    /// never listed, and a path under a dot directory is outside the perimeter every tool works
+    /// within. The whole answer to a pattern matching everything is asserted, because "only" is the
+    /// property: a result set that grew to include either the attachment or the note under
+    /// <c>.obsidian</c> is the failure this is looking for.
+    /// </summary>
     [Fact]
     public void Glob_AnswersTheMarkdownDomainOnly()
     {
-        Assert.DoesNotContain("Attachments/Data.txt", Lines(Glob(_vault, new { pattern = "**" })));
-    }
-
-    /// <summary>The markdown restriction is applied to the engine's results and must never be
-    /// appended to the caller's pattern. Appending <c>.md</c> to <c>Projects/**</c> turns the
-    /// recursive wildcard into a single <c>*</c> and drops every nested note.</summary>
-    [Fact]
-    public void Glob_ARecursivePatternStillReachesNestedNotes()
-    {
-        Assert.Contains("Projects/Widget/Widget.md", Lines(Glob(_vault, new { pattern = "Projects/**" })));
-    }
-
-    [Fact]
-    public void Glob_LeavesDotDirectoriesOut()
-    {
-        Assert.DoesNotContain(".obsidian/Deep.md", Lines(Glob(_vault, new { pattern = "**" })));
+        Assert.Equal(
+            ["Inbox/Loose.md", "Projects/Widget/Tasks.md", "Projects/Widget/Widget.md"],
+            Lines(Glob(_vault, new { pattern = "**" })));
     }
 
     /// <summary>No match is an empty result rather than a refusal, so a caller checking whether
@@ -96,10 +100,9 @@ public sealed class SearchToolTests : IDisposable
     {
         using var scoped = Layout(new ScratchVault(VaultScope.Of(["Projects"])));
 
-        var paths = Lines(Glob(scoped, new { pattern = "**" }));
-
-        Assert.Contains("Projects/Widget/Widget.md", paths);
-        Assert.DoesNotContain("Inbox/Loose.md", paths);
+        Assert.Equal(
+            ["Projects/Widget/Tasks.md", "Projects/Widget/Widget.md"],
+            Lines(Glob(scoped, new { pattern = "**" })));
     }
 
     // ---- grep ----
@@ -112,6 +115,9 @@ public sealed class SearchToolTests : IDisposable
             Lines(Grep(_vault, new { pattern = "needle", path_glob = "Widget.md" })));
     }
 
+    /// <summary>The answer is the whole set, so it also states what content search does not reach:
+    /// the attachment and the note under the dot directory both carry the pattern and neither is
+    /// listed.</summary>
     [Fact]
     public void Grep_Files_AnswersOnePathPerLine()
     {
@@ -128,12 +134,20 @@ public sealed class SearchToolTests : IDisposable
             Lines(Grep(_vault, new { pattern = "needle", granularity = "counts" })));
     }
 
+    /// <summary>The expected lines are stated rather than taken from the other call, so a defect
+    /// that emptied both answers cannot satisfy this.</summary>
     [Fact]
     public void Grep_WithNoGranularity_AnswersLines()
     {
-        Assert.Equal(
-            Lines(Grep(_vault, new { pattern = "needle", granularity = "lines" })),
-            Lines(Grep(_vault, new { pattern = "needle" })));
+        string[] expected =
+        [
+            "Projects/Widget/Tasks.md:1:needle in tasks",
+            "Projects/Widget/Widget.md:1:needle here",
+            "Projects/Widget/Widget.md:3:needle again",
+        ];
+
+        Assert.Equal(expected, Lines(Grep(_vault, new { pattern = "needle", granularity = "lines" })));
+        Assert.Equal(expected, Lines(Grep(_vault, new { pattern = "needle" })));
     }
 
     [Theory]
@@ -152,12 +166,6 @@ public sealed class SearchToolTests : IDisposable
         Assert.Equal(
             ["Projects/Widget/Tasks.md"],
             Lines(Grep(_vault, new { pattern = "needle", granularity = "files", path_glob = "Tasks.md" })));
-    }
-
-    [Fact]
-    public void Grep_AnswersNoteContentAndNotTheRestOfTheVault()
-    {
-        Assert.DoesNotContain("Attachments/Data.txt", Lines(Grep(_vault, new { pattern = "needle", granularity = "files" })));
     }
 
     /// <summary>

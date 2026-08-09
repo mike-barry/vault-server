@@ -34,6 +34,8 @@ public sealed class PathPolicyMutationMatchTests
         // A raw string prefix would catch a similarly named sibling directory.
         var policy = Policy($$"""[ { "path": "Areas/Agentic", "mutation_requires": "{{Elevated}}" } ]""");
 
+        // The entry is live, so the answer below is a non-match rather than an empty policy.
+        Assert.Equal([Elevated], policy.MutationRequires("Areas/Agentic/Note.md"));
         Assert.Empty(policy.MutationRequires("Areas/Agentic-Old/Note.md"));
     }
 

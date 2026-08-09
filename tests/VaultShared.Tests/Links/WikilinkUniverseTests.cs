@@ -49,6 +49,7 @@ public sealed class WikilinkUniverseTests
         // Only the one contested key is at stake. The spelling that names a single note names it in
         // either order.
         Assert.Equal("Rep/Report.md", Opened("Rep/Ref.md", "Rep/Report", "Rep/Report.md", "Rep/Report.md.md"));
+        Assert.Equal("Rep/Report.md", Opened("Rep/Ref.md", "Rep/Report", "Rep/Report.md.md", "Rep/Report.md"));
         Assert.Equal("Rep/Report.md.md", Opened("Rep/Ref.md", "Rep/Report.md.md", "Rep/Report.md", "Rep/Report.md.md"));
         Assert.Equal("Rep/Report.md.md", Opened("Rep/Ref.md", "Rep/Report.md.md", "Rep/Report.md.md", "Rep/Report.md"));
     }

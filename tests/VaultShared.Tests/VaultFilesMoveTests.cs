@@ -40,6 +40,7 @@ public sealed class VaultFilesMoveTests : IDisposable
             VaultFiles.MoveFile(_vault.ToWrite("Projects/Widget.md"), _vault.ToWrite("Projects/Gizmo.md")));
 
         Assert.True(_vault.HasFile("Projects/Gizmo.md"));
+        Assert.False(_vault.HasFile("Projects/Widget.md"));
     }
 
     [Fact]

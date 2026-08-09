@@ -54,10 +54,14 @@ public sealed class RenderingTests(CliFixture fixture) : IClassFixture<CliFixtur
     [Fact]
     public void OutputJson_LeavesAStructuredResultAlone()
     {
-        var text = fixture.Run(["delete", "--path", "Projects/Widget/Tasks.md", "--kind", "note"]).Output;
-        var json = fixture.Run(["delete", "--path", "Projects/Widget/Tasks.md", "--kind", "note", "--output", "json"]).Output;
+        var text = fixture.Run(["delete", "--path", "Projects/Widget/Tasks.md", "--kind", "note"]);
+        var json = fixture.Run(["delete", "--path", "Projects/Widget/Tasks.md", "--kind", "note", "--output", "json"]);
 
-        Assert.Equal(text, json);
+        // Both runs have to have answered before their outputs are compared, or two refusals that
+        // wrote nothing to standard output would satisfy the comparison.
+        Assert.Equal(ExitCodes.Success, text.Exit);
+        Assert.Equal(ExitCodes.Success, json.Exit);
+        Assert.Equal(text.Output, json.Output);
     }
 
     [Fact]

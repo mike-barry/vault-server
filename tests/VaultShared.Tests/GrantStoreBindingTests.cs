@@ -78,6 +78,9 @@ public sealed class GrantStoreBindingTests(TestVaultFixture fixture) : IClassFix
         var store = GrantStore.Load(path, OpClasses, _vaultConfig, sink);
 
         // The second "admin" (the named grant) is the duplicate and is skipped; the token row wins.
+        // A duplicate id is a row-level failure, so the load degrades rather than failing the whole
+        // file - the surviving token row is still usable.
+        Assert.False(sink.IsFatallyDegraded);
         Assert.Single(sink.Problems, p => p.Severity == ProblemSeverity.Degraded);
         Assert.NotNull(store.Authenticate("some-token"));
         Assert.False(store.TryGetNamedGrant("admin", out _));

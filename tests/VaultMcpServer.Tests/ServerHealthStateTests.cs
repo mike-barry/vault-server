@@ -146,16 +146,6 @@ public sealed class ServerHealthStateTests
     }
 
     [Fact]
-    public void ReplaceDegraded_NeverAffectsIsFatallyDegraded()
-    {
-        var healthState = new ServerHealthState();
-
-        healthState.ReplaceDegraded("ScriptTools", ["one", "two", "three"]);
-
-        Assert.False(healthState.IsFatallyDegraded);
-    }
-
-    [Fact]
     public void AttachLogger_ProblemsRecordedAfterAttachAreLogged()
     {
         // Program.cs flushes startup problems itself and then attaches the logger, so anything

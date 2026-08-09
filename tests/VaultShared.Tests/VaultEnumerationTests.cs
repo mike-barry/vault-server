@@ -51,8 +51,14 @@ public sealed class VaultEnumerationTests : IDisposable
     public void EnumerateFiles_AnswersEveryFileWhateverItsExtension()
     {
         // This surface backs operations where omitting a file gives a wrong answer rather than a
-        // narrower one, such as reporting what a recursive removal destroys.
-        Assert.Contains("Notes/Data.txt", Values(_vault.Access.EnumerateFiles()));
+        // narrower one, such as reporting what a recursive removal destroys, so the whole set is
+        // asserted: a file missing from it is the failure this surface exists to prevent.
+        Assert.Equal(
+            [
+                "Inbox/Loose.md", "Notes/Alpha.md", "Notes/Data.txt", "Notes/Sub/Nested.md",
+                "Projects/Widget/Widget.md", "Root-Note.md",
+            ],
+            Values(_vault.Access.EnumerateFiles()));
     }
 
     [Fact]

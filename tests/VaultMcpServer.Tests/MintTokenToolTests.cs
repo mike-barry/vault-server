@@ -205,6 +205,16 @@ public sealed class MintTokenToolTests(TestVaultFixture fixture) : IClassFixture
         var result = Mint(store, Arguments(["test"], ["content:read", "grants:manage"]), "scoped-token");
 
         Assert.False(result.IsError == true);
+
+        // The other half of "iff". Only this direction fails if grants:manage is ever special-cased
+        // out of the attenuation check, since a caller that holds the class is admitted either way.
+        var withoutManageGrants = MakeStore("""
+            { "no-manage-token": { "id": "no-manage", "opClasses": ["content:read"], "vaults": ["test"], "ttl": "*", "scopeRoots": { "test": ["*"] } } }
+            """);
+        var refused = Mint(withoutManageGrants, Arguments(["test"], ["content:read", "grants:manage"]), "no-manage-token");
+
+        Assert.True(refused.IsError);
+        Assert.Equal("authority_required", refused.Code);
     }
 
     [Fact]

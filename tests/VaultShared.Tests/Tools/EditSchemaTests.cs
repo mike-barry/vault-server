@@ -21,13 +21,17 @@ public sealed class EditSchemaTests
 
     // ---- Derived from the arguments record ----
 
+    /// <summary>The advertised set is exactly these five names, in this order. An argument the record
+    /// no longer declares and one it declares under a different spelling are both changes every
+    /// caller sees, and the order is the order a model reads the arguments in.</summary>
     [Fact]
     public void EveryArgumentIsAdvertisedUnderItsWireName()
     {
         var properties = Plain().GetProperty("properties");
 
-        foreach (var name in new[] { "path", "vault", "operations", "body", "expected_content_hash" })
-            Assert.True(properties.TryGetProperty(name, out _), name);
+        Assert.Equal(
+            ["path", "vault", "operations", "body", "expected_content_hash"],
+            properties.EnumerateObject().Select(p => p.Name));
     }
 
     /// <summary>Only <c>path</c> is required. A member is advertised as required when it has no

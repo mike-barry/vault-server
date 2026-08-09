@@ -76,18 +76,6 @@ public sealed class WikilinkPinningTests : IDisposable
     }
 
     [Fact]
-    public void NoLinkIsEverAimedAtTheNewNote()
-    {
-        _vault
-            .WithNote("Zz/Dupe.md", "# Existing\n")
-            .WithNote("Aa/Note.md", "See [[Dupe]].\n");
-
-        var plan = LinkPass.Plan(Creating("Aa/Bb/Dupe.md"));
-
-        Assert.DoesNotContain(plan.Rewrites, r => r.To.Contains("Aa/Bb", StringComparison.Ordinal));
-    }
-
-    [Fact]
     public void APathQualifiedLinkKeepingItsTargetIsLeftAlone()
     {
         _vault

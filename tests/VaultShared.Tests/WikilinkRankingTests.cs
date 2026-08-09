@@ -56,21 +56,13 @@ public sealed class WikilinkRankingTests
     }
 
     [Fact]
-    public void ADescentOfAnyDepthBeatsASingleClimb()
-    {
-        // Descending costs characters, but no amount of it moves a candidate out of the winning
-        // group. Two folders down still outranks the root copy, which needs two climbs.
-        Assert.Equal(
-            ["Aa/Bb/Cc/Dd/Dupe.md", "Dupe.md"],
-            Ranked("Aa/Bb/Note.md", "Dupe.md", "Aa/Bb/Cc/Dd/Dupe.md"));
-    }
-
-    [Fact]
     public void ADeeperCandidateOutranksTheVaultRootCopy()
     {
-        // Ranking alone hands the link to the subtree copy. The root copy nonetheless keeps every
-        // bare link to its basename, because a bare target spells that copy's whole vault path and
-        // the path tier takes it before these candidates are ever gathered.
+        // Descending costs characters, but no amount of it moves a candidate out of the winning
+        // group: the copy a folder below the linking note needs no climb and the root copy needs
+        // three, so ranking alone hands the link to the subtree copy. The root copy nonetheless
+        // keeps every bare link to its basename, because a bare target spells that copy's whole
+        // vault path and the path tier takes it before these candidates are ever gathered.
         Assert.Equal(
             ["Aa/Bb/Cc/Dd/Dupe.md", "Dupe.md"],
             Ranked("Aa/Bb/Cc/Note.md", "Dupe.md", "Aa/Bb/Cc/Dd/Dupe.md"));

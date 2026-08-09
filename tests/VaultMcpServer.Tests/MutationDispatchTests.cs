@@ -193,8 +193,19 @@ public sealed class MutationDispatchTests(MutationDispatchTests.Fixture fixture)
         Assert.False(doc.RootElement.GetProperty("case_only").GetBoolean());
         Assert.Equal(["Projects/Widget/Task-Board.md"], doc.RootElement.GetProperty("moved").EnumerateArray().Select(v => v.GetString()));
 
+        // The folder note is the only note naming the moved one, by the qualified link
+        // "Widget/Tasks" in its frontmatter, so the repair is a single rewrite in that file.
+        var repair = Assert.Single(doc.RootElement.GetProperty("repaired_links").EnumerateArray());
+        Assert.Equal("Projects/Widget/Widget.md", repair.GetProperty("path").GetString());
+        Assert.Equal("Widget/Tasks", repair.GetProperty("from").GetString());
+
         Assert.False(File.Exists(fixture.In("Projects/Widget/Tasks.md")));
         Assert.True(File.Exists(fixture.In("Projects/Widget/Task-Board.md")));
+        // The repair reached disk rather than only being reported: no link still names the old path.
+        Assert.DoesNotContain(
+            "[[Widget/Tasks]]",
+            await File.ReadAllTextAsync(fixture.In("Projects/Widget/Widget.md")),
+            StringComparison.Ordinal);
     }
 
     [Fact]

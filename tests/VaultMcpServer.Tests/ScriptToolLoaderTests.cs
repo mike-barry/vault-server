@@ -414,11 +414,22 @@ public sealed class ScriptToolLoaderTests : IDisposable
 
         var schema = tool.BuildInputSchema();
         Assert.Equal("object", schema.GetProperty("type").GetString());
-        Assert.True(schema.GetProperty("properties").TryGetProperty("From", out _));
+        // The property set is exactly the param() block's parameters: a schema is the tool's whole
+        // advertised argument surface, so an extra property is as wrong as a missing one. Compared
+        // as a set, because the names come from a Dictionary whose enumeration order is not part
+        // of its contract, and JSON object member order carries no meaning either.
+        // The count is what makes the three containment checks below an exact set: JSON object
+        // member names cannot repeat, so three names present out of three is all three and no
+        // others.
+        var properties = schema.GetProperty("properties").EnumerateObject().Select(p => p.Name).ToList();
+        Assert.Equal(3, properties.Count);
+        Assert.Contains("From", properties);
+        Assert.Contains("To", properties);
+        Assert.Contains("Force", properties);
+        // Likewise exact rather than by containment, so a change that started marking every
+        // parameter required would fail here instead of only losing the Force case.
         var required = schema.GetProperty("required").EnumerateArray().Select(e => e.GetString()).ToList();
-        Assert.Contains("From", required);
-        Assert.Contains("To", required);
-        Assert.DoesNotContain("Force", required);
+        Assert.Equal(new string?[] { "From", "To" }, required);
     }
 
     [Fact]

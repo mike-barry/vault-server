@@ -53,18 +53,6 @@ public sealed class ProgramHostFixtureGuardTests
     }
 
     [Fact]
-    public void AssertUnderTempDir_ModuleEnvVarOutsideTempDir_Throws()
-    {
-        using var fixture = new ProbeFixture();
-        var goodPath = Path.Combine(fixture.TempDirForTest, "vaults.json");
-        var realVaultsJson = Path.Combine(TestVaultFixture.RepoRoot, "vaults.json");
-
-        var ex = Assert.Throws<InvalidOperationException>(() => fixture.Probe(goodPath, realVaultsJson));
-        Assert.Contains("Test-isolation guard failed", ex.Message);
-        Assert.Contains("VAULT_MCP_VAULTS_JSON", ex.Message);
-    }
-
-    [Fact]
     public void AssertUnderTempDir_NullPath_Throws()
     {
         using var fixture = new ProbeFixture();

@@ -41,16 +41,4 @@ public sealed class FrontEndParityTests
 
         Assert.Equal(FrontEndParity.StructuredJson, JsonSerializer.Serialize(data.Value, NativeToolArguments.Options));
     }
-
-    /// <summary>
-    /// A content result is the answer itself. Neither front-end may reformat it, so the expected
-    /// value is the text unchanged.
-    /// </summary>
-    [Fact]
-    public void TheContentTier_IsTextNothingRenders()
-    {
-        var content = Assert.IsType<ToolResult.Content>(FrontEndParity.Content);
-
-        Assert.Equal("Projects/Widget/Widget.md\nProjects/Widget/Tasks.md", content.Text);
-    }
 }

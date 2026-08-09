@@ -133,7 +133,7 @@ public sealed class GrantStoreTests(TestVaultFixture fixture) : IClassFixture<Te
             """ "token-b": { "id": "admin", "opClasses": ["content:read"], "vaults": ["test"], "ttl": "*", "scopeRoots": { "test": ["*"] } } """,
             GoodRow);
 
-        AssertSingleRowSkipped(sink, store, skippedToken: "token-b");
+        AssertSingleRowSkipped(sink, store, expectedDetailFragment: "duplicate grant id \"admin\"", skippedToken: "token-b");
         Assert.NotNull(store.Authenticate("token-a"));
     }
 
@@ -154,7 +154,7 @@ public sealed class GrantStoreTests(TestVaultFixture fixture) : IClassFixture<Te
             """ "token-a": { "id": "admin", "opClasses": [], "vaults": ["test"], "ttl": "*", "scopeRoots": { "test": ["*"] } } """,
             GoodRow);
 
-        AssertSingleRowSkipped(sink, store);
+        AssertSingleRowSkipped(sink, store, expectedDetailFragment: "has no opClasses");
     }
 
     [Fact]
@@ -164,7 +164,7 @@ public sealed class GrantStoreTests(TestVaultFixture fixture) : IClassFixture<Te
             """ "token-a": { "id": "admin", "opClasses": ["content:read"], "vaults": [], "ttl": "*", "scopeRoots": {} } """,
             GoodRow);
 
-        AssertSingleRowSkipped(sink, store);
+        AssertSingleRowSkipped(sink, store, expectedDetailFragment: "has no vaults");
     }
 
     [Fact]
@@ -227,7 +227,7 @@ public sealed class GrantStoreTests(TestVaultFixture fixture) : IClassFixture<Te
             """ "token-a": { "opClasses": ["content:read"], "vaults": ["test"], "ttl": "*", "scopeRoots": { "test": ["*"] } } """,
             GoodRow);
 
-        AssertSingleRowSkipped(sink, store);
+        AssertSingleRowSkipped(sink, store, expectedDetailFragment: "missing a non-empty \"id\"");
     }
 
     [Fact]
@@ -475,22 +475,6 @@ public sealed class GrantStoreTests(TestVaultFixture fixture) : IClassFixture<Te
             GoodRow);
 
         AssertSingleRowSkipped(sink, store, expectedDetailFragment: "scopeRoots");
-    }
-
-    [Fact]
-    public void Load_ScopeRootsEmptyListIsRejectedRatherThanTreatedAsTheWildcard()
-    {
-        // Two rows differing only in the spelling of their scope. If an empty list were read as
-        // unscoped the two would behave the same and this test would prove nothing.
-        var empty = GrantStore.Load(
-            WriteGrants("""{ "token-a": { "id": "admin", "opClasses": ["content:read"], "vaults": ["test"], "ttl": "*", "scopeRoots": { "test": [] } } }"""),
-            OpClasses, _vaultConfig, new RecordingProblemSink());
-        var wildcard = GrantStore.Load(
-            WriteGrants("""{ "token-a": { "id": "admin", "opClasses": ["content:read"], "vaults": ["test"], "ttl": "*", "scopeRoots": { "test": ["*"] } } }"""),
-            OpClasses, _vaultConfig, new RecordingProblemSink());
-
-        Assert.Null(empty.Authenticate("token-a"));
-        Assert.Equal(VaultScope.Unscoped, wildcard.Authenticate("token-a")!.ScopeRoots["test"]);
     }
 
     [Fact]

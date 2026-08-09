@@ -99,11 +99,11 @@ public sealed class VaultPathTests
     }
 
     [Theory]
-    [InlineData("Projects/Widget/Widget.md")]
-    [InlineData("Projects/Widget/.hidden/Note.md")]
-    public void HasDotSegment_AnswersForEverySegmentAtEveryDepth(string input)
+    [InlineData("Projects/Widget/Widget.md", false)]
+    [InlineData("Projects/Widget/.hidden/Note.md", true)]
+    public void HasDotSegment_AnswersForEverySegmentAtEveryDepth(string input, bool expected)
     {
-        Assert.Equal(input.Split('/').Any(s => s.StartsWith('.')), Create(input).HasDotSegment);
+        Assert.Equal(expected, Create(input).HasDotSegment);
     }
 
     [Fact]

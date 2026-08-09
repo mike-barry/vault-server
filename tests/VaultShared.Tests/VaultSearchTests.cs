@@ -68,6 +68,10 @@ public sealed class VaultSearchTests : IDisposable
 
         Assert.Equal(2, items.Single(c => c.Path.Value == "Notes/Alpha.md").Count);
         Assert.Equal(1, items.Single(c => c.Path.Value == "Notes/Sub/Nested.md").Count);
+        Assert.Equal(1, items.Single(c => c.Path.Value == "Projects/Widget/Widget.md").Count);
+        // Every note holding the pattern is counted. Without this, a granularity that reported only
+        // some of the matching notes would still satisfy the counts above.
+        Assert.Equal(3, items.Count);
     }
 
     // ---- Behaviour common to all three ----

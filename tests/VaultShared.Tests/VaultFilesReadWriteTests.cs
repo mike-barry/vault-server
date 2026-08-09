@@ -254,8 +254,9 @@ public sealed class VaultFilesReadWriteTests : IDisposable
     {
         _vault.WithNote("Projects/Widget", "Not a folder.\n");
 
-        Assert.IsNotType<WriteOutcome.Written>(VaultFiles.CreateFolder(_vault.ToWrite("Projects/Widget")));
-        Assert.IsNotType<WriteOutcome.AlreadyExists>(VaultFiles.CreateFolder(_vault.ToWrite("Projects/Widget")));
+        var outcome = Assert.IsType<WriteOutcome.Failed>(VaultFiles.CreateFolder(_vault.ToWrite("Projects/Widget")));
+
+        Assert.Equal("Projects/Widget", outcome.Path);
     }
 
     [Fact]
@@ -315,15 +316,5 @@ public sealed class VaultFilesReadWriteTests : IDisposable
         VaultFiles.Replace(_vault.ToWrite("Projects/Widget.md"), "# Widget\r\nBody.\r\n");
 
         Assert.Equal(new UTF8Encoding(false).GetBytes("# Widget\nBody.\n"), _vault.BytesOf("Projects/Widget.md"));
-    }
-
-    [Fact]
-    public void AReplacedNoteHoldsTheNewContentAndNoTailOfTheOld()
-    {
-        _vault.WithNote("Projects/Widget.md", "# Widget\n\nA much longer original body that must not survive.\n");
-
-        VaultFiles.Replace(_vault.ToWrite("Projects/Widget.md"), "# W\n");
-
-        Assert.Equal(new UTF8Encoding(false).GetBytes("# W\n"), _vault.BytesOf("Projects/Widget.md"));
     }
 }

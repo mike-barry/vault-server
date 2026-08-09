@@ -94,7 +94,17 @@ public sealed class ScriptToolDispatcherTests : IClassFixture<ScriptToolDispatch
         var tools = doc.RootElement.GetProperty("result").GetProperty("tools").EnumerateArray().ToList();
         var greet = Assert.Single(tools, t => t.GetProperty("name").GetString() == "greet");
         Assert.Equal("Greets someone by name.", greet.GetProperty("description").GetString());
-        Assert.True(greet.GetProperty("inputSchema").GetProperty("properties").TryGetProperty("Name", out _));
+
+        // The whole schema node, not just the presence of the property. A listing that lost the
+        // derived type, the help text or the mandatory marking on the way over the wire would
+        // still carry a "Name" key, so presence alone does not show the schema arrived intact.
+        var inputSchema = greet.GetProperty("inputSchema");
+        Assert.Equal("object", inputSchema.GetProperty("type").GetString());
+        var nameProperty = inputSchema.GetProperty("properties").GetProperty("Name");
+        Assert.Equal("string", nameProperty.GetProperty("type").GetString());
+        Assert.Equal("Who to greet.", nameProperty.GetProperty("description").GetString());
+        var required = inputSchema.GetProperty("required").EnumerateArray().Select(e => e.GetString()).ToList();
+        Assert.Equal(new string?[] { "Name" }, required);
     }
 
     [Fact]
@@ -363,6 +373,11 @@ public sealed class ScriptToolDispatcherTests : IClassFixture<ScriptToolDispatch
     [Fact]
     public async Task ToolsCall_AlreadyEncodedStringForSideCarArrayParameter_IsNotEncodedAgain()
     {
+        // Deliberately the same payload, character for character, that
+        // ToolsCall_StructuredArrayForSideCarArrayParameter_ReachesTheScriptAsParseableJson sends
+        // in structured form and pins the arrival text of. Holding the two to one literal is what
+        // shows a caller may send either form and the script sees no difference; change one and
+        // the pair stops saying that.
         const string encoded = """[{"name":"first"},{"name":"second"}]""";
         var report = await CallShapeAsync(new() { ["items"] = encoded });
 
@@ -395,17 +410,6 @@ public sealed class ScriptToolDispatcherTests : IClassFixture<ScriptToolDispatch
 
         Assert.Equal("Int64", report.GetProperty("countType").GetString());
         Assert.Equal("9007199254740993", report.GetProperty("countValue").GetString());
-    }
-
-    /// <summary>Verifies that a structured array and an already-encoded string reach the script as
-    /// identical text, which is what lets a caller send either form.</summary>
-    [Fact]
-    public async Task ToolsCall_StructuredAndPreEncodedArrivals_ReachTheScriptIdentically()
-    {
-        var structured = await CallShapeAsync(new() { ["items"] = new[] { new { name = "first" } } });
-        var preEncoded = await CallShapeAsync(new() { ["items"] = """[{"name":"first"}]""" });
-
-        Assert.Equal(structured.GetProperty("itemsRaw").GetString(), preEncoded.GetProperty("itemsRaw").GetString());
     }
 
     /// <summary>Verifies that an object-typed side-car encodes a structured object the same way an

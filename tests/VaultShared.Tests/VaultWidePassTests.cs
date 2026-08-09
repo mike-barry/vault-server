@@ -47,39 +47,24 @@ public sealed class VaultWidePassTests : IDisposable
     [Fact]
     public void EnumerateNotes_ReachesEveryNoteWhateverTheGrantAdmits()
     {
+        // The set is exact, so it also pins what the pass leaves out. Notes/Data.txt is absent
+        // because this surface answers notes rather than every file. .obsidian/Copy.md is absent
+        // because the pass drops its scope check and keeps the dot rule: no path under a dot
+        // directory is reachable by the tool set at all.
         Assert.Equal(
             ["Archive/Deep/Beta.md", "Notes/Alpha.md", "Projects/Widget.md"],
             Values(_vault.Access.BypassingScope().EnumerateNotes()));
     }
 
     [Fact]
-    public void EnumerateNotes_AnswersNotesRatherThanEveryFile()
-    {
-        Assert.DoesNotContain("Notes/Data.txt", Values(_vault.Access.BypassingScope().EnumerateNotes()));
-    }
-
-    [Fact]
-    public void EnumerateNotes_LeavesOutDotEntries()
-    {
-        // The pass drops its scope check but keeps the dot rule, because no path under a dot
-        // directory is reachable by the tool set at all.
-        Assert.DoesNotContain(".obsidian/Copy.md", Values(_vault.Access.BypassingScope().EnumerateNotes()));
-    }
-
-    [Fact]
     public void EnumerateFiles_ReachesEveryFileWhateverTheGrantAdmits()
     {
+        // Notes/Data.txt is in the set because a folder relocation asks this surface for the
+        // non-note files a directory rename carries, which is exactly what note enumeration cannot
+        // see. .obsidian/Copy.md is out of it, as it is for notes.
         Assert.Equal(
             ["Archive/Deep/Beta.md", "Notes/Alpha.md", "Notes/Data.txt", "Projects/Widget.md"],
             Values(_vault.Access.BypassingScope().EnumerateFiles()));
-    }
-
-    [Fact]
-    public void EnumerateFiles_AnswersAFileWhateverItsExtension()
-    {
-        // A folder relocation asks this surface for the non-note files a directory rename carries,
-        // which is exactly what note enumeration cannot see.
-        Assert.Contains("Notes/Data.txt", Values(_vault.Access.BypassingScope().EnumerateFiles()));
     }
 
     [Fact]

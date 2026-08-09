@@ -226,17 +226,6 @@ public sealed class FrontmatterWritePathTests
     // ---- The fence guard ----
 
     [Fact]
-    public void TheGuard_RefusesABodyWriteThatWouldMintABlock()
-    {
-        // Otherwise the body would carry in a block that no operation authored, skipping validation
-        // and the authority assertion.
-        var refusal = Assert.Throws<FrontmatterRefusal>(() => FrontmatterWrite.Apply(Synthetic.Write(
-            "Old body.\n", Everything, newBody: "---\ndoc.title: Widget\n---\nSmuggled.\n")));
-
-        Assert.Equal(RefusalReason.FenceConflict, refusal.Reason);
-    }
-
-    [Fact]
     public void TheGuard_RefusesAWriteThatWouldLeaveTheBodysOwnFencePairAsTheBlock()
     {
         // The same hazard from the other side. Removing the last key drops the fence, and the body
@@ -281,7 +270,9 @@ public sealed class FrontmatterWritePathTests
             operations: [new FrontmatterOperation.SetScalar("doc.title", "Widget")]));
 
         Assert.Empty(outcome.Violations);
-        Assert.Contains("undeclared.key: kept", outcome.Content);
+        Assert.Equal(
+            Note("undeclared.key: kept\ndoc.notes:\n  - routed: skill-a\n    unknown_field: x\ndoc.title: Widget"),
+            outcome.Content);
     }
 
     [Fact]

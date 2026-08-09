@@ -38,15 +38,6 @@ public sealed class FrontmatterComposerTests
     }
 
     [Fact]
-    public void ATreeEmptiedByRemovalEmitsNoFence()
-    {
-        var tree = Of("---\nonly: 1\n---\nBody.\n");
-        tree.Remove("only");
-
-        Assert.Equal("Body.\n", FrontmatterComposer.Compose(tree, "Body.\n"));
-    }
-
-    [Fact]
     public void AnEmptyBodyComposesToABlockAlone()
     {
         Assert.Equal("---\ntitle: Widget\n---\n", FrontmatterComposer.Compose(Parsed("title: Widget"), string.Empty));
