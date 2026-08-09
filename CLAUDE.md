@@ -42,17 +42,20 @@ These live under `docs/conventions/`. Load one before doing the work it governs.
 
 | Document | Load it before |
 | --- | --- |
+| `Documentation-Strategy.md` | Creating a document, moving a fact out of the code, or deciding something needs writing down at all. It is the standard for where a fact goes. |
 | `Code-Comments.md` | Writing or modifying any comment. It is the standard for what a comment says and the register it says it in. |
 | `Unit-Tests.md` | Adding or changing a test, in any of the three test projects. It also lists the fixtures, which are worth reaching for before building an arrangement by hand. |
 | `Cross-Platform.md` | Writing or changing anything that treats more than one operating system as possible: a branch on the OS, a second failure classification for another platform's exception, a test gated by or skipped on an OS, or a comment hedging about what another platform does. Also before adding a `Windows:` breadcrumb, which the document defines. |
 
-## Specifications
+## Documentation
 
-`docs/spec/` states what this system must do and `docs/design/` states the shape chosen to meet it; `docs/design/README.md` is the convention the design documents follow. A change to behavior amends the spec and rewrites the affected design text in the same commit - nothing else here states what the system is required to do, and a stale spec is undetectable from inside this repository.
+**Code comments are the primary description of this system.** `docs/conventions/Documentation-Strategy.md` carries the rule for the facts a comment cannot hold, and `docs/reference/` holds facts about things outside this repository, named `Ref-<Subject>.md`.
 
-A decision the specs left open lands in a design document's `What This Closes` section, and a decision with a code site is a comment there, written as a constraint rather than a story. There is no separate decision log: a central one is read by nobody and duplicates what the design document and the commit message already say between them.
+There is no decision log and none is to be created. How a decision was reached is the commit message; what survives from it is its outcome, and an outcome with a code site is a comment there, written as a constraint rather than a story.
 
-On a question the specs cannot answer, stop that thread and raise it with the operator in session rather than deciding from judgment. The answer returns as an amended spec, which is the requirement.
+`docs/spec/` and `docs/design/` are being retired. Treat them as historical rather than authoritative: where they and the code disagree the code is right, and neither is amended to match the other.
+
+On a question this repository cannot answer, stop that thread and raise it with the operator in session rather than deciding from judgment.
 
 ## Tasks
 
