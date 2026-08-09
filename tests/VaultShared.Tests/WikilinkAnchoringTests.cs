@@ -117,15 +117,18 @@ public sealed class WikilinkAnchoringTests
         Assert.Null(Address("..", "Root.md"));
     }
 
-    // ---- Spellings that address a folder ----
-
-    [Fact]
-    public void ATargetAddressingAFolderComesBackAsThatFolder()
+    [Theory]
+    [InlineData(".")]
+    [InlineData("..")]
+    [InlineData("./.")]
+    [InlineData("../..")]
+    [InlineData("../../..")]
+    public void ATargetMadeOnlyOfDotSegmentsNamesNothing(string target)
     {
-        // `.` and `..` are unresolved in the editor, and they need no rule of their own to be: each
-        // addresses a folder, and no note bears a folder's path. Adding a special case here would
-        // state the same outcome twice and let the two statements drift.
-        Assert.Equal("S/T", Address("."));
-        Assert.Equal("S", Address(".."));
+        // Such a target would otherwise come back as the anchor's own folder path, which a folder
+        // note bears: from `S/T/Spellings.md`, `.` would address `S/T` and open `S/T.md`, and `..`
+        // would address `S` and open a root-level `S.md`. The editor opens neither, so the walk has
+        // to consume an ordinary component before the address names a file.
+        Assert.Null(Address(target));
     }
 }

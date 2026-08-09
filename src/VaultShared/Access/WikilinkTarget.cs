@@ -60,8 +60,9 @@ public static class WikilinkTarget
     /// Climbing past the vault root is ignored rather than refused, so <c>../../../../Delta</c>
     /// written two folders deep still names the root's <c>Delta</c>. An empty component anywhere but
     /// the leading anchor names nothing, which is what makes <c>//Delta</c>, <c>./Delta/</c> and
-    /// <c>./</c> unresolved. A target that normalizes to a folder, such as <c>.</c> or <c>..</c>,
-    /// needs no rule of its own: it comes back as that folder's path, which no note bears.
+    /// <c>./</c> unresolved. A target made only of dot-segments, such as <c>.</c>, <c>..</c> or
+    /// <c>../..</c>, also names nothing: the walk has to consume an ordinary component for the
+    /// target to name a file, so an anchor's own folder path is never an address.
     ///
     /// Every case above is Obsidian's observed behaviour, measured in a note at <c>S/T/</c> with
     /// files at <c>Delta.md</c>, <c>S/T/Delta.md</c> and <c>Zed/S/Delta.md</c> and nothing at
@@ -84,6 +85,10 @@ public static class WikilinkTarget
         if (anchor.Length > 0)
             segments.AddRange(linkingNote.Segments.Take(linkingNote.Segments.Count - 1));
 
+        // A folder anchor seeds the segments, so their count alone cannot tell a target that named
+        // something from one made only of dot-segments. Only the latter leaves this false.
+        var named = false;
+
         // A root anchor is the empty text before the leading separator and is consumed by seeding
         // the segments; a folder anchor is a component the walk reads like any other.
         for (var i = anchor.Length > 0 ? 0 : 1; i < components.Length; i++)
@@ -103,9 +108,10 @@ public static class WikilinkTarget
             }
 
             segments.Add(component);
+            named = true;
         }
 
-        return segments.Count == 0 ? null : string.Join(Separator, segments);
+        return named ? string.Join(Separator, segments) : null;
     }
 
     /// <summary>Returns whether a link's target names a candidate note.</summary>

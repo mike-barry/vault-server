@@ -187,6 +187,32 @@ public sealed class WikilinkCensusTests : IDisposable
     }
 
     [Fact]
+    public void ATargetMadeOnlyOfDotSegmentsReachesNoFolderNote()
+    {
+        // A folder note sits beside the folder it describes and bears its path, so `S/T.md` and
+        // `S.md` are exactly the paths a target of `.` or `..` would address from `S/T/`. The
+        // editor opens neither, and reporting one would send a caller to repair a link that was
+        // already dead. `/S/T` and `/S` spell the same two paths and are reported, which is what
+        // shows the removal reached this note at all.
+        _vault
+            .WithNote("S.md", "# The folder note for S\n")
+            .WithNote("S/T.md", "# The folder note for S/T\n")
+            .WithNote("S/T/Spellings.md",
+                """
+                [[.]]
+                [[..]]
+                [[../..]]
+                [[/S/T]]
+                [[/S]]
+
+                """);
+
+        Assert.Equal(
+            ["S/T/Spellings.md:4 /S/T", "S/T/Spellings.md:5 /S"],
+            LinkPass.Occurrences(Removing("S.md", "S/T.md")));
+    }
+
+    [Fact]
     public void ARelativeLinkToAFileThatIsNoNoteIsStillReported()
     {
         // No note answers an attachment's target, so it is matched against the removed set
