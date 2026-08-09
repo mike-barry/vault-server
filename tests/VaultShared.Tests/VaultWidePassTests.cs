@@ -75,6 +75,9 @@ public sealed class VaultWidePassTests : IDisposable
         // path under a dot directory.
         _vault.WithNote(".obsidian/workspace.json", "{}\n");
 
+        // The file is known to be on disk before the pass is asked whether it lists it, so a seeding
+        // that produced nothing cannot satisfy the absence below.
+        Assert.True(_vault.HasFile(".obsidian/workspace.json"));
         Assert.DoesNotContain(".obsidian/workspace.json", Values(_vault.Access.BypassingScope().EnumerateFiles()));
     }
 

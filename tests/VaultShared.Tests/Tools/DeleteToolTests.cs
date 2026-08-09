@@ -326,9 +326,17 @@ public sealed class DeleteToolTests : IDisposable
 
         var refusal = Refusal(new { path = "Projects/Widget", kind = "folder", recursive = true, apply = true });
 
+        // Both sets are stated whole rather than sampled. The plan removes deeper entries first and
+        // orders equal depths by path, so holding Widget.md open fixes exactly which entries went
+        // and which are left, and an entry appearing in neither set or in both is the failure this
+        // is looking for.
         Assert.Equal(ToolCodes.PartialMutation, refusal.Code);
-        Assert.Contains("Projects/Widget/Notes.md", Strings(refusal, "applied"));
-        Assert.Contains("Projects/Widget/Widget.md", Strings(refusal, "not_applied"));
+        Assert.Equal<string[]>(
+            ["Projects/Widget/Assets/Diagram.png", "Projects/Widget/Notes.md"],
+            Strings(refusal, "applied"));
+        Assert.Equal<string[]>(
+            ["Projects/Widget/Widget.md", "Projects/Widget/Assets", "Projects/Widget"],
+            Strings(refusal, "not_applied"));
         Assert.NotEmpty(Strings(refusal, "recovery"));
         Assert.True(_vault.HasFile("Projects/Widget/Widget.md"));
     }

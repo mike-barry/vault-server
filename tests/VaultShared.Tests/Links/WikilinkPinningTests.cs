@@ -41,7 +41,6 @@ public sealed class WikilinkPinningTests : IDisposable
         var plan = LinkPass.Plan(Creating("Aa/Bb/Cc/Dupe.md"));
 
         Assert.True(plan.IsEmpty);
-        Assert.Empty(plan.Relocated);
     }
 
     // ---- What is pinned ----

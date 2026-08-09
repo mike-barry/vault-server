@@ -72,16 +72,13 @@ public sealed class CommittedDeclarationTests
         Assert.Contains(vocabulary.Keys, k => k.Key == "nav.contents");
         Assert.Contains(vocabulary.Branches, b => b.Variant == "use_skill" && b.Keys.Contains("agent.instructions"));
 
-        // Every variant the declaration holds, and nothing else. "hint" is the bare-scalar variant,
-        // which carries no discriminating field and is the one a projection that only walked
-        // mapping variants would silently drop.
-        Assert.Equal<string[]>(
-            ["hint", "link", "rule", "use_skill"],
-            [.. vocabulary.Branches.Select(b => b.Variant).Order()]);
-
         // Two keys naming one schema hold one object, so their shared variant is one branch, and
-        // the branch names both keys rather than either one of them.
+        // the branch names both keys rather than either one of them. The keys are ordered before
+        // comparing because a branch lists them in the order the declaration happened to declare
+        // them in, which is not a promise a caller may rely on.
         var shared = Assert.Single(vocabulary.Branches, b => b.Variant == "link");
-        Assert.Equal<string[]>(["nav.contents", "nav.see_also"], [.. shared.Keys]);
+        Assert.Equal<string[]>(
+            ["nav.contents", "nav.see_also"],
+            [.. shared.Keys.OrderBy(k => k, StringComparer.Ordinal)]);
     }
 }

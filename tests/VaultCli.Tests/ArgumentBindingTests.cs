@@ -28,7 +28,10 @@ public sealed class ArgumentBindingTests(CliFixture fixture) : IClassFixture<Cli
     {
         var run = fixture.Run(["read", "--path", "Projects/Widget/Widget.md"]);
 
+        // The note's own text anchors the absence, so a read that answered with nothing at all
+        // cannot satisfy it.
         Assert.Equal(ExitCodes.Success, run.Exit);
+        Assert.Contains("# Widget.md - Sample Project for Fixture Testing", run.Output);
         Assert.DoesNotContain("content_hash", run.Output);
     }
 

@@ -95,6 +95,12 @@ public sealed class LocalhostAuthDispatchTests : IClassFixture<LocalhostAuthDisp
 
         Assert.Equal(HttpStatusCode.OK, status);
         Assert.False(result!.Value.TryGetProperty("isError", out var isError) && isError.GetBoolean());
+
+        // The tool's own report is read, so a call that succeeded without answering anything cannot
+        // pass as the floored token reaching health_check.
+        var content = result.Value.GetProperty("content").EnumerateArray().First().GetProperty("text").GetString()!;
+        using var doc = JsonDocument.Parse(content);
+        Assert.False(doc.RootElement.GetProperty("is_fatally_degraded").GetBoolean());
     }
 
     [Fact]
@@ -201,6 +207,12 @@ public sealed class LocalhostAuthDispatchTests : IClassFixture<LocalhostAuthDisp
 
         Assert.Equal(HttpStatusCode.OK, status);
         Assert.False(result!.Value.TryGetProperty("isError", out var isError) && isError.GetBoolean());
+
+        // The tool's own report is read, so a call that succeeded without answering anything cannot
+        // pass as the floored request reaching health_check.
+        var content = result.Value.GetProperty("content").EnumerateArray().First().GetProperty("text").GetString()!;
+        using var doc = JsonDocument.Parse(content);
+        Assert.False(doc.RootElement.GetProperty("is_fatally_degraded").GetBoolean());
     }
 
     public sealed class Fixture : ProgramHostFixtureBase

@@ -228,9 +228,9 @@ public sealed class FrontmatterWritePathTests
     [Fact]
     public void TheGuard_RefusesAWriteThatWouldLeaveTheBodysOwnFencePairAsTheBlock()
     {
-        // The same hazard from the other side. Removing the last key drops the fence, and the body
-        // underneath opens a fence pair of its own, so the composed note would carry an unvalidated
-        // block where the removed one used to be.
+        // Removing the last key drops the fence, and the body underneath opens a fence pair of its
+        // own, so the composed note would carry an unvalidated block where the removed one used to
+        // be.
         var refusal = Assert.Throws<FrontmatterRefusal>(() => FrontmatterWrite.Apply(Synthetic.Write(
             "---\ndoc.title: Widget\n---\n---\nsmuggled: value\n---\nBody text.\n", Everything,
             operations: [new FrontmatterOperation.RemoveField("doc.title")])));

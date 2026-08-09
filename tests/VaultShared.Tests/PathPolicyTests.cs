@@ -372,6 +372,9 @@ public sealed class PathPolicyTests : IDisposable
     {
         var policy = Load(new RecordingProblemSink(), $$"""[ { "path": "{{Guides}}", "always_readable": true } ]""", Guides).Vaults["test"].PathPolicy;
 
+        // The floor is asked for its own path first, so a load that dropped the entry cannot satisfy
+        // the non-match below by leaving no floor to match against.
+        Assert.True(policy.ReadAdmits($"{Guides}/Vault-Guide.md", Rooted("Projects/Widget")));
         Assert.False(policy.ReadAdmits("Resources/Vault/Guides-Old/Vault-Guide.md", Rooted("Projects/Widget")));
     }
 

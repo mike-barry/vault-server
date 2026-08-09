@@ -151,6 +151,7 @@ public sealed class VaultFilesMoveTests : IDisposable
             VaultFiles.MoveFile(_vault.ToWrite("Widget.md"), _vault.ToWrite("Gizmo.md")));
 
         Assert.True(_vault.HasFile("Gizmo.md"));
+        Assert.False(_vault.HasFile("Widget.md"));
     }
 
     // ---- Moving a folder ----
