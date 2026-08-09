@@ -19,7 +19,7 @@ The software is built and working. The access layer, the tool layer, the MCP ser
 Current state, which any step should re-verify rather than trust:
 
 - `dotnet build --no-incremental` - 0 warnings, 0 errors
-- `dotnet test` - 1556 passing: 1199 `VaultShared`, 298 `VaultMcpServer`, 59 `VaultCli`
+- `dotnet test` - 1560 passing: 1203 `VaultShared`, 298 `VaultMcpServer`, 59 `VaultCli`
 
 ## Done
 
@@ -33,20 +33,15 @@ Current state, which any step should re-verify rather than trust:
 - [x] **Fix the findings** - all 20 closed, each with the tests that would have caught it
 - [x] **Work the coverage list** - fifty candidate gaps triaged against the code and the suite's assertions, twenty-two written, twenty-eight dropped
 - [x] **Audit the test suite** - 1267 test methods read against the code they drive, in three phases: sixteen areas reviewed and changed, thirteen fresh readings of those changes, then arbitration from the files. 43 assertions strengthened, 21 duplicates merged, 8 cut, 1 change overturned on review. `conventions/Unit-Tests.md` is the guide that came out of it. Five of the behaviours it found unasserted were then covered, and a Windows-only path case gated
+- [x] **Full code review** - `src/` and `tests/` read in five areas, one reviewer each, with a light test pass since the suite audit had just settled it. Ten candidate findings; each was independently attacked by a second reader before it was reported, and five died there. The five that survived became three tasks, all closed with the tests that would have caught them. Eleven suspected code-versus-document disagreements were captured as pointers and quarantined from the conformance audit rather than worked
 
 ## What is left
 
-Four steps. The last is the risky one.
+Three steps. The last is the risky one.
 
-They are ordered so that each one's output is settled before the next reads it. The review reads both `src/` and `tests/`, the conformance audit follows it because a review finding can itself be drift from the specs, and the comment sweep runs last so it covers every code change the two made. Reordering them means sweeping comments twice.
+They are ordered so that each one's output is settled before the next reads it. The conformance audit follows the review because a review finding can itself be drift from the specs, and the comment sweep runs last so it covers every code change the two made. Reordering them means sweeping comments twice.
 
-### 1. Full code review
-
-One review over `src/` and `tests/`, now that the audit has settled the suite.
-
-Two constraints from `CLAUDE.md` shape what a finding may be. Most of this repository is retained code that is already correct, so a retained component that looks wrong is more likely a misread requirement - but where a spec covers its subject, the specs are the specification and the finding is a proposed change to the retained code rather than an escalation. And a finding that changes behavior lands its spec amendment and rewrites the affected design text in the same commit, because the specs stay live until cutover and a stale one is undetectable from inside this repository.
-
-### 2. Audit the code against the specs and the design
+### 1. Audit the code against the specs and the design
 
 The last chance to check that the three descriptions of this system agree: what `spec/` requires, what `design/` says was chosen to meet it, and what the code does. After cutover the specs and the design documents are archived and nothing can check them again, so a disagreement left here is permanent and silent - the archived record describes a system that was never built, and no one reading either end can tell.
 
@@ -64,13 +59,13 @@ Three outcomes for a disagreement, and which one applies is not the agent's call
 
 Treat a disagreement as a misread of the specification until the code proves otherwise. This build was written from these documents by agents reading them the same way, so the reading that produced the code is evidence about what the document says.
 
-### 3. Comment sweep, including the test projects' doc references
+### 2. Comment sweep, including the test projects' doc references
 
-Run last, so it covers every code change the two steps above made.
+Run last, so it covers every code change the review and the audit made.
 
 `conventions/Comment-Sweep.md` has the procedure for a sweep over the whole repository against the comment standard. Fold the test projects' dangling doc references into the same pass: the three test projects do not generate documentation, so a broken `<see cref="..."/>` there is invisible. Enable `GenerateDocumentationFile` on each, build, fix what it reports, then revert the project files. That half is mechanical.
 
-### 4. Cut over to vault-server
+### 3. Cut over to vault-server
 
 This build's commits are layered onto the canonical `vault-server` repo rather than replacing its files, so that repo keeps its identity, its remote, and its history.
 
@@ -92,6 +87,6 @@ Keep this repo afterwards. It is the only intact record of the build and the thi
 
 **The harvest, its reconciliation, and the coverage list are deleted.** Each was the work list for a job that is now finished. Git history keeps them if anyone ever needs to look, and nothing outside it resolves the old case identifiers they carried.
 
-**This does not extend to the specs or the design documents, which stay live until cutover.** They are the specification and the shape chosen to meet it, and no old implementation exists to check them against - which is why a change to behavior still lands its spec amendment and rewrites the affected design text in the same commit, exactly as before. A stale spec is undetectable from inside this repository and leaves the archived record describing something that was never decided. The coverage sweep turned up no defect: every entry it worked was a behavior already correct and merely unasserted, and no test written for it required a change under `src/`. The test-suite audit changed no behavior either, and neither did the five unasserted behaviors covered after it: every test written for them passed against the code as it stood. The code review and the conformance audit are the two steps that can, and step 2 exists precisely to find the case where they should have and did not.
+**This does not extend to the specs or the design documents, which stay live until cutover.** They are the specification and the shape chosen to meet it, and no old implementation exists to check them against - which is why a change to behavior still lands its spec amendment and rewrites the affected design text in the same commit, exactly as before. A stale spec is undetectable from inside this repository and leaves the archived record describing something that was never decided. The coverage sweep turned up no defect: every entry it worked was a behavior already correct and merely unasserted, and no test written for it required a change under `src/`. The test-suite audit changed no behavior either, and neither did the five unasserted behaviors covered after it: every test written for them passed against the code as it stood. The code review and the conformance audit are the two steps that can, and the audit exists precisely to find the case where they should have and did not.
 
 **`Questions.md` is empty and unused in this phase.** A gap the specs cannot answer is raised with the operator in session.

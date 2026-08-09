@@ -2,13 +2,11 @@
 
 Task index. See `tasks-instructions.md` for how to maintain this file — read it before changing anything here.
 
-NEXT_TASK_ID: 009
+NEXT_TASK_ID: 010
 
 ## Active
 
-- [/] [task-006](task-006-plan-phase-existence-checks.md) — Establish existence in the plan phase for `create` and `delete`
-- [/] [task-007](task-007-write-path-guards-miss-a-shape.md) — Close two guards in the frontmatter write path that miss a shape
-- [/] [task-008](task-008-delete-mcp-session-tracking.md) — Delete the MCP dispatcher's session tracking and its dead broadcast
+- [ ] [task-009](task-009-windows-only.md) — Make Windows the stated platform, and take out what only served portability
 
 ## Backlog
 

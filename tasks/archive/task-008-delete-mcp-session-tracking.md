@@ -23,7 +23,7 @@ One consequence worth knowing before deleting: if the watcher ever did fire, eve
 - [x] `tests/VaultMcpServer.Tests/ScriptToolsWatcherTests.cs` is updated: it would otherwise fail to compile, since two assertion lines read `NotifyCount` (`:97`, `:175`) and the dispatcher is threaded through `MakeRegistryAndDispatcher`. The other six tests cover registry refresh, debounce, a missing directory, health transitions and dispose, and must pass unchanged.
 - [x] No test is written to replace the two removed assertions. They asserted a counter no caller can observe, against a push the file's own remarks concede there is nothing to receive — `conventions/Unit-Tests.md` does not admit that as a behaviour.
 - [x] Any text in `docs/design/Design-Front-End-Projection.md` describing the dispatcher's session handling or the tools-list-changed notification is rewritten in the same commit, or confirmed not to mention it. No spec covers this subject.
-- [ ] The commit message carries why the mechanism was deleted rather than fixed — that it cannot deliver under a stateless transport — since that is the fact a future reader will otherwise re-derive from the SDK docs.
+- [x] The commit message carries why the mechanism was deleted rather than fixed — that it cannot deliver under a stateless transport — since that is the fact a future reader will otherwise re-derive from the SDK docs.
 - [x] `dotnet build --no-incremental` clean, `dotnet test` green.
 
 ## Notes
