@@ -38,6 +38,11 @@ internal static class VaultSearch
     /// Returns every file the engine walks, filtered by the caller's predicate. Both enumeration
     /// surfaces come through here, and the predicate is what separates them.
     /// </summary>
+    /// <remarks>
+    /// No completion marker is asked for here. Ripgrep ignores <c>--stats</c> when <c>--files</c> is
+    /// given, measured against ripgrep 15.2.0, so a walk that fails before emitting a path is
+    /// classified as a malformed pattern rather than an operational failure.
+    /// </remarks>
     /// <param name="vault">The vault to search.</param>
     /// <param name="engine">The engine to run.</param>
     /// <param name="pattern">An optional glob narrowing which files are walked.</param>

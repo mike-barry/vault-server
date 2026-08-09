@@ -22,6 +22,8 @@ This is a trust boundary. Every protection in this layer derives from the regist
 
 **The format is JSON, with comments and trailing commas tolerated on read.** Comments serve the operator and are not preserved through a read, which the read-only rule makes moot. Where a rationale must reach a display surface, a declaration entry may carry an explicit note field.
 
+**The declaration names a `version`, and this layer reads version 1.** The field may be omitted; where it is present it must be the JSON number 1, and anything else - a later number, or the string `"1"` - fails the load. A declaration written against a later shape is therefore not read as this one, which a check on unrecognized top-level keys alone would not catch, since a later shape may repurpose a key this one already has.
+
 ## What A Key Declaration Expresses
 
 Four things, kept separate because they are checked at different moments and produce different refusals:
@@ -76,6 +78,8 @@ This is why the declaration is two sections rather than one table. A key entry i
 
 **Dates are format checks on text.** The parse must leave date-shaped scalars as strings rather than coercing them, or the format check tests something the caller never wrote and the round trip can rewrite their text.
 
+**A date constraint naming no format takes `yyyy-MM-dd`**, matched whole under the invariant culture. That is the ISO 8601 calendar date, which is what the editor writes and what sorts correctly as text. A format written empty is a load failure rather than a way of asking for the default.
+
 **A constraint may be a deliberate placeholder.** The document type is the standing example: the vault has no authoritative table of types, its conventions doc defers to a table that does not exist, and the values in use mix established types with one-offs. A guessed enumeration would break the automated remedy that sets missing types on exactly the notes it exists to fix. A character class with length bounds stops the field carrying smuggled text meanwhile, and replacing it with an enumeration is an edit to the file rather than a change to this layer.
 
 ## Two Extents, One Closed Perimeter
@@ -88,6 +92,8 @@ The asymmetry is load-bearing. Every path by which a key can *enter* the vault i
 
 **Values are enforced, not just names.** A declared key must satisfy its constraint on the edit path exactly as on the creation path, or a caller blocked from inventing a key could put arbitrary text into a legitimate one.
 
+**The checks compiled into the layer follow the extent rather than being enforced alike on both.** A supplied block refuses on every one of them, because the caller wrote every key and can fix what it sent; on the edit path they come back as violations in the outcome, since a key an edit touches may already have carried the problem (`Spec-Frontmatter-Substrate.md:What Throws And What Comes Back As Data`). One consequence is reachable: setting a scalar key whose declaration constrains nothing to an empty value writes it and reports a violation, where the same key left empty in a supplied block is refused. A constraint with a floor of its own - a date, an enumeration, a wikilink, a character class requiring at least one character - refuses the empty value on both paths.
+
 **Removal binds to the declaration too.** A removal *is* a write; without binding it a caller could delete a key it had no authority to create.
 
 ## Loading And Failure
@@ -96,7 +102,7 @@ The asymmetry is load-bearing. Every path by which a key can *enter* the vault i
 
 **There is no hot reload.** A batch of operations spanning one would be validated against two registries.
 
-**The declaration is validated at load, not at first use.** What must be caught there: an unknown constraint kind, a character class whose bounds cross, an enumeration with no members, a shape and constraint that contradict each other, a block-list key naming a schema that does not exist, a schema whose identity or exclusive group names a field the variant does not declare, two variants of one schema sharing a discriminating field, and an op class the op-class configuration does not define. That last is a cross-file check, precedented by grants already validated against the op-class registry at load, so the registry joins the same load cascade and degradation behavior.
+**The declaration is validated at load, not at first use.** What must be caught there: a `version` that is present and is not the number 1, an unknown constraint kind, a character class whose bounds cross, an enumeration with no members, a shape and constraint that contradict each other, a block-list key naming a schema that does not exist, a schema whose identity or exclusive group names a field the variant does not declare, two variants of one schema sharing a discriminating field, and an op class the op-class configuration does not define. That last is a cross-file check, precedented by grants already validated against the op-class registry at load, so the registry joins the same load cascade and degradation behavior.
 
 **A key declaring no additional authority, whose name falls under a namespace that does, requires the namespace's authority.** The union produces that outcome regardless; it is stated so a key entry is not read as an override.
 

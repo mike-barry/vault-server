@@ -72,8 +72,8 @@ One type in `VaultShared` wraps every invocation from either front-end. It runs 
 2. **The op-class floor.** `grant.Allows` the declared class, skipped on `Floor.SelfGated`.
 3. **Arguments.** Bound onto the declared record, then `Validate()`.
 4. **Vault resolution and membership.** For arguments carrying a vault operand: resolve, then check the grant reaches the resolved vault.
-5. **The lock**, where the declaration says the tool mutates.
-6. **The access object.** `VaultAccess` constructed from the resolved vault and the grant.
+5. **The access object.** `VaultAccess` constructed from the resolved vault and the grant.
+6. **The lock**, where the declaration says the tool mutates. A tool that does not mutate is invoked without reaching it.
 
 **These six precede a tool's own five phases** ([[Design-Tool-Vocabulary.md#Failure Ordering]]) rather than interleaving with them. That document's first two phases - argument validation and vault resolution - happen here, above every tool, which is what makes its ordering guarantee structural. A tool's first own work is phase 3.
 
@@ -87,7 +87,7 @@ One type in `VaultShared` wraps every invocation from either front-end. It runs 
 
 ## The Lock
 
-The execute path is the only thing in the build that acquires the mutex. Its name comes from the resolved `Vault` ([[Design-Core-Access-Layer.md#The Lock's Identity]]), which is why the lock is step 5 and vault resolution is step 4.
+The execute path is the only thing in the build that acquires the mutex. Its name comes from the resolved `Vault` ([[Design-Core-Access-Layer.md#The Lock's Identity]]), which is why the lock is step 6 and vault resolution is step 4.
 
 The hold spans the whole invocation: acquired before the tool is entered, released after it answers or raises. A plan takes it exactly as an apply does, so a preview cannot return a prediction that was already stale when it was computed ([[Spec-Tool-Capabilities.md#The Preview Contract]]).
 
@@ -130,7 +130,7 @@ A tool answers `ToolResult` or raises `ToolRefusal` ([[Design-Tool-Vocabulary.md
 
 **Three exit codes.** Zero for success, one for a tool refusal, two for a usage error the parser itself refused. The machine-readable distinction is the `code` in the envelope, which is where the vocabulary already lives.
 
-**`--output json` renders a content result as an envelope too**, so a script consuming the CLI sees one shape whichever tier answered.
+**`--output json` wraps a content result**, so that standard output is a JSON document whichever tier answered. A structured result already is one and is written as it stands.
 
 ## The Command Tree
 
@@ -160,7 +160,7 @@ Proposed changes to retained code, for approval with this document.
 - **There is one kind of tool.** The three retained compiled tools become declarations rather than staying behind the MCP transport, so no second dispatch path survives and a fourth tool has no side to be added to.
 - **The floor is one member with two cases, not a class beside a flag.** A self-gating tool declares `Floor.SelfGated`, so no declaration names an op class that is never checked and no pair of members can disagree. Rejected: a nullable class, which forces the same decision but reads as "no authority needed" at the site where it is written.
 - **A tool declares what it needs, not where it may run.** `RequiresClientSession` states why `mint_token` and `request_elevation` do not reach the CLI; a list of front-end names would state only that they do not, and would need editing by every future front-end. Rejected: making the session a typed dependency so a CLI call cannot be constructed - the stronger form, and it requires two invoke signatures, which is the second tool kind this design just removed.
-- **The session requirement is enforced at the execute path, not by omitting a subcommand.** `--args` reaches a tool by name without the command tree, so a listing filter alone would be cosmetic.
+- **The session requirement is enforced at the execute path, not by omitting a subcommand.** The check runs on every route into a tool, and it is the whole of the enforcement in MCP, where both session-requiring tools are implemented and a call arriving without a session refuses `tool_unavailable`. The CLI cannot reference those `VaultMcpServer` types, so it registers neither of them and the command tree filters `RequiresClientSession` declarations besides; `--args` does not reach past that, since it is a recursive option read inside a subcommand's action and a name with no subcommand is a usage error.
 - **The tool surface is synchronous.** The mutex hold cannot cross a suspension point and a `Mutex` is thread-affine.
 - **The execute path's steps precede a tool's five phases rather than interleaving.**
 - **The floor is checked before arguments are bound.** The retained dispatcher's ordering, kept, and it costs nothing since the lock is later than both.

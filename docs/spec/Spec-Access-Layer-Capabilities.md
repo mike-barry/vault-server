@@ -47,26 +47,31 @@ Both must exist. The census backs whole-vault passes that must not miss a non-ma
 
 **No ignore-file rule.** A gitignored file is still on disk and still destroyed, so honoring `.gitignore` would hide from the census exactly what it exists to report.
 
-Beyond the dot rule and the caller's own pattern, nothing is dropped here. The rest of the narrowing is path policy and scope, above the layer where a caller can reason about it.
+Beyond the dot rule, the caller's own pattern, and each surface's own domain, the only other narrowing is scope: the grant's roots unioned with the vault's always-readable ones. The layer applies it to every enumeration and every search itself, and silently (`Spec-Vault-Access-Design.md:Guarantees To Callers`), so no caller above has to remember to and none narrows again.
 
 ## Content Search
 
 Regex search over note content, on the same engine, able to answer at three granularities: matching lines with their locations, the set of files containing a match, and a count per file.
 
+All three take the same optional pattern the enumeration surfaces take, narrowing which notes are searched, with the same syntax, anchoring and case-insensitivity ("Enumeration").
+
 The cheaper shapes are their own capability rather than the richest one with fields discarded. A caller wanting a file list should not pay to materialize every match in order to throw them away, and on a whole-vault search that difference is the whole cost of the operation.
 
-**Four outcomes must be distinguishable at the call site:**
+**Five outcomes must be distinguishable at the call site:**
 
 - **No match is a result, not a failure.** An empty answer is the correct answer to a well-formed question. Folding it into an error path forces every caller to interpret a failure to find out whether anything actually went wrong
 - **A malformed pattern is a caller error**, reported as one and distinct from the engine failing
 - **A file that cannot be read fails the whole search** (`Spec-Vault-Access-Design.md:Load-Bearing Semantics`), rather than quietly narrowing the result
 - **Anything else the engine reports is an operational failure**, carrying what the engine said
+- **An engine that could not be started at all is its own answer**, separate from a failure reported by an engine that was running. Repeating the identical call cannot start an executable that is not there, and which of the two a caller got is the only thing telling it whether a retry is worth attempting
 
 The first two are the pair most easily collapsed into one "search failed," and the collapse is unrecoverable above the layer.
 
 ## Reading
 
 Read a note's content, and classify a failure to read.
+
+**A successful read also answers a digest of the note's bytes as stored**, computed from the same bytes the returned text was decoded from, so it describes what the caller was given rather than what a second read would have found. It is the staleness guard a chained call compares against (`Spec-Tool-Capabilities.md:Staleness And Chaining`), which is why it belongs to the read and not to a caller that could compute one from something else.
 
 The classification requirement is the design spec's. The capability statement here is that classification belongs to the read itself: it is not a second operation a caller may skip, and not one any caller may reimplement, because every enumerate-then-read pass in the system depends on the same definition of "nothing to read."
 
@@ -90,11 +95,13 @@ A write brings no directory into existence, and a missing parent is named in vau
 
 Move is a layer primitive: the one mutating operation touching two paths, both resolved and scope-checked by the same construction (`Spec-Vault-Access-Design.md:What The Layer Owns`). Only the relocation is the primitive - wikilink repair, the folder note's rename, protective pinning, and partial-failure reporting are tool-layer work composed above it.
 
-**An occupied destination is an error.** Move never overwrites and never merges. The one carve-out is the source itself: a case-only rename names a destination that already exists (`Spec-Vault-Access-Design.md:Fixed Constraints`), so occupancy is compared against the resolved source case-sensitively.
+**An occupied destination is an error.** Move never overwrites and never merges. The one carve-out is the source itself: a case-only rename names a destination that already exists (`Spec-Vault-Access-Design.md:Fixed Constraints`), so occupancy is compared against the resolved source without regard to case and the source under any spelling is not an occupant.
 
 **A missing destination parent is an error.** Move brings no folder into existence; the destination's parent must already be there.
 
 **Case-only renames are allowed**, where the new spelling satisfies the name grammar ("Name Validation"). Git does not see the change under the platform's default case handling, and the layer cannot fix that: repository operations are outside it ("Where The Boundary Sits"). The move therefore reports that it was case-only, so a later git pickup can stage the rename and propagate the new spelling.
+
+**The refusals a move would raise are readable before it runs.** The destination-name, missing-parent and occupied-destination refusals are available without moving anything, and where the operand is a folder a missing source is reported ahead of all three, because a caller whose operand is not there has to fix that before anything about the destination matters. This is for a caller that must do other work before the move - a preview that writes nothing, or a mutation that rewrites other notes first - so the refusal arrives before that work instead of after it. It replaces nothing: the move decides the same conditions again as part of moving, and its answer is the authoritative one.
 
 ## Removal
 
@@ -113,6 +120,8 @@ Remove one entry: a file, or a folder with nothing in it.
 **The grammar.** A name is one or more groups joined by single dashes. Each group is one or more ASCII letters, digits, or `+` and `&`, and the first character of the name is an uppercase letter or a digit. A note ends in `.md` and its stem satisfies the grammar; a folder is the grammar alone. Nothing else is allowed - no spaces, no underscores, no other punctuation, no non-ASCII, no leading or trailing dash.
 
 The grammar exists for containment, not style. Wikilink repair substitutes a name into note text and into quoted frontmatter values without parsing either (`Spec-Tool-Capabilities.md:Wikilink Maintenance`). A name holding a quote, a bracket, or a line break could end the construct around it and corrupt the note. A conforming name cannot, so the substitution needs no escaping.
+
+**A refused name gets one conforming alternative, derived mechanically.** Every run of characters the grammar does not admit collapses to a single dash, a leading `+`, `&` or `-` is trimmed away, and a leading lower-case letter is raised. Nothing is transliterated, so a name from which no conforming spelling can be derived has no alternative rather than one the layer invented, and a name that already conforms has none either. Exactly one is offered: it lets a refusal name a spelling the caller can retry without reading the grammar, and choosing among conforming names stays the caller's.
 
 **Names already on disk are not checked.** Reading, enumeration, search, and moving a file *from* its current name all work on whatever exists, so a file that predates the grammar stays reachable and can be renamed into conformance.
 
@@ -134,7 +143,7 @@ Bare-wikilink ranking is design-spec material - empirical, pure, and isolated to
 
 **Recognition runs over a note's whole text, frontmatter included.** The vault's navigation graph lives in frontmatter values, so a grammar that stopped at the body would under-report to every consumer.
 
-**Each occurrence reports two byte ranges** - the offset and length of the whole link, and of the target inside it. In `![[Notes/Old-Name|Alias]]`, one range is the whole link and the other is `Notes/Old-Name`. A consumer replaces a target by writing over its range, so it never parses the note, re-emits it, or splits it into frontmatter and body.
+**Each occurrence reports three extents**, given as character offsets and lengths into the text it was recognized in: the whole link including an embedding form's leading `!`, the target inside it up to the first `|` or `#`, and the display alias after the first `|`. In `![[Notes/Old-Name|Alias]]` those are the whole link, `Notes/Old-Name`, and `Alias`; a link carrying no `|` reports no alias. The alias is a third extent rather than something a consumer re-derives because repair refreshes an alias that was the renamed file's own basename (`Spec-Obsidian-Link-Behavior.md:Maintenance Rules`). A consumer replaces a target by writing over its extent, so it never parses the note, re-emits it, or splits it into frontmatter and body.
 
 **A substitution stays inside the target and never crosses a line boundary.** That, plus the name grammar, keeps a rewrite from creating or moving a frontmatter fence or ending a quoted value.
 

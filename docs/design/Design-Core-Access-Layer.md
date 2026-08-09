@@ -7,9 +7,9 @@
 - [[Spec-Vault-Access-Design.md#The Mutex Lock Name]] - the derivation, met by [[#The Lock's Identity]]. Acquiring is not here.
 - [[Spec-Auth-Requirements.md#What The Layer Must Do]] - every path-touching operation through the scope check and read-class operations through the read check, met by [[#The Ladder Of Proofs]]; authority handed in and never ambient, met by [[#Producing An Admitted Path]]; refusal without an oracle, met by [[#Refusals]]; the mid-operation key assertion, met by [[#Producing An Admitted Path]].
 - [[Spec-Access-Layer-Capabilities.md#Vault Resolution]] - the canonical name and the two structurally distinguishable failures, met by [[#Paths And Vaults]].
-- [[Spec-Access-Layer-Capabilities.md#Enumeration]] and [[Spec-Access-Layer-Capabilities.md#Content Search]] - both surfaces, the glob, the dot switch, and the four outcomes, met by [[#Enumeration And Search]].
+- [[Spec-Access-Layer-Capabilities.md#Enumeration]] and [[Spec-Access-Layer-Capabilities.md#Content Search]] - both surfaces, the glob, the dot switch, and the five outcomes, met by [[#Enumeration And Search]].
 - [[Spec-Access-Layer-Capabilities.md#Reading]], [[Spec-Access-Layer-Capabilities.md#Writing]], [[Spec-Access-Layer-Capabilities.md#Moving]], [[Spec-Access-Layer-Capabilities.md#Removal]] and [[Spec-Access-Layer-Capabilities.md#Name Validation]] - met by [[#The File Primitives]].
-- [[Spec-Access-Layer-Capabilities.md#Wikilink Grammar And Resolution]] and [[Spec-Obsidian-Link-Behavior.md]] - recognition, the two ranges, target matching, and the one comparator, met by [[#Wikilinks]].
+- [[Spec-Access-Layer-Capabilities.md#Wikilink Grammar And Resolution]] and [[Spec-Obsidian-Link-Behavior.md]] - recognition, the occurrence extents, addressing, target matching, and the one comparator, met by [[#Wikilinks]].
 - [[Spec-Tool-Capabilities.md#Wikilink Maintenance]] - the pass scope does not bound, met by [[#The Vault-Wide Pass]].
 
 Not answered here, deliberately:
@@ -71,6 +71,7 @@ public sealed class VaultAccess              // a resolved vault, plus the calle
     public PathResolution<ReadPath>  ForRead(string relativePath);
     public PathResolution<WritePath> ForWrite(string relativePath);
     public bool Admits(VaultPath candidate);
+    public WritePath Beneath(WritePath folder, VaultPath contained);
     public void AssertKey(string opClass);   // mid-operation, once the outcome is known
 }
 ```
@@ -82,6 +83,8 @@ The effective read scope - the grant's roots unioned with the vault's always-rea
 `ForWrite` checks the grant's own roots and nothing wider ([[Spec-Auth-Requirements.md#What The Layer Must Do]]). An always-readable root therefore admits a read and refuses a write, which is the asymmetry [[#The Ladder Of Proofs]] carries in the type.
 
 `ForRead` and `ForWrite` are the loud path: a caller named this path, and the answer is admitted or refused. `Admits` is the quiet path, filtering paths the layer itself produced. They are separate members rather than one with a flag, because the quiet one cannot construct a refusal and so cannot leak one.
+
+`Beneath` is the third way admission is produced, for a target the layer derived rather than one a caller named. It turns a contained path into a `WritePath` given a write proof for a folder that holds it, checking the containment relation textually and answering nothing about scope: scope roots are whole-segment prefixes, so everything under an admitted folder is admitted by the same root, and a path that is not under the folder is a defect at the call site. A recursive removal reaches its plan's entries through it, including the dot-prefixed paths no caller may name ([[#Refusals]]), and a relocation composes a folder note's destination the same way. It sits on this type for the reason [[#The Vault-Wide Pass]]'s seam does: every site producing admission is then one search away.
 
 ## Refusals
 
@@ -96,7 +99,7 @@ The perimeter is a property of the caller-named path, not of containment. A dest
 
 Both surfaces and all three search granularities are operations on `VaultAccess`, so their results are filtered against the effective read scope by construction rather than by each caller remembering to. Note enumeration answers markdown only; the census answers every file. Both take an optional glob and a switch admitting dot entries, which is off by default.
 
-**The caller's pattern goes to the engine as `--iglob`**, which supplies both `**` and case-insensitivity. The engine is invoked `--hidden --no-ignore`: its hidden-file skipping is not the dot rule - hidden on Windows is a file attribute, which the dot-prefixed directories do not carry - and the census must see ignored files.
+**The caller's pattern goes to the engine as `--iglob`**, which supplies both `**` and case-insensitivity. The engine is invoked `--no-config --hidden --no-ignore`: `--no-config` because the engine otherwise takes options from a file named by an environment variable, which is ambient state nothing here may read; `--hidden` because its hidden-file skipping is not the dot rule - hidden on Windows is a file attribute, which the dot-prefixed directories do not carry; and `--no-ignore` because the census must see ignored files.
 
 **A pattern anchors the way the engine anchors it**: one containing no separator matches a path's final segment at any depth, one containing a separator anchors at the vault root. Stated as a requirement in [[Spec-Access-Layer-Capabilities.md#Enumeration]], because the two answers differ and a caller cannot tell which it got.
 
@@ -120,11 +123,15 @@ The layer reports these to its caller and writes nothing to health state. A fail
 
 **Both creating primitives probe before they act, and neither can lose content by doing so.** A note creation has an atomic form behind the probe, so the write refuses the same condition when the probe loses the race. Directory creation has none - the platform's is idempotent and reports no difference between making a folder and finding one - so nothing but the check can answer whether the target was occupied, and losing the race there misreports which writer made the folder. Neither answer costs a caller anything it cannot re-ask for.
 
+**The repository placeholder is a primitive of its own.** It takes a folder's write proof, composes `.gitkeep` under it from the folder's own path rather than from caller text, and creates it atomically. That is what makes it true by construction that a caller can ask folder creation for a placeholder and can never name one: a dot-prefixed segment is refused as a path and the name grammar refuses the spelling, and both refusals stay in force.
+
+**The refusal a creating or moving call would raise is also readable before it runs**, as a member per form. It replaces nothing - the primitive decides the same conditions again as part of acting, and its answer is the authoritative one - and it exists for a caller that rewrites other notes before the write, so a refusal arrives before that work rather than after it ([[Spec-Access-Layer-Capabilities.md#Moving]]).
+
 **Nothing creates a parent on the way past.** A missing parent is named in vault-relative terms, which the path type can render since it holds segments and its vault.
 
 **Encoding and terminators are stated once, at the composing seam**: UTF-8 with no byte-order mark, LF.
 
-**Move is the one primitive taking two paths**, both `WritePath`, both required to carry the same `Vault`. An occupied destination is an error, compared against the resolved source ordinally so a case-only rename is not mistaken for a collision; the outcome says the move was case-only, so a later git pickup can stage it.
+**Move is two primitives, one for a file and one for a folder**, split for the reason removal is: a path does not say which kind it names. Each takes two paths, both `WritePath`, both required to carry the same `Vault`, and checks the destination's final segment against the name grammar - note or folder for the file form, folder alone for the folder form. An occupied destination is an error, with the source under another spelling not counting as an occupant, and the outcome says the move was case-only so a later git pickup can stage it. The folder form is a single directory rename carrying the whole subtree, and it is the one primitive that probes a destination's parent, because a directory rename reports a missing source and a missing destination parent as one platform failure and those are different answers.
 
 **Removal is two operations, not one** - remove a file, remove an empty folder - because a path does not say which of those it names ([[#What A Path Does Not Assert]]) and neither may guess. Both take a `WritePath`, both refuse from the attempt rather than from a prior probe, and neither walks a tree: the caller holds the validated plan and drives it entry by entry ([[Spec-Access-Layer-Capabilities.md#Removal]]).
 
@@ -132,12 +139,14 @@ The layer reports these to its caller and writes nothing to health state. A fail
 
 ## Wikilinks
 
-Three pure pieces, none of which touches a filesystem.
+Four pure pieces, none of which touches a filesystem.
 
-**Recognition** runs over a note's whole text, frontmatter included, and reports each occurrence as two byte ranges - the whole link, and the target inside it. It takes text and answers occurrences: no path goes in and none comes back. The consumer's enumeration already holds the path, and is what carries it to ranking. A consumer rewrites a target by writing over its range, so it never parses, re-emits, or splits the note. One definition serves every consumer, because a link one consumer sees and another misses is a rewrite that silently misses a link.
+**Recognition** runs over a note's whole text, frontmatter included, and reports each occurrence as three extents into that text - the whole link including an embedding form's `!`, the target inside it, and the display alias where the link carries one. The extents are character offsets, which is what a consumer slices the same string by. It takes text and answers occurrences: no path goes in and none comes back. The consumer's enumeration already holds the path, and is what carries it to ranking. A consumer rewrites a target by writing over its range, so it never parses, re-emits, or splits the note. One definition serves every consumer, because a link one consumer sees and another misses is a rewrite that silently misses a link.
 
-**Matching** answers whether a link's target names a given path.
-A target comes in two forms and each matches its own way. A path-qualified target matches on a suffix of whole path components. A bare target matches on basename alone, and ranking decides which of several same-named candidates it resolves to.
+**Addressing** turns a target into text measured from the vault root: a leading `/` anchors at the root, a leading `./` or `../` at the linking note's folder with each `..` climbing one level and a climb past the root stopping there, and every other target is already root-measured and is handed on exactly as written. It answers nothing where the target names nothing - an empty component anywhere but the leading anchor, or a walk leaving no segments. Only its output reaches matching, which is what lets matching read a leading separator or dot-segment as ordinary characters that no path contains.
+
+**Matching** answers whether an addressed target names a given path.
+A target comes in two forms and each matches its own way. A path-qualified target's final component matches a candidate's basename whole, and the text before it matches as a character suffix of the candidate's folder path - so the target's leading component may be cut in half, which is the editor's observed behaviour rather than a rule of this build's. A bare target matches on basename alone, and ranking decides which of several same-named candidates it resolves to. Either form's final component matches a segment whole or as that segment's stem where the segment is a note, so a target may omit `.md`.
 Repair and the census ask this same question, so one piece answers it for both. Both ways of getting it wrong are silent: a link that repair fails to match is left pointing at nothing, and a link that the census fails to match is an orphan nobody reports.
 
 **Ranking** is a comparator over a candidate set and the linking note's path, splitting the candidates into those inside the linking note's folder subtree and those outside it, ordering within each group by the character length of the relative target that reaches the candidate, and breaking a tie on ordinal comparison of the vault paths. It takes the candidates it is given, finds nothing itself, and is the whole of what [[Spec-Obsidian-Link-Behavior.md]] fixes - so the observed rule sits in one comparator that can be changed in a line or two when the editor's behaviour is re-measured.
@@ -156,7 +165,7 @@ What may be *reported* out of such a pass - how much of an out-of-scope note rea
 
 ## What A Path Does Not Assert
 
-**Existence.** Containment is textual and touches no filesystem, so a path to something that does not exist resolves normally - `create` needs exactly that. No member offers an existence answer, because a general one would invite the check-then-act pattern the specs forbid: a reader takes its answer from the attempt, and so does a removal. The creating primitives are the exception and probe inside themselves, where the refusal a caller is owed cannot be read from the attempt alone ([[#The File Primitives]]).
+**Existence.** Containment is textual and touches no filesystem, so a path to something that does not exist resolves normally - `create` needs exactly that. The path type answers nothing about it, and reading and removal take their answers from the attempt rather than from a check standing in front of one. The layer reads the filesystem only where the answer a caller is owed cannot come from an attempt: the creating primitives' own probe and the preflight members ([[#The File Primitives]]), and one member reporting whether a folder is on disk, which is the only thing that can establish a folder operand since a folder has no content to read.
 
 **A conforming name.** Names already on disk are not checked, so a note predating the grammar stays readable, searchable, and movable from.
 
@@ -173,6 +182,7 @@ The derivation of the lock name from the vault root ([[Spec-Vault-Access-Design.
 - **What the per-call object holds.** The caller's grant, not a bare scope, since the layer owes authority both path admission and the key assertion.
 - **Where vault resolution lives, and what it answers.** In the layer, as the only producer of `Vault`, answering a three-case result whose cases come from configuration state. Rejected: keeping it on `VaultConfig` behind two same-typed exceptions, which is the fragile form the capability spec names.
 - **Loud and quiet resolution are different members.** Disclosure is then a property of which member exists rather than of how carefully each caller handles a result.
+- **How an operation reaches a target it derived rather than one a caller named.** A member on the same object turns a contained path into a write proof, given a write proof for a folder holding it, since scope roots are whole-segment prefixes and admit everything beneath an admitted folder. It stays there rather than anywhere else, so every site producing admission is found by one search.
 - **Where the operand perimeter sits.** Dot-directory paths are representable and not nameable: the census must report them, and no caller may name one.
 - **Where glob matching happens.** In the engine, as `--iglob`, with the engine's anchoring stated as the requirement. Scope and the markdown restriction stay in the layer as predicates over the result; the dot rule prunes at the engine through a negative glob when dot entries are off, negative globs intersecting where positive ones union, with the layer's predicate kept beside the pruning. Rejected: matching in the layer, which reads the spec's "matching belongs here" as excluding the engine rather than each caller, at the cost of a second definition of the pattern and the engine's pruning.
 - **Engine output is read to completion before answering.** Whether a search must fail whole is not decidable until the error stream has been read.
@@ -183,6 +193,8 @@ The derivation of the lock name from the vault root ([[Spec-Vault-Access-Design.
 - **Which enumeration domains the vault-wide pass offers.** Both of them, neither admitting dot entries, since a relocation needs the notes it reads and rewrites and the non-note files a folder rename carries, and neither question wants a dot path. Rejected: note enumeration widened to answer both, which would put every attachment into the list the pass reads and rewrites.
 - **Matching is a piece of its own, beside recognition and ranking.** Rejected: folding it into ranking, which is handed its candidates and finds none itself.
 - **Removal is two operations rather than one.** A path does not say which it names, and inspecting the target would be a probe where the attempt already answers.
+- **Folder relocation is one directory rename.** The rename carries the whole subtree. Rejected: composing it from per-note moves, which would leave behind the attachments and empty subdirectories no enumeration surface reports.
 - **Creation refuses an occupied target, and probes to do it.** A name is unavailable whatever holds it, and the attempt alone cannot say so: creating a note over a directory raises an access failure that a permission problem raises too, and no non-recursive directory create fails when the target exists. What the check-and-write rule protects is content destroyed by the write following the gap, and neither form can destroy any - the note write is atomic behind its probe and refuses the same condition again, and a folder create destroys nothing to begin with. Rejected: reporting the platform's idempotent success, which tells a caller it made something that was already there.
+- **Where the layer reads the filesystem before acting.** In three places only: the creating primitives' own probe, a member reporting whether a folder is on disk, and a preflight member per creating and moving form. None replaces the primitive's decision, which is still taken from the attempt, and reading and removal have no probe in front of them at all. Rejected: leaving the preflight to each caller, which puts a second reading of what a call refuses above the layer that decides it.
 - **What the path type does not assert.** Neither existence, nor a conforming name, nor whether it names a file or a folder. Each is checked by the operation that needs it, where it needs it.
 - **Where the lock name derivation sits.** On `Vault`, in the layer, because the watcher must take it as code and is not a front-end.
