@@ -1,12 +1,12 @@
 # task-011: Comment sweep over the repository, including the test projects' doc references
 
-**Goal:** Every comment in the repository meets the standard in `conventions/Code-Comments.md`, and no `<see cref="..."/>` anywhere resolves to nothing.
+**Goal:** Every comment in the repository meets the standard in `docs/conventions/Code-Comments.md`, and no `<see cref="..."/>` anywhere resolves to nothing.
 
 ## Context
 
 Run this after [task-009](task-009-windows-only.md) and [task-010](task-010-conformance-audit.md), so it covers every code change those made. Sweeping before them means sweeping twice: a comment rewritten now and then deleted or contradicted by a later finding was wasted work, and a hedge those tasks remove would be polished on the way out.
 
-`conventions/Comment-Sweep.md` has the procedure for a sweep over the whole repository against the standard. It is the authority on how the pass runs.
+`docs/misc/Comment-Sweep.md` has the procedure for a sweep over the whole repository against the standard. It is the authority on how the pass runs.
 
 **The test projects' dangling doc references fold into the same pass.** The three test projects do not generate documentation, so a broken `<see cref="..."/>` there is invisible and nothing reports it. Enable `GenerateDocumentationFile` on each, build, fix what it reports, then revert the project files. That half is mechanical.
 
@@ -16,7 +16,7 @@ Run this after [task-009](task-009-windows-only.md) and [task-010](task-010-conf
 
 ## Acceptance criteria
 
-- [ ] The whole repository has been swept per `conventions/Comment-Sweep.md`.
+- [ ] The whole repository has been swept per `docs/misc/Comment-Sweep.md`.
 - [ ] No comment under `src/`, `tests/` or `conventions/` references a file under `docs/`, by name or by section.
 - [ ] `GenerateDocumentationFile` was enabled on the three test projects, the build's reported doc-reference errors were fixed, and the project files were reverted afterwards.
 - [ ] `dotnet build --no-incremental` clean, `dotnet test` green.

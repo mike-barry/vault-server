@@ -115,5 +115,5 @@ fixture, the version - and how to establish it again.
 
 ## Related
 
-- `Comment-Sweep.md` - how to run a sweep over the whole repository against this
-  standard.
+- `docs/misc/Comment-Sweep.md` - how to run a sweep over the whole repository
+  against this standard.

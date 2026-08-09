@@ -34,16 +34,16 @@ The cost of the current halfway position is measurable. In the code review alone
 
 ## Breadcrumbs
 
-A breadcrumb is one sentence at a code site, opening with `Windows:`, saying what this platform does and what a port would have to establish. It is prose in the ordinary register, not a marker: no `TODO`, no reference to this task, this file, or any document, all of which archive or rot while the code stays. Opening with the one word makes the set greppable without any of that.
+`docs/conventions/Cross-Platform.md` defines what a breadcrumb is, the test a site has to meet to earn one, and why most platform-dependent sites do not. That definition governs; it is not restated here. What this task adds is the sites already known to meet it.
 
-**A site earns one only where the dependency would otherwise be invisible.** Four do:
+**Four sites are known to earn one.** They were identified before the work started, so they are the floor and not the ceiling — a site met during the work that passes the test above earns one on the same footing:
 
 - **`VaultFiles.MoveFile`** - `overwrite` is decided by case-insensitive path equality, so a case-only rename replaces its own destination. On a case-sensitive filesystem the destination is a different file and the move destroys it silently. The most valuable of the four, and the one the code review raised before the premise ruled it out.
 - **`VaultPath.Equals`** - the root of that premise. One breadcrumb here is why every other comparison site needs none.
 - **`VaultFiles.PreflightCreate`** - once it decides a directory occupying a note's target, the divergence it was avoiding stops being visible anywhere.
 - **The mutex lock name** - `Global\` scopes the mutex across sessions on Windows, and a port needs whatever does that on its platform, or the watcher and the server take different locks.
 
-**Nothing else does.** The case-insensitivity premise reaches most of the layer, and a note at every comparison is noise that trains a reader to skip all of them. A breadcrumb is not for a risk a compiler, a test or the framework's own API would catch, and not for a site whose platform dependence is plain from what it calls.
+A breadcrumb given to a site beyond these four is recorded in Notes, with the reason it met the test. That keeps the set reviewable without capping it.
 
 ## Acceptance criteria
 
@@ -53,8 +53,9 @@ A breadcrumb is one sentence at a code site, opening with `Windows:`, saying wha
 - [ ] No file under `src/` branches on the operating system, and no member classifies one condition two ways because two platforms raise different exceptions.
 - [ ] No test is gated by or skipped on an operating system. Where a test was arranged to behave identically on both, it may be arranged for the Windows behaviour and assert it directly.
 - [ ] `VaultFiles.PreflightCreate` decides a directory occupying a note's target, which it currently leaves to the write because the two platforms answer differently. Its `<remarks>` loses that paragraph and gains its breadcrumb.
-- [ ] No comment under `src/`, `tests/` or `conventions/` hedges about another platform. A hedge weighing what two platforms might do is not a breadcrumb: it goes, and the four sites above state the Windows fact plainly instead.
-- [ ] The four sites under "Breadcrumbs" carry one, and no other site does. Each is one sentence opening with `Windows:`, stating the platform fact and what a port would need to establish, referencing no document and no task.
+- [ ] No comment under `src/` or `tests/` hedges about another platform, and neither does an example comment in `docs/conventions/`. A hedge weighing what two platforms might do is not a breadcrumb: it goes, and the four sites above state the Windows fact plainly instead.
+- [ ] Every site meeting the breadcrumb test in `docs/conventions/Cross-Platform.md` carries one, including the four named under "Breadcrumbs". Any site beyond those four is recorded in Notes with the reason it met the test.
+- [ ] Nothing under `src/` or `tests/` contradicts `docs/conventions/Cross-Platform.md`, which already states the position this task carries out.
 - [ ] Nothing in the "Out of scope" list above was changed.
 - [ ] `dotnet build --no-incremental` clean, `dotnet test` green.
 

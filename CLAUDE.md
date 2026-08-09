@@ -27,12 +27,24 @@ dotnet test
 
 Both are expected clean: 0 warnings, 0 errors, and 1560 tests passing.
 
+`CS1573` is an error on the three `src/` projects, so a documented member that leaves one of its parameters undocumented fails the build rather than passing quietly.
+
 ## Constraints
 
 - **The external dependencies are chosen.** Ripgrep for search and enumeration, YamlDotNet for frontmatter, `System.CommandLine` for the CLI's command tree, and CliWrap for invoking ripgrep. Do not evaluate alternatives to any of them.
 - **The empty `tools/` folder is intentional.** The script-loading framework is a capability with no scripts to load. The folder and its `.gitkeep` stay: the watcher only attaches to a directory that exists, and it decides that once at construction.
 - **Junctions, symbolic links, and reparse points are not accommodated.** The layer assumes a plain directory tree and neither detects nor handles them.
 - **`lint`, `lint_suppressions`, and `sync` are not built**, and the tool surface is not designed around them.
+
+## Reference documents
+
+These live under `docs/conventions/`. Load one before doing the work it governs. Each exists because the wrong answer looks reasonable to someone who has not read it. What you load never gets cited in the code: a comment references no document, so a fact worth keeping is stated in the comment itself, including what it was measured or agreed against and what changing it breaks.
+
+| Document | Load it before |
+| --- | --- |
+| `Code-Comments.md` | Writing or modifying any comment. It is the standard for what a comment says and the register it says it in. |
+| `Unit-Tests.md` | Adding or changing a test, in any of the three test projects. It also lists the fixtures, which are worth reaching for before building an arrangement by hand. |
+| `Cross-Platform.md` | Writing or changing anything that treats more than one operating system as possible: a branch on the OS, a second failure classification for another platform's exception, a test gated by or skipped on an OS, or a comment hedging about what another platform does. Also before adding a `Windows:` breadcrumb, which the document defines. |
 
 ## Specifications
 
@@ -41,12 +53,6 @@ Both are expected clean: 0 warnings, 0 errors, and 1560 tests passing.
 A decision the specs left open lands in a design document's `What This Closes` section, and a decision with a code site is a comment there, written as a constraint rather than a story. There is no separate decision log: a central one is read by nobody and duplicates what the design document and the commit message already say between them.
 
 On a question the specs cannot answer, stop that thread and raise it with the operator in session rather than deciding from judgment. The answer returns as an amended spec, which is the requirement.
-
-## Comments and tests
-
-**Comments are written in the register of MSDN documentation, and `conventions/Code-Comments.md` is the standard.** Read it before writing or modifying a comment; `conventions/Comment-Sweep.md` covers running a sweep over the whole repository. Three rules hold whether or not it has been read. A summary opens with a verb phrase and says plainly what the thing does. A documented member documents every one of its parameters - `CS1573` enforces that at build time on the three `src/` projects. And a comment stands on its own: it references no document, leans on no compressed idiom and no fact stated elsewhere, so a reader who has opened nothing but the file in front of them understands it on first read. A fact worth keeping is stated in the comment itself, including what it was measured or agreed against and what changing it breaks.
-
-**`conventions/Unit-Tests.md` is the standard for the tests.** A test asserts a behaviour a caller can observe. Read it before adding or changing one.
 
 ## Tasks
 

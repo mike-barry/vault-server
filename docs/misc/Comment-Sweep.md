@@ -1,9 +1,9 @@
 # Running a Comment Sweep
 
 How to bring every comment in the repository to the standard in
-`Code-Comments.md`, which is the authority on what the comments should say. This
-document is about getting there over a codebase too large for one pass, and
-records the strategy that worked.
+`docs/conventions/Code-Comments.md`, which is the authority on what the comments
+should say. This document is about getting there over a codebase too large for
+one pass, and records the strategy that worked.
 
 A sweep is worth running when the comments have drifted as a body rather than
 individually - a register absorbed from somewhere else, a convention that
@@ -154,10 +154,10 @@ citation, and the cadence.
 
 ## What a sweep must not destroy
 
-`Code-Comments.md` lists the four comments that are the last surviving record of
-something unrepeatable. A sweep optimising for concision is exactly the thing
-that would compress them into a sentence that reads better and cannot be acted
-on. Leave them long.
+`docs/conventions/Code-Comments.md` lists the four comments that are the last
+surviving record of something unrepeatable. A sweep optimising for concision is
+exactly the thing that would compress them into a sentence that reads better and
+cannot be acted on. Leave them long.
 
 The same caution applies to any comment stating a cross-process contract, an
 ordering that must not change, a check-then-act prohibition, or a rule about
