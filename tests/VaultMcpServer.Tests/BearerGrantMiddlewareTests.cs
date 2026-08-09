@@ -146,34 +146,44 @@ public sealed class BearerGrantMiddlewareTests : IClassFixture<BearerGrantMiddle
     }
 
     /// <summary>
-    /// Verifies that naming a vault outside the grant's scope is refused with 403, whatever the
-    /// casing of the vault argument. Tool schemas advertise it as "vault", but argument binding
-    /// accepts any casing, so a client sending "Vault" must still reach this 403 rather than the
-    /// vaguer op-class or path-scope denial one layer further in.
+    /// Verifies that naming a vault outside the grant's scope is refused whatever the casing of the
+    /// vault argument, and that the refusal arrives as a tool error carrying the shared
+    /// <c>{code, message, data?}</c> JSON over HTTP 200. The gate authenticates and answers nothing
+    /// about authority, so the refusal comes from the execute path rather than from a status code.
     /// </summary>
     /// <param name="vaultPropertyName">The casing of the vault argument name to send.</param>
+    /// <param name="expectedCode">The refusal code that casing produces.</param>
     /// <remarks>
-    /// The gate reads the request body before the dispatcher resolves the tool name, so the tool
-    /// named here does not exist - a real name would suggest the refusal depended on one.
+    /// The two casings are refused for different reasons and neither reaches the tool. A declared
+    /// tool advertises the argument as "vault" and binds it case-sensitively, so "Vault" is a
+    /// member its arguments record does not declare and is refused before any vault is resolved.
     /// </remarks>
     [Theory]
-    [InlineData("vault")]
-    [InlineData("Vault")]
-    public async Task ToolCallNamingOutOfScopeVault_Returns403_RegardlessOfArgumentCasing(string vaultPropertyName)
+    [InlineData("vault", "out_of_scope")]
+    [InlineData("Vault", "invalid_argument")]
+    public async Task ToolCallNamingOutOfScopeVault_IsRefusedInACodedEnvelope_RegardlessOfArgumentCasing(string vaultPropertyName, string expectedCode)
     {
         using var client = _fixture.CreateClient();
         client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", Fixture.ReadOnlyToken);
-        var body = """{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"some_tool","arguments":{"VAULT_PROPERTY":"not-configured","source":"a","dest":"b"}}}""".Replace("VAULT_PROPERTY", vaultPropertyName);
+        client.DefaultRequestHeaders.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
+        client.DefaultRequestHeaders.Accept.Add(new MediaTypeWithQualityHeaderValue("text/event-stream"));
+        // "unheld" is configured but outside this grant, so the call is refused for scope rather
+        // than for naming a vault nobody configured.
+        var body = """{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"read","arguments":{"VAULT_PROPERTY":"unheld","path":"a.md"}}}""".Replace("VAULT_PROPERTY", vaultPropertyName);
         using var response = await client.PostAsync("/mcp", JsonBody(body));
 
-        Assert.Equal(HttpStatusCode.Forbidden, response.StatusCode);
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        var (isError, text) = await ReadToolResultAsync(response);
+        Assert.True(isError, text);
+        using var refusal = JsonDocument.Parse(text);
+        Assert.Equal(expectedCode, refusal.RootElement.GetProperty("code").GetString());
     }
 
     /// <summary>
     /// Verifies that the gate admits a call naming a vault the grant covers. This case needs a
     /// real tool name: an unknown name also yields HTTP 200 with a tool error, so asserting only
-    /// not-401 and not-403 would pass for any name. <c>read</c> takes a vault argument and this
-    /// grant covers <c>personal</c>, so the call reaches the tool, which returns its own
+    /// that the call was not refused would pass for any name. <c>read</c> takes a vault argument
+    /// and this grant covers <c>personal</c>, so the call reaches the tool, which returns its own
     /// <c>path_not_found</c> error over HTTP 200.
     /// </summary>
     [Fact]
@@ -181,21 +191,43 @@ public sealed class BearerGrantMiddlewareTests : IClassFixture<BearerGrantMiddle
     {
         using var client = _fixture.CreateClient();
         client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", Fixture.ReadOnlyToken);
-        // The refusal cases above stop in the middleware, so they never need the transport to accept
-        // the request. This one has to reach the tool, and the MCP endpoint answers 406 without both
-        // of these.
+        // The MCP endpoint answers 406 without both of these.
         client.DefaultRequestHeaders.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
         client.DefaultRequestHeaders.Accept.Add(new MediaTypeWithQualityHeaderValue("text/event-stream"));
         var body = """{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"read","arguments":{"vault":"personal","path":"a.md"}}}""";
         using var response = await client.PostAsync("/mcp", JsonBody(body));
 
         Assert.NotEqual(HttpStatusCode.Unauthorized, response.StatusCode);
-        Assert.NotEqual(HttpStatusCode.Forbidden, response.StatusCode);
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
-        Assert.Contains("path_not_found", await response.Content.ReadAsStringAsync(), StringComparison.Ordinal);
+
+        // path_not_found is the tool's own answer, and out_of_scope is what a grant that did not
+        // cover the vault would have been given, so its absence is what says this one was admitted.
+        var (_, text) = await ReadToolResultAsync(response);
+        Assert.Contains("path_not_found", text, StringComparison.Ordinal);
+        Assert.DoesNotContain("out_of_scope", text, StringComparison.Ordinal);
     }
 
     private static StringContent JsonBody(string json) => new(json, Encoding.UTF8, "application/json");
+
+    /// <summary>
+    /// Reads the tool result out of an MCP response, which the endpoint sends either as plain JSON
+    /// or as a single SSE data frame depending on what the client accepts.
+    /// </summary>
+    /// <param name="response">The response to read.</param>
+    /// <returns>Whether the result is a tool error, and the text of its first content block.</returns>
+    private static async Task<(bool IsError, string Text)> ReadToolResultAsync(HttpResponseMessage response)
+    {
+        var body = await response.Content.ReadAsStringAsync();
+        var trimmed = body.TrimStart();
+        var payload = trimmed.StartsWith("event:", StringComparison.Ordinal) || trimmed.StartsWith("data:", StringComparison.Ordinal)
+            ? (body.Split('\n').FirstOrDefault(line => line.StartsWith("data:", StringComparison.Ordinal))
+                ?? throw new InvalidOperationException($"No SSE data: line found in response: {body}"))["data:".Length..].Trim()
+            : body;
+        using var doc = JsonDocument.Parse(payload);
+        var result = doc.RootElement.GetProperty("result");
+        var isError = result.TryGetProperty("isError", out var flag) && flag.GetBoolean();
+        return (isError, result.GetProperty("content").EnumerateArray().First().GetProperty("text").GetString() ?? "");
+    }
 
     public sealed class Fixture : ProgramHostFixtureBase
     {
@@ -206,11 +238,19 @@ public sealed class BearerGrantMiddlewareTests : IClassFixture<BearerGrantMiddle
         {
             var vaultRoot = Path.Combine(TempDir, "personal");
             Directory.CreateDirectory(vaultRoot);
+            // A second configured vault that neither grant holds, so a call naming it is refused
+            // for scope rather than for being unknown.
+            var unheldRoot = Path.Combine(TempDir, "unheld");
+            Directory.CreateDirectory(unheldRoot);
             var vaultsPath = Path.Combine(TempDir, "vaults.json");
             File.WriteAllText(vaultsPath, JsonSerializer.Serialize(new
             {
                 default_vault = "personal",
-                vaults = new Dictionary<string, object>{ ["personal"] = new { path = vaultRoot } },
+                vaults = new Dictionary<string, object>
+                {
+                    ["personal"] = new { path = vaultRoot },
+                    ["unheld"] = new { path = unheldRoot },
+                },
             }));
 
             var grantsPath = Path.Combine(TempDir, "grants.json");

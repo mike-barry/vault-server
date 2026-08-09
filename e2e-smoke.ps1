@@ -332,17 +332,20 @@ try {
     $badName = if ($r.Text) { try { $r.Text | ConvertFrom-Json } catch { $null } } else { $null }
     Check 'a name outside the grammar refuses invalid_name naming a spelling that works' ($r.IsError -and $null -ne $badName -and $badName.code -eq 'invalid_name' -and $badName.data.suggested -eq 'New-thought.md') "isError=$($r.IsError) text=$($r.Text)"
 
-    # The middleware's vault gate matches the vault argument's property name
-    # case-insensitively. The schema now spells it "vault" (param() blocks are snake_case),
-    # so probe an off-schema casing too and catch a regression to a case-sensitive peek.
-    Write-Host 'Probe: read on vault "test" with bogus token, schema-cased args (middleware vault gate)'
+    # The transport authenticates and answers nothing about authority, so a refusal arrives as a
+    # coded envelope over HTTP 200. The off-schema casing is probed too: the floor is checked
+    # before arguments are bound, so it answers first and a caller holding no authority cannot use
+    # a malformed call to probe the argument surface.
+    Write-Host 'Probe: read on vault "test" with bogus token, schema-cased args (floored grant)'
     $r = Invoke-McpCall -Tool 'read' -Arguments @{ path = 'Resources/Gizmo-Reference.md'; vault = 'test' } -Token $bogusToken
     Check 'is not a 401 (floor supersedes 401 on localhost)' ($r.StatusCode -ne 401) "status=$($r.StatusCode)"
-    Check 'is HTTP 403 naming the minimum-access vault scope' ($r.StatusCode -eq 403 -and $r.RawBody -like '*Grant "minimum-access" is not scoped to vault "test"*') "status=$($r.StatusCode) body=$($r.RawBody)"
+    $floored = if ($r.Text) { try { $r.Text | ConvertFrom-Json } catch { $null } } else { $null }
+    Check 'refuses authority_required in a coded envelope, not at the transport' ($r.StatusCode -eq 200 -and $r.IsError -and $null -ne $floored -and $floored.code -eq 'authority_required') "status=$($r.StatusCode) isError=$($r.IsError) text=$($r.Text)"
 
-    Write-Host 'Probe: read on vault "test" with bogus token, off-schema casing (same gate, case-insensitive peek)'
+    Write-Host 'Probe: read on vault "test" with bogus token, off-schema casing (the floor answers before binding)'
     $r = Invoke-McpCall -Tool 'read' -Arguments @{ Path = 'Resources/Gizmo-Reference.md'; Vault = 'test' } -Token $bogusToken
-    Check 'is HTTP 403 naming the minimum-access vault scope' ($r.StatusCode -eq 403 -and $r.RawBody -like '*Grant "minimum-access" is not scoped to vault "test"*') "status=$($r.StatusCode) body=$($r.RawBody)"
+    $flooredOddCase = if ($r.Text) { try { $r.Text | ConvertFrom-Json } catch { $null } } else { $null }
+    Check 'still refuses authority_required rather than naming an argument' ($r.StatusCode -eq 200 -and $r.IsError -and $null -ne $flooredOddCase -and $flooredOddCase.code -eq 'authority_required') "status=$($r.StatusCode) isError=$($r.IsError) text=$($r.Text)"
 
     Write-Host 'Probe: health_check with bogus token (diagnostics as a right of connection)'
     $r = Invoke-McpCall -Tool 'health_check' -Token $bogusToken

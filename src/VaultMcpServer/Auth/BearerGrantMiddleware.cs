@@ -29,10 +29,15 @@ namespace VaultMcpServer.Auth;
 /// </para>
 /// <para>
 /// One audit line is written per request: the grant id (never the token), the JSON-RPC method,
-/// and, for a <c>tools/call</c>, the tool name, vault argument, and full arguments. A
-/// <c>tools/call</c> naming a vault outside the grant's <see cref="Grant.Vaults"/> is rejected
-/// with 403. The minimum-access floor has no vaults, so it is refused for any vault content
-/// while <c>health_check</c> and <c>request_elevation</c>, which name no vault, pass through.
+/// and, for a <c>tools/call</c>, the tool name, vault argument, and full arguments.
+/// </para>
+/// <para>
+/// Authentication is all this decides. Whether the grant reaches the vault a call targets is
+/// answered further in, where the call's arguments are bound and its vault resolved, and arrives
+/// as a coded <c>out_of_scope</c> refusal. Deciding it here would answer that one condition in
+/// two shapes: a caller may leave the vault argument out and take the configured default, which
+/// a body peek cannot see, so only a caller that spelled the argument would meet the refusal
+/// this middleware could raise.
 /// </para>
 /// <para>
 /// Before any of that, <see cref="ServerHealthState.IsFatallyDegraded"/> short-circuits every
@@ -119,15 +124,6 @@ public sealed class BearerGrantMiddleware(RequestDelegate next, GrantStore grant
 
         var (method, tool, vault, arguments) = await PeekJsonRpcCall(context.Request);
 
-        if (vault is not null && !grant.CanAccessVault(vault))
-        {
-            logger.LogWarning(
-                "Audit: grant={GrantId} method={Method} tool={Tool} vault={Vault} args={Args} result=rejected-vault-scope",
-                grant.Id, method, tool, vault, arguments);
-            await Reject(context, StatusCodes.Status403Forbidden, $"Grant \"{grant.Id}\" is not scoped to vault \"{vault}\".");
-            return;
-        }
-
         logger.LogInformation(
             "Audit: grant={GrantId} method={Method} tool={Tool} vault={Vault} args={Args}",
             grant.Id, method, tool, vault, arguments);
@@ -150,8 +146,8 @@ public sealed class BearerGrantMiddleware(RequestDelegate next, GrantStore grant
     }
 
     /// <summary>
-    /// Reads the JSON-RPC request body for audit logging and the vault-scope check without
-    /// disturbing it for downstream handlers. The request stream is buffered and rewound.
+    /// Reads the JSON-RPC request body for the audit line without disturbing it for downstream
+    /// handlers. The request stream is buffered and rewound.
     /// Non-JSON, empty, and malformed bodies return all-null rather than failing; the MCP
     /// handler reports protocol errors itself.
     /// </summary>
@@ -204,9 +200,9 @@ public sealed class BearerGrantMiddleware(RequestDelegate next, GrantStore grant
 
     /// <summary>
     /// Looks up a JSON object property by name, ignoring case. Tool-argument names are matched
-    /// case-insensitively because the PowerShell binder is, so a client may legitimately send
-    /// "Vault" and must still be gated here. The JSON-RPC envelope's own field names are
-    /// protocol-defined lowercase and are matched exactly.
+    /// case-insensitively because the PowerShell binder is, so a client that sends "Vault" is
+    /// audited under the same field as one that sends "vault". The JSON-RPC envelope's own field
+    /// names are protocol-defined lowercase and are matched exactly.
     /// </summary>
     /// <param name="obj">The JSON object to search.</param>
     /// <param name="name">The property name to look for.</param>

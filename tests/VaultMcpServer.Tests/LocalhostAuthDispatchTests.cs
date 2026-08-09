@@ -120,14 +120,26 @@ public sealed class LocalhostAuthDispatchTests : IClassFixture<LocalhostAuthDisp
         Assert.Equal("authority_required", refusal.RootElement.GetProperty("code").GetString());
     }
 
+    /// <summary>
+    /// Verifies that a floored caller naming a vault is refused, and that the transport carries the
+    /// refusal rather than answering it: naming a vault in the arguments does not turn the request
+    /// into a status code, so a caller meets one coded refusal shape whichever authority it lacks.
+    /// </summary>
     [Fact]
-    public async Task MinimumFloor_VaultNamingToolIsRejectedWith403()
+    public async Task MinimumFloor_VaultNamingToolIsRefusedInACodedEnvelope()
     {
-        // The minimum floor has no vaults, so a tools/call naming one is rejected at the gate.
+        // The minimum floor holds no op classes, so greet's declared content:write is unmet and the
+        // call is refused before its arguments are read. The floor holds no vaults either, but no
+        // caller can reach that check without first holding an op class.
         var body = """{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"greet","arguments":{"vault":"personal","Name":"x"}}}""";
-        var (status, _) = await CallToolAsync(_fixture, "some-random-unrecognized-token", body);
+        var (status, result) = await CallToolAsync(_fixture, "some-random-unrecognized-token", body);
 
-        Assert.Equal(HttpStatusCode.Forbidden, status);
+        Assert.Equal(HttpStatusCode.OK, status);
+        Assert.True(result!.Value.GetProperty("isError").GetBoolean());
+
+        using var refusal = JsonDocument.Parse(
+            result.Value.GetProperty("content").EnumerateArray().First().GetProperty("text").GetString()!);
+        Assert.Equal("authority_required", refusal.RootElement.GetProperty("code").GetString());
     }
 
     // ---- Off loopback ----

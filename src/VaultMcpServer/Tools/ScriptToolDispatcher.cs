@@ -144,11 +144,10 @@ public sealed class ScriptToolDispatcher(ScriptToolRegistry registry, ToolRegist
         if (ToolExecution.FloorRefusal(name, new Floor.Class(tool.OpClass), grant) is { } floorDenial)
             return ToolError.Result(floorDenial);
 
-        // The authoritative vault-membership check, made against the same deserialized arguments
-        // the runner will use. The middleware's body peek already rejects an out-of-scope named
-        // vault with a 403, but that peek is best-effort: it misses an omitted vault argument
-        // that resolves to the default vault, a non-first batch element, and a chunked or
-        // malformed body it could not parse. This check cannot be bypassed.
+        // The vault-membership check, made against the same deserialized arguments the runner will
+        // use. Nothing above this decides it: the transport authenticates and does not answer
+        // whether a grant reaches a vault, so a call that omits the vault argument and takes the
+        // default is checked here on the same terms as one that names it.
         //
         // This is the script surface's copy of the check the execute path makes on a declared
         // tool's arguments type. A param() block offers nothing to mark, so a script's vault

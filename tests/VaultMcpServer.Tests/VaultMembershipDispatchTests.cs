@@ -14,9 +14,9 @@ namespace VaultMcpServer.Tests;
 /// argument when present, otherwise the configured default vault.
 /// </summary>
 /// <remarks>
-/// The dispatcher is the authoritative check. The middleware peeks at the request body and can
-/// return 403 early, but a call that omits the vault argument names no vault for the peek to see,
-/// so it passes the gate and is refused by the dispatcher instead. These tests cover that path.
+/// The dispatcher is the only site that answers this. The bearer gate authenticates and passes
+/// every authenticated call on, so a call naming a vault outside the grant and one that omits the
+/// argument and defaults to the same vault are refused in one place and one shape.
 ///
 /// A denial arrives as a normal MCP tool error (<c>isError</c>) carrying the shared
 /// <c>{code, message, data?}</c> JSON, the same shape as an op-class denial or a tool script's own
@@ -67,9 +67,8 @@ public sealed class VaultMembershipDispatchTests : IClassFixture<VaultMembership
     [Fact]
     public async Task OmittedVault_ResolvingToOutOfMembershipDefault_IsDeniedAsToolError()
     {
-        // The grant holds "personal" only. Omitting the vault argument leaves the middleware peek
-        // nothing to match on, so the call reaches the dispatcher, which resolves the default
-        // vault "test" and finds it outside the grant.
+        // The grant holds "personal" only. Omitting the vault argument leaves the call targeting
+        // the default vault "test", which the dispatcher resolves and finds outside the grant.
         var body = """{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"note_tool","arguments":{"Name":"x"}}}""";
         var (status, isError, text) = await CallToolAsync(_fixture, Fixture.PersonalOnlyToken, body);
 
