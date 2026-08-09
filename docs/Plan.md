@@ -46,8 +46,6 @@ One review over `src/` and `tests/`, now that the audit has settled the suite.
 
 Two constraints from `CLAUDE.md` shape what a finding may be. Most of this repository is retained code that is already correct, so a retained component that looks wrong is more likely a misread requirement - but where a spec covers its subject, the specs are the specification and the finding is a proposed change to the retained code rather than an escalation. And a finding that changes behavior lands its spec amendment and rewrites the affected design text in the same commit, because the specs stay live until cutover and a stale one is undetectable from inside this repository.
 
-`/code-review ultra` over the branch is the heaviest instrument available for this and is worth using here. It is operator-triggered and billed; an agent cannot launch it.
-
 ### 2. Audit the code against the specs and the design
 
 The last chance to check that the three descriptions of this system agree: what `spec/` requires, what `design/` says was chosen to meet it, and what the code does. After cutover the specs and the design documents are archived and nothing can check them again, so a disagreement left here is permanent and silent - the archived record describes a system that was never built, and no one reading either end can tell.
@@ -55,6 +53,8 @@ The last chance to check that the three descriptions of this system agree: what 
 The check runs both ways, and the second direction is the one that gets skipped. Code that does something no spec requires is one finding. A spec requirement nothing implements, or a design document describing a shape the code no longer has, is the same finding from the other end and is harder to see, because nothing fails and no test is missing. Each design document's `What This Closes` section is a list of decisions with the rule chosen for each; verify those rules still describe the code, since a decision recorded there and quietly changed in the code is exactly the drift this step exists to catch.
 
 Seven specs and four design documents, all under `docs/`. Size the pass so each agent reads a document whole against the code implementing it, rather than sampling across all of them.
+
+`Review-Conformance-Pointers.md` holds eleven places where a code reviewer noticed a document and the code appearing to disagree. **It is not an input to this step and no agent auditing a document may hold it.** A pointer is one reviewer's passing impression - untraced, unrefuted, and as likely to be a misreading as drift - and an auditor reading toward eleven named sites reads away from everywhere else, which loses exactly the drift nobody suspected. That is the drift this step exists to find, since nothing fails and no test is missing. The pointers are opened only after a document's own pass has finished and recorded what it found, and each is then checked and cleared on its own evidence. The file's own header states the procedure and the three outcomes.
 
 Three outcomes for a disagreement, and which one applies is not the agent's call:
 
