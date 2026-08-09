@@ -34,6 +34,14 @@ public enum TreeParse
 }
 
 /// <summary>
+/// Locates a point in a block's text. Line and column are 1-based and count characters rather than
+/// bytes, which is how YAML parsers report a position.
+/// </summary>
+/// <param name="Line">The 1-based line.</param>
+/// <param name="Column">The 1-based column within that line.</param>
+public readonly record struct ParsePosition(int Line, int Column);
+
+/// <summary>
 /// Represents a parsed frontmatter block over YamlDotNet's representation model - the mutable node
 /// tree, never its object serializer. Only the node layer preserves key order and per-node quoting
 /// style, which this layer's preservation guarantees require. The library and the node layer were
@@ -68,6 +76,10 @@ public sealed class FrontmatterTree
     /// <returns>An empty tree.</returns>
     public static FrontmatterTree Empty() => new(new YamlMappingNode());
 
+    /// <inheritdoc cref="TryParse(string, out FrontmatterTree, out ParsePosition?)"/>
+    public static TreeParse TryParse(string innerText, out FrontmatterTree tree) =>
+        TryParse(innerText, out tree, out _);
+
     /// <summary>
     /// Parses a block's inner text. The two failure results are kept apart because the write path
     /// refuses them for different reasons: text that is not YAML, and text that is YAML but not a
@@ -76,10 +88,14 @@ public sealed class FrontmatterTree
     /// <param name="innerText">The block's inner text, without fences.</param>
     /// <param name="tree">The parsed tree, or an empty tree on either failure, so no caller holds a
     /// null.</param>
+    /// <param name="failedAt">Where the parse failed, and null on every result but
+    /// <see cref="TreeParse.Unparsable"/>. Text that parsed to the wrong kind of node failed at no
+    /// particular point in itself.</param>
     /// <returns>What came of the parse.</returns>
-    public static TreeParse TryParse(string innerText, out FrontmatterTree tree)
+    public static TreeParse TryParse(string innerText, out FrontmatterTree tree, out ParsePosition? failedAt)
     {
         tree = Empty();
+        failedAt = null;
 
         YamlStream stream = new();
         try
@@ -91,8 +107,12 @@ public sealed class FrontmatterTree
             // inverses of each other.
             stream.Load(new StringReader(innerText.EndsWith('\n') ? innerText : innerText + "\n"));
         }
-        catch (YamlException)
+        catch (YamlException problem)
         {
+            // The mark is read into plain integers here rather than being handed out. No YamlDotNet
+            // type crosses this type's surface, so a caller cannot come to depend on the library
+            // through a position it was given.
+            failedAt = new ParsePosition((int)problem.Start.Line, (int)problem.Start.Column);
             return TreeParse.Unparsable;
         }
 
@@ -119,8 +139,8 @@ public sealed class FrontmatterTree
     /// Reads tolerate a malformed block and writes do not, and the asymmetry is deliberate. The
     /// read accessors report on notes rather than gating them and run over every file in the vault,
     /// so one malformed note must not fail a whole-vault pass. The write path refuses that same
-    /// note through <see cref="TryParse"/>, because writing into a block nobody could parse means
-    /// guessing.
+    /// note through <see cref="TryParse(string, out FrontmatterTree)"/>, because writing into a
+    /// block nobody could parse means guessing.
     /// </remarks>
     public static FrontmatterTree Read(string content)
     {

@@ -156,6 +156,36 @@ public sealed class ToolRefusalEnvelopeTests
         Assert.DoesNotContain("declared_keys", ToolRefusalEnvelope.Json(refusal), StringComparison.Ordinal);
     }
 
+    /// <summary>
+    /// A supplied block that will not parse carries the point the parse failed at, spelled
+    /// <c>line</c> and <c>column</c>, so a caller corrects that spot instead of regenerating the
+    /// whole block. The position describes text the caller itself sent.
+    /// </summary>
+    [Fact]
+    public void Translate_AnUnparsableSuppliedBlock_CarriesTheLineAndColumnItFailedAt()
+    {
+        var refusal = ToolRefusalEnvelope.Translate(FrontmatterRefusal.AtPosition(
+            RefusalReason.SuppliedBlockInvalid, new ParsePosition(4, 12),
+            "The supplied block will not parse as frontmatter."));
+
+        Assert.Equal(
+            """{"code":"invalid_argument","message":"The supplied block will not parse as frontmatter.","data":{"line":4,"column":12}}""",
+            ToolRefusalEnvelope.Json(refusal));
+    }
+
+    /// <summary>A refusal that locates no position is untouched by the position members, so a
+    /// caller of every other refusal sees the payload it already saw.</summary>
+    [Fact]
+    public void Translate_ARefusalWithNoPosition_CarriesNeitherLineNorColumn()
+    {
+        var refusal = ToolRefusalEnvelope.Translate(FrontmatterRefusal.At(
+            RefusalReason.ValueRefused, operation: 1, key: "doc.created", "The value must be a date."));
+
+        Assert.Equal(
+            """{"code":"invalid_value","message":"The value must be a date.","data":{"keys":["doc.created"],"operation":1}}""",
+            ToolRefusalEnvelope.Json(refusal));
+    }
+
     /// <summary>A refusal that names neither a key nor an operation carries no payload at all,
     /// rather than an object of nulls.</summary>
     [Fact]

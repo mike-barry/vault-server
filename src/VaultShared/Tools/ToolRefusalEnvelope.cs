@@ -83,9 +83,10 @@ public static class ToolRefusalEnvelope
     /// </summary>
     /// <param name="refusal">The refusal the frontmatter layer raised.</param>
     /// <returns>The refusal in this vocabulary. Its payload carries the refusal's own coordinates -
-    /// the keys it locates and the index of the operation that owns them, both of which the caller
-    /// supplied - and, for an undeclared key, the vault's declared key names. Nothing about the
-    /// grant reaches it.</returns>
+    /// the keys it locates, the index of the operation that owns them, and the line and column at
+    /// which text the caller supplied failed to parse, all of which came from the caller - and, for
+    /// an undeclared key, the vault's declared key names. Nothing about the grant reaches
+    /// it.</returns>
     /// <exception cref="ArgumentOutOfRangeException">The reason has no declared wire code.</exception>
     public static ToolRefusal Translate(FrontmatterRefusal refusal)
     {
@@ -236,6 +237,14 @@ public static class ToolRefusalEnvelope
             data["keys"] = refusal.Keys;
         if (refusal.Operation is { } operation)
             data["operation"] = operation;
+        // A key, an operation and a position are three ways a refusal locates itself, and a
+        // position is the one that points into text the caller sent rather than into its request.
+        // Both members go in together, because a line without a column locates a whole line.
+        if (refusal.Position is { } position)
+        {
+            data["line"] = position.Line;
+            data["column"] = position.Column;
+        }
         // The declared keys are what the caller lifts into a corrected call, which is what a
         // payload is for. They are the vault's own declared vocabulary and are not filtered against
         // what this caller may write, so listing them tells the caller nothing about its grant.

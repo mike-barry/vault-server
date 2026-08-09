@@ -5,7 +5,7 @@
 - [[Spec-Frontmatter-Substrate.md#Where The Boundary Sits]] - the in-memory, per-note extent and the rule that no check reasons about content from location, met by [[#Two Halves, One Namespace]].
 - [[Spec-Frontmatter-Registry.md#Where The Declaration Lives]] - named by vault configuration, outside the vault, read and never written, met by [[#Loading, And Failing Closed]].
 - [[Spec-Frontmatter-Substrate.md#What A Block Is]] and [[Spec-Frontmatter-Substrate.md#The Facet Split]] - detection, the four products of the split, and the one definition every consumer takes, met by [[#Splitting A Note]].
-- [[Spec-Frontmatter-Substrate.md#Preservation Invariants]] - order, terminators, the single fence writer, and the no-op guarantee, met by [[#The Tree And The Composer]].
+- [[Spec-Frontmatter-Substrate.md#Preservation Invariants]] - order, the single fence writer, and the no-op guarantee, met by [[#The Tree And The Composer]]; terminator normalization on entry, met by [[#Splitting A Note]].
 - [[Spec-Frontmatter-Substrate.md#Reading Tolerates What Writing Refuses]] and [[Spec-Frontmatter-Substrate.md#Shape Detection]] - the accessors and the three-answer shape query, met by [[#The Tree And The Composer]].
 - [[Spec-Frontmatter-Substrate.md#The Operation Vocabulary]] - the four capabilities, ordering, identity addressing, anchors, and idempotence, met by [[#Operations]].
 - [[Spec-Frontmatter-Substrate.md#The Single Write Path]] and [[Spec-Frontmatter-Registry.md#Two Extents, One Closed Perimeter]] - the one entry point, its inputs and outcome, and the three call shapes on one code path, met by [[#The Write Path]].
@@ -39,6 +39,7 @@ One type answers the split, and every consumer takes it from there.
 ```csharp
 public readonly record struct NoteSplit(bool HasBlock, string InnerText, string Body, int BodyOffset)
 {
+    public static string Normalize(string content);
     public static NoteSplit Of(string content);
 }
 ```
@@ -46,6 +47,8 @@ public readonly record struct NoteSplit(bool HasBlock, string InnerText, string 
 Detection is a bounded fence scan, with no markdown library involved. A note with no closed block is `HasBlock: false`, empty inner text, and its whole self as body, so the absent case is a value rather than a branch every caller writes.
 
 `InnerText` is raw and never parsed. Parsing is a separate step because the accessors tolerate what the write path refuses: the same bytes read as no block on the reporting side and as a refusal on the writing side.
+
+**Terminators normalize to LF here, on entry.** `Of` applies `Normalize` before scanning, and the write path applies it to the note's content and to a caller-supplied block before splitting either, so composed content and every offset index the normalized string. It is idempotent, so normalizing and then splitting gives the offsets splitting alone gives. Normalizing on the way out instead would trip the write path's block-equality guard on terminators alone.
 
 `BodyOffset` is taken from the closing fence line's terminator, so a body-only write splices a new body into the original at that offset and disturbs no frontmatter byte.
 
@@ -110,11 +113,13 @@ public abstract record FrontmatterOperation(string Key)
 
 An `EntryPayload` is fields and values, or a bare scalar - never rendered block text, so a caller's value can never come out as structure. An `EntryTarget` is an identity value or a named variant to clear wholesale, and the second is refused unless that variant declares itself removable.
 
-**Operations apply in order against one working tree**, each seeing the previous result, and the outcome records which of them changed anything. `RemoveField` takes the scalar or block path from the field's detected shape, never from the caller.
+**Operations apply in order against one working tree**, each seeing the previous result, and the outcome records which of them changed anything. `RemoveField` takes the scalar or block path from the field's detected shape, never from the caller. Where the shape is block, the removal is refused unless the key declares an entry schema, holds a block list rather than a nested mapping, and every entry resolved under it belongs to a variant declaring itself removable wholesale.
 
 **One resolver answers every identity question** - does this entry already exist, which entry does a removal name, where does an anchor point - so a duplicate add and a removal cannot disagree about whether an entry is there. Matching more than one is a refusal from that resolver, as is an anchor resolving to none or several.
 
-**Trimming, case-folding, and the one emptiness test are applied where an operation is decoded**, ahead of dispatch, so no capability implements its own version of any of them.
+**Two shared text rules sit on one type rather than in the capabilities.** Trimming runs as an operation is constructed, so every case sees the same text, and the one emptiness test runs in the write path's validate phase, where a refusal can name the operation it came from.
+
+Nothing case-folds. Case-insensitivity is a property of the comparisons - the tree's key lookup, the variant name lookup, and the variant's declared `IdentityMatch` - because rewriting a key to lower case would destroy the spelling a write preserves.
 
 ## The Write Path
 
@@ -180,13 +185,13 @@ The registry's whole-block assertion on a supplied tree runs in the validate pha
 
 ## Refusals And Violations
 
-**A hard refusal throws.** One exception type carries a reason from a closed enumeration, the coordinates that locate the problem - which operation, which key - and, for a key no declaration recognizes, the declared key names. Nothing else.
+**A hard refusal throws.** One exception type carries a reason from a closed enumeration, the coordinates that locate the problem - which operation, which key, and where in a caller's supplied text a parse failed - and, for a key no declaration recognizes, the declared key names. Nothing else.
 
 ```csharp
 public sealed class FrontmatterRefusal : Exception { public RefusalReason Reason { get; } }
 ```
 
-The reasons are the distinctions the specs require to survive: parse failure, a block that is not a mapping, a fence-introduction or destruction, a supplied block that does not hold up as frontmatter, path exclusion, a control character in caller text, an undeclared key or a failed value constraint, a shape mismatch, an unresolved identity or anchor, an ambiguous identity, and authority denial. What each is called on the wire is [[Design-Tool-Vocabulary.md]]'s.
+The reasons are the distinctions the specs require to survive: parse failure, a block that is not a mapping, a fence-introduction or destruction, a supplied block that does not hold up as frontmatter, path exclusion, a control character in caller text, an undeclared key or a failed value constraint, a shape mismatch, an unresolved identity or anchor, an ambiguous identity, a wholesale removal of entries nothing declares clearable, a declaration that is absent or would not load, and authority denial. What each is called on the wire is [[Design-Tool-Vocabulary.md]]'s.
 
 **A schema violation comes back as data**, since the widest consumer sweeps notes that already carry problems.
 
@@ -204,7 +209,9 @@ The validator takes content and a registry and returns the same `Violation` list
 
 ## Advertising The Vocabulary
 
-The generated schema is a projection of the loaded registry: one branch per entry variant, each variant's discriminating field pinned as a constant, fields and constraints carried across, and what has no clean client-facing expression carried in a description. It is generated from the same `FrontmatterRegistry` instance the write path holds, so there is no second copy and no drift test to write.
+The generated schema is a projection of the loaded registry: one branch per entry variant, each variant's discriminating field listed among the branch's required fields, fields and constraints carried across, and what has no clean client-facing expression carried in a description. It is generated from the same `FrontmatterRegistry` instance the write path holds, so there is no second copy and no drift test to write.
+
+The branch fixes no value for the discriminating field, because matching selects a variant by that field's presence and a fixed value would advertise a rule the enforcement point does not apply.
 
 Generation is a read of the registry and asserts nothing, which is what keeps this surface the sole enforcement point.
 
@@ -248,6 +255,7 @@ Absent and unloadable refuse identically and report differently, because an oper
 - **A failed load has no fallback vocabulary.** Rejected: a built-in default set, which is how a failed load becomes a vault with nothing protected.
 - **Authority reaches this path as a one-member interface** that `VaultAccess` satisfies. Rejected: returning the requirement for a caller to assert, which makes the assertion optional at every call site and the guarantee a convention.
 - **The fence guard is an equality, not a pair of checks.** Comparing the re-split facet covers introduction and destruction at once, so neither depends on somebody having enumerated it.
+- **A block that will not parse is not repairable through the tool surface, and that is accepted.** An operation over such a block refuses, because the operation is what triggers the parse; a body-only write does not reach the block; and a caller-supplied block reaches only a note being created, so it cannot replace an existing note's block. The remaining path is delete-then-create.
 - **Hard refusals throw with a reason from a closed enumeration; violations return as data.** Rejected: one result carrying both, which lets a caller read the violation list and never notice the refusal beside it.
 - **A violation carries a rule enumeration rather than a message to match.** A remedy branches on the rule; the reasoning is for the human beside it.
 - **The undeclared-key refusal carries the declared key names**, so the caller lifts one into a corrected call. Names only, sorted ordinally so the list is the same every call, and from both raise sites, so the code never arrives with a payload one way and without it the other. The list is the declared-keys map alone, since the refusal fires before a namespace prefix could matter, and it offers no nearest match: the caller reads the right key out of the list. Rejected: advertising the keys in the tool's schema, which every session pays for, where an error payload is paid for only by the call that erred.

@@ -58,7 +58,7 @@ The offset lets a consumer put a new body into the original without recomposing 
 
 ## Reading Tolerates What Writing Refuses
 
-The read accessors - block to map, entries under a key, a field within an entry - treat **a block that will not parse as no block**. They report on notes rather than gating them and run over every file in the vault; one malformed note must not fail a whole-vault pass. The write path refuses that same note, because writing into a block nobody could parse means guessing.
+The read accessors - block to map, entries under a key, a field within an entry - treat **a block that will not parse as no block**. They report on notes rather than gating them and run over every file in the vault; one malformed note must not fail a whole-vault pass. The write path refuses that same note where the call interprets frontmatter - a write carrying operations or a caller-supplied block - because writing into a block nobody could parse means guessing. A body-only write neither reads a key nor composes a block, so a block that will not parse does not refuse it and is left exactly as found.
 
 **Accessors returning collections return empty collections, never null.** Every caller enumerates the result, and an absent-value return pushes a null check into all of them.
 
@@ -114,7 +114,7 @@ A single global rule for either gets one case wrong. When a removal leaves nothi
 
 ### How The Vocabulary Reaches Callers
 
-The vocabulary is advertised as a **machine-readable schema**, one branch per entry variant, each variant's discriminating field pinned as a constant.
+The vocabulary is advertised as a **machine-readable schema**, one branch per entry variant, each variant's discriminating field marked required. A variant is selected by that field's presence rather than by its value, so no branch fixes what the field must say.
 
 **The schema is generated from the declaration, not hand-authored beside it.** The entry schemas already carry variants, discriminators, required and optional fields, and value constraints. Generating from them means there is no second copy to drift, and no test needed to catch that drift.
 
@@ -122,7 +122,7 @@ The vocabulary is advertised as a **machine-readable schema**, one branch per en
 
 ## The Single Write Path
 
-**One entry point into every write that interprets frontmatter, and every tool uses it.** It takes the note's content, its vault-relative path, the loaded registry, and some combination of operations, a caller-supplied block, and a new body. It returns the composed content, both facets, the violation list, which operations applied, whether each facet changed, which keys changed, and what write authority the outcome required.
+**One entry point into every write that interprets frontmatter, and every tool uses it.** It takes the note's content, its vault-relative path, the loaded registry, the vault's path policy, what asserts write authority, and some combination of operations, a caller-supplied block, and a new body. It returns the composed content, both facets, the violation list, which operations applied, whether each facet changed, which keys changed, and what write authority the outcome required.
 
 A consumer reaching the primitives directly would bypass the authority diff, the fence-introduction guard, the excluded-path refusal, and scalar hygiene. Those are properties of the path, not the primitives.
 
@@ -145,7 +145,7 @@ That split is set by the widest consumer. A path that threw on any schema violat
 **On an edit, refusals and violations cover only the keys the operations touched.** A key the declaration does not recognize, sitting elsewhere in the block, is passed through untouched and not reported. Editing one key is never blocked by an unrelated one (`Spec-Frontmatter-Registry.md:Two Extents, One Closed Perimeter`).
 
 - **Fence-introduction guard.** After composing final content, the path re-extracts its frontmatter and requires byte-equality with what the operations produced. This covers both directions: a body write *introducing* a fence on a fence-less note, minting a block no operation authored and bypassing validation and the authority assertion; and one destroying or truncating an existing fence.
-- **Parse and fence integrity.** A located block that will not parse, and one parsing to something other than a mapping, are refusals. So is prepending a fresh block to a note whose first line already looks like a fence - an ambiguous shape, worse resolved silently than refused.
+- **Parse and fence integrity.** A located block that will not parse, and one parsing to something other than a mapping, are refusals where the call interprets frontmatter - a write carrying operations or a caller-supplied block. So is prepending a fresh block to a note whose first line already looks like a fence - an ambiguous shape, worse resolved silently than refused. A body-only write neither reads a key nor composes a block, so a block that will not parse does not refuse it: the new body is spliced at the recorded offset and the block survives untouched. The fence guard above still applies to it, and is what keeps such a write off the frontmatter.
 - **Caller-declared frontmatter that does not hold up.** On a supplied block, an unclosed fence and content after the closing fence are refusals rather than readings of a file: the caller declared the text is frontmatter, so text that cannot hold as frontmatter is a caller error.
 - **Path exclusion.** Distinct from an authorization denial, per `Spec-Tool-Capabilities.md:Path Policy`. Enforced here because every write that composes frontmatter routes here.
 - **Scalar hygiene.** Every operation carrying caller text refuses **control characters**, binding entry field values as well as scalar values - terminal escapes are control characters, and the most agent-facing text in the vault lives in block-list entries. It **refuses rather than strips**: silently rewriting a value reports success while changing what was asked for. Newlines and quotes are **not** refused, since the emitter handles both, which keeps hygiene a policy about content rather than an artifact of a format.
@@ -153,7 +153,7 @@ That split is set by the widest consumer. A path that threw on any schema violat
 - **Shape mismatch.** A flat scalar operation against a field holding a block. Raised here because this path applies the operations and is the only place the corrupting path exists.
 - **Authority denial.** Below.
 
-Refusal payloads carry enough to locate the problem - which operation, which key - without disclosing anything the caller was not authorized to learn.
+Refusal payloads carry enough to locate the problem - which operation, which key - without disclosing anything the caller was not authorized to learn. A refusal over a key no declaration recognizes carries one thing more: the declared key names, sorted ordinally and identical from every raise site, so the caller lifts one of them into a corrected call. Every other refusal carries none. The list is the vault's declared vocabulary rather than a set filtered against what this caller may write, so it says nothing about the caller's authority.
 
 ### Write Authority Classification
 
@@ -162,6 +162,7 @@ Refusal payloads carry enough to locate the problem - which operation, which key
 This is the layer's single most important property. Classifying by intent classifies by what the caller said they were doing, and every injection path is a case where an operation aimed at an innocuous field mutates the protected layer anyway. Measuring the outcome closes the class rather than the instances someone thought of.
 
 - **Classification runs in the validate phase, before any disk change**, so a denial costs nothing and leaves nothing half-done.
+- **A caller-supplied block asserts a second time, over every key it carries**, whether or not that key's value differs from the note's original, before the block is serialized (`Spec-Frontmatter-Registry.md:Write Authority`). It is the registry's statement that a key requiring elevation was supplied at all; the outcome diff still runs afterwards and remains what decides whether the key changed.
 - **The diff compares re-emitted values, not raw text**, or a reserialization that changed only quoting reads as a change and denies a write that changed nothing.
 - **No single operation owns the refusal.** The denial payload names the *changed key set*, not an operation index. That set is the call's own coordinates rather than information about the caller's authority, so it does not breach the no-oracle rule on errors.
 - **A body-only write contributes no key-level authority**, by construction: patches match the body facet only, and the fence guard stops a body replace from creating frontmatter. It may still require authority the path policy declares, for a file whose body *is* an agent instruction.
@@ -177,6 +178,8 @@ Takes a note's content and the loaded registry, and **returns a list of violatio
 
 **Most of what it checks is the declaration, applied.** For a block-list key it walks each entry against the declared schema: whether the entry matches exactly one variant - neither and both are each a violation - required fields, unknown fields, mutually exclusive groups in both directions, and each field's value constraint. A bare scalar entry where no scalar variant is declared is the same check, not a special case.
 
-Compiled in is what is true of any block rather than of a particular vocabulary: a declared key carrying no value, an empty block list, and an inline value where the declaration says a block list belongs.
+Compiled in is what is true of any block rather than of a particular vocabulary: a block that will not parse or parses to something other than a mapping, a declared key carrying no value, an empty block list, and an inline value where the declaration says a block list belongs.
+
+**A block that will not parse is reported alone.** It is the one violation naming no key, and no per-key check runs beside it, since a block that did not parse has no keys to walk. Reporting it is what keeps the validator from calling valid a note the write path refuses.
 
 **Every key in the block is checked**, against the declaration it was given. The validator has no namespace of its own and skips nothing: a key the declaration does not recognize is itself a violation. This is a report on a note as it stands, not a gate - what an edit may write is the write path's question, and it is scoped to the keys that edit touches.

@@ -70,42 +70,51 @@ public sealed record ArgumentFault(string Argument, string Message);
 
 public enum OperandKind { Note, Folder }
 
-public sealed record ReadArguments(string? Vault, string Path, ReadPart Part, bool WithContentHash) : IToolArguments;
+public sealed record ReadArguments(
+    string Path, string? Vault = null, ReadPart Part = ReadPart.All, bool WithContentHash = false) : IVaultArguments;
 public enum ReadPart { All, Frontmatter, Body }
 
-public sealed record GlobArguments(string? Vault, string Pattern) : IToolArguments;
+public sealed record GlobArguments(string Pattern, string? Vault = null) : IVaultArguments;
 
-public sealed record GrepArguments(string? Vault, string Pattern, GrepGranularity Granularity, string? PathGlob) : IToolArguments;
+public sealed record GrepArguments(
+    string Pattern, string? Vault = null,
+    GrepGranularity Granularity = GrepGranularity.Lines, string? PathGlob = null) : IVaultArguments;
 public enum GrepGranularity { Lines, Files, Counts }
 
 public sealed record EditArguments(
-    string? Vault, string Path,
-    IReadOnlyList<OperationArgument>? Operations,
-    BodyChange? Body,
-    string? ExpectedContentHash) : IToolArguments;
+    string Path, string? Vault = null,
+    IReadOnlyList<OperationArgument>? Operations = null,
+    BodyChange? Body = null,
+    string? ExpectedContentHash = null) : IVaultArguments;
 
-public sealed record BodyChange(string? Content, string? Find, string? Replace);   // exactly one of Content, or Find with Replace
+public sealed record BodyChange(
+    string? Content = null, string? Find = null, string? Replace = null);   // exactly one of Content, or Find with Replace
 
 public sealed record OperationArgument(
-    string Op,                      // set | remove | add_entry | remove_entry
-    string Key,
-    string? Value,                  // set
-    JsonObject? Entry,              // add_entry: a variant's fields, or a bare scalar
-    string? Target,                 // remove_entry: an identity value
-    string? Variant,                // remove_entry: a variant cleared wholesale
-    OperationArgument? Anchor);
+    string Op,                          // set | remove | add_entry | remove_entry; before | after inside an anchor
+    string? Key = null,                 // absent inside an anchor, which addresses an entry under its operation's key
+    string? Value = null,               // set
+    JsonNode? Entry = null,             // add_entry: a variant's fields, or a bare scalar
+    string? Target = null,              // remove_entry: an identity value
+    string? Variant = null,             // remove_entry: a variant cleared wholesale
+    OperationArgument? Anchor = null);
 
 public sealed record CreateArguments(
-    string? Vault, string Path, OperandKind Kind,
-    string? Content,                // note only
-    bool GitKeep) : IToolArguments; // folder only
+    string Path, OperandKind? Kind,
+    string? Vault = null,
+    string? Content = null,             // note only, and required for one
+    bool GitKeep = false) : IVaultArguments;   // folder only
 
-public sealed record DeleteArguments(string? Vault, string Path, OperandKind Kind, bool Recursive, bool Apply) : IToolArguments;
+public sealed record DeleteArguments(
+    string Path, OperandKind? Kind, string? Vault = null, bool Recursive = false, bool Apply = false) : IVaultArguments;
 
-public sealed record MoveArguments(string? Vault, string Path, string Destination, OperandKind? Kind, bool Apply) : IToolArguments;
+public sealed record MoveArguments(
+    string Path, string Destination, string? Vault = null, OperandKind? Kind = null, bool Apply = false) : IVaultArguments;
 ```
 
-`Vault` is the only argument that is not an operand or a modifier, and it selects rather than restricts. A record carrying one implements `IVaultArguments`, which is how the execute path finds it without matching a member name ([[Design-Front-End-Projection.md#The Shared Execute Path]]).
+A member carrying no default is what puts it in the advertised schema's `required` list, so every required argument leads and every optional one declares a default. A kind that is required is declared nullable with no default, so omitting it refuses and names the argument rather than letting the first enumeration member stand in for it.
+
+`Vault` is the only argument that is not an operand or a modifier, and it selects rather than restricts. Every record carries one and implements `IVaultArguments`, which is how the execute path finds it without matching a member name ([[Design-Front-End-Projection.md#The Shared Execute Path]]).
 
 **A tool never sees this argument.** Resolution takes the name as sent and answers the default vault when it is absent ([[Design-Core-Access-Layer.md#Paths And Vaults]]), and it runs above the tool, so a tool holds a resolved vault or none. An unknown or unusable name is refused before it is entered. Scope and held authority appear nowhere at all, which is what makes the guarantee checkable by reading one record.
 
@@ -122,6 +131,8 @@ A fault names the offending argument and says what was wrong with it, and carrie
 **Kind is required exactly where the two kinds take different arguments.** `create` and `delete` require it - `Content` and `GitKeep` split on it, and `Recursive` means nothing for a note. `move` makes it optional, because both kinds take the same arguments there and the assertion buys only fail-fast for a caller that thinks it is renaming one note. `read`, `glob` and `grep` have no operand kind to assert.
 
 **An argument that cannot change an outcome for the supplied operand is refused.** `GitKeep` on a note, `Recursive` on a note, `Content` on a folder: each is a fault from `Validate`, not a value ignored. `ExpectedContentHash` is not one of these - it changes the outcome of any edit it is sent with, because a stale note refuses instead of applying.
+
+**Two further faults are decided in the same pure phase.** An edit naming neither an operation nor a body change is refused, because it would take the write lock, assert nothing and return a hash. A note creation carrying no content is refused, because nothing here templates or composes a note, so the text is the whole substance of the call and empty text is how a caller asks for an empty note.
 
 **A member no argument record declares is refused, naming it.** The binder disallows an unmapped member rather than dropping it, so a misspelled argument name is a refusal instead of a call that silently omits what the caller meant to send. The refusal is `invalid_argument` carrying the member's wire path, and the advertised schema states the same rule as `additionalProperties: false` so the two cannot disagree.
 
@@ -239,19 +250,23 @@ One catalogue, drawn from by every tool. It is the first pass's set, not a ceili
 unknown_vault          A vault nobody configured. Caller error.
 vault_unavailable      Configured but not usable. Operational; retryable.
 invalid_argument       Shape, exclusivity, an inert parameter, an unrecognized enumerated value,
-                       or a supplied block that will not hold as frontmatter.                     data: {argument}
+                       a wholesale removal of entries nothing declares clearable, or a supplied
+                       block that will not hold as frontmatter.
+                       data: {argument} | {keys, operation} | {line, column} | none
 invalid_path           Malformed, escaping, rooted, empty, or missing the markdown extension.     data: {suggested?}
 invalid_name           A new segment outside the name grammar.                                    data: {suggested?}
 path_excluded          A dot-directory segment. The tooling does not own it, and no grant changes that.
-out_of_scope           The grant does not reach it. No payload.
+out_of_scope           The grant does not reach it. A path denial carries nothing.                data: {tool, vault} | {argument, vault?}
 authority_required     An authority the caller lacks - the op-class floor, a key,
-                       a namespace, or an artifact class.        data: {tool, required_op_class} | {keys} | {paths}
+                       a namespace, or an artifact class. A denial the access layer
+                       raises mid-operation carries none.        data: {tool, required_op_class} | {keys} | {paths}
 path_not_found         The sole target is not there.
 read_failed            There, and the read failed.                                                data: {path}
+write_failed           The write itself failed - creation, edit, move or removal. Operational.    data: {path}
 already_exists         The target is occupied. Creation and move destinations.
 parent_missing         The destination's parent does not exist.                                   data: {parent}
 wrong_kind             The operand is not the kind asserted.
-not_empty              A plain folder removal met contents.                                       data: {plan}
+not_empty              A plain folder removal met contents, or a folder the census could not see. data: {plan} | {path}
 git_directory_present  A .git directory is inside the removal set.                                data: {paths}
 content_changed        The file changed since the hash was taken. No payload.
 body_match_not_found   A substitution anchor matched nothing.
@@ -264,7 +279,7 @@ frontmatter_unparsable The stored block will not parse, or is not a mapping.
 fence_conflict         A write would create or destroy a fence, or the note's first line makes one ambiguous.
 frontmatter_unavailable The registry is absent or would not load. Frontmatter writes only.
 unknown_key            No declaration recognizes the key.                                        data: {declared_keys}
-invalid_value          A value constraint refused, or caller text carried a control character.    data: {expected}
+invalid_value          A value constraint refused, or caller text carried a control character.    data: {keys?, operation?}
 shape_mismatch         Scalar written to a block key, or the reverse.
 entry_not_found        An identity or anchor resolved to nothing.
 entry_ambiguous        An identity or anchor resolved to more than one.
@@ -279,7 +294,7 @@ partial_mutation       A multi-target mutation failed partway.                  
 
 Reporting an operational condition rather than a caller error does not make a code retryable. `dependency_unavailable` is the case that separates the two: nothing about the call is wrong, and no repetition of it succeeds until the deployment changes. Search is where the distinction is load-bearing, because a missing engine binary and an engine that ran and failed arrive at the same surface, and the layer keeps them apart as separate outcomes so this catalogue can give them separate codes.
 
-Three rules govern the payloads. **A payload is liftable into a corrected call** - `suggested`, `parent`, and `plan` are; `out_of_scope` and `content_changed` therefore carry nothing. **A payload names the caller's own coordinates only** - `authority_required` names the keys or paths the caller supplied, never what the grant holds and never the subset that failed. **A payload never answers a question the refusal withheld** - no code discloses whether a target the caller may not reach exists.
+Three rules govern the payloads. **A payload is liftable into a corrected call** - `suggested`, `parent`, and `plan` are; `content_changed` therefore carries nothing, and a scope denial on a path the caller spelled out carries nothing either. Where elevation is the remedy but the call's own coordinates are not all in the request, the payload restates those and stops there: a vault-membership denial names the tool and the vault the call effectively targeted, which a caller that let the vault default does not already know. **A payload names the caller's own coordinates only** - `authority_required` names the keys or paths the caller supplied, never what the grant holds and never the subset that failed. **A payload never answers a question the refusal withheld** - no code discloses whether a target the caller may not reach exists.
 
 ## What This Closes
 
@@ -308,7 +323,8 @@ Three rules govern the payloads. **A payload is liftable into a corrected call**
 - **`delete` takes its authority from path policy alone and never reads the note it is removing.** A vault that wants a note priced above the ordinary write class names its path, or declares the `folder_note` structural rule that prices every folder note at once. Reading a note's own keys to classify its removal would put a second authority mechanism beside the declared one, and the paths that carry agent instructions are already nameable.
 - **Neither `delete` nor `move` reports that a folder note was left orphaned.** Whether a folder ought to have one is a judgment about how the vault is arranged rather than a property of the operation, so both tools do what was asked and report what they did. `move` still maintains the invariant where maintaining it is mechanical: a folder rename carries its folder note along, and `MoveResult.FolderNote` says where it landed. A vault that wants the operation priced rather than observed declares the structural rule, which refuses instead of warning.
 - **Routing beats authorization by phase order**, not by a rule each tool remembers: vault resolution is phase 2 and scope is phase 3.
-- **Malformed frontmatter splits by whose text it is.** A caller's own supplied block refuses as `invalid_argument` naming the argument; a stored note's block refuses as `frontmatter_unparsable`. The remedies differ - fix what was sent, or fix the note - so one code each. `invalid_argument` therefore also arises from the write path, not from argument validation alone.
+- **Malformed frontmatter splits by whose text it is.** A caller's own supplied block refuses as `invalid_argument`; a stored note's block refuses as `frontmatter_unparsable`. The remedies differ - fix what was sent, or fix the note - so one code each. `invalid_argument` therefore also arises from the write path, not from argument validation alone.
+- **`invalid_argument` carries what its producer can locate, and the producers locate different things.** Argument binding and validation name the argument. A wholesale removal names the keys and the index of the operation. A supplied block that will not parse carries `line` and `column`, the point the parse failed at, so an agent corrects that spot instead of regenerating the whole block; the position is structured rather than spelled into the message, which keeps the message fixed while the YAML library's own wording is free to change. The other supplied-block failures - an unclosed fence, content after the closing fence, text that is not a mapping - locate nothing and carry no payload. No supplied-block refusal names an argument: `content` is the only argument that can carry a block, so the field would tell an agent what it already knows.
 - **One table maps `RefusalReason` to a code**, applied where the envelope is rendered. Rejected: each tool catching and re-coding, which reintroduces per-tool reasoning about a refusal it did not raise.
 - **`path_not_found` rather than `not_found`.** The retained dispatcher already spends `not_found` on an unknown tool name, and a caller branching on one code for two unrelated conditions is the collapse the vocabulary exists to prevent.
 - **The catalogue is the first pass's set and extends additively.** A failure it does not carry earns a new code under the spec's distinctions and the payload rules, rather than a widened or repurposed existing one.

@@ -96,6 +96,36 @@ public sealed class FrontmatterRefusalTests
         Assert.Equal("The supplied block will not parse as frontmatter.", refusal.Message);
     }
 
+    /// <summary>
+    /// A supplied block that will not parse carries the line and column the parse failed at, so a
+    /// caller corrects that spot rather than regenerating the whole block.
+    /// </summary>
+    [Fact]
+    public void SuppliedBlockInvalid_TextThatWillNotParseCarriesWhereItFailed()
+    {
+        // The mistake is the colon on the third line, at its seventh character.
+        var refusal = Refused(
+            string.Empty, suppliedBlock: "doc.title: Widget\ndoc.type: note\n  oops: 1\n", newBody: Body);
+
+        Assert.Equal(RefusalReason.SuppliedBlockInvalid, refusal.Reason);
+        Assert.Equal(new ParsePosition(3, 7), refusal.Position);
+    }
+
+    /// <summary>
+    /// The position counts lines of the text the caller sent, so a block the caller fenced is
+    /// counted from its opening fence rather than from the first line inside it.
+    /// </summary>
+    [Fact]
+    public void SuppliedBlockInvalid_APositionInAFencedBlockCountsFromTheFence()
+    {
+        // The same mistake, now the fourth line of the supplied text.
+        var refusal = Refused(
+            string.Empty, suppliedBlock: "---\ndoc.title: Widget\ndoc.type: note\n  oops: 1\n---\n", newBody: Body);
+
+        Assert.Equal(RefusalReason.SuppliedBlockInvalid, refusal.Reason);
+        Assert.Equal(new ParsePosition(4, 7), refusal.Position);
+    }
+
     [Fact]
     public void SuppliedBlockInvalid_TextThatParsesToSomethingOtherThanAMappingSaysSo()
     {

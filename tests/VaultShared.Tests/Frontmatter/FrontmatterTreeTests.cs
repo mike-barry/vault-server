@@ -56,6 +56,23 @@ public sealed class FrontmatterTreeTests
         Assert.Equal(TreeParse.NotAMapping, FrontmatterTree.TryParse("- a\n- b", out _));
     }
 
+    /// <summary>
+    /// Text that will not parse reports where it failed, and text that parsed to the wrong kind of
+    /// node reports nothing, because it failed at no particular point in itself.
+    /// </summary>
+    [Fact]
+    public void TheParsePositionIsCarriedForTextThatWillNotParseAndForNothingElse()
+    {
+        // The mistake is the colon on the third line, at its seventh character.
+        Assert.Equal(
+            TreeParse.Unparsable,
+            FrontmatterTree.TryParse("doc.title: Widget\ndoc.type: note\n  oops: 1\n", out _, out var failedAt));
+        Assert.Equal(new ParsePosition(3, 7), failedAt);
+
+        Assert.Equal(TreeParse.NotAMapping, FrontmatterTree.TryParse("- a\n- b", out _, out var noPosition));
+        Assert.Null(noPosition);
+    }
+
     [Fact]
     public void ADateShapedScalarStaysAString()
     {

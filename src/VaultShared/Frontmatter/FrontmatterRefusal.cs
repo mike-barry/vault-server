@@ -7,9 +7,9 @@ namespace VaultShared.Frontmatter;
 /// pass on exactly the notes carrying pre-existing problems.
 ///
 /// The exception carries a reason from a closed enumeration, the coordinates that locate the
-/// problem - which operation, which key - and, for an undeclared key, the declared key names a
-/// caller chooses a replacement from. Nothing else. What each reason is called on the wire belongs
-/// to the tool vocabulary.
+/// problem - which operation, which key, and where in the caller's own text - and, for an
+/// undeclared key, the declared key names a caller chooses a replacement from. Nothing else. What
+/// each reason is called on the wire belongs to the tool vocabulary.
 /// </summary>
 public sealed class FrontmatterRefusal : Exception
 {
@@ -20,15 +20,18 @@ public sealed class FrontmatterRefusal : Exception
     /// <param name="keys">The keys the refusal locates.</param>
     /// <param name="declaredKeys">The declared key names the caller may choose from, empty where
     /// the refusal offers none.</param>
+    /// <param name="position">Where in the caller's text the failure is, or null where the refusal
+    /// locates no point in any text.</param>
     private FrontmatterRefusal(
         RefusalReason reason, string message, int? operation, IReadOnlyList<string> keys,
-        IReadOnlyList<string>? declaredKeys = null)
+        IReadOnlyList<string>? declaredKeys = null, ParsePosition? position = null)
         : base(message)
     {
         Reason = reason;
         Operation = operation;
         Keys = keys;
         DeclaredKeys = declaredKeys ?? [];
+        Position = position;
     }
 
     /// <summary>Gets which distinction this refusal is.</summary>
@@ -60,6 +63,13 @@ public sealed class FrontmatterRefusal : Exception
     /// </summary>
     public IReadOnlyList<string> DeclaredKeys { get; }
 
+    /// <summary>
+    /// Gets where in the caller's own text the failure is, and null where the refusal locates no
+    /// point in any text. Only a supplied block that will not parse carries one: the text is the
+    /// caller's, so the position describes what it sent and discloses nothing about the vault.
+    /// </summary>
+    public ParsePosition? Position { get; }
+
     /// <summary>Returns a refusal that no operation owns.</summary>
     /// <param name="reason">Which distinction this refusal is.</param>
     /// <param name="message">The human-readable message.</param>
@@ -75,6 +85,17 @@ public sealed class FrontmatterRefusal : Exception
     /// <returns>The refusal.</returns>
     public static FrontmatterRefusal At(RefusalReason reason, int operation, string key, string message) =>
         new(reason, message, operation, [key]);
+
+    /// <summary>
+    /// Returns a refusal over caller-supplied text that failed to parse, carrying the point it
+    /// failed at so the caller can correct that spot instead of regenerating the whole text.
+    /// </summary>
+    /// <param name="reason">Which distinction this refusal is.</param>
+    /// <param name="position">Where in the caller's text the parse failed.</param>
+    /// <param name="message">The human-readable message.</param>
+    /// <returns>The refusal.</returns>
+    public static FrontmatterRefusal AtPosition(RefusalReason reason, ParsePosition position, string message) =>
+        new(reason, message, null, [], null, position);
 
     /// <summary>Returns a refusal located at one key with no operation behind it, such as a key of
     /// a caller-supplied block, which is validated whole rather than per operation.</summary>

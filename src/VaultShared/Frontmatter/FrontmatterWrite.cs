@@ -199,6 +199,11 @@ public static class FrontmatterWrite
         var text = NoteSplit.Normalize(request.SuppliedBlock!);
         var inner = text;
 
+        // How many lines of the caller's text the inner region starts past. A parse position counts
+        // lines of the inner text, and the caller counts lines of what it sent, so a position from
+        // a fenced block that was not shifted would name the line above the mistake.
+        var strippedLines = 0;
+
         if (LooksLikeAnOpeningFence(text))
         {
             var fenced = NoteSplit.Of(text);
@@ -210,15 +215,29 @@ public static class FrontmatterWrite
                     RefusalReason.SuppliedBlockInvalid, "The supplied block carries content after its closing fence.");
 
             inner = fenced.InnerText;
+
+            // The opening fence is the first line or there is no block at all, so it is exactly one
+            // line, and the fence occupies a whole line so no column moves.
+            strippedLines = 1;
         }
 
-        var parse = FrontmatterTree.TryParse(inner, out var tree);
+        var parse = FrontmatterTree.TryParse(inner, out var tree, out var failedAt);
+        // The position reaches the caller as structure rather than as message text, which keeps the
+        // message a fixed string and leaves the caller a line and a column to correct instead of a
+        // whole block to regenerate. Which failure this is decides the message; whether a position
+        // came with it decides only the payload.
+        if (parse == TreeParse.Unparsable)
+            throw failedAt is { } position
+                ? FrontmatterRefusal.AtPosition(
+                    RefusalReason.SuppliedBlockInvalid,
+                    position with { Line = position.Line + strippedLines },
+                    "The supplied block will not parse as frontmatter.")
+                : FrontmatterRefusal.Of(
+                    RefusalReason.SuppliedBlockInvalid, "The supplied block will not parse as frontmatter.");
+
         if (parse != TreeParse.Parsed)
             throw FrontmatterRefusal.Of(
-                RefusalReason.SuppliedBlockInvalid,
-                parse == TreeParse.Unparsable
-                    ? "The supplied block will not parse as frontmatter."
-                    : "The supplied block is not a mapping of keys to values.");
+                RefusalReason.SuppliedBlockInvalid, "The supplied block is not a mapping of keys to values.");
 
         // The caller supplied every key, so every key is checked and every finding refuses rather
         // than being reported as data. A caller can fix what it sent.

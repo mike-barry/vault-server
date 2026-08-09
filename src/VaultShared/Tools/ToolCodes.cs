@@ -51,7 +51,9 @@ public static class ToolCodes
 
     /// <summary>The arguments are the wrong shape, break an exclusivity rule, include a parameter
     /// that has no effect, use an unrecognized enumerated value, or supply a block that will not
-    /// hold as frontmatter. <c>data: {argument}</c>.</summary>
+    /// hold as frontmatter. <c>data: {argument}</c> from argument binding and validation,
+    /// <c>{keys, operation}</c> from a refusal to remove entries wholesale, <c>{line, column}</c>
+    /// where a supplied block failed to parse, and none where the refusal locates nothing.</summary>
     public const string InvalidArgument = "invalid_argument";
 
     /// <summary>The path is malformed, escapes the vault, is rooted, is empty, or lacks the markdown
