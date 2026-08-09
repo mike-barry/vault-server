@@ -12,12 +12,12 @@ Run this after [task-009](task-009-windows-only.md) and [task-010](task-010-conf
 
 `CS1573` already holds parameter completeness on the three `src/` projects at build time, so a documented member missing a parameter is not what this pass is looking for. What it is looking for is the standard's substance: a summary that opens with a verb phrase and says plainly what the thing does, and a comment that stands on its own — leaning on no compressed idiom and no fact stated elsewhere, so a reader who has opened nothing but the file in front of them understands it on first read.
 
-**A comment referencing a document under `docs/` is a defect this pass fixes**, not a pointer to preserve. `docs/` is deleted at cutover ([task-012](task-012-cut-over-to-vault-server.md)) and every such reference becomes dangling prose. A fact worth keeping is stated in the comment itself, including what it was measured or agreed against and what changing it breaks.
+**A comment referencing a document under `docs/` is a defect this pass fixes**, not a pointer to preserve. The specification and design do not travel at cutover ([task-012](task-012-cut-over-to-vault-server.md)), so in `vault-server` every such reference is dangling prose naming a file nobody there can open. What becomes of those documents afterwards is undecided and does not affect this: they are gone from the repository the comment lives in either way. A fact worth keeping is stated in the comment itself, including what it was measured or agreed against and what changing it breaks.
 
 ## Acceptance criteria
 
 - [ ] The whole repository has been swept per `docs/misc/Comment-Sweep.md`.
-- [ ] No comment under `src/`, `tests/` or `conventions/` references a file under `docs/`, by name or by section.
+- [ ] No comment under `src/` or `tests/` references a file under `docs/`, by name or by section.
 - [ ] `GenerateDocumentationFile` was enabled on the three test projects, the build's reported doc-reference errors were fixed, and the project files were reverted afterwards.
 - [ ] `dotnet build --no-incremental` clean, `dotnet test` green.
 

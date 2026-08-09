@@ -21,7 +21,7 @@ The content itself needs no rewriting to move - it is already instructions addre
 
 - Does `tasks/tasks-instructions.md` go away, or stay as the human-readable copy with the skill pointing at it? Two copies of the same rules is the drift risk the third criterion names; a skill that only points at a file reintroduces the read the change was meant to remove.
 - `CLAUDE.md` currently restates two rules - operator-only adds, operator-only archives - so they hold whether or not the instructions were read. If the skill may not load, that hedge is still needed; if it always loads, the restatement is duplication.
-- Skills under `.claude/` are not covered by the `conventions/` rule about what survives cutover. Does this skill travel to the canonical repository with the code, or archive with the working files?
+- Cutover decides what travels by whether it governs the code — `docs/conventions/` does, the specification and design do not — and a skill under `.claude/` is covered by neither. Does this skill travel to the canonical repository with the code, or stay here with the working files?
 
 ## Notes
 
