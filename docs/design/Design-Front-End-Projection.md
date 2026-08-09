@@ -106,7 +106,7 @@ Both construct what the execute path needs and hand it in; neither carries per-t
 | Tools projected | every declaration, plus script tools | declarations not requiring a session |
 | Configuration failure | recorded, server starts degraded | the process fails |
 
-**Script tools are MCP-only, by construction rather than by choice.** The script-loading framework needs `Microsoft.PowerShell.SDK`, which `VaultShared` and the CLI must not reference ([[Brief-Vault-Access-Build.md#Where Code Goes]]), so they never enter the CLI's command tree.
+**Script tools are MCP-only, by construction rather than by choice.** The script-loading framework needs `Microsoft.PowerShell.SDK`, which `VaultShared` and the CLI must not reference, so they never enter the CLI's command tree.
 
 ## The CLI's Grant
 

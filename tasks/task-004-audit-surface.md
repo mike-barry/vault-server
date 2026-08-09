@@ -4,7 +4,7 @@
 
 ## Context
 
-Carried over from `docs/Sidequests.md`, which was retired. The original entry is reproduced in full under Notes; it states what is wrong now, what it costs while it stays, what the fix touches, and what is less obvious than it looks.
+Carried over from `docs/Sidequests.md`, which was retired. The original entry is reproduced in full under Notes; it states what is wrong now, what it costs while it stays, what the fix touches, and what is less obvious than it looks. `docs/Plan.md` tracked the same middleware separately until it too was retired, and its wording is reproduced there beside the original.
 
 ## Acceptance criteria
 
@@ -16,8 +16,13 @@ Not yet written - see Open questions.
 - Where does `AuditLogPath` point when opted in, and what happens when it is unset - no CLI trail at all, or a default location?
 - The entry calls the lazy `FileLoggerProvider` file creation "worth folding in while there". Is it in scope for this task or its own item?
 - A completion invocation should produce no audit or log line, which the entry says should be settled once for both this and task-002. Which task owns that decision?
+- The log is unrotated, which the redaction switch does not address. Does retention belong to this task, or is it its own item?
 
 ## Notes
+
+`docs/Plan.md` carried the same problem as an open item until that file was retired. Its wording, which adds that the log is unrotated and states that the decision is the operator's and unmade:
+
+> **`BearerGrantMiddleware` logs every call's full arguments.** `src/VaultMcpServer/Auth/BearerGrantMiddleware.cs:131` writes `args={Args}` to an unrotated log on every request. With `edit` and `create` shipped, that means note content and frontmatter operations land in `logs/`. This is an operator decision that has not been made, and it is not blocked by anything above.
 
 The entry as it stood in `docs/Sidequests.md`, verbatim:
 

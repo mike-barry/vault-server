@@ -2,7 +2,7 @@
 
 This directory holds the design for the vault access build. The specs in `../spec/` say what must be true; a design document says what shape this build takes to meet it. This file is the convention every document in the directory follows, so the set reads as one thing.
 
-See [[Brief-Vault-Access-Build.md#Working Files]].
+A design document is not done until the operator has reviewed it and signed off.
 
 ## The Set
 
@@ -114,7 +114,7 @@ Wikilink syntax throughout, with the file extension and the header where one app
 
 A design document that absorbs either of these becomes a second source of truth.
 
-- **The bundle cannot answer it.** `Questions.md`, after agreement. The design document does not proceed under a guess and does not record the gap.
+- **The bundle cannot answer it.** An escalation to the operator, in session. The design document does not proceed under a guess and does not record the gap.
 - **It only makes sense beside the code.** A comment. Design documents name types and their contracts; they do not list members.
 
 There is no separate decision log. A choice the specs left open is [[#What This Closes]], and how the change was reached is the commit message.

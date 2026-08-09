@@ -43,8 +43,8 @@ exactly as any other finding does.
 
 ## MCP front-end
 
-- `src/VaultMcpServer/Tools/MintTokenTool.cs`, `src/VaultMcpServer/Tools/ElevationRequestTool.cs` vs `Brief-Vault-Access-Build.md:Where Code Goes` - two compiled tools live in the front-end project rather than in `VaultShared`.
-- `tests/VaultMcpServer.Tests/FrontEndParityTests.cs` vs `Brief-Vault-Access-Build.md:Where Code Goes` - the front-end parity tests are stated to belong to `VaultShared.Tests`.
+- `src/VaultMcpServer/Tools/MintTokenTool.cs`, `src/VaultMcpServer/Tools/ElevationRequestTool.cs` vs `../CLAUDE.md:Layout` - two compiled tools live in the front-end project rather than in `VaultShared`.
+- `tests/VaultMcpServer.Tests/FrontEndParityTests.cs` vs `../CLAUDE.md:Layout` - the front-end parity tests are stated to belong to `VaultShared.Tests`.
 - `src/VaultMcpServer/Auth/BearerGrantMiddleware.cs:127` vs `spec/Spec-Vault-Access-Design.md:Guarantees To Callers` - a named out-of-scope vault is refused as an HTTP 403 plaintext body, so the coded `out_of_scope` envelope is unreachable for that condition.
 
 ## CLI front-end

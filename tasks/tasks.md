@@ -2,11 +2,14 @@
 
 Task index. See `tasks-instructions.md` for how to maintain this file — read it before changing anything here.
 
-NEXT_TASK_ID: 010
+NEXT_TASK_ID: 013
 
 ## Active
 
 - [ ] [task-009](task-009-windows-only.md) — Make Windows the stated platform, and take out what only served portability
+- [ ] [task-010](task-010-conformance-audit.md) — Audit the code against the specs and the design, both directions
+- [ ] [task-011](task-011-comment-sweep.md) — Sweep every comment against the standard, and fix the test projects' dangling doc references
+- [ ] [task-012](task-012-cut-over-to-vault-server.md) — Layer this build's history onto the canonical `vault-server` repository
 
 ## Backlog
 
