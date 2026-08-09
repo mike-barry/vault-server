@@ -6,7 +6,7 @@ NEXT_TASK_ID: 009
 
 ## Active
 
-- [ ] [task-006](task-006-plan-phase-existence-checks.md) — Establish existence in the plan phase for `create` and `delete`
+- [/] [task-006](task-006-plan-phase-existence-checks.md) — Establish existence in the plan phase for `create` and `delete`
 - [ ] [task-007](task-007-write-path-guards-miss-a-shape.md) — Close two guards in the frontmatter write path that miss a shape
 - [ ] [task-008](task-008-delete-mcp-session-tracking.md) — Delete the MCP dispatcher's session tracking and its dead broadcast
 

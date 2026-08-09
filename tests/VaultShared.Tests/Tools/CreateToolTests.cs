@@ -186,19 +186,46 @@ public sealed class CreateToolTests : IDisposable
     /// <summary>
     /// Pins are written before the note is. Do not reverse the order: if the run is interrupted
     /// after pinning, existing links still name the target they always named, but if it is
-    /// interrupted after the note is written, bare links have silently changed meaning. A creation
-    /// that fails to write its note must still have pinned.
+    /// interrupted after the note is written, bare links have silently changed meaning.
     /// </summary>
+    /// <remarks>
+    /// The two writes are only distinguishable when one of them fails, and a creation that reaches
+    /// its write has already passed every refusal decidable beforehand. A directory occupying the
+    /// note's own path is such a case: no file is at the path, so nothing before the write refuses,
+    /// and the write then fails on what the platform makes of a file created over a directory. The
+    /// refusal's own code is that platform answer and is not asserted here; what is asserted is
+    /// that the pass had already run.
+    /// </remarks>
     [Fact]
     public void PinsAreAppliedBeforeTheNoteIsWritten()
     {
-        // The destination folder does not exist, so the note cannot be created; the pass runs
-        // against a basename already in use and its rewrite must have landed anyway.
+        _vault.WithFolder("Projects/Widget/Notes.md");
+        Assert.Contains("[[Notes]]", _vault.TextOf("Projects/Widget/Widget.md"));
+
+        Refusal(new { path = "Projects/Widget/Notes.md", kind = "note", content = "# Notes\n" });
+
+        Assert.False(_vault.HasFile("Projects/Widget/Notes.md"));
+        Assert.Contains("[[Reference/Notes]]", _vault.TextOf("Projects/Widget/Widget.md"));
+    }
+
+    /// <summary>
+    /// A parent folder that is not there is established before the pinning pass runs, so a typo in
+    /// a folder name refuses without rewriting notes the caller never named. The vault already
+    /// carries the basename this creation would take, which is what would otherwise have sent the
+    /// pass over the whole vault before the store refused.
+    /// </summary>
+    [Fact]
+    public void AMissingParentIsRefusedBeforeAnyBystanderIsPinned()
+    {
+        var before = _vault.TextOf("Projects/Widget/Widget.md");
+        Assert.Contains("[[Notes]]", before);
+
         var refusal = Refusal(new { path = "Nowhere/Notes.md", kind = "note", content = "# Notes\n" });
 
         Assert.Equal(ToolCodes.ParentMissing, refusal.Code);
         Assert.False(_vault.HasFile("Nowhere/Notes.md"));
-        Assert.Contains("[[Reference/Notes]]", _vault.TextOf("Projects/Widget/Widget.md"));
+        // The bystander still carries the bare link the pass would have pinned.
+        Assert.Equal(before, _vault.TextOf("Projects/Widget/Widget.md"));
     }
 
     /// <summary>Creating at a path that already exists pins nothing. The note is already among the

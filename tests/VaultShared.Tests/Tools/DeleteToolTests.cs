@@ -115,6 +115,28 @@ public sealed class DeleteToolTests : IDisposable
         Assert.Equal(ToolCodes.PathNotFound, Refusal(new { path = "Reference/Absent.md", kind = "note" }).Code);
     }
 
+    /// <summary>
+    /// The same holds for a folder, which nothing else in the tool establishes: path admission
+    /// reads no filesystem and a folder holding no file is invisible to the census. A folder that
+    /// is not there would otherwise preview as clean and empty - the same shape as a real one - and
+    /// refuse only once the caller authorized the removal. An extensionless file is not a folder
+    /// and answers the same way.
+    /// </summary>
+    [Fact]
+    public void AMissingFolderIsAFailureEvenInThePreview()
+    {
+        Assert.True(_vault.HasFolder("Projects/Widget"));
+        var refusal = Refusal(new { path = "Projects/Widgets", kind = "folder" });
+
+        Assert.Equal(ToolCodes.PathNotFound, refusal.Code);
+        Assert.Contains("Projects/Widgets", refusal.Message);
+
+        _vault.WithNote("Reference/Handbook", "not a folder");
+
+        Assert.Equal(ToolCodes.PathNotFound, Refusal(new { path = "Reference/Handbook", kind = "folder" }).Code);
+        Assert.True(_vault.HasFile("Reference/Handbook"));
+    }
+
     // ---- The guards ----
 
     /// <summary>The first guard. It runs over the census with dot entries included, because a

@@ -135,7 +135,7 @@ public sealed class DeleteTool : ITool
     /// <param name="arguments">The validated arguments.</param>
     /// <param name="target">The admitted write path.</param>
     /// <returns>The plan.</returns>
-    /// <exception cref="ToolRefusal">The census failed, or a note target does not exist.</exception>
+    /// <exception cref="ToolRefusal">The census failed, or the target does not exist.</exception>
     /// <remarks>
     /// A note's plan is the note itself. A folder's plan comes from the file census, filtered to what
     /// lies under it by whole-path prefix. Do not pass the folder's name to the search engine as a
@@ -165,6 +165,17 @@ public sealed class DeleteTool : ITool
 
             return new DestructionPlan([target.Path], []);
         }
+
+        // A folder operand is established the same way and for the same reason, and nothing else in
+        // this tool does it: path admission checks the grammar, dot segments and scope without
+        // reading the filesystem, and the census below cannot see a folder that holds no file. A
+        // folder that is not there would otherwise preview as a clean, empty, removable folder and
+        // then refuse when the caller sent the applied call. An extensionless file at the path is
+        // not a folder and gets the same refusal.
+        if (!VaultFiles.FolderExists(target))
+            throw new ToolRefusal(
+                ToolCodes.PathNotFound,
+                $"No folder is at \"{arguments.Path}\".");
 
         var prefix = target.Path.Value + '/';
         var files = census.Items

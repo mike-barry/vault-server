@@ -359,6 +359,55 @@ public static class VaultFiles
     }
 
     /// <summary>
+    /// Reports the refusal a note creation would raise for a reason readable from the filesystem
+    /// before the write runs, or null when it would raise none of them.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// Three reasons are read: a note name outside the name grammar, a missing parent folder, and a
+    /// file already at the target. <see cref="Create"/> decides all three as part of the write
+    /// itself and its answer is the authoritative one, because anything read here can stop being
+    /// true before the write runs. This exists for a caller that must do other work before the
+    /// write - a pass that rewrites other files first - so that the refusal arrives before that work
+    /// instead of after it. Both are needed: without this, such a caller leaves earlier writes
+    /// behind a refusal; without the check in the write, an occupied target would be decided from
+    /// state read a moment earlier and the write would destroy whatever appeared in between.
+    /// </para>
+    /// <para>
+    /// A directory at the target is not reported. It occupies the name, but the platform's answer to
+    /// creating a file over a directory differs between systems, so what a caller is told about it
+    /// comes from the write rather than from two places that could disagree.
+    /// </para>
+    /// </remarks>
+    /// <param name="path">The note that would be created.</param>
+    /// <returns>The outcome the creation would answer, or null when none of the three applies.</returns>
+    public static WriteOutcome? PreflightCreate(WritePath path)
+    {
+        var target = path.Path;
+        var name = target.Segments[^1];
+        if (!VaultName.IsNoteName(name))
+            return new WriteOutcome.InvalidName(name);
+
+        var parent = Directory.GetParent(target.Absolute);
+        if (parent is null || !parent.Exists)
+            return MissingParent(target);
+
+        return File.Exists(target.Absolute) ? new WriteOutcome.AlreadyExists(target.Value) : null;
+    }
+
+    /// <summary>
+    /// Reports whether a folder is on disk at this path.
+    /// </summary>
+    /// <remarks>
+    /// A folder operand has no content to read, so a probe is the only thing that establishes it
+    /// exists. A file at the same path answers false: an extensionless file is not a folder, and no
+    /// folder operation can act on one.
+    /// </remarks>
+    /// <param name="path">The folder to look for.</param>
+    /// <returns><see langword="true"/> when a directory is there; otherwise <see langword="false"/>.</returns>
+    public static bool FolderExists(WritePath path) => Directory.Exists(path.Path.Absolute);
+
+    /// <summary>
     /// Reports the refusal a file move would raise for a reason readable from the filesystem before
     /// the move runs, or null when it would raise none of them.
     /// </summary>

@@ -40,9 +40,11 @@ public sealed record CreateResult(
 /// </summary>
 /// <remarks>
 /// <para>
-/// An occupied target is refused rather than overwritten or merged, with its own code. The refusal
-/// comes from the filesystem's answer to an atomic create rather than from an existence check this
-/// tool runs first, so there is no window in which something else creates the file in between.
+/// An occupied target is refused rather than overwritten or merged, with its own code. A note
+/// creation reads the target first, so a call that would refuse does not rewrite other notes'
+/// wikilinks on the way to finding out, but the answer that counts is the filesystem's own to an
+/// atomic create: nothing this tool reads beforehand can rule out something else creating the file
+/// in between, and only the atomic create refuses at the moment the bytes would land.
 /// </para>
 /// <para>
 /// Nothing is composed here. A note's content is finished text: no templating, no field-by-field
@@ -106,9 +108,10 @@ public sealed class CreateTool(FrontmatterRegistries registries) : ITool
     }
 
     /// <summary>
-    /// Creates a note. Every step that can refuse runs before anything changes: the artifact-level
-    /// authority assertion, the supplied note through the frontmatter write path, and the basename
-    /// census. Only then are the pins written and the note stored, in that order.
+    /// Creates a note. Every refusal that can be decided before the write is raised first, so
+    /// nothing changes behind one: the artifact-level authority assertion, the supplied note through
+    /// the frontmatter write path, the target's name, parent and occupancy, and the basename census.
+    /// Only then are the pins written and the note stored, in that order.
     /// </summary>
     /// <param name="vault">The per-call access object.</param>
     /// <param name="arguments">The validated arguments.</param>
@@ -140,6 +143,21 @@ public sealed class CreateTool(FrontmatterRegistries registries) : ITool
             NewBody: supplied.Body));
 
         asserted.UnionWith(composed.AssertedAuthority);
+
+        // Every refusal the creation itself can decide from the filesystem is answered here, before
+        // the pinning pass plans or writes anything. Without it an applied call would discover the
+        // refusal with bystander notes across the vault already rewritten for a note that never
+        // lands, and the caller would be told the creation did not happen and nothing about the
+        // notes it never named that changed.
+        //
+        // This does not replace the check inside the write. The write is still what decides
+        // occupancy, because another writer can take the target between this call and the write.
+        // Reading it here narrows that window and keeps the pass off a doomed creation; reading it
+        // again in the write is what makes the answer true at the moment the bytes land. Neither one
+        // is redundant. A write can still fail for a reason no plan phase can decide, and that
+        // failure arrives after the pass as before.
+        if (VaultFiles.PreflightCreate(target) is { } refusing)
+            throw Refused(arguments.Path, refusing);
 
         // The basename census, taken before anything is written. A basename nothing else carries
         // cannot change what any link resolves to, so no pass runs and no pins are reported.
@@ -242,14 +260,25 @@ public sealed class CreateTool(FrontmatterRegistries registries) : ITool
         VaultFiles.Create(target, content) switch
         {
             WriteOutcome.Written written => written.ContentHash!,
+            var refusing => throw Refused(named, refusing),
+        };
 
-            WriteOutcome.AlreadyExists => throw new ToolRefusal(
+    /// <summary>Turns a note creation's refusing outcome into the refusal a caller sees.</summary>
+    /// <param name="named">The path as the caller spelled it, quoted in the message.</param>
+    /// <param name="outcome">The outcome to translate, which must not be a success.</param>
+    /// <returns>The refusal.</returns>
+    /// <exception cref="InvalidOperationException">The outcome is one this tool does not
+    /// produce.</exception>
+    private static ToolRefusal Refused(string named, WriteOutcome outcome) =>
+        outcome switch
+        {
+            WriteOutcome.AlreadyExists => new ToolRefusal(
                 ToolCodes.AlreadyExists,
                 $"\"{named}\" is already there. Creation never overwrites and never merges - edit it, or create under a different name."),
 
-            WriteOutcome.InvalidName invalid => throw MutationSupport.InvalidName(invalid.Name),
-            WriteOutcome.MissingParent missing => throw ParentMissing(named, missing.Parent),
-            WriteOutcome.Failed failed => throw Failed(named, failed),
+            WriteOutcome.InvalidName invalid => MutationSupport.InvalidName(invalid.Name),
+            WriteOutcome.MissingParent missing => ParentMissing(named, missing.Parent),
+            WriteOutcome.Failed failed => Failed(named, failed),
 
             var other => throw new InvalidOperationException($"Unhandled write outcome {other.GetType().Name}."),
         };

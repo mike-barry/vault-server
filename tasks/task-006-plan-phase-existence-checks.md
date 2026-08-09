@@ -20,15 +20,29 @@ The layer already offers the probe: `VaultFiles.PreflightMoveFolder` (`src/Vault
 
 ## Acceptance criteria
 
-- [ ] `CreateNote` establishes occupancy and parent existence on the target before the pinning pass runs, raising `already_exists` / `parent_missing` there. `VaultFiles.Create` stays the authority on occupancy, so the atomic check-and-write guarantee is not weakened — the preflight narrows the window, it does not replace the write's own refusal.
-- [ ] Pinning still runs before the note is written. `docs/spec/Spec-Tool-Capabilities.md:Wikilink Maintenance` requires that ordering and gives the reason; only the decidable refusals move ahead of it.
-- [ ] `DeleteTool.Plan` establishes that a folder operand exists, refusing `path_not_found` naming the caller's spelling, and the same refusal covers a folder-kind call on an extensionless file.
-- [ ] A test drives `create` into a missing parent with a duplicated basename in the vault, and asserts no bystander note was modified.
-- [ ] A test drives a `delete` preview of a folder that does not exist and asserts it refuses, as `AMissingNoteIsAFailureEvenInThePreview` does for the note case.
-- [ ] `tests/VaultShared.Tests/Tools/CreateToolTests.cs:193` (`PinsAreAppliedBeforeTheNoteIsWritten`) is updated: it currently asserts the pins land on a creation that then fails, which is the behaviour being changed. It should assert that pins land before the write on a creation that can proceed.
-- [ ] Any text in `docs/design/Design-Tool-Vocabulary.md` stating either tool's failure ordering is rewritten in the same commit, or confirmed to already describe the new behaviour. Failure ordering is contract per `docs/spec/Spec-Tool-Capabilities.md:The Error Vocabulary`.
-- [ ] `dotnet build --no-incremental` clean, `dotnet test` green.
+- [x] `CreateNote` establishes occupancy and parent existence on the target before the pinning pass runs, raising `already_exists` / `parent_missing` there. `VaultFiles.Create` stays the authority on occupancy, so the atomic check-and-write guarantee is not weakened — the preflight narrows the window, it does not replace the write's own refusal.
+- [x] Pinning still runs before the note is written. `docs/spec/Spec-Tool-Capabilities.md:Wikilink Maintenance` requires that ordering and gives the reason; only the decidable refusals move ahead of it.
+- [x] `DeleteTool.Plan` establishes that a folder operand exists, refusing `path_not_found` naming the caller's spelling, and the same refusal covers a folder-kind call on an extensionless file.
+- [x] A test drives `create` into a missing parent with a duplicated basename in the vault, and asserts no bystander note was modified.
+- [x] A test drives a `delete` preview of a folder that does not exist and asserts it refuses, as `AMissingNoteIsAFailureEvenInThePreview` does for the note case.
+- [x] `tests/VaultShared.Tests/Tools/CreateToolTests.cs:193` (`PinsAreAppliedBeforeTheNoteIsWritten`) is updated: it currently asserts the pins land on a creation that then fails, which is the behaviour being changed. It should assert that pins land before the write on a creation that can proceed.
+- [x] Any text in `docs/design/Design-Tool-Vocabulary.md` stating either tool's failure ordering is rewritten in the same commit, or confirmed to already describe the new behaviour. Failure ordering is contract per `docs/spec/Spec-Tool-Capabilities.md:The Error Vocabulary`.
+- [x] `dotnet build --no-incremental` clean, `dotnet test` green.
 
 ## Notes
+
+**What was added, and where.**
+
+- `VaultFiles.PreflightCreate` (`src/VaultShared/Access/VaultFiles.cs:384`) — the note-creation counterpart to `PreflightMoveFile`/`PreflightMoveFolder`. Returns `InvalidName` / `MissingParent` / `AlreadyExists` or null, in exactly the order `VaultFiles.Create` itself answers them, so no existing refusal changed which code it fires.
+- `VaultFiles.FolderExists` (`src/VaultShared/Access/VaultFiles.cs:408`) — the `Directory.Exists` probe `PreflightMoveFolder` already does inline, given a name so `DeleteTool` does not reach for `VaultPath.Absolute` itself. `PreflightMoveFolder` was left as it is rather than refactored onto it.
+- `CreateTool.CreateNote` calls the preflight after the frontmatter write path composes and before the basename census (`src/VaultShared/Tools/CreateTool.cs:159`). It sits after the artifact authority assertion deliberately: moving it ahead would let a caller holding no authority over the path probe whether it exists.
+- `CreateTool.Refused` is the outcome-to-refusal switch lifted out of `Store`, so the preflight and the write raise the identical messages. The wire strings are unchanged.
+- `DeleteTool.Plan` refuses a folder operand that is not on disk at the top of the folder branch (`src/VaultShared/Tools/DeleteTool.cs:175`).
+
+**A directory sitting at a note's path is not reported by the preflight**, only a file. The platform's answer to creating a file over a directory differs between Windows (`UnauthorizedAccessException` → `write_failed`) and Linux (`EEXIST` → `already_exists`), and having the preflight decide it would make the tool answer one thing where the write answers another. That case is also what `PinsAreAppliedBeforeTheNoteIsWritten` now arranges: it is the only reachable write failure that survives the plan phase without a production seam, which is what makes the pin-before-write ordering observable at all. The test therefore asserts the pin landed and no note was created, and does not assert the refusal code, which is the platform's.
+
+**No document needed amending.** `docs/design/Design-Tool-Vocabulary.md:218-232` (`Failure Ordering`) already puts existence and occupancy in phase 4 and states nothing is written before phase 5; this change makes the code conform to it rather than changing it. Its `What This Closes` entry at line 300 ("No mutating pass checks that its targets are writable before writing them") is about the notes a pass rewrites, not about the operand, and is untouched. The spec sections the finding cites already require the new behaviour.
+
+`docs/Build-Decisions.md` carries entries about `VaultFiles`' primitives (lines 205-206) and now does not mention the two new members. Left alone: nothing in the criteria asks for it, and only the operator writes that file.
 
 The `create` finding was narrowed by its refutation pass. Two things it ruled out, so they are not in scope: relabelling the refusal `partial_mutation` (the pins are correct, so there is no partial state to report), and moving the pinning pass after the write (the spec forbids it). `write_failed` arriving from the store after the pass remains a legitimate outcome — a write can fail for reasons no plan phase can decide.
