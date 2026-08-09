@@ -31,7 +31,7 @@ public static class VaultWriteLock
     /// <returns>A hold that releases the lock when disposed.</returns>
     /// <exception cref="ToolRefusal">The lock was not acquired before the timeout elapsed.</exception>
     public static IDisposable Acquire(Vault vault, Action<string>? onInherited = null) =>
-        Acquire(vault.LockName, Timeout, onInherited);
+        Acquire(vault.LockName, Timeout, onInherited, vault.Name);
 
     /// <summary>
     /// Acquires the named write lock.
@@ -45,6 +45,10 @@ public static class VaultWriteLock
     /// Receives the inherited-lock message. A delegate rather than a logging dependency, because this
     /// assembly carries no logging abstraction and one event does not justify adding one.
     /// </param>
+    /// <param name="vaultName">
+    /// The vault the lock belongs to, named in the inherited-lock message, or null where the caller
+    /// has no vault to name.
+    /// </param>
     /// <returns>A hold that releases the lock when disposed.</returns>
     /// <exception cref="ToolRefusal">The lock was not acquired before the timeout elapsed.</exception>
     /// <remarks>
@@ -52,8 +56,13 @@ public static class VaultWriteLock
     /// signal is a fact about the dead process, not about this call: there is no journal to replay
     /// and no state to repair, so refusing would leave the vault permanently unwritable. The message
     /// goes to <paramref name="onInherited"/> and the invocation continues.
+    ///
+    /// The message names the vault and carries the mutex name beside it. The vault is what a reader
+    /// can act on, and the mutex name is what correlates this event with the same lock reported by
+    /// another process.
     /// </remarks>
-    public static IDisposable Acquire(string lockName, TimeSpan timeout, Action<string>? onInherited = null)
+    public static IDisposable Acquire(
+        string lockName, TimeSpan timeout, Action<string>? onInherited = null, string? vaultName = null)
     {
         var mutex = new Mutex(initiallyOwned: false, lockName);
         try
@@ -68,7 +77,8 @@ public static class VaultWriteLock
         {
             // The wait succeeded and this thread owns the mutex; the exception is the recovery
             // signal, not a failure.
-            onInherited?.Invoke($"Inherited the vault write lock \"{lockName}\" from an owner that died without releasing it. Proceeding.");
+            var names = vaultName is null ? $"\"{lockName}\"" : $"for vault \"{vaultName}\" (mutex \"{lockName}\")";
+            onInherited?.Invoke($"Inherited the vault write lock {names} from an owner that died without releasing it. Proceeding.");
         }
         catch
         {

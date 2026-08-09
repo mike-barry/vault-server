@@ -136,7 +136,7 @@ public static class NativeToolSchemas
           "properties": {
             "pattern": {
               "type": "string",
-              "description": "Regular expression, in the search engine's syntax, matched against note content."
+              "description": "Regular expression, in the search engine's syntax, matched against note content. Matching is case-sensitive; prefix the pattern with (?i) to match without regard to case."
             },
             "vault": {
               "type": "string",

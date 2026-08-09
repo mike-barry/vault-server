@@ -60,8 +60,16 @@ public sealed record Grant(string Id, IReadOnlySet<string> OpClasses, IReadOnlyS
 
     /// <summary>Reports whether the grant allows an op class.</summary>
     /// <param name="op">The op class name.</param>
-    /// <returns>True where the grant holds it.</returns>
-    public bool Allows(string op) => OpClasses.Contains(op);
+    /// <returns>True where the grant holds it, compared without regard to case.</returns>
+    /// <remarks>
+    /// The comparison is stated here rather than taken from whichever comparer built
+    /// <see cref="OpClasses"/>. Op-class names are configuration text on both sides - a grant row
+    /// names what it holds, and a tool declares the floor it requires - so a set built with the
+    /// ordinal default would stop matching a floor spelled in another case, and the gate would fail
+    /// open or closed depending only on how its set happened to be constructed.
+    /// </remarks>
+    public bool Allows(string op) =>
+        OpClasses.Any(held => string.Equals(held, op, StringComparison.OrdinalIgnoreCase));
 
     /// <summary>Reports whether the grant may operate in a vault.</summary>
     /// <param name="vault">The vault name.</param>

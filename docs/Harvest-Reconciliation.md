@@ -90,24 +90,8 @@ most case IDs appear at all — 679 of the 944 matched outright and are counted,
 search returning nothing usually means the case matched rather than that the ID is wrong.
 
 The containment boundary came through with nothing lost, and several of its old refusals are now
-unrepresentable rather than checked. The losses concentrate in the mutating tools, and specifically
-in *ordering* — what is validated, and when, relative to what is written.
-
-## Gaps
-
-### G6 — the inherited-lock warning lost its remediation content
-
-`LNK-043`. Acquire-and-proceed on an abandoned mutex is intact, but the message
-(`src/VaultShared/Tools/VaultWriteLock.cs:71`) no longer says the vault may be torn or that
-`git status`/`git diff` is the diagnosis, and identifies the lock by SHA-256 mutex name rather than
-by vault. A `move` holds the lock across N rewrites plus the file move, so the tear is real, and
-`partial_mutation` covers only a tear this process caused.
-
-### G9 — `grep` lost its case-insensitivity opt-in
-
-`RDT-076`. The old tool declared `ignore_case`; `GrepArguments` is `Pattern`, `Granularity`,
-`PathGlob`. The case-sensitive default is correctly preserved, but the opt-in is expressible only as
-an undocumented inline `(?i)`.
+unrepresentable rather than checked. Every finding the pass produced is closed; what is left here is
+the untested-property list the suite sweep works from, and the appendix recording the filter.
 
 ## Containment properties with no test
 
@@ -120,8 +104,6 @@ is a containment or safety one; general coverage is the test pass's subject, not
   under a narrow grant.
 - Search arguments reach the binary without shell interpretation, and a leading-hyphen pattern is
   matched as data. Untested here as in the old suite.
-- Op-class comparison at the gate is case-insensitive only by every producer's choice of comparer;
-  `Grant.Allows` is a bare `Contains`.
 
 ## Improvements Taken
 

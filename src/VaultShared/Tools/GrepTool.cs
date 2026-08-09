@@ -28,7 +28,7 @@ public enum GrepGranularity
 /// <param name="PathGlob">A glob narrowing which notes are searched, or null to search every
 /// note.</param>
 public sealed record GrepArguments(
-    [property: Description("Regular expression, in the search engine's syntax, matched against note content.")]
+    [property: Description("Regular expression, in the search engine's syntax, matched against note content. Matching is case-sensitive; prefix the pattern with (?i) to match without regard to case.")]
     string Pattern,
     [property: Description("The vault to search in. Optional; the configured default vault is used when it is absent.")]
     string? Vault = null,

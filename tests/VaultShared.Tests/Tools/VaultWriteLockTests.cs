@@ -91,6 +91,37 @@ public sealed class VaultWriteLockTests
         Assert.True(FreeElsewhere(name));
     }
 
+    /// <summary>
+    /// The inherited-lock message names the vault and keeps the mutex name beside it. A reader acts
+    /// on the vault; the mutex name is what correlates the event with another process reporting the
+    /// same lock.
+    /// </summary>
+    [Fact]
+    public void Acquire_ForAVault_NamesTheVaultAndTheMutexInTheInheritedMessage()
+    {
+        var name = UniqueName();
+        using var abandoned = new ManualResetEventSlim();
+
+        var deadOwner = new Thread(() =>
+        {
+            var mutex = new Mutex(false, name);
+            mutex.WaitOne();
+            abandoned.Set();
+        });
+        deadOwner.Start();
+        abandoned.Wait();
+        deadOwner.Join();
+
+        var reported = new List<string>();
+        using (VaultWriteLock.Acquire(name, VaultWriteLock.Timeout, reported.Add, "primary"))
+        {
+        }
+
+        var message = Assert.Single(reported);
+        Assert.Contains("primary", message);
+        Assert.Contains(name, message);
+    }
+
     /// <summary>Reports whether a named mutex can be acquired right now, asked from a thread that is
     /// not the holder. It has to be another thread, because a <see cref="Mutex"/> is re-entrant for
     /// the thread that owns it.</summary>
