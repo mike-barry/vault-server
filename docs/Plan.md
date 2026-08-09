@@ -37,33 +37,42 @@ Current state, which any step should re-verify rather than trust:
 
 Four steps. Only the last is risky.
 
-### 1. Add the three missing tests
+### 1. Extract the coverage gaps, then delete the harvest
 
-Three behaviors are correct in the code and nothing asserts them, so a later edit breaks them silently. Each is deliberately unscoped, which is exactly what a future reader "tidies up" by adding a scope check.
+The reconciling pass listed roughly fifty behaviors that are present and correct in the code with nothing in the suite asserting them - a `Present in code, unasserted by the suite` section in each of the ten area files under `harvest/`. That list is the only thing in 840 KB of harvest material that still has a job.
 
-- `delete`'s backlink census scans every note in the vault, not just the caller's scope. Drive `delete` under a narrow grant and assert it still reports a backlink from outside that scope. `DeleteTool.cs` takes `BypassingScope()` for this.
+Lift it into `docs/Test-Coverage-Gaps.md`, then delete `harvest/`, `Harvest-Reconciliation.md` and `Harvest-Reconciliation-Disposition.md` in the same commit.
+
+**Each entry must stand alone**, because nothing will be left to look the case up in: the property, the code site, what the suite asserts today and what it does not, and what would break silently if the property regressed. Keep the old case IDs as provenance only - they resolve nowhere afterwards, and git history holds the source.
+
+**Extract everything; triage nothing.** Deciding what earns a test is step 2's job, done against the whole list. An entry dropped during extraction is one nobody can weigh.
+
+`C1`-`C3` from the reconciliation's own summary are three of these fifty rather than three beyond them - `CRD-095`, `MOV-043` and `ENU-046`/`ENU-030`. They were promoted for being the most severe, so carry them across marked as such. One list, not two.
+
+### 2. Work the coverage list
+
+Triage `Test-Coverage-Gaps.md` and add tests only where they earn their place. Expect to reject most of it; a suite of 1538 tests already covers what the specs justify, and this list is a second axis over the same code rather than a set of known defects.
+
+Start with the three the reconciliation promoted. Each is deliberately unscoped, which is exactly what a later reader "tidies up" by adding a scope check:
+
+- `delete`'s backlink census scans every note in the vault, not just the caller's scope. Drive `delete` under a narrow grant and assert it still reports a backlink from outside that scope.
 - `move`'s link repair does the same. Drive `move` under a narrow grant and assert a note outside the scope still gets repaired.
 - Search arguments reach ripgrep as data, never through a shell. Assert that a pattern beginning with `-` is searched for rather than read as a flag.
 
-Clear `C1`-`C3` from `Harvest-Reconciliation.md` and `Harvest-Reconciliation-Disposition.md` when these land.
+Three rules keep this from bloating the suite:
 
-### 2. Sweep the harvest for other untested behavior
-
-679 old behaviors matched this build. How many the suite actually asserts is unknown. This is a hunt, and it is the only step whose size is not known up front.
-
-Each area file's `Present in code, unasserted by the suite` section in `harvest/` is the starting point, not the whole list.
-
-Two rules that keep this from bloating the suite:
-
-- **The harvest is a coverage checklist, not tests to import.** A matched case earns a test only where the property is genuinely unasserted. Where an existing test covers it from another angle, it is covered.
+- **If you cannot say what breaks silently when the property regresses, skip it.** Some entries hold only because no argument exists to violate them, and there is nothing there to guard.
+- **Covered from another angle is covered.** An entry earns a test only where the property is genuinely unasserted.
 - **Widen a near-miss rather than adding a second test beside it.** Two tests asserting one property both have to be understood and both have to be kept true, and the second buys nothing.
 
-The old suite's case count is not a target. It was written against a different implementation, and reproducing its shape accretes overlap rather than coverage.
+Watch for the shape where the suite itself hides a property: `SearchToolTests` sorts every result before asserting, so a change that started sorting would satisfy the whole suite. That kind of gap is found by reading assertions, not by adding tests.
 
 **Two branches cannot be tested, and this is why.** Do not spend the session rediscovering it:
 
 - `move`'s `partial_mutation` branch needs two notes linking to the moved note with the second write blocked. Note enumeration is unordered, so a fixture cannot control which fails first and any such test passes or fails by luck. `WikilinkRepairTests.AWriteThatFailsNamesWhatLandedAndWhatDidNot` covers the data the tool relays; the tool's branch on it is what stays uncovered.
 - The folder-note rename's partial path needs a folder move to succeed while the note rename inside it fails. The open-handle mechanism cannot arrange that, since the directory rename would have to carry an open handle across.
+
+Delete `Test-Coverage-Gaps.md` when the step is done.
 
 ### 3. Fix dangling doc references in the test projects
 
@@ -91,7 +100,7 @@ Keep this repo afterwards. It is the only intact record of the build and the thi
 
 **`BearerGrantMiddleware` logs every call's full arguments.** `src/VaultMcpServer/Auth/BearerGrantMiddleware.cs:131` writes `args={Args}` to an unrotated log on every request. With `edit` and `create` shipped, that means note content and frontmatter operations land in `logs/`. This is an operator decision that has not been made, and it is not blocked by anything above.
 
-**The harvest and its reconciliation documents are not maintained.** `harvest/`, `Harvest-Reconciliation.md` and `Harvest-Reconciliation-Disposition.md` were the work list for a job that is finished except for step 1. Do not audit them, annotate them, or keep their prose true. The harvest is a blind snapshot of a deleted system, already consumed; nothing reads it after the sweep.
+**The harvest and its reconciliation documents are not maintained, and step 1 deletes them.** They were the work list for a job that is finished. Do not audit them, annotate them, or keep their prose true in the meantime. The harvest is a blind snapshot of a deleted system, already consumed, and git history keeps it if anyone ever needs to look.
 
 **This does not extend to the specs or the design documents, which stay live until cutover.** They are the specification and the shape chosen to meet it, and no old implementation exists to check them against - which is why a change to behavior still lands its spec amendment and rewrites the affected design text in the same commit, exactly as before. A stale spec is undetectable from inside this repository and leaves the archived record describing something that was never decided. Steps 1-3 change no behavior and should need neither; a defect the coverage sweep turns up is an ordinary change and carries both.
 
