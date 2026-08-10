@@ -31,7 +31,7 @@ namespace VaultShared.Tools;
 /// before it can.
 /// </para>
 /// <para>
-/// Reporting an operational condition rather than a caller error does not make a code retryable, and
+/// Reporting an operational condition rather than a caller error does not make a code retryable.
 /// <see cref="DependencyUnavailable"/> is the case that separates the two: nothing about the call is
 /// wrong, and no repetition of it succeeds until the deployment changes. Retryability is a property
 /// of the code, so callers decide from the code alone.
@@ -97,7 +97,7 @@ public static class ToolCodes
 
     /// <summary>
     /// The target exists and the write failed. <c>data: {path}</c>. This is an operational failure
-    /// rather than a caller error: the access layer reports a missing parent, an occupied target and
+    /// rather than a caller error. The access layer reports a missing parent, an occupied target and
     /// a refused name separately, and each has its own code above.
     /// </summary>
     public const string WriteFailed = "write_failed";
@@ -120,7 +120,7 @@ public static class ToolCodes
 
     // --- Staleness and body anchors -------------------------------------------------------
 
-    /// <summary>The file changed since the caller took its hash. No payload: returning the current
+    /// <summary>The file changed since the caller took its hash. No payload. Returning the current
     /// hash would let a caller retry into content it never read.</summary>
     public const string ContentChanged = "content_changed";
 
@@ -199,7 +199,7 @@ public static class ToolCodes
     /// executable not being where the host was configured to find it. Neither the caller's authority
     /// nor its arguments would change the outcome. Operational; not retryable - repeating the
     /// identical call cannot succeed until the deployment is corrected, so do not route this into a
-    /// branch that retries. No payload: what is missing is a server-side path the caller may not read
+    /// branch that retries. No payload. What is missing is a server-side path the caller may not read
     /// and cannot act on, and the operator reads the condition off health state.</summary>
     public const string DependencyUnavailable = "dependency_unavailable";
 }

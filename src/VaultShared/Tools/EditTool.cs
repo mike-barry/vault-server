@@ -11,7 +11,7 @@ using WriteOutcome = VaultShared.Access.WriteOutcome;
 namespace VaultShared.Tools;
 
 /// <summary>
-/// Represents the result of an edit operation. Every member is one this tool genuinely populates.
+/// Represents the result of an edit operation.
 /// </summary>
 /// <param name="ContentHash">The note's content hash after the write, so a chain of edits needs no
 /// read in between. It is the same value a read of the file returns.</param>
@@ -62,8 +62,8 @@ public sealed record EditResult(
 /// the file.
 /// </para>
 /// <para>
-/// There is no preview. An edit touches only the note it names, so a plan would just echo the request
-/// back, and previews that say nothing train callers to skip the ones that matter.
+/// There is no preview. An edit touches only the note it names, so a plan would only echo the
+/// request back.
 /// </para>
 /// </remarks>
 /// <param name="registries">Every vault's loaded frontmatter declaration. Held on the tool rather
@@ -75,7 +75,7 @@ public sealed class EditTool(FrontmatterRegistries registries) : ITool, IVocabul
     public const string ToolName = "edit";
 
     /// <summary>
-    /// The tool's declaration. The floor is the base write class and is not the whole authority: what
+    /// The tool's declaration. The floor is the base write class and is not the whole authority. What
     /// a particular edit requires depends on which keys it turned out to change and on what the
     /// vault's path policy says about the note. Both are asserted inside the write path, against the
     /// outcome rather than against what the caller said it was doing.
@@ -102,12 +102,8 @@ public sealed class EditTool(FrontmatterRegistries registries) : ITool, IVocabul
     /// <returns>The argument schema with the <c>entry</c> node constrained to the declared variants,
     /// or the plain argument schema where nothing is declared.</returns>
     /// <remarks>
-    /// This is a function rather than a member of the declaration because a tool is declared once
-    /// while the entry vocabulary is per vault, and a tool listing is not per vault. The projection
-    /// chooses which vault's vocabulary to advertise and calls this.
-    ///
     /// Where nothing is declared, the branches are simply absent and <c>entry</c> stays
-    /// unconstrained. Advertising is not permission: the write path refuses anything the declaration
+    /// unconstrained. Advertising is not permission. The write path refuses anything the declaration
     /// does not recognize either way.
     /// </remarks>
     public static JsonElement Schema(FrontmatterVocabulary vocabulary)
@@ -151,9 +147,9 @@ public sealed class EditTool(FrontmatterRegistries registries) : ITool, IVocabul
 
         // Plan.
         var operations = arguments.Ordered.Select(o => o.Decode()).ToList();
-        // A body-only edit is not a frontmatter write: it reads no key, and what determines its
-        // authority is the vault's path policy. So it runs against the vocabulary that interprets
-        // nothing, rather than refusing over a declaration its body has nothing to do with.
+        // A body-only edit is not a frontmatter write. It reads no key, and its authority comes from
+        // the vault's path policy, so it runs against the vocabulary that interprets nothing rather
+        // than refusing over a declaration its body has nothing to do with.
         var registry = operations.Count > 0
             ? registries.For(vault.Vault.Name).Require()
             : MutationSupport.NoVocabulary;
@@ -176,11 +172,8 @@ public sealed class EditTool(FrontmatterRegistries registries) : ITool, IVocabul
             SuppliedBlock: null,
             NewBody: body));
 
-        // Apply. The outcome's violation list is deliberately not read. A violation still standing
-        // after a successful write was in the note before the call - usually an entry someone else
-        // wrote - and this tool reports on the operation it performed rather than on the note's
-        // condition. Refusing over one would make an entry unaddable because a sibling entry is
-        // malformed.
+        // Apply. The outcome's violation list is deliberately not read; a violation still standing
+        // after a successful write was in the note before the call.
         return new ToolResult.Data(new EditResult(
             Store(path, arguments.Path, outcome.Content, stored.ContentHash),
             outcome.FrontmatterChanged,
@@ -318,7 +311,7 @@ public sealed class EditTool(FrontmatterRegistries registries) : ITool, IVocabul
             WriteOutcome.Written written => written.ContentHash!,
 
             // The note was read a moment ago under the vault's write lock, so each of these is an
-            // operational failure rather than a caller error: something outside this process moved
+            // operational failure rather than a caller error. Something outside this process moved
             // or removed the file while the write was in flight.
             WriteOutcome.NotFound => throw new ToolRefusal(
                 ToolCodes.PathNotFound,

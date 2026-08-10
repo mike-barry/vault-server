@@ -68,9 +68,6 @@ public sealed record CreateArguments(
                 "content",
                 "\"content\" is a note's text and means nothing for a folder - create the folder, then create the notes in it.");
 
-        // Required rather than defaulted to empty. A creation composes nothing and templates
-        // nothing, so the text is the whole substance of the call, and a caller that genuinely wants
-        // an empty note says so by sending empty text.
         if (Operand == OperandKind.Note && Content is null)
             return new ArgumentFault(
                 "content",

@@ -171,8 +171,7 @@ public static class ToolRefusalEnvelope
     /// <remarks>
     /// An engine that could not be started carries no payload. The platform's message names the
     /// executable the host configured, which is a server-side path the caller may not read and cannot
-    /// act on; the deployment is what has to change, and the operator reads the same condition off
-    /// health state, where it is recorded when the host interprets the configured location.
+    /// act on.
     ///
     /// A file the search could not read is a search failure, not a read failure.
     /// <see cref="ToolCodes.ReadFailed"/> names a path in its payload, and the file that failed is
@@ -188,9 +187,6 @@ public static class ToolRefusalEnvelope
                 ToolCodes.InvalidPattern,
                 $"The search engine refused the pattern: {bad.Reason}"),
 
-            // Scrub the path out of the diagnostic before it goes into detail. The engine finds the
-            // file while walking the whole vault, before scope filtering, so carrying its path would
-            // disclose one the caller may not reach.
             SearchOutcome<TResult>.Unreadable unreadable => new ToolRefusal(
                 ToolCodes.SearchFailed,
                 "The search failed because a file it had to read could not be read.",
@@ -237,16 +233,13 @@ public static class ToolRefusalEnvelope
             data["keys"] = refusal.Keys;
         if (refusal.Operation is { } operation)
             data["operation"] = operation;
-        // A key, an operation and a position are three ways a refusal locates itself, and a
-        // position is the one that points into text the caller sent rather than into its request.
         // Both members go in together, because a line without a column locates a whole line.
         if (refusal.Position is { } position)
         {
             data["line"] = position.Line;
             data["column"] = position.Column;
         }
-        // The declared keys are what the caller lifts into a corrected call, which is what a
-        // payload is for. They are the vault's own declared vocabulary and are not filtered against
+        // The declared keys are the vault's own declared vocabulary and are not filtered against
         // what this caller may write, so listing them tells the caller nothing about its grant.
         if (refusal.DeclaredKeys.Count > 0)
             data["declared_keys"] = refusal.DeclaredKeys;

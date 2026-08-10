@@ -5,8 +5,7 @@ namespace VaultShared.Tools;
 
 /// <summary>
 /// Represents <see cref="GlobTool"/>'s arguments. <see cref="Pattern"/> carries no default and is
-/// therefore the one required member; a call naming no pattern would be asking for the whole vault,
-/// which a caller should spell out as a pattern instead.
+/// therefore the one required member.
 /// </summary>
 /// <param name="Pattern">The glob pattern to match.</param>
 /// <param name="Vault">The vault to search, or null for the configured default.</param>
@@ -24,8 +23,7 @@ public sealed record GlobArguments(
 }
 
 /// <summary>
-/// Finds notes by name and path. This is the only search over names and paths, and the step that
-/// turns a name into the path every other tool takes.
+/// Finds notes by name and path. This is the only search over names and paths.
 /// </summary>
 /// <remarks>
 /// It enumerates notes rather than every file in the vault, because its subject is a note. Searching

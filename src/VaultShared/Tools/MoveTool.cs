@@ -17,8 +17,8 @@ namespace VaultShared.Tools;
 /// returns, so a move chains straight into an edit. Absent for a folder move, which leaves no single
 /// note to describe.</param>
 /// <param name="CaseOnly">Whether the two paths name one entry under different spellings. Git does
-/// not see such a change under the platform's default case handling, and this build performs no
-/// repository operations, so it is reported for something else to stage.</param>
+/// not see such a change under its default case handling, and nothing here performs repository
+/// operations, so it is reported for something else to stage.</param>
 /// <param name="Moved">Every note whose path this move changes, and where it lands. One entry for a
 /// note; for a folder, every note the folder carries. The folder's other content moves with it under
 /// names that do not change.</param>
@@ -53,7 +53,7 @@ public sealed record MoveResult(
 /// </summary>
 /// <remarks>
 /// <para>
-/// Do not reorder the repair and the move: the link repair runs first. The plan names every note by
+/// Do not reorder the repair and the move. The link repair runs first. The plan names every note by
 /// the path it has now, so applying the repair after the move would address notes that are no longer
 /// where the plan found them. Neither order survives an interruption cleanly, since links naming a
 /// destination that does not exist yet and links naming a source that no longer does are equally
@@ -61,7 +61,7 @@ public sealed record MoveResult(
 /// </para>
 /// <para>
 /// A folder move is a single directory rename. The names inside it do not change, so the repair is
-/// one prefix substitution, and the folder note is the only thing renamed: it takes the new folder's
+/// one prefix substitution, and the folder note is the only thing renamed. It takes the new folder's
 /// name, and a folder that has no folder note does not get one created.
 /// </para>
 /// <para>
@@ -133,8 +133,7 @@ public sealed class MoveTool : ITool
         // This does not replace the check inside the move. The move is still what decides, because
         // another writer can occupy the destination between this call and the move. Reading it here
         // narrows that window and keeps the work in between off a doomed move; reading it again in
-        // the move is what makes the answer true at the moment the entry is relocated. Neither one
-        // is redundant.
+        // the move is what makes the answer true at the moment the entry is relocated.
         //
         // The operand's own absence is answered before anything about the destination. Both can be
         // true of one call, and a caller whose source is not there has to fix that first; an answer
@@ -165,7 +164,7 @@ public sealed class MoveTool : ITool
 
         var asserted = MutationSupport.AssertArtifactAuthority(vault, Requirements(vault.Vault.Policy, kind, source.Path, destination.Path, plan));
 
-        // The bytes a note carries afterwards are known before the move: a move relocates them rather
+        // The bytes a note carries afterwards are known before the move. A move relocates them rather
         // than replacing them, and where the repair pass rewrites the moved note itself, the plan
         // already holds the text it will write. Computing it here, once, is what makes a preview's
         // hash and the applied call's hash the same value.
@@ -409,7 +408,7 @@ public sealed class MoveTool : ITool
     /// <exception cref="ToolRefusal">The note is not there, or could not be read.</exception>
     /// <remarks>
     /// This is what establishes that a note move has an operand at all, on a preview as on a real
-    /// call: a preview that predicted a move of nothing would predict something its own applied call
+    /// call. A preview that predicted a move of nothing would predict something its own applied call
     /// cannot do. It is a read rather than a presence probe because the two failures are different
     /// answers to the caller - one has nothing to move, the other has something it cannot get at -
     /// and only reading tells them apart.

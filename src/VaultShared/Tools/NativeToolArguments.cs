@@ -70,9 +70,8 @@ public static class NativeToolArguments
     /// literal in each tool.
     /// </summary>
     /// <remarks>
-    /// <c>additionalProperties</c> is false here for the same reason the exporter states it on every
-    /// object it derives: the binder refuses a member no argument record declares, and a tool taking
-    /// no arguments declares none at all, so any member sent to one is refused.
+    /// <c>additionalProperties</c> is false here because the binder refuses a member no argument
+    /// record declares, and a tool taking no arguments declares none at all.
     /// </remarks>
     public static readonly JsonElement None = JsonSerializer.SerializeToElement(new Dictionary<string, object>
     {

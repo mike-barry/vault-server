@@ -4,7 +4,7 @@ using VaultShared.Frontmatter;
 
 namespace VaultShared.Tools;
 
-/// <summary>Selects which part of a note a read returns. These three are the whole set: there is no
+/// <summary>Selects which part of a note a read returns. These three are the whole set. There is no
 /// line range and no section addressing.</summary>
 public enum ReadPart
 {

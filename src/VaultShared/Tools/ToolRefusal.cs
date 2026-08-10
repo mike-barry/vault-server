@@ -6,8 +6,8 @@ namespace VaultShared.Tools;
 /// </summary>
 /// <remarks>
 /// A refusal is thrown rather than returned so that it travels intact through frames that did not
-/// expect it; returning one would make surfacing it correctly a convention every caller has to keep.
-/// A tool catches nothing it did not raise, and no layer reshapes a refusal on the way past.
+/// expect it. A tool catches nothing it did not raise, and no layer reshapes a refusal on the way
+/// past.
 /// <see cref="ToolCodes"/> states the three rules <see cref="Data"/> obeys.
 /// </remarks>
 /// <param name="code">The stable code from <see cref="ToolCodes"/>.</param>

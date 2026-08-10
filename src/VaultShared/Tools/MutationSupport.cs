@@ -6,8 +6,7 @@ namespace VaultShared.Tools;
 /// <summary>
 /// Provides the pieces shared by the mutating tools that do not route through the frontmatter write
 /// path: the artifact-level authority assertion, the partial-failure refusal, the name-grammar
-/// refusal, and the empty vocabulary a write that interprets no frontmatter runs against. Each is
-/// one rule for the whole tool set, and a copy per tool would drift.
+/// refusal, and the empty vocabulary a write that interprets no frontmatter runs against.
 /// </summary>
 internal static class MutationSupport
 {
@@ -36,8 +35,8 @@ internal static class MutationSupport
     /// <exception cref="ToolRefusal">The grant holds none of a required class.</exception>
     /// <remarks>
     /// The delete and move tools do not route through the frontmatter write path, so each calls this
-    /// during its own validation, before anything is mutated. Requirements union across the set: no
-    /// target can clear a class another target contributed.
+    /// during its own validation, before anything is mutated. Requirements union across the set, so
+    /// no target can clear a class another target contributed.
     ///
     /// The refusal names the paths in the caller's own target set that carry the class that was
     /// denied. A caller told only that something inside a folder needed authority it lacks cannot
@@ -88,7 +87,7 @@ internal static class MutationSupport
     /// caller's route out of that state.
     ///
     /// Recovery steps must be non-destructive and in order. Never tell a caller to remove something
-    /// to make room: neither a move nor a delete ever leaves content in two places, because a move
+    /// to make room. Neither a move nor a delete ever leaves content in two places, because a move
     /// relocates bytes rather than copying them and a delete only unlinks.
     /// </remarks>
     public static ToolRefusal Partial(
@@ -104,8 +103,7 @@ internal static class MutationSupport
     /// <param name="name">The segment the caller sent.</param>
     /// <returns>The refusal. Where a conforming spelling can be derived from the caller's text, the
     /// payload carries exactly one, so the miss costs one retry rather than a reading of the
-    /// grammar. Offering more than one would make the choice this code's rather than the caller's,
-    /// and none is offered where the text carries no conforming characters at all.</returns>
+    /// grammar. None is offered where the text carries no conforming characters at all.</returns>
     public static ToolRefusal InvalidName(string name)
     {
         const string Grammar =

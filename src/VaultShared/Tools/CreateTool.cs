@@ -43,7 +43,7 @@ public sealed record CreateResult(
 /// An occupied target is refused rather than overwritten or merged, with its own code. A note
 /// creation reads the target first, so a call that would refuse does not rewrite other notes'
 /// wikilinks on the way to finding out, but the answer that counts is the filesystem's own to an
-/// atomic create: nothing this tool reads beforehand can rule out something else creating the file
+/// atomic create. Nothing this tool reads beforehand can rule out something else creating the file
 /// in between, and only the atomic create refuses at the moment the bytes would land.
 /// </para>
 /// <para>
@@ -72,8 +72,9 @@ public sealed class CreateTool(FrontmatterRegistries registries) : ITool
     /// caller said it was doing.
     /// </summary>
     /// <remarks>
-    /// The wikilink pass a duplicate basename triggers contributes that same base class: it replaces
-    /// the target inside links that already exist and reads no key. It is not scope-checked, which
+    /// The wikilink pass a duplicate basename triggers contributes that same base class, because it
+    /// replaces the target inside links that already exist and reads no key. It is not
+    /// scope-checked, which
     /// <see cref="VaultAccess.BypassingScope"/> makes explicit at the call site rather than through
     /// an op class of its own.
     /// </remarks>
@@ -153,9 +154,7 @@ public sealed class CreateTool(FrontmatterRegistries registries) : ITool
         // This does not replace the check inside the write. The write is still what decides
         // occupancy, because another writer can take the target between this call and the write.
         // Reading it here narrows that window and keeps the pass off a doomed creation; reading it
-        // again in the write is what makes the answer true at the moment the bytes land. Neither one
-        // is redundant. A write can still fail for a reason no plan phase can decide, and that
-        // failure arrives after the pass as before.
+        // again in the write is what makes the answer true at the moment the bytes land.
         if (VaultFiles.PreflightCreate(target) is { } refusing)
             throw Refused(arguments.Path, refusing);
 
@@ -172,7 +171,7 @@ public sealed class CreateTool(FrontmatterRegistries registries) : ITool
 
         // Apply.
 
-        // Do not reorder: pinning must run before the note is written. Interrupted after pinning, the
+        // Do not reorder. Pinning must run before the note is written. Interrupted after pinning, the
         // vault holds links naming a target that is still correct. Interrupted after writing, it
         // holds bare links that have silently changed meaning.
         if (plan is not null && !plan.IsEmpty && WikilinkMaintenance.Apply(pass, plan) is LinkApplyOutcome.Failed stopped)
@@ -232,8 +231,7 @@ public sealed class CreateTool(FrontmatterRegistries registries) : ITool
                 throw new InvalidOperationException($"Unhandled write outcome {other.GetType().Name}.");
         }
 
-        // An existing placeholder is already the state the caller asked for, so it is not a failure:
-        // the folder exists and holds the file that makes it survive a repository round trip.
+        // An existing placeholder is already the state the caller asked for, so it is not a failure.
         if (arguments.GitKeep && VaultFiles.CreateGitKeep(target) is WriteOutcome.Failed seeding)
             throw Failed($"{arguments.Path}/{VaultFiles.GitKeepName}", seeding);
 

@@ -10,9 +10,9 @@ namespace VaultShared.Tools;
 /// Nothing else acquires this lock - not the tools, not the access layer's write primitives - so a
 /// write primitive called outside a tool runs with no lock held. The lock name comes from
 /// <see cref="Vault.LockName"/>. That derivation is a cross-process contract shared with
-/// <c>VaultWatcher</c>: changing it stops the two processes contending for the same mutex, silently.
-/// The hold is synchronous and stays on one thread, because a
-/// <see cref="Mutex"/> is thread-affine and the hold must not cross an await.
+/// <c>VaultWatcher</c>. Changing it stops the two processes contending for the same mutex, silently.
+/// The hold is synchronous and stays on one thread, because a <see cref="Mutex"/> is thread-affine
+/// and the hold must not cross an await.
 /// </remarks>
 public static class VaultWriteLock
 {
@@ -53,7 +53,7 @@ public static class VaultWriteLock
     /// <exception cref="ToolRefusal">The lock was not acquired before the timeout elapsed.</exception>
     /// <remarks>
     /// An acquire that inherits the lock from an owner that died without releasing it proceeds. That
-    /// signal is a fact about the dead process, not about this call: there is no journal to replay
+    /// signal is a fact about the dead process, not about this call. There is no journal to replay
     /// and no state to repair, so refusing would leave the vault permanently unwritable. The message
     /// goes to <paramref name="onInherited"/> and the invocation continues.
     ///

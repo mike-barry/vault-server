@@ -15,7 +15,7 @@ namespace VaultShared.Tools;
 /// entry under the folder it was given.</param>
 /// <param name="Backlinks">
 /// Every surviving wikilink into the removed set, one entry per occurrence, because a caller fixing
-/// them visits each one. Never null: the census always runs, so an empty list means it found nothing
+/// them visits each one. Never null. The census always runs, so an empty list means it found nothing
 /// rather than that it did not run.
 /// </param>
 /// <param name="AssertedAuthority">The op classes the outcome required beyond the tool's floor, empty
@@ -42,14 +42,12 @@ public sealed record DeleteResult(
 /// <para>
 /// Three guards apply, and none can be overridden. A <c>.git</c> directory anywhere in the set
 /// refuses the whole removal. A folder holding anything is not removed by a call that did not ask to
-/// recurse. And the whole plan is validated before anything is removed. No spelling of the call
-/// proceeds past a refusal.
+/// recurse. And the whole plan is validated before anything is removed.
 /// </para>
 /// <para>
 /// A removal reports orphaned wikilinks and never repairs them. Deleting one of two same-named notes
 /// leaves bare wikilinks resolving to the survivor; each is reported and none is rewritten, because
-/// what the caller intends for them cannot be known here. This is deliberately the opposite of what
-/// creation does when it pins links.
+/// what the caller intends for them cannot be known here.
 /// </para>
 /// <para>
 /// The result makes no claim about what can be restored. Whether a removed file can be brought back
@@ -62,7 +60,7 @@ public sealed class DeleteTool : ITool
     public const string ToolName = "delete";
 
     /// <summary>
-    /// The tool's declaration. The floor is the base write class: a removal is authorized as a
+    /// The tool's declaration. The floor is the base write class. A removal is authorized as a
     /// mutation like any other and takes no destructive op class of its own. What it requires beyond
     /// the floor is whatever the vault's path policy declares about the targets in its set.
     /// </summary>
@@ -139,13 +137,11 @@ public sealed class DeleteTool : ITool
     /// <remarks>
     /// A note's plan is the note itself. A folder's plan comes from the file census, filtered to what
     /// lies under it by whole-path prefix. Do not pass the folder's name to the search engine as a
-    /// glob instead: a name already on disk is not held to the name grammar, so it can carry a
+    /// glob instead. A name already on disk is not held to the name grammar, so it can carry a
     /// character the glob syntax reads.
     ///
     /// The census cannot see a folder that holds no file at any depth. Such a folder is absent from
-    /// the plan, and its parent's removal then meets it and refuses, which is loud rather than
-    /// silent. The alternative would be a directory walk the access layer deliberately does not
-    /// offer.
+    /// the plan, and its parent's removal then meets it and refuses.
     /// </remarks>
     private static DestructionPlan Plan(VaultAccess vault, DeleteArguments arguments, WritePath target)
     {
@@ -166,12 +162,12 @@ public sealed class DeleteTool : ITool
             return new DestructionPlan([target.Path], []);
         }
 
-        // A folder operand is established the same way and for the same reason, and nothing else in
-        // this tool does it: path admission checks the grammar, dot segments and scope without
-        // reading the filesystem, and the census below cannot see a folder that holds no file. A
-        // folder that is not there would otherwise preview as a clean, empty, removable folder and
-        // then refuse when the caller sent the applied call. An extensionless file at the path is
-        // not a folder and gets the same refusal.
+        // A folder operand's existence is established here and nowhere else in this tool. Path
+        // admission checks the grammar, dot segments and scope without reading the filesystem, and
+        // the census below cannot see a folder that holds no file. A folder that is not there would
+        // otherwise preview as a clean, empty, removable folder and then refuse when the caller sent
+        // the applied call. An extensionless file at the path is not a folder and gets the same
+        // refusal.
         if (!VaultFiles.FolderExists(target))
             throw new ToolRefusal(
                 ToolCodes.PathNotFound,

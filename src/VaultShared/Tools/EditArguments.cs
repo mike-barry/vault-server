@@ -51,7 +51,7 @@ public sealed record EditArguments(
     /// <returns>The first fault found, or null.</returns>
     /// <remarks>
     /// The staleness guard's shape rule lives here rather than in the tool because it is a statement
-    /// about the request alone: a wholesale replacement overwrites text the caller never saw and has
+    /// about the request alone. A wholesale replacement overwrites text the caller never saw and has
     /// nothing to verify itself against, so it must carry the hash. Every other edit may carry one,
     /// and it then guards whatever that edit does - a stale note refuses instead of applying.
     /// Comparing the hash against the file needs the note and happens in the tool.
@@ -62,8 +62,7 @@ public sealed record EditArguments(
             return missing;
 
         // An edit naming neither an operation nor a body change is a read spelled as a mutation: it
-        // would take the write lock, assert nothing, and return a hash. Refuse it, following the rule
-        // that an argument surface which cannot change an outcome is refused rather than ignored.
+        // would take the write lock, assert nothing, and return a hash.
         if (Ordered.Count == 0 && Body is null)
             return new ArgumentFault("operations", "An edit carries at least one operation or a body change.");
 
@@ -133,7 +132,7 @@ public sealed record BodyChange(
 
 /// <summary>
 /// Represents one frontmatter operation on the wire. These four are the only operations, and this is
-/// the only shape they arrive in. An entry's variant is never an <see cref="Op"/>: the payload states
+/// the only shape they arrive in. An entry's variant is never an <see cref="Op"/>. The payload states
 /// its own variant, and the variants come from the vault's declaration rather than from a fixed set
 /// of operation names.
 /// </summary>

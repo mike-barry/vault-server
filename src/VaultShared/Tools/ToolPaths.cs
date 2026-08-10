@@ -19,9 +19,9 @@ public static class ToolPaths
 
     /// <summary>
     /// Admits a note operand for reading. The extension rule is checked before resolution because it
-    /// is decidable from the caller's own text: a caller who wrote a folder-shaped name gets the
-    /// spelling that would have worked, at the cost of one retry, rather than a scope answer about a
-    /// path they never meant to name.
+    /// is decidable from the caller's own text. A caller who wrote a folder-shaped name gets the
+    /// spelling that would have worked rather than a scope answer about a path they never meant to
+    /// name.
     /// </summary>
     /// <param name="vault">The per-call access object.</param>
     /// <param name="path">The vault-relative path the caller named.</param>
@@ -57,7 +57,7 @@ public static class ToolPaths
     }
 
     /// <summary>
-    /// Admits a folder operand for writing. Nothing beyond the operand rule is checked here: a
+    /// Admits a folder operand for writing. Nothing beyond the operand rule is checked here. A
     /// folder already on disk is not held to the name grammar, which applies only to a segment a
     /// call brings into existence.
     /// </summary>
@@ -93,12 +93,12 @@ public static class ToolPaths
     /// <exception cref="ToolRefusal">The assertion disagrees with the spelling.</exception>
     /// <remarks>
     /// The extension tells the two kinds apart - a note ends in <c>.md</c> and a folder does not - so
-    /// what the caller wrote already says which one it named. The extension is still never added: an
+    /// what the caller wrote already says which one it named. The extension is still never added. An
     /// extensionless path is not read as a note, and a call asserting a note over one is refused,
     /// naming the spelling that would have worked.
     ///
-    /// A kind assertion therefore only checks the caller's intent and resolves nothing. Its value is
-    /// that a caller who believes it is acting on one note fails before acting on a folder of fifty.
+    /// A kind assertion checks the caller's intent and resolves nothing. A caller who believes it is
+    /// acting on one note fails before acting on a folder of fifty.
     /// </remarks>
     public static OperandKind KindOf(string path, OperandKind? asserted = null)
     {
@@ -119,8 +119,8 @@ public static class ToolPaths
     }
 
     /// <summary>
-    /// Requires that a folder operand carry no markdown extension. Checked before resolution for the
-    /// same reason the note rule is: it is decidable from the caller's own text alone.
+    /// Requires that a folder operand carry no markdown extension. Checked before resolution,
+    /// because it is decidable from the caller's own text alone.
     /// </summary>
     /// <param name="path">The vault-relative path the caller named.</param>
     /// <exception cref="ToolRefusal">The path names a note.</exception>

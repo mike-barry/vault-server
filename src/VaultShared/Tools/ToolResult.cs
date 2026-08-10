@@ -14,7 +14,7 @@ public abstract record ToolResult
 
     /// <summary>
     /// Represents a textual result: note text, search hits, a path list. Returned in the plain shape
-    /// an agent already consumes, because structure here costs tokens and buys nothing.
+    /// an agent already consumes, because structure here costs tokens.
     /// </summary>
     /// <param name="Text">The result text.</param>
     public sealed record Content(string Text) : ToolResult;

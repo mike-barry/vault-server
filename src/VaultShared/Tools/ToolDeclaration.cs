@@ -77,7 +77,7 @@ public sealed record ClientSession(string PrincipalKey);
 
 /// <summary>
 /// Carries everything the shared execute path hands a tool. It holds no transport and nothing
-/// ambient: a tool reads authority only from what it was given. There is deliberately no scope
+/// ambient, so a tool reads authority only from what it was given. There is deliberately no scope
 /// member, because a caller-supplied scope would amount to a forged grant.
 /// </summary>
 /// <param name="Arguments">The bound argument record, already validated.</param>
@@ -115,8 +115,7 @@ public sealed record ToolCall(IToolArguments Arguments, VaultAccess? Vault, Gran
 /// <remarks>
 /// The surface is synchronous, and must stay that way. A <see cref="System.Threading.Mutex"/> is
 /// thread-affine, so a mutating invocation has to run to completion on the thread that acquired the
-/// lock, and the hold must not cross an await. Making only the non-mutating tools asynchronous would
-/// reintroduce two kinds of tool where the declaration gives one.
+/// lock, and the hold must not cross an await.
 /// </remarks>
 public interface ITool
 {

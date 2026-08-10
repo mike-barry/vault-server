@@ -44,11 +44,6 @@ public sealed class ToolRegistry
         /// <param name="vaultName">The vault a vocabulary-derived schema is rendered for.</param>
         /// <returns>The tool's own rendering where it implements <see cref="IVocabularySchema"/>,
         /// otherwise the schema derived from the argument record the declaration names.</returns>
-        /// <remarks>
-        /// Both front-ends call this rather than reaching for a tool by name, so neither carries a
-        /// per-tool branch, and a tool whose schema gains a vocabulary only has to implement
-        /// <see cref="IVocabularySchema"/>.
-        /// </remarks>
         public JsonElement AdvertisedSchema(string vaultName) =>
             Tool is IVocabularySchema vocabulary
                 ? vocabulary.AdvertisedSchema(vaultName)
@@ -56,8 +51,7 @@ public sealed class ToolRegistry
     }
 
     /// <summary>Every registration, in registration order, which is the order a front-end lists them
-    /// in. Each pairs the declaration, for the name, description and argument record, with the
-    /// instance, for a schema the tool renders itself.</summary>
+    /// in.</summary>
     public IReadOnlyList<Registration> Registrations => _registrations;
 
     /// <summary>Registers a tool under its declared name.</summary>

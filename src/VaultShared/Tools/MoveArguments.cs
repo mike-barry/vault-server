@@ -9,8 +9,8 @@ namespace VaultShared.Tools;
 /// </summary>
 /// <remarks>
 /// The kind is optional here, unlike on create and delete, because both kinds take the same arguments
-/// and the assertion cannot decide which ones apply. It survives as a fail-fast for a caller that
-/// believes it is renaming one note and would otherwise relocate a folder of fifty.
+/// and the assertion cannot decide which ones apply. It is a fail-fast for a caller that believes it
+/// is renaming one note and would otherwise relocate a folder of fifty.
 /// </remarks>
 /// <param name="Path">The vault-relative path of the note or folder to relocate.</param>
 /// <param name="Destination">The vault-relative path to move it to, of the same kind.</param>

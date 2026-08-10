@@ -12,8 +12,8 @@ namespace VaultShared.Tools;
 /// ignored.
 ///
 /// <see cref="Recursive"/> says which operation the caller wants; it does not suppress a check. There
-/// is deliberately no force, purge or skip argument. A guard the same call can waive stops nobody,
-/// because a caller that hits the refusal just resends with the waiver attached.
+/// is deliberately no force, purge or skip argument, because a guard the same call can waive stops
+/// nobody.
 /// </remarks>
 /// <param name="Path">The vault-relative path to remove.</param>
 /// <param name="Kind">Which kind the path names. Required.</param>

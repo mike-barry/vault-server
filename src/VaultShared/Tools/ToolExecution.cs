@@ -165,9 +165,7 @@ public sealed class ToolExecution(VaultConfig vaultConfig, SearchEngine? engine 
     }
 
     /// <summary>
-    /// Resolves the call's vault and checks that the grant reaches it. Routing is decided before
-    /// authority: a call naming a vault nobody configured is told so, rather than being refused for
-    /// a scope that could never have admitted it.
+    /// Resolves the call's vault and checks that the grant reaches it.
     /// </summary>
     /// <param name="declaration">The tool's declaration, whose name appears in the refusal
     /// payload.</param>
@@ -193,9 +191,8 @@ public sealed class ToolExecution(VaultConfig vaultConfig, SearchEngine? engine 
         };
 
         // data carries only the call's own coordinates: the tool, and the vault the call effectively
-        // targeted, which the caller may have left to the default and so is the one value here it
-        // may not already know. Keep the grant's vault set, op classes and id out of it, so that a
-        // denial cannot be used to enumerate authority the caller does not hold.
+        // targeted. Keep the grant's vault set, op classes and id out of it, so that a denial cannot
+        // be used to enumerate authority the caller does not hold.
         if (!grant.CanAccessVault(vault.Name))
             throw new ToolRefusal(
                 ToolCodes.OutOfScope,

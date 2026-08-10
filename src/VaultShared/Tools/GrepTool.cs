@@ -51,10 +51,9 @@ public sealed record GrepArguments(
 /// This is the only content search.
 /// </summary>
 /// <remarks>
-/// Like <see cref="GlobTool"/>, it searches notes only and treats any number of matches as a result.
-/// The caller names no path: <c>path_glob</c> narrows which notes are searched and its results are
-/// filtered against the read scope, so a note the caller may not reach is simply absent from the
-/// answer rather than refused.
+/// It searches notes only and treats any number of matches as a result. The caller names no path.
+/// <c>path_glob</c> narrows which notes are searched and its results are filtered against the read
+/// scope, so a note the caller may not reach is simply absent from the answer rather than refused.
 /// </remarks>
 public sealed class GrepTool : ITool
 {
