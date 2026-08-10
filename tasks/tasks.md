@@ -6,8 +6,6 @@ NEXT_TASK_ID: 015
 
 ## Active
 
-- [/] [task-012](task-012-cut-over-to-vault-server.md) — Layer this build's history onto the canonical `vault-server` repository
-
 ## Backlog
 
 - [ ] [task-004](task-004-logging-standard.md) — Standardize logging on two records, written as content-free JSON lines to rotated, retained files
