@@ -55,9 +55,9 @@ public sealed class GrantStore
 
     /// <summary>
     /// Grants minted at runtime by <see cref="Mint"/>, held separately from the file-loaded rows and
-    /// never written back to grants.json. The collection is thread-safe and append-only: nothing
-    /// sweeps expired entries, and <see cref="FindMatch"/> simply treats one past its TTL as a
-    /// non-match, the same as an unknown token. They are gone on process restart.
+    /// never written back to grants.json. The collection is thread-safe and append-only. Nothing
+    /// sweeps expired entries, and <see cref="FindMatch"/> treats one past its TTL as a non-match,
+    /// the same as an unknown token. They are gone on process restart.
     /// </summary>
     private readonly ConcurrentBag<(byte[] Hash, Grant Grant)> _mintedRows = new();
 
@@ -260,7 +260,7 @@ public sealed class GrantStore
     /// <param name="expiresAt">When the grant and the binding lapse.</param>
     /// <returns>The new grant.</returns>
     /// <remarks>
-    /// Unlike <see cref="Mint"/>, this issues no new bearer token: the caller's existing token
+    /// Unlike <see cref="Mint"/>, this issues no new bearer token. The caller's existing token
     /// resolves to the new authority for the binding's life and then reverts. The grant is not a
     /// valid target for a later named-grant elevation request. As with <see cref="Mint"/>, the op
     /// classes, vaults and scope roots are treated as already-validated concrete sets.
@@ -289,8 +289,8 @@ public sealed class GrantStore
 
         if (now >= binding.ExpiresAt)
         {
-            // Revert the pointer: drop the entry so later requests fall through to the token's own
-            // grant, or to the localhost floor.
+            // Drop the entry so later requests fall through to the token's own grant, or to the
+            // localhost floor.
             _bindings.TryRemove(key, out _);
             return null;
         }

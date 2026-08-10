@@ -11,7 +11,7 @@ namespace VaultShared.Links;
 /// <remarks>
 /// All three share one grammar, one matching rule and one ranking comparator
 /// (<see cref="Wikilink"/>, <see cref="WikilinkTarget"/>, <see cref="WikilinkRanking"/>). Keep them
-/// shared: a link one consumer recognizes and another does not is a rewrite that misses a link or a
+/// shared. A link one consumer recognizes and another does not is a rewrite that misses a link or a
 /// census that under-reports, and both fail silently. All three reach the matching rule through
 /// <see cref="WikilinkUniverse"/>, which is what decides the note a target opens; only the census
 /// also reads <see cref="WikilinkTarget"/> directly, for the targets that name a file the universe
@@ -27,8 +27,7 @@ namespace VaultShared.Links;
 /// tool and is not this.
 ///
 /// Nothing here asserts authority. The consumer asserts the wikilink dimension; the notes rewritten
-/// here contribute none of their own, because a rewrite is maintenance rather than authoring and
-/// the substitution reads no key.
+/// here contribute none of their own, because the substitution reads no key.
 ///
 /// Nothing here parses a note. A rewrite is written over the target's extent in the text as read,
 /// so every byte outside a replaced target survives and a note whose frontmatter will not parse is
@@ -48,8 +47,7 @@ public static class WikilinkMaintenance
     /// does not open with it.
     ///
     /// Where the move would change what some other bare link resolves to, that link is rewritten to
-    /// name the target it has now and planning continues. Ambiguity never fails the pass, because a
-    /// failure part-way through a hundred-note pass is worse than a pinned link.
+    /// name the target it has now and planning continues. Ambiguity never fails the pass.
     /// </remarks>
     /// <param name="pass">The vault-wide pass to enumerate and read through.</param>
     /// <param name="from">Where the note is now.</param>
@@ -63,7 +61,7 @@ public static class WikilinkMaintenance
     /// </summary>
     /// <remarks>
     /// Contained names do not change, so the map is a single prefix substitution over everything
-    /// under the folder. The folder note is the one exception: it is renamed to match its new
+    /// under the folder. The folder note is the one exception. It is renamed to match its new
     /// folder, and a folder without one does not get one created.
     ///
     /// That rename is derived here because a link's emitted form depends on where each note ends up,
@@ -75,7 +73,7 @@ public static class WikilinkMaintenance
     /// directory rename physically carries an attachment under the folder and an embed naming that
     /// attachment names the old path afterwards. One substitution answers both, so nothing has to
     /// decide twice whether a target names something the move carried. What the substitution produces
-    /// for a non-note file stays inside this pass: those files are repaired against, and are not part
+    /// for a non-note file stays inside this pass. Those files are repaired against, and are not part
     /// of the relocation map the tool is given, which is the set of notes whose paths change.
     ///
     /// The non-note files elsewhere in the vault are read as well, and not only the carried ones.
@@ -111,11 +109,11 @@ public static class WikilinkMaintenance
     /// whose meaning has silently changed.
     ///
     /// Only a basename already in use triggers the pass. Where the name is unique the result is
-    /// <see cref="LinkPassOutcome{TResult}.NotNeeded"/>: no pass ran, and no wikilink authority is
+    /// <see cref="LinkPassOutcome{TResult}.NotNeeded"/>, so no pass runs and no wikilink authority is
     /// required.
     ///
     /// Every link whose resolution the new note would change is rewritten to the qualified form
-    /// naming the target it resolves to now. A path-qualified link is not exempt: a target need not
+    /// naming the target it resolves to now. A path-qualified link is not exempt. A target need not
     /// spell a note's whole path to name it, so a note created at exactly the path a target spells
     /// takes that link from the note it used to open. Every other link is left alone, and no link is
     /// ever aimed at the new note.
@@ -176,7 +174,7 @@ public static class WikilinkMaintenance
     /// Removing one of two same-named notes does re-aim bare links onto the survivor, but they are
     /// still deliberately not pinned, because what the caller wants for them is not knowable here.
     ///
-    /// A link that opens a note is reported when that note is in the set, and not otherwise: a note
+    /// A link that opens a note is reported when that note is in the set, and not otherwise. A note
     /// the target also names but does not open is not that link's target. A link that opens no note
     /// is matched against the set directly, which is how a link to a file that is not a note is
     /// reported. Links inside the removed set are not reported. Each surviving occurrence is
@@ -251,8 +249,9 @@ public static class WikilinkMaintenance
     /// moves anything and a creation before it writes the new note. Applying after the mutation
     /// would address notes that are no longer where the plan found them.
     ///
-    /// A failure stops the pass and names what landed and what did not. Nothing is rolled back: the
-    /// mutex lock means no other tool interleaved, not that the writes already made are undone.
+    /// A failure stops the pass and names what landed and what did not. Nothing is rolled back.
+    /// Holding the mutex lock means no other tool interleaved, not that the writes already made are
+    /// undone.
     /// </remarks>
     /// <param name="pass">The vault-wide pass to write through.</param>
     /// <param name="plan">The plan to write.</param>
@@ -292,7 +291,7 @@ public static class WikilinkMaintenance
     /// and is repaired.
     ///
     /// A note relocation is given no files. Its emitted form is decided by the notes sharing the
-    /// moved note's basename, and a non-note file never shares one: a target with no extension names
+    /// moved note's basename, and a non-note file never shares one. A target with no extension names
     /// only a note, and one carrying an extension never matches a name without it. Enumerating the
     /// file surface for a note move would cost a second walk of the vault and change no answer.
     /// </remarks>
@@ -376,8 +375,7 @@ public static class WikilinkMaintenance
     /// <remarks>
     /// The notes and the other files are substituted by the one rule and separated only by where
     /// each is reported. A directory rename carries both, so a target naming either of them names
-    /// the old path afterwards, and answering that question twice is how two answers come to
-    /// disagree.
+    /// the old path afterwards.
     ///
     /// The file list is the whole vault's, so most of it is outside the folder and produces no pair.
     /// </remarks>
@@ -586,7 +584,7 @@ public static class WikilinkMaintenance
     /// <param name="Pairs">Each moved note's path before and after. This is what the plan carries out
     /// to the relocating tool.</param>
     /// <param name="Carried">Each moved non-note file's path before and after, empty for a note
-    /// relocation. Repaired against and not reported: the tool moves these by renaming the directory
+    /// relocation. Repaired against and not reported. The tool moves these by renaming the directory
     /// that holds them, and their names do not change.</param>
     /// <param name="FolderNote">Where the folder note lands, or null when there is none.</param>
     private sealed record RelocationMap(
@@ -600,8 +598,8 @@ public static class WikilinkMaintenance
     /// in order.
     /// </summary>
     /// <remarks>
-    /// Counts <c>\n</c> alone, which is correct for both line terminators a note may be stored with:
-    /// the carriage return of a two-character terminator sits before the newline it belongs to and
+    /// Counts <c>\n</c> alone, which is correct for both line terminators a note may be stored with.
+    /// The carriage return of a two-character terminator sits before the newline it belongs to and
     /// starts no line of its own.
     /// </remarks>
     /// <param name="text">The text the offsets index into.</param>

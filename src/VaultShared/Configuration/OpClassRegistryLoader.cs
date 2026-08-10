@@ -13,9 +13,8 @@ public static class OpClassRegistryLoader
     /// <param name="sink">
     /// Receives a <see cref="ProblemSeverity.Fatal"/> problem instead of the loader throwing, for a
     /// missing file, bad JSON, a non-array root, a row missing <c>name</c>, a duplicate name, or an
-    /// empty array. It has no default value on purpose: a defaulted throwaway sink would let a
-    /// production call site compile while silently discarding recorded failures. A test that only
-    /// exercises the success path passes a fresh local instance.
+    /// empty array. It has no default value, because a defaulted throwaway sink would let a
+    /// production call site compile while silently discarding recorded failures.
     /// </param>
     /// <returns>The registry, or <see cref="OpClassRegistry.Empty"/> where the file failed.</returns>
     public static OpClassRegistry Load(string path, IConfigProblemSink sink)

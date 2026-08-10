@@ -43,11 +43,11 @@ public sealed record ElevationDecision(bool Approved, string? Reason)
 /// Reviews elevation rebind requests raised by the <c>request_elevation</c> tool.
 /// </summary>
 /// <remarks>
-/// This interface exists so a real approval provider - an out-of-band prompt showing the scope, the
-/// TTL and the requesting session, so approval is a decision rather than a reflex - can be added
-/// later without changing the rebind mechanism. The shipped implementation is a stub selected by
-/// configuration. It only matters once an environment defaults to minimum access; on a development
-/// machine the default binding is already admin, so elevation is off the daily path.
+/// A real approval provider - an out-of-band prompt showing the scope, the TTL and the requesting
+/// session - can be added without changing the rebind mechanism. The shipped implementation is a
+/// stub selected by configuration. It only matters once an environment defaults to minimum access;
+/// on a development machine the default binding is already admin, so elevation is off the daily
+/// path.
 /// </remarks>
 public interface IElevationApprover
 {

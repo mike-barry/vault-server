@@ -22,9 +22,9 @@ public static class ScopePath
     ///
     /// One leading separator is dropped, so <c>/Projects/Widget.md</c> names the same note as
     /// <c>Projects/Widget.md</c>. Every path here is measured from the vault root already, so a
-    /// leading separator has the one meaning and reinterpreting it silently costs nothing. Two
-    /// leading separators are refused instead: <c>//server/share</c> is a UNC path, and admitting it
-    /// would turn the server's name into an ordinary folder segment.
+    /// leading separator has only the one meaning. Two leading separators are refused instead.
+    /// <c>//server/share</c> is a UNC path, and admitting it would turn the server's name into an
+    /// ordinary folder segment.
     /// </remarks>
     public static string[] Normalize(string path)
     {

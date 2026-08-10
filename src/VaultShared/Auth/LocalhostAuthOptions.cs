@@ -10,7 +10,7 @@ namespace VaultShared.Auth;
 /// degrades to a harmless floor rather than returning 401.
 /// </para>
 /// <para>
-/// There are two things to configure. The first is which token binds to the default grant: with
+/// There are two things to configure. The first is which token binds to the default grant. With
 /// <see cref="ExpectedLocalhostToken"/> unset, the well-known, non-secret
 /// <see cref="SelectorToken"/> selects the default binding; with it set, that value becomes the only
 /// token that selects the default. Setting it is a choice of which token is the selector, not a
@@ -29,8 +29,7 @@ namespace VaultShared.Auth;
 /// </param>
 /// <param name="ExpectedLocalhostToken">
 /// When set, replaces <see cref="SelectorToken"/> as the token that selects the default binding.
-/// When null, the well-known selector applies. It never causes a rejection: a non-matching token
-/// still floors to minimum access.
+/// When null, the well-known selector applies. A non-matching token still floors to minimum access.
 /// </param>
 /// <param name="DefaultGrantId">
 /// The id of the token-less named grant the selector token binds to, such as <c>admin</c> on a

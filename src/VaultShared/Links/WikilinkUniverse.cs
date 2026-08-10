@@ -79,9 +79,7 @@ internal sealed class WikilinkUniverse
     /// Returns how many files a bare target of this text names.
     /// </summary>
     /// <remarks>
-    /// A count of one is what lets a link be emitted in its short form. Emission is canonical, not
-    /// minimal: a unique name is written bare and a duplicated one is written as the full vault
-    /// path.
+    /// A count of one is what lets a link be emitted in its short form.
     /// </remarks>
     /// <param name="name">The bare name to count: a note's name with or without the note extension,
     /// and any other file's name with its own extension.</param>

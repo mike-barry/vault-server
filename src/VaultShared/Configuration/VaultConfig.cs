@@ -36,8 +36,7 @@ public sealed class VaultConfig
     /// </param>
     /// <remarks>
     /// <c>vaults.json</c> is the only enumeration of vaults, so a vault's own facts belong on its
-    /// entry rather than in a second file keyed by vault name. Two such files drift, and a vault
-    /// renamed in one and not the other loses the policy someone believes it has.
+    /// entry rather than in a second file keyed by vault name.
     /// </remarks>
     public sealed record VaultEntry(string Root, PathPolicy PathPolicy, string? FrontmatterRegistry = null);
 
@@ -53,8 +52,8 @@ public sealed class VaultConfig
     /// </summary>
     /// <remarks>
     /// A skipped vault is never resolvable but remains part of the configured set, so a grants.json
-    /// row naming it stays valid: the vault being broken is the vault's problem rather than the
-    /// grant's. It is exposed here so grants validation and diagnostics can consult it.
+    /// row naming it stays valid. It is exposed here so grants validation and diagnostics can
+    /// consult it.
     /// </remarks>
     public IReadOnlyDictionary<string, string> SkippedVaults { get; init; } = NoSkips;
 

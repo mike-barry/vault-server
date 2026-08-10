@@ -14,16 +14,16 @@ public static class VaultConfigLoader
     /// <param name="path">The vaults.json path.</param>
     /// <param name="opClasses">
     /// The loaded op-class configuration, which a vault's path policy validates its
-    /// <c>mutation_requires</c> classes against. It is loaded before this file for the same reason
-    /// grants are loaded after it: a name checked against a file that has not been read yet is a
-    /// check that always passes.
+    /// <c>mutation_requires</c> classes against. It is loaded before this file, and grants after it,
+    /// because a name checked against a file that has not been read yet is a check that always
+    /// passes.
     /// </param>
     /// <param name="sink">
     /// Receives problems instead of the loader throwing. A missing file, bad JSON, a missing or empty
     /// <c>default_vault</c>, or an empty or invalid <c>vaults</c> object is recorded as
     /// <see cref="ProblemSeverity.Fatal"/>. A configured vault whose root directory does not exist is
     /// recorded as <see cref="ProblemSeverity.Degraded"/> and skipped, which does not fail the file;
-    /// see <see cref="VaultConfig.SkippedVaults"/>. It has no default value on purpose: a defaulted
+    /// see <see cref="VaultConfig.SkippedVaults"/>. It has no default value, because a defaulted
     /// throwaway sink would let a production call site compile while silently discarding recorded
     /// failures.
     /// </param>
@@ -85,9 +85,9 @@ public static class VaultConfigLoader
             var resolvable = Directory.Exists(fullRoot);
             if (!resolvable)
             {
-                // Skip this entry rather than failing the file: the vault is left out of the
-                // resolvable set, so operations targeting it fail as unavailable, while every other
-                // vault keeps working. It is still a configured vault; see SkippedVaults.
+                // The vault is left out of the resolvable set, so operations targeting it fail as
+                // unavailable while every other vault keeps working. It is still a configured
+                // vault; see SkippedVaults.
                 var reason = $"root directory does not exist: {fullRoot}";
                 skipped[entry.Name] = reason;
                 sink.RecordDegraded("VaultConfig", $"{path}: vault \"{entry.Name}\" skipped - {reason}.");

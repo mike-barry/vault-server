@@ -95,9 +95,9 @@ public static class GrantFileLoader
         foreach (var entry in doc.RootElement.EnumerateObject())
         {
             totalEntries++;
-            // Skip and report at row level: any InvalidDataException from this row's validation
-            // records a Degraded problem and moves on to the next row. Only the structural checks
-            // above the loop are whole-file failures.
+            // Any InvalidDataException from this row's validation records a Degraded problem and
+            // moves on to the next row. Only the structural checks above the loop are whole-file
+            // failures.
             try
             {
                 var grant = LoadRow(entry, path, opClassRegistry, vaultConfig, seenIds, now);
@@ -294,8 +294,8 @@ public static class GrantFileLoader
     /// </para>
     /// <para>
     /// A vault's value of exactly <c>["*"]</c> means that vault is unscoped. An empty list is an
-    /// error rather than a second spelling of it: the broadest scope must not be the value a mistake
-    /// produces.
+    /// error rather than a second spelling of it, because the broadest scope must not be the value a
+    /// mistake produces.
     /// </para>
     /// <para>
     /// The whole-grant wildcard <c>{ "*": ["*"] }</c> means every vault in
@@ -355,10 +355,9 @@ public static class GrantFileLoader
             }
 
             // Reject an empty list rather than reading it as whole-vault access. It is the value a
-            // dropped entry, a list filtered to nothing, or a half-finished edit produces, so
-            // reading it as the broadest possible scope would make the widest grant what an accident
-            // defaults to. Whole-vault access is ["*"] and nothing else, so it cannot be arrived at
-            // by losing something.
+            // dropped entry, a list filtered to nothing, or a half-finished edit produces.
+            // Whole-vault access is ["*"] and nothing else, so it cannot be arrived at by losing
+            // something.
             if (raw.Count == 0)
                 throw new InvalidDataException($"{path}: grant \"{id}\" has an empty \"scopeRoots\" list for vault \"{vaultName}\" - write [\"*\"] for whole-vault access, which is the only spelling of it.");
 

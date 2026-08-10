@@ -15,16 +15,15 @@ public static class PathPolicyParser
     /// <param name="vaultName">The vault's name, quoted in messages.</param>
     /// <param name="vaultRoot">
     /// The vault's resolved root, used to check whether a declared target exists. A target absent
-    /// from disk is recorded Degraded and kept: it is this vault's claim about its own layout, worth
-    /// saying once, and a root matching nothing widens nothing. An unresolvable vault is skipped
-    /// before this runs, so there is no case here for a root that does not exist.
+    /// from disk is recorded Degraded and kept, because a root matching nothing widens nothing. An
+    /// unresolvable vault is skipped before this runs, so there is no case here for a root that does
+    /// not exist.
     /// </param>
     /// <param name="configPath">The vaults.json path, quoted in messages.</param>
     /// <param name="opClasses">
     /// The loaded op-class configuration, which each <c>mutation_requires</c> class is checked
-    /// against. This is the same cross-file check the frontmatter registry and grants run, for the
-    /// same reason: a policy naming an authority nothing defines is a protection nobody can satisfy
-    /// and nothing can enforce, which looks like it works right up until it matters.
+    /// against. This is the same cross-file check the frontmatter registry and grants run. A policy
+    /// naming an authority nothing defines is a protection nothing can enforce.
     /// </param>
     /// <param name="sink">Receives a Degraded problem for each entry dropped.</param>
     /// <returns>The policy, or <see cref="PathPolicy.None"/> where nothing usable was
@@ -32,9 +31,8 @@ public static class PathPolicyParser
     /// <remarks>
     /// A malformed entry is dropped and recorded Degraded rather than failing the vault. The rest of
     /// the policy still applies, and dropping an <c>always_readable</c> entry narrows the read floor
-    /// rather than widening anything, so the quiet direction is also the safe one. An unrecognized
-    /// key is refused rather than ignored, so a mistyped modifier cannot read as a policy someone
-    /// declared.
+    /// rather than widening anything. An unrecognized key is refused rather than ignored, so a
+    /// mistyped modifier cannot read as a policy someone declared.
     /// </remarks>
     public static PathPolicy Parse(
         JsonElement policy, string vaultName, string vaultRoot, string configPath, OpClassRegistry opClasses, IConfigProblemSink sink)
@@ -125,9 +123,8 @@ public static class PathPolicyParser
                         : throw new InvalidDataException($"{where} has a \"path_policy\" entry with an empty \"path\".");
                     break;
 
-                // A target that is a shape rather than a place, from a closed set. The rule is code
-                // and the declaration only decides whether it applies and what it costs, so an
-                // unrecognized name is a rule nothing implements rather than one to pass through.
+                // An unrecognized name is a rule nothing implements, rather than one to pass
+                // through.
                 case "rule":
                     rule = field.Value.GetString() is { Length: > 0 } name
                         ? StructuralRules.Parse(name)

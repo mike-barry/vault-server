@@ -22,8 +22,8 @@ namespace VaultShared.Auth;
 /// </param>
 /// <remarks>
 /// <para>
-/// <paramref name="ScopeRoots"/> is always fully populated, whether the grant was loaded from a file
-/// or minted at runtime: every vault in <paramref name="Vaults"/> has a key here. A
+/// Every vault in <paramref name="Vaults"/> has a key in <paramref name="ScopeRoots"/>, whether the
+/// grant was loaded from a file or minted at runtime. A
 /// <c>grants.json</c> row that omits <c>scopeRoots</c>, or that lists a vault without a matching
 /// <c>scopeRoots</c> key, fails to load rather than silently granting that vault full access, and
 /// <see cref="GrantStore.Mint"/> enforces the same coverage. There is no missing-key or missing-map
@@ -53,8 +53,7 @@ public sealed record Grant(string Id, IReadOnlySet<string> OpClasses, IReadOnlyS
     /// can never self-escalate. A file-loaded token row or token-less named grant opts in with
     /// <c>"canRequestElevation": true</c>, and the built-in minimum-access floor
     /// (<see cref="GrantStore.MinimumGrant"/>) sets it so a floored session can still ask to be
-    /// elevated with approval. It is init-only so that only opt-in construction sets it and the
-    /// positional constructor sites stay unchanged.
+    /// elevated with approval.
     /// </remarks>
     public bool CanRequestElevation { get; init; }
 
@@ -65,8 +64,7 @@ public sealed record Grant(string Id, IReadOnlySet<string> OpClasses, IReadOnlyS
     /// The comparison is stated here rather than taken from whichever comparer built
     /// <see cref="OpClasses"/>. Op-class names are configuration text on both sides - a grant row
     /// names what it holds, and a tool declares the floor it requires - so a set built with the
-    /// ordinal default would stop matching a floor spelled in another case, and the gate would fail
-    /// open or closed depending only on how its set happened to be constructed.
+    /// ordinal default would stop matching a floor spelled in another case.
     /// </remarks>
     public bool Allows(string op) =>
         OpClasses.Any(held => string.Equals(held, op, StringComparison.OrdinalIgnoreCase));
@@ -77,9 +75,8 @@ public sealed record Grant(string Id, IReadOnlySet<string> OpClasses, IReadOnlyS
     /// <remarks>
     /// The comparison is stated here rather than taken from whichever comparer built
     /// <see cref="Vaults"/>, and matches <see cref="ScopeIn"/>, which reads its own map without
-    /// regard to case. The two answer one question between them - whether this grant reaches a vault,
-    /// and how far into it - so a set built with the ordinal default would let them disagree about a
-    /// vault named in another case, denying access here while a scope entry sat waiting there.
+    /// regard to case. A set built with the ordinal default would let the two disagree about a vault
+    /// named in another case, denying access here while a scope entry sat waiting there.
     /// </remarks>
     public bool CanAccessVault(string vault) =>
         Vaults.Any(held => string.Equals(held, vault, StringComparison.OrdinalIgnoreCase));

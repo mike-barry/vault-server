@@ -6,15 +6,12 @@ namespace VaultShared.Scope;
 /// and <see cref="Of"/> refuses an empty sequence, so an empty root set cannot be constructed.
 /// </summary>
 /// <remarks>
-/// Refusing the empty set is deliberate. If the broadest authority were encoded as an empty
-/// collection, the widest possible grant would be indistinguishable from what a dropped entry, a
-/// filtered-to-nothing list, or a default-constructed field produces, and the only defence would be
-/// that every producer remembers to check. A caller holding a <see cref="VaultScope"/> holds one of
-/// two meanings, both of them chosen.
+/// The empty set is refused so the widest possible grant is not what a dropped entry, a
+/// filtered-to-nothing list, or a default-constructed field produces.
 ///
-/// The configuration file works the same way: whole-vault access is spelled <c>["*"]</c>, and an
-/// empty list is a load-time error rather than a second spelling of it. There is no layer at which
-/// losing an entry widens a grant.
+/// The configuration file spells whole-vault access <c>["*"]</c>, and treats an empty list as a
+/// load-time error rather than a second spelling of it. There is no layer at which losing an entry
+/// widens a grant.
 /// </remarks>
 public abstract record VaultScope
 {
@@ -26,9 +23,8 @@ public abstract record VaultScope
     /// <summary>Creates a scope confined to the given roots.</summary>
     /// <param name="roots">The folder-prefix roots, compared case-insensitively.</param>
     /// <returns>The confined scope.</returns>
-    /// <exception cref="ArgumentException">The sequence is empty. Promoting that to
-    /// <see cref="Unscoped"/> would restore the sentinel this type exists to remove; a caller that
-    /// means the whole vault uses <see cref="Unscoped"/>.</exception>
+    /// <exception cref="ArgumentException">The sequence is empty. A caller that means the whole
+    /// vault uses <see cref="Unscoped"/>.</exception>
     public static VaultScope Of(IEnumerable<string> roots)
     {
         var set = roots as IReadOnlySet<string> ?? new HashSet<string>(roots, StringComparer.OrdinalIgnoreCase);

@@ -7,7 +7,7 @@ namespace VaultShared.Scope;
 /// </summary>
 /// <remarks>
 /// <para>
-/// There are two modifiers. <c>always_readable</c> is a read-scope floor: its target unions into a
+/// There are two modifiers. <c>always_readable</c> is a read-scope floor. Its target unions into a
 /// grant's effective read scope for this vault, so an agent under any grant reaches the material it
 /// is instructed to obey without that grant widening anywhere else.
 /// <see cref="EffectiveReadScope"/> applies that union. <c>mutation_requires</c> names the op class
@@ -26,9 +26,8 @@ namespace VaultShared.Scope;
 /// frontmatter write.
 /// </para>
 /// <para>
-/// The read floor is a modifier here rather than a separate piece of configuration because a path
-/// that instructs agents is special in both directions for the same reason. Stating it once per path
-/// stops the two halves drifting into a path everyone can read that nobody protected.
+/// The read floor is a modifier here rather than separate configuration, so the two halves cannot
+/// drift into a path everyone can read that nobody protected.
 /// </para>
 /// </remarks>
 public sealed class PathPolicy
@@ -120,8 +119,6 @@ public sealed class PathPolicy
         PolicyTarget.Path path => IsUnder(ScopePath.Normalize(path.Value), segments),
         PolicyTarget.Structural structural => structural.Rule switch
         {
-            // A note whose basename matches its parent folder. This is a shape a path has rather
-            // than a place it is, which a prefix target cannot express.
             StructuralRule.FolderNote =>
                 segments.Length >= 2
                 && System.IO.Path.GetFileNameWithoutExtension(segments[^1])
@@ -184,8 +181,7 @@ public sealed class PathPolicy
     /// <see cref="VaultShared.Auth.Grant.ScopeIn"/> enforces for scope roots.
     ///
     /// The union is applied here, at check time, rather than copied into a grant's roots when the
-    /// grant is built. That is what makes it a floor: a copy would be attenuable, and a floor a
-    /// minted token can drop is not a floor.
+    /// grant is built, because a copy would be attenuable by a minted token.
     ///
     /// It returns a <see cref="VaultScope"/> rather than answering a containment question, so
     /// enumeration runs over the same scope a containment check uses and needs no special case.

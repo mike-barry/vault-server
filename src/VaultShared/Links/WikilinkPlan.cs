@@ -35,10 +35,6 @@ public sealed class WikilinkPlan
     /// Gets the repairs alone: links that named something the relocation moved and now name where
     /// it went. Empty for a creation, which relocates nothing.
     /// </summary>
-    /// <remarks>
-    /// Repairs and pins are separate members because the relocating tool reports them separately,
-    /// and the two cannot be told apart afterwards from the rewrite text alone.
-    /// </remarks>
     public IReadOnlyList<LinkRewrite> Repairs { get; }
 
     /// <summary>
@@ -152,8 +148,7 @@ public abstract record LinkApplyOutcome
     public sealed record Applied(IReadOnlyList<LinkRewrite> Rewrites) : LinkApplyOutcome;
 
     /// <summary>
-    /// Indicates a note could not be written, so the pass stopped there. Nothing is rolled back:
-    /// the mutex lock means no other tool interleaved, not that the writes already made are undone.
+    /// Indicates a note could not be written, so the pass stopped there. Nothing is rolled back.
     /// The caller composes its partial-mutation refusal from the two lists.
     /// </summary>
     /// <param name="Path">The vault-relative path of the note that could not be written.</param>
