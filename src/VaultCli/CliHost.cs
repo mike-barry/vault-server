@@ -7,16 +7,14 @@ using VaultShared.Tools;
 namespace VaultCli;
 
 /// <summary>
-/// Holds everything one invocation needs, built the same way the server builds it: the same load
-/// cascade over the same three configuration files, the same frontmatter registries, the same tool
-/// registry and the same shared execute path. Only what a failure means and where authority comes
-/// from differ, and those are what a front-end supplies.
+/// Holds everything one invocation needs: the load cascade over the three configuration files, the
+/// frontmatter registries, the tool registry and the shared execute path. What a failure means and
+/// where authority comes from are what this front-end supplies on top of them.
 /// </summary>
 /// <remarks>
 /// The cascade stops at the first fatal problem. The loaders record rather than throw so the host
-/// can decide, and this host has one command to run, so it fails the invocation. That is also why
-/// the server's skip for an already-failed cascade is not needed here: grants are never validated
-/// against an empty op-class registry, because the invocation has already ended.
+/// can decide, and this host fails the invocation, so nothing downstream of a failed load runs -
+/// grants are never validated against an op-class registry that would not load.
 /// </remarks>
 public sealed class CliHost
 {
@@ -72,15 +70,14 @@ public sealed class CliHost
         var vaultConfig = VaultConfigLoader.Load(settings.VaultsConfigPath, opClasses, health);
         Fail(health, settings, settings.VaultsConfigPath);
 
-        // No LocalhostAuthOptions is constructed here on purpose. The server's localhost resolution
-        // never errors, because falling back to a floor grant is safer than rejecting a caller on a
-        // server that only listens to localhost. The CLI must error instead, so it resolves a named
-        // grant by id - see Grant below.
+        // No LocalhostAuthOptions is constructed here. The server's localhost resolution is built
+        // never to error, and the CLI's equivalent condition must error, so the CLI resolves a named
+        // grant by id instead. Grant below is that resolution.
         var grants = GrantStore.Load(settings.GrantsConfigPath, opClasses, vaultConfig, health);
         Fail(health, settings, settings.GrantsConfigPath);
 
         // Frontmatter declaration paths resolve against the directory holding vaults.json, because
-        // that is where each vault names its declaration from. The server loads them the same way.
+        // that is where each vault names its declaration from.
         var frontmatter = FrontmatterRegistries.Load(
             vaultConfig, Path.GetDirectoryName(settings.VaultsConfigPath)!, opClasses, health);
 
@@ -91,9 +88,9 @@ public sealed class CliHost
             settings.RipgrepPath, Path.GetDirectoryName(settings.SettingsPath)!, health);
 
         // This order is the order the command tree lists its subcommands in. The two tools that
-        // declare RequiresClientSession are not registered here: they change per-process authority
-        // state keyed to a live caller's token, which only the server has. Their real enforcement is
-        // the execute path's session check; leaving them out of the registry only reflects it.
+        // declare RequiresClientSession are not registered here. They change per-process authority
+        // state keyed to a live caller's token, which only the server has. The execute path's
+        // session check is what enforces that; leaving them out of the registry only reflects it.
         var tools = new ToolRegistry()
             .Add(HealthCheckTool.Declaration, new HealthCheckTool(health, vaultConfig))
             .Add(ReadTool.Declaration, new ReadTool())
@@ -120,8 +117,7 @@ public sealed class CliHost
     /// <remarks>
     /// Both a missing id and an id nothing defines fail the invocation, so no path here turns a
     /// missing value into authority. Only token-less named grants are selectable by id, which is
-    /// what <see cref="GrantStore.TryGetNamedGrant"/> checks; a token-bearing row cannot be chosen
-    /// this way.
+    /// what <see cref="GrantStore.TryGetNamedGrant"/> checks.
     /// </remarks>
     /// <param name="requested">The <c>--grant</c> value, or null when it was not supplied.</param>
     /// <returns>The grant every tool call in this invocation runs under.</returns>

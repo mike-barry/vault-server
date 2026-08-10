@@ -9,12 +9,10 @@ namespace VaultCli;
 /// <remarks>
 /// The configuration cascade runs before the command line is parsed, with no exemption for any
 /// argument. Configuration that will not load fails the process rather than admitting the invocation
-/// unrestricted, and that includes <c>--help</c>: help needs loadable configuration too, and the
-/// failure names the file to fix.
+/// unrestricted, and that includes <c>--help</c>. The failure names the file to fix.
 ///
 /// The output and error writers are parameters rather than <see cref="Console"/> so a test can run a
-/// whole invocation - cascade, tree, execute path, rendering and exit code - the way the shipped
-/// entry point runs it.
+/// whole invocation the way the shipped entry point runs it.
 /// </remarks>
 public static class VaultCliApp
 {
@@ -49,8 +47,8 @@ public static class VaultCliApp
         }
 
         // The default exception handler is disabled because it renders an unhandled exception and
-        // returns 1, which is the refusal exit code. A crash is not a refusal, and a caller that
-        // branches on the exit code must be able to tell them apart.
+        // returns 1, which is the refusal exit code. A crash is not a refusal, and a caller
+        // branching on the exit code has to be able to tell them apart.
         return parsed.Invoke(new InvocationConfiguration
         {
             Output = output,

@@ -23,18 +23,16 @@ public sealed record CliRun(int Exit, string Output, string Error)
 /// <summary>
 /// Builds a complete CLI deployment in a temporary directory: a copy of the committed vault
 /// fixture, the three configuration files, and a settings file naming them. Tests run the shipped
-/// entry point against it, so what is exercised is a real invocation rather than a rearrangement of
-/// its parts.
+/// entry point against it.
 /// </summary>
 /// <remarks>
 /// Nothing here writes to the committed fixture. The vault is a copy, and cases that reach a
 /// mutating tool take its preview path, which runs the same validation and the same lock without
 /// writing.
 ///
-/// Two named grants are defined. <c>cli-admin</c> is unrestricted and stands in for what the
-/// shipped configuration supplies; <c>cli-read</c> holds <c>content:read</c> alone and is the
-/// narrow grant refusals are asserted under. Both are token-less, because a grant id can only
-/// select a token-less row.
+/// Two named grants are defined. <c>cli-admin</c> is unrestricted; <c>cli-read</c> holds
+/// <c>content:read</c> alone and is the narrow grant refusals are asserted under. Both are
+/// token-less, because a grant id can only select a token-less row.
 /// </remarks>
 public sealed class CliFixture : IDisposable
 {
@@ -107,8 +105,7 @@ public sealed class CliFixture : IDisposable
     }
 
     /// <summary>Writes a settings file of this fixture's shape, letting a caller vary one part of
-    /// it. The fail-closed cases each change a single value away from a configuration that
-    /// works.</summary>
+    /// it.</summary>
     /// <param name="name">The file name to write within the fixture root.</param>
     /// <param name="grantId">The grant id to record, or <see langword="null"/> to omit the setting
     /// entirely.</param>

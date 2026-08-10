@@ -6,8 +6,7 @@ namespace VaultCli;
 /// <summary>Specifies how an answer is rendered on standard output.</summary>
 public enum OutputFormat
 {
-    /// <summary>Writes a content result as it is, and a structured result as JSON. There is no text
-    /// rendering of a mutation result that would not restate it.</summary>
+    /// <summary>Writes a content result as it is, and a structured result as JSON.</summary>
     Text,
 
     /// <summary>Writes both result tiers as a JSON document, so a script never has to detect which
@@ -16,9 +15,9 @@ public enum OutputFormat
 }
 
 /// <summary>
-/// Defines the CLI's three exit codes. The machine-readable vocabulary is the <c>code</c> in the
-/// refusal envelope, not the exit code: an exit code per error class would be a coarser second copy
-/// of that catalogue and would drift from it.
+/// Defines the CLI's three exit codes. The machine-readable error vocabulary is the <c>code</c> in
+/// the refusal envelope rather than the exit code, so an error class is never given a code of its
+/// own here.
 /// </summary>
 public static class ExitCodes
 {
@@ -26,8 +25,7 @@ public static class ExitCodes
     public const int Success = 0;
 
     /// <summary>The invocation was refused, and the envelope on standard error says why. A refusal
-    /// from a tool and one from this front-end's own checks mean the same thing to a caller: nothing
-    /// ran, and <c>code</c> says why.</summary>
+    /// from a tool and one from this front-end's own checks share this code.</summary>
     public const int Refused = 1;
 
     /// <summary>The parser refused the command line itself - an unknown subcommand, an unknown
@@ -36,10 +34,8 @@ public static class ExitCodes
 }
 
 /// <summary>
-/// Renders a tool result and every refusal that can reach this front-end. Neither shape knows the
-/// CLI exists, and the refusal envelope comes from <see cref="ToolRefusalEnvelope"/>, which is
-/// shared with the MCP server, so the same refusal is byte-identical whichever front-end a caller
-/// used.
+/// Renders a tool result and every refusal that can reach this front-end. The envelope text comes
+/// from <see cref="ToolRefusalEnvelope"/>, which is shared with the MCP server.
 /// </summary>
 public static class CliRendering
 {
@@ -97,8 +93,8 @@ public static class CliRendering
                 break;
 
             // Under --output json the content tier is wrapped so that standard output is a JSON
-            // document whichever tier answered. The structured tier already is one, so it is written
-            // as it is rather than wrapped a second time.
+            // document whichever tier answered. The structured tier already is one and is written as
+            // it is.
             case ToolResult.Content content:
                 output.WriteLine(JsonSerializer.Serialize(new ContentEnvelope(content.Text), NativeToolArguments.Options));
                 break;

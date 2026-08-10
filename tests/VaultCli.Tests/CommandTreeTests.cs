@@ -7,8 +7,7 @@ namespace VaultCli.Tests;
 /// <summary>
 /// Verifies that the command tree is generated from the tool registry and from the argument records
 /// the declarations name. No case asserts a hand-written list of subcommands or options; each
-/// asserts that generation covers whatever is registered, so adding a tool to the registry requires
-/// no change to the CLI or to these tests.
+/// asserts that generation covers whatever is registered.
 /// </summary>
 public sealed class CommandTreeTests(CliFixture fixture) : IClassFixture<CliFixture>
 {
@@ -58,8 +57,7 @@ public sealed class CommandTreeTests(CliFixture fixture) : IClassFixture<CliFixt
 
     /// <summary>
     /// Leaving such a tool out of the tree is only presentation. The shared execute path refuses
-    /// the call whatever route reached it, which matters because <c>--args</c> names a tool
-    /// directly rather than through the tree.
+    /// the call whatever route reached it.
     /// </summary>
     [Fact]
     public void ADeclarationRequiringAClientSession_IsRefusedByTheExecutePath()
@@ -96,9 +94,9 @@ public sealed class CommandTreeTests(CliFixture fixture) : IClassFixture<CliFixt
     public void ASingleWordArgument_RegistersNoAlias() => Assert.Empty(Option("read", "--path").Aliases);
 
     /// <summary>
-    /// Each subcommand carries exactly one option per member of its argument record, with no member
-    /// left out. The expected set is read from the same type information the binder uses, so this
-    /// asserts coverage rather than restating the record.
+    /// Each subcommand carries exactly one option per member of its argument record. The expected
+    /// set is read from the same type information the binder uses, so this asserts coverage rather
+    /// than restating the record.
     /// </summary>
     [Fact]
     public void EverySubcommand_CarriesOneOptionPerMemberOfItsArgumentRecord()

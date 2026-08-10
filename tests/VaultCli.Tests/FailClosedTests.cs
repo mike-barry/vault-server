@@ -13,8 +13,7 @@ namespace VaultCli.Tests;
 /// </remarks>
 public sealed class FailClosedTests(CliFixture fixture) : IClassFixture<CliFixture>
 {
-    /// <summary>The baseline the other cases deviate from. It succeeds, so every refusal below is
-    /// attributable to the one thing that case changed.</summary>
+    /// <summary>The baseline the other cases deviate from.</summary>
     [Fact]
     public void TheFixtureConfiguration_Admits()
     {

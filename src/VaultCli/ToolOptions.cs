@@ -11,9 +11,8 @@ namespace VaultCli;
 
 /// <summary>
 /// Generates a tool's command-line options from the argument record its declaration names. Nothing
-/// here is authored per tool: the record is the only statement of a tool's argument surface, and
-/// this reads the same contract the binder and the advertised schema read, so there can be neither
-/// an option that binds nothing nor an argument with no option.
+/// here is authored per tool. It reads the same contract the binder and the advertised schema read,
+/// so there can be neither an option that binds nothing nor an argument with no option.
 /// </summary>
 /// <remarks>
 /// Each option is presented in kebab-case, with the <c>snake_case</c> wire spelling registered as an
@@ -39,9 +38,8 @@ public sealed class ToolOptions
     /// </summary>
     /// <param name="arguments">The argument record type the tool's declaration names.</param>
     /// <param name="reserved">The names the command tree's global options already hold. A generated
-    /// option that collided with one would be silently shadowed, so this throws instead: the
-    /// collision is a wiring defect between a declaration and this front-end, and it has to surface
-    /// at startup rather than at the one call that uses the argument.</param>
+    /// option that collided with one would be silently shadowed, so this throws instead, surfacing
+    /// the collision at startup rather than at the one call that uses the argument.</param>
     /// <returns>The options for that record.</returns>
     /// <exception cref="InvalidOperationException">An argument's option name collides with a global
     /// option.</exception>
@@ -138,10 +136,10 @@ public sealed class ToolOptions
 
             var option = Build<string>(property, name, alias);
 
-            // An enum member is carried across as text and is deliberately not validated here. The
-            // tool refuses an unrecognized value in its own vocabulary, naming the argument. A
-            // parser-side list of accepted values would instead make it a usage error, giving a
-            // different exit code and message than the MCP front-end gives for the same call.
+            // An enum member is carried across as text and is not validated here. The tool refuses
+            // an unrecognized value in its own vocabulary, naming the argument. A parser-side list
+            // of accepted values would make it a usage error instead, giving a different exit code
+            // and message than the MCP front-end gives for the same call.
             if (type == typeof(string) || type.IsEnum)
                 return new Text(property, option);
 
@@ -149,8 +147,8 @@ public sealed class ToolOptions
                 return new Number(property, option);
 
             // Everything else is a structure with no flat option form - an ordered list of
-            // operations, a nested body change - so its value is JSON. This is what --args offers
-            // for a whole record, applied to one argument.
+            // operations, a nested body change - so its value is JSON, as --args is for a whole
+            // record.
             return new Structured(property, option);
         }
 

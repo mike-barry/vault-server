@@ -5,8 +5,8 @@ namespace VaultCli.Tests;
 /// <summary>
 /// Verifies how an option's text is bound to an argument record, and how <c>--args</c> binds a
 /// whole record instead. An option's value is interpreted from the record member's own JSON shape
-/// alone; the CLI knows nothing tool-specific. A value the shape cannot take is therefore refused
-/// by the binder in the tool's own error vocabulary rather than by the parser as a usage error.
+/// alone, so a value the shape cannot take is refused by the binder in the tool's own error
+/// vocabulary rather than by the parser as a usage error.
 /// </summary>
 public sealed class ArgumentBindingTests(CliFixture fixture) : IClassFixture<CliFixture>
 {
@@ -84,10 +84,10 @@ public sealed class ArgumentBindingTests(CliFixture fixture) : IClassFixture<Cli
     }
 
     /// <summary>
-    /// Shows why <c>--args</c> is general rather than a convenience: an ordered list of operations
-    /// with a nested anchor and a per-variant entry payload has no flat option surface. The refusal
-    /// asserted here comes from the anchor, the innermost part of that structure, so only a
-    /// genuinely nested payload can produce it.
+    /// <c>--args</c> carries a structure with no flat option surface - an ordered list of operations
+    /// with a nested anchor and a per-variant entry payload. The refusal asserted here comes from
+    /// the anchor, the innermost part of that structure, so only a genuinely nested payload can
+    /// produce it.
     /// </summary>
     [Fact]
     public void Args_CarriesAStructureNoFlatOptionSurfaceExpresses()
@@ -125,10 +125,9 @@ public sealed class ArgumentBindingTests(CliFixture fixture) : IClassFixture<Cli
     }
 
     /// <summary>
-    /// The raw-JSON escape hatch is the one route on this front-end that can carry a member no
-    /// argument record declares, and such a member is refused naming it rather than dropped. The
-    /// option form cannot produce one, because every option is generated from the record's own
-    /// members, so an unrecognized option is a parser usage error instead.
+    /// <c>--args</c> is the one route on this front-end that can carry a member no argument record
+    /// declares, and such a member is refused naming it rather than dropped. Every option is
+    /// generated from the record's own members, so an unrecognized option is a usage error instead.
     /// </summary>
     [Fact]
     public void ArgsCarryingAMemberTheRecordDoesNotDeclare_IsRefusedNamingIt()
@@ -147,16 +146,16 @@ public sealed class ArgumentBindingTests(CliFixture fixture) : IClassFixture<Cli
 
         Assert.Equal(ExitCodes.Refused, run.Exit);
         Assert.Equal(ToolCodes.InvalidArgument, run.Code);
-        // Named as "args" rather than as a member of the record, because nothing was bound: the
-        // fault is in the option's own value.
+        // Named as "args" rather than as a member of the record. Nothing was bound, so the fault is
+        // in the option's own value.
         Assert.Equal("args", run.Envelope.GetProperty("data").GetProperty("argument").GetString());
     }
 
     /// <summary>
     /// <c>--args</c> supplies the whole argument record, so an option alongside it would be a
     /// second, partial statement of the same record with no defined precedence between them. The
-    /// combination is refused as a usage error, because the fault is in the command line rather
-    /// than in the arguments a tool received.
+    /// combination is a usage error, because the fault is in the command line rather than in the
+    /// arguments a tool received.
     /// </summary>
     [Fact]
     public void Args_BesideAnOptionFormArgument_IsAUsageError()

@@ -6,13 +6,12 @@ namespace VaultCli;
 /// Collects the problems this invocation's load cascade recorded, and reports them to
 /// <c>health_check</c>. It implements both halves of the seam: <see cref="IConfigProblemSink"/> for
 /// the loaders, which record rather than throw, and <see cref="IHealthState"/> for the tool, which
-/// reports. Unlike the server's equivalent it holds no logger, no cached summary and no per-source
-/// sets, because nothing re-scans configuration within a single command.
+/// reports.
 /// </summary>
 /// <remarks>
-/// Recording a fatal problem does not stop the cascade. The loaders record and carry on, and
-/// <see cref="CliHost"/> is what fails the invocation at the first fatal problem, so an invocation
-/// that reaches a tool at all reports <see cref="IsFatallyDegraded"/> as false.
+/// Recording a fatal problem does not stop the cascade. <see cref="CliHost"/> is what fails the
+/// invocation at the first fatal problem, so an invocation that reaches a tool at all reports
+/// <see cref="IsFatallyDegraded"/> as false.
 ///
 /// This type is not thread-safe. One invocation runs one cascade on the thread that started it.
 /// </remarks>
@@ -43,8 +42,8 @@ public sealed class CliHealthState(TimeProvider? timeProvider = null) : IConfigP
     /// <param name="detail">What went wrong.</param>
     public void RecordDegraded(string source, string detail) => Record(ProblemSeverity.Degraded, source, detail);
 
-    /// <summary>Gets every fatal problem recorded so far as one message. An operator has to fix the
-    /// whole set a single load produced, not just the first of them.</summary>
+    /// <summary>Gets every fatal problem recorded so far as one message, so an operator sees the
+    /// whole set a single load produced rather than the first of them.</summary>
     public string FatalSummary =>
         string.Join(" ", _problems.Where(p => p.Severity == ProblemSeverity.Fatal).Select(p => $"[{p.Source}] {p.Detail}"));
 

@@ -9,8 +9,7 @@ namespace VaultCli;
 /// </summary>
 /// <remarks>
 /// This is a separate file from <c>vaults.json</c> so that the grant setting cannot be read as
-/// governing the server as well, and so that a CLI deployed somewhere other than beside the server
-/// can still name the three configuration files.
+/// governing the server as well.
 ///
 /// Relative paths resolve against the directory holding the settings file, never the process's
 /// working directory. A CLI is run from wherever the operator happens to be, so resolving against
@@ -19,7 +18,7 @@ namespace VaultCli;
 /// <param name="SettingsPath">The file these settings were read from, reported in a failure so an
 /// operator knows which file to fix.</param>
 /// <param name="GrantId">The named grant every invocation runs as, unless <c>--grant</c> overrides
-/// it. There is no default: absence fails the invocation rather than admitting it
+/// it. There is no default. Absence fails the invocation rather than admitting it
 /// unrestricted.</param>
 /// <param name="OpClassesConfigPath">The full path to the op-class configuration file.</param>
 /// <param name="VaultsConfigPath">The full path to the vault configuration file.</param>
@@ -27,7 +26,7 @@ namespace VaultCli;
 /// <param name="RipgrepPath">The ripgrep executable's location exactly as the settings file holds
 /// it, which may be relative to the directory holding that file, or null when the setting is absent
 /// or empty and the executable is found on <c>PATH</c>. It is carried unresolved because the shared
-/// layer that interprets it applies the same resolution base and existence check for both
+/// layer that interprets it applies the resolution base and the existence check for both
 /// front-ends.</param>
 public sealed record CliSettings(
     string SettingsPath,
@@ -42,8 +41,7 @@ public sealed record CliSettings(
 
     /// <summary>
     /// The JSON reader options. Comments and trailing commas are allowed so the shipped file can
-    /// explain what each setting is for. Nothing else about the parse is lenient: an unreadable or
-    /// malformed file fails the invocation.
+    /// explain what each setting is for.
     /// </summary>
     private static readonly JsonSerializerOptions ReadOptions = new()
     {
@@ -55,7 +53,7 @@ public sealed record CliSettings(
     public static string DefaultPath => Path.Combine(AppContext.BaseDirectory, FileName);
 
     /// <summary>
-    /// Reads the settings from <paramref name="path"/>. Every failure here is fatal: this file names
+    /// Reads the settings from <paramref name="path"/>. Every failure here is fatal. This file names
     /// where the authority configuration lives, so a process that cannot read it has no way to
     /// establish the grant every invocation carries.
     /// </summary>

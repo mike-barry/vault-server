@@ -6,12 +6,12 @@ namespace VaultCli.Tests;
 /// <summary>
 /// Verifies what the CLI does with a <c>RipgrepPath</c> setting that names an executable which is not
 /// there: it records the condition once at load, keeps serving every tool that does not search, and
-/// refuses the two that do with a code no caller retries.
+/// refuses the two that do.
 /// </summary>
 /// <remarks>
 /// The setting is resolved against the directory holding the settings file, so a case that supplies a
-/// relative value asserts where the resolution base is by reading the resolved path back off the
-/// recorded problem.
+/// relative value asserts the resolution base by reading the resolved path back off the recorded
+/// problem.
 /// </remarks>
 public sealed class SearchEngineSettingTests(CliFixture fixture) : IClassFixture<CliFixture>
 {
@@ -43,7 +43,7 @@ public sealed class SearchEngineSettingTests(CliFixture fixture) : IClassFixture
 
     /// <summary>
     /// The same invocation that cannot search still reads. A missing engine is recorded as degraded
-    /// rather than fatal precisely so it refuses the two tools that search and nothing else.
+    /// rather than fatal, so it refuses the two tools that search and nothing else.
     /// </summary>
     [Fact]
     public void AnEngineThatIsNotThere_LeavesEveryToolThatDoesNotSearchWorking()
@@ -77,8 +77,8 @@ public sealed class SearchEngineSettingTests(CliFixture fixture) : IClassFixture
     }
 
     /// <summary>
-    /// The setting is carried as the settings file spells it, because resolving it and checking it are
-    /// the shared layer's, not this front-end's.
+    /// The setting is carried as the settings file spells it. Resolving it and checking it belong to
+    /// the shared layer rather than to this front-end.
     /// </summary>
     [Fact]
     public void TheSettingIsCarriedExactlyAsConfigured()

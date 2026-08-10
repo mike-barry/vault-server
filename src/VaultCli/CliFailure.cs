@@ -5,12 +5,11 @@ namespace VaultCli;
 /// <summary>
 /// Represents a failure to establish the invocation: the configuration would not load, or no grant
 /// could be resolved to run as. It is thrown before any tool is reached and renders as the same
-/// <c>{code, message, data?}</c> envelope a tool refusal renders as, because the exit code says only
-/// that the invocation was refused and <c>code</c> carries the detail.
+/// envelope a tool refusal renders as.
 /// </summary>
 /// <remarks>
 /// Every case here is fail-closed. Where the server records a configuration problem and starts in a
-/// degraded state, this front-end fails the process instead: no missing or unreadable value may lead
+/// degraded state, this front-end fails the process instead. No missing or unreadable value may lead
 /// to an invocation running unrestricted.
 /// </remarks>
 /// <param name="refusal">The refusal envelope this failure renders as.</param>

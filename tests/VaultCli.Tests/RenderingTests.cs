@@ -11,8 +11,7 @@ namespace VaultCli.Tests;
 /// </summary>
 /// <remarks>
 /// The parity cases come from <see cref="FrontEndParity"/>, which the MCP server's suite asserts
-/// against as well. Both suites reading the same cases is what makes the claim that the two
-/// front-ends produce identical bytes a checked one.
+/// against as well, so the two front-ends are checked against the same expected bytes.
 /// </remarks>
 public sealed class RenderingTests(CliFixture fixture) : IClassFixture<CliFixture>
 {
@@ -90,9 +89,8 @@ public sealed class RenderingTests(CliFixture fixture) : IClassFixture<CliFixtur
     }
 
     /// <summary>
-    /// The CLI's half of the parity contract. The envelope it writes for a refusal matches the
-    /// expected bytes exactly, and the MCP server's suite asserts the same string of the text in an
-    /// <c>isError</c> result.
+    /// The CLI's half of the parity contract. The MCP server's suite asserts the same expected
+    /// string of the text in an <c>isError</c> result.
     /// </summary>
     [Theory]
     [MemberData(nameof(RefusalNames))]
@@ -132,8 +130,7 @@ public sealed class RenderingTests(CliFixture fixture) : IClassFixture<CliFixtur
     }
 
     /// <summary>
-    /// Asserts the three exit codes together as a set, so that no other code is returned and no two
-    /// conditions collapse onto the same one.
+    /// Asserts the three exit codes together, so no two conditions collapse onto the same one.
     /// </summary>
     [Fact]
     public void TheThreeExitCodes_AreSuccessRefusalAndUsage()

@@ -59,10 +59,10 @@ public sealed class ToolCommandTree
             foreach (var option in options.Symbols)
                 command.Options.Add(option);
 
-            // Supplying both --args and an option-form argument is a mistake about the command line
-            // rather than about a tool, so the parser refuses it and the exit code says usage.
-            // --args carries the whole record, so an option beside it would be a second, partial
-            // statement of the same record with no defined precedence between them.
+            // --args carries the whole argument record, so an option beside it would be a second,
+            // partial statement of the same record with no defined precedence between them. The
+            // fault is in the command line rather than in a tool's arguments, so the parser refuses
+            // it and the exit code says usage.
             command.Validators.Add(result =>
             {
                 if (result.GetResult(_args) is { Implicit: false } && options.AnySupplied(result.GetResult))
@@ -77,7 +77,7 @@ public sealed class ToolCommandTree
     /// <summary>
     /// Builds the command tree over <paramref name="tools"/>, ready to parse. The registry is a
     /// parameter rather than read from <paramref name="host"/> so that the tree is a projection of a
-    /// registry and nothing else; all it takes from the host is the grant and the execute path.
+    /// registry alone; all it takes from the host is the grant and the execute path.
     /// </summary>
     /// <param name="tools">The tools to expose as subcommands.</param>
     /// <param name="host">The host supplying the grant and the shared execute path.</param>
@@ -88,9 +88,9 @@ public sealed class ToolCommandTree
         new ToolCommandTree(tools, host, output, error)._root;
 
     /// <summary>
-    /// Runs one tool synchronously. The shared execute path applies every gate on the call - the
-    /// session, the floor, argument validation, vault resolution and the lock - so all this decides
-    /// is what a front-end supplies: which grant, which arguments, and how the answer is written.
+    /// Runs one tool synchronously. The shared execute path applies every gate on the call, so all
+    /// this decides is what a front-end supplies: which grant, which arguments, and how the answer
+    /// is written.
     /// </summary>
     /// <param name="host">The host supplying the grant and the execute path.</param>
     /// <param name="registration">The tool to run and its declaration.</param>
@@ -127,8 +127,8 @@ public sealed class ToolCommandTree
                     ? Record(parsed.GetValue(_args) ?? string.Empty)
                     : options.Supplied(parsed);
 
-                // There is no session: the process exits when its one command finishes, so there is
-                // no caller whose authority could be rebound. The execute path refuses the two
+                // There is no session. The process exits when its one command finishes, so there is
+                // no caller whose authority could be rebound, and the execute path refuses the two
                 // declarations that require one.
                 return host.Execution.Invoke(registration, arguments, grant, session: null);
             },
@@ -138,10 +138,9 @@ public sealed class ToolCommandTree
     }
 
     /// <summary>
-    /// Reads the whole argument record from JSON. This is available on every tool rather than on one
-    /// of them, because some arguments - an ordered list of operations with nested anchors, for
-    /// instance - have no flat option form, and a bespoke encoding for them would restate the
-    /// argument contract a second time.
+    /// Reads the whole argument record from JSON. It is available on every tool because some
+    /// arguments, such as an ordered list of operations with nested anchors, have no flat option
+    /// form.
     /// </summary>
     /// <param name="json">The <c>--args</c> value.</param>
     /// <returns>The arguments, keyed by the wire names the tool advertises.</returns>
