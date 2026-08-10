@@ -20,7 +20,8 @@ namespace VaultShared.Access;
 /// <c>sign/Spec-Tool-Capabilities</c>. The suffix is measured in characters, so it may cut a folder
 /// name in half. Only the leading component can be cut, because only it sits at the start of the
 /// suffix. The final component is never partial, so <c>Capabilities</c> alone names nothing. This is
-/// Obsidian's observed behaviour rather than a rule of this build's own.
+/// Obsidian's observed behaviour rather than a rule of this build's own, and
+/// <c>Ref-Obsidian-Link-Behavior.md</c> carries it in full.
 ///
 /// Matching is wider than resolution and does not decide anything on its own. Several notes can
 /// match one target; <see cref="WikilinkRanking"/> orders them, and a note whose whole path the

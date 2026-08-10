@@ -104,7 +104,8 @@ internal sealed class WikilinkUniverse
     /// <see cref="WikilinkTarget.Address"/> produces. A target naming a whole vault path takes the
     /// file at that path outright; only a target naming no path is ranked against the files sharing
     /// its name. Collapsing the two would let a nested note take a link belonging to a root note,
-    /// and would miss the pins a root-level creation owes.
+    /// and would miss the pins a root-level creation owes. <c>Ref-Obsidian-Link-Behavior.md</c>
+    /// carries both tiers in full.
     ///
     /// A whole path is read from the vault root, never from the linking note's folder, so the first
     /// tier is never satisfied by a note sitting beside the linking note. An anchored target reaches
@@ -171,6 +172,7 @@ internal sealed class WikilinkUniverse
     /// target carrying that extension. A file whose name carries no extension is therefore named by
     /// nothing. Indexing one would let a bare target reach a file the editor never opens with it, and
     /// let that file displace the note of the same name.
+    /// <c>Ref-Obsidian-Link-Behavior.md</c> carries the measurement and the conditions it holds under.
     /// </remarks>
     /// <param name="path">The file to test.</param>
     /// <returns>True when the file's name carries an extension.</returns>
