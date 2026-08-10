@@ -4,16 +4,12 @@ using VaultShared.Access;
 namespace VaultShared.Frontmatter;
 
 /// <summary>
-/// Represents what a declared scalar key's text, or an entry field's, must satisfy. This is a
-/// closed hierarchy with a checking member rather than a table of predicates keyed by kind name, so
-/// the check and the description of what it wanted are the same object and a violation can say more
-/// than that something did not match.
+/// Represents what a declared scalar key's text, or an entry field's, must satisfy.
 ///
-/// The set is closed at five kinds. There is deliberately no raw regular-expression kind and no
-/// extension point for one: the declaration is external input, so an uncompiled pattern read from a
-/// file is both a denial-of-service surface and a source of violation messages no caller can act
-/// on. A constraint needing a pattern is added here as another named kind, compiled and
-/// time-bounded at load.
+/// The set is closed at five kinds, with no raw regular-expression kind and no extension point for
+/// one. The declaration is external input, so an uncompiled pattern read from a file is both a
+/// denial-of-service surface and a source of violation messages no caller can act on. A constraint
+/// needing a pattern is added here as another named kind, compiled and time-bounded at load.
 ///
 /// The same set serves scalar keys and entry fields. A block-list key takes no constraint of its
 /// own; its entry schema carries them.
@@ -56,8 +52,8 @@ public sealed record ConstraintResult(bool IsSatisfied, string? Wanted)
 /// the invariant culture.</param>
 public sealed record DateConstraint(string Format) : ValueConstraint
 {
-    /// <summary>The format a declaration naming none gets: the ISO 8601 calendar date, which is
-    /// what the editor writes and what sorts correctly as text.</summary>
+    /// <summary>Gets the format a declaration naming none takes, the ISO 8601 calendar date, which
+    /// is what the editor writes and what sorts correctly as text.</summary>
     public const string IsoDate = "yyyy-MM-dd";
 
     /// <inheritdoc/>
@@ -84,8 +80,7 @@ public sealed record EnumerationConstraint(IReadOnlyList<string> Values) : Value
 /// <summary>
 /// Checks that every character is drawn from a named class and that the length falls within
 /// inclusive bounds. This is the placeholder shape for a field with no authoritative list of values
-/// yet: it stops the field carrying smuggled text meanwhile, and tightening it later is an edit to
-/// the declaration rather than a change to this layer.
+/// yet, and tightening it later is an edit to the declaration rather than a change to this layer.
 /// </summary>
 /// <param name="Class">The character class every character must belong to.</param>
 /// <param name="Min">The shortest permitted length, inclusive.</param>

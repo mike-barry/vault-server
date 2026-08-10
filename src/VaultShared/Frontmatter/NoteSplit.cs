@@ -25,7 +25,7 @@ public readonly record struct NoteSplit(bool HasBlock, string InnerText, string 
 {
     /// <summary>
     /// Returns <paramref name="content"/> with CRLF line terminators replaced by LF. Nothing is
-    /// detected or reported: notes are stored with LF and the repository normalizes every text file
+    /// detected or reported. Notes are stored with LF and the repository normalizes every text file
     /// on checkout, so no other convention survives a round trip.
     /// </summary>
     /// <param name="content">The note content to normalize.</param>

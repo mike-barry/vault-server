@@ -9,7 +9,7 @@ namespace VaultShared.Frontmatter;
 /// There is no hot reload, because a batch of operations spanning one would be validated against
 /// two different registries.
 ///
-/// Declaration files are shared by path: two vaults naming one file get one loaded instance.
+/// Two vaults naming one declaration file get one loaded instance.
 /// </summary>
 public sealed class FrontmatterRegistries
 {

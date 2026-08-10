@@ -19,7 +19,7 @@ namespace VaultShared.Frontmatter;
 /// Composing preserves meaning, not bytes. The result carries every key in its original order with
 /// every value's content intact, but may differ from the parsed block in quoting, blank lines,
 /// comments, and a folded scalar's line wrapping, none of which a tree can hold. Keeping those out
-/// of a note that was not edited is the write path's job: it composes only when a frontmatter
+/// of a note that was not edited is the write path's job. It composes only when a frontmatter
 /// operation ran, and a body-only write splices at <see cref="NoteSplit.BodyOffset"/> without
 /// coming here.
 /// </remarks>

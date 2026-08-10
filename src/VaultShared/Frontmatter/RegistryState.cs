@@ -2,7 +2,7 @@ namespace VaultShared.Frontmatter;
 
 /// <summary>
 /// Represents the result of loading one vault's frontmatter declaration, as three cases. Null is
-/// not one of them, and neither is an empty registry: an empty registry standing in for a failed
+/// not one of them, and neither is an empty registry. An empty registry standing in for a failed
 /// load would read as a vocabulary that recognizes nothing, turning fail-closed into a vault with
 /// nothing protected.
 ///
@@ -31,16 +31,13 @@ public abstract record RegistryState
     public sealed record Unloadable(string Path, string Why) : RegistryState;
 
     /// <summary>
-    /// Returns the registry a frontmatter write runs against, or throws if there is none. This is
-    /// the fail-closed seam: <see cref="FrontmatterWrite"/> takes a loaded registry, and this is
-    /// the only way a caller holding a state can produce one, so a write cannot quietly proceed
-    /// without a declaration. The alternative - every write site remembering to match on
-    /// <see cref="Loaded"/> first - would be a convention rather than a guarantee.
+    /// Returns the registry a frontmatter write runs against, or throws if there is none.
+    /// <see cref="FrontmatterWrite"/> takes a loaded registry, and this is the only way a caller
+    /// holding a state can produce one, so a write cannot quietly proceed without a declaration.
     ///
-    /// The throw uses the same refusal vocabulary as every other frontmatter refusal. Reads,
-    /// enumeration, search, move and delete never reach here. Advertisement is also unaffected: the
-    /// vocabulary projection reads a state rather than requiring one, so <c>edit</c> stays listed
-    /// with its variant branches simply absent.
+    /// Reads, enumeration, search, move and delete never reach here. Advertisement is also
+    /// unaffected, because the vocabulary projection reads a state rather than requiring one, so
+    /// <c>edit</c> stays listed with its variant branches simply absent.
     /// </summary>
     /// <returns>The loaded declaration.</returns>
     /// <exception cref="FrontmatterRefusal">The declaration is absent or would not load.</exception>

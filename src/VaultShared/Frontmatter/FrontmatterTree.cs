@@ -201,7 +201,7 @@ public sealed class FrontmatterTree
     /// <remarks>
     /// <see cref="ShapeOf"/> answers <see cref="FrontmatterShape.Block"/> for a nested mapping and
     /// for a sequence alike, and only a sequence holds entries. Anything that resolves, inserts or
-    /// removes entries asks this instead: a nested mapping resolves to no entries at all, so a check
+    /// removes entries asks this instead. A nested mapping resolves to no entries at all, so a check
     /// written against the shape query alone passes vacuously and lets an entry operation reach a
     /// structure it cannot address.
     /// </remarks>

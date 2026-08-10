@@ -15,11 +15,6 @@ internal sealed record ResolvedEntry(int Position, EntryVariant? Variant, string
 /// through this type - whether an entry already exists, which entry a removal names, where an
 /// anchor points - so a duplicate add and a removal cannot disagree about whether an entry is
 /// there.
-///
-/// Comparison uses the <see cref="EntryVariant.IdentityMatch"/> declared on the entry's own
-/// variant, because the right answer differs within a single list: an identity naming a file or a
-/// wikilink compares the way the filesystem and the editor resolve it, while a line of human prose
-/// compares exactly.
 /// </summary>
 internal static class EntryResolver
 {

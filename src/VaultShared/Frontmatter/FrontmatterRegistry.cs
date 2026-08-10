@@ -6,7 +6,7 @@ namespace VaultShared.Frontmatter;
 /// JSON, so the rules run against this shape and the file's own shape stays inside
 /// <see cref="FrontmatterRegistryLoader"/>.
 ///
-/// The declaration is a positive allowlist that fails closed: an unrecognized key is refused, never
+/// The declaration is a positive allowlist that fails closed. An unrecognized key is refused, never
 /// treated as safe by default. Keys and namespaces are separate sections because a key is addressed
 /// by exact name while a namespace rule is about keys that are not listed at all.
 /// </summary>
@@ -54,10 +54,10 @@ public sealed record KeyDeclaration(KeyShape Shape, ValueConstraint? Value, Entr
 }
 
 /// <summary>
-/// Represents a protected namespace: every key whose name starts with <paramref name="Prefix"/>
-/// requires <paramref name="WriteRequires"/>. Namespaces exist because the key map says nothing
-/// about keys it does not list, and such keys do occur, since an edit leaves an undeclared key
-/// already in a note untouched. Without this rule, changing one would require no authority at all.
+/// Represents a protected namespace. Every key whose name starts with <paramref name="Prefix"/>
+/// requires <paramref name="WriteRequires"/>. The key map says nothing about keys it does not list,
+/// and such keys occur because an edit leaves an undeclared key already in a note untouched.
+/// Without this rule, changing one would require no authority at all.
 /// </summary>
 /// <param name="Prefix">The key-name prefix the rule matches, case-insensitively.</param>
 /// <param name="WriteRequires">The op class writing a matching key requires.</param>
@@ -95,7 +95,7 @@ public sealed record EntrySchema(IReadOnlyList<EntryVariant> Variants);
 /// Duplicate detection, idempotent adds, removals, and positional anchors all resolve to this.
 /// Empty when the variant has no identity.</param>
 /// <param name="IdentityMatch">How that value compares. Declared per variant because the right
-/// answer differs within a single list: an identity naming a file or a wikilink compares
+/// answer differs within a single list. An identity naming a file or a wikilink compares
 /// case-insensitively, matching how the filesystem and the editor resolve it, while a line of human
 /// prose compares exactly.</param>
 /// <param name="RemovableWholesale">Whether a removal may name the variant with no target and clear

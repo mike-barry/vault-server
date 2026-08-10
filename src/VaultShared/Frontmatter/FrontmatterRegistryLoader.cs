@@ -30,7 +30,7 @@ public static class FrontmatterRegistryLoader
 
     /// <summary>
     /// Reads the declaration at <paramref name="path"/> and returns one of the three states.
-    /// Nothing is thrown and nothing is recorded here: what a host does about a failure belongs to
+    /// Nothing is thrown and nothing is recorded here. What a host does about a failure belongs to
     /// <see cref="FrontmatterRegistries"/>, which knows which vaults named this file.
     /// </summary>
     /// <param name="path">The declaration file to read.</param>
@@ -371,10 +371,9 @@ public static class FrontmatterRegistryLoader
         var declared = Text(variant, "identity_match", where);
         if (declared is null)
             return hasIdentity
-                // Required alongside an identity, because no default is right: an identity naming a
-                // file compares the way the filesystem resolves it, and a line of prose compares
-                // exactly. Guessing either would make a scan and an operation disagree about
-                // whether an entry is already there.
+                // Required alongside an identity, because no default is right. Guessing either way
+                // would make a scan and an operation disagree about whether an entry is already
+                // there.
                 ? throw new InvalidDataException($"{where} declares an identity and no \"identity_match\" - it is case-sensitive or case-insensitive.")
                 : StringComparison.Ordinal;
 
@@ -475,7 +474,7 @@ public static class FrontmatterRegistryLoader
     // ---- Shared checks ----
 
     /// <summary>
-    /// Reads the declared op class at <c>write_requires</c>. This is the cross-file check: an
+    /// Reads the declared op class at <c>write_requires</c>. This is the cross-file check. An
     /// authority the op-class configuration does not define is a protection nothing can ever
     /// satisfy, which would look like a permanently locked key rather than the misconfiguration it
     /// is.

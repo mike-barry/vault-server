@@ -27,7 +27,7 @@ public enum ViolationRule
     /// This is the one violation carrying no key, because there are no keys to carry.
     ///
     /// It is reported rather than passed over. Tolerance means the validator does not fail a
-    /// whole-vault pass over one malformed note, not that it calls the note valid: the write path
+    /// whole-vault pass over one malformed note, not that it calls the note valid. The write path
     /// refuses this note, and a validator that passed it would break the rule that a note the
     /// validator passes is not one an operation refuses.
     /// </summary>

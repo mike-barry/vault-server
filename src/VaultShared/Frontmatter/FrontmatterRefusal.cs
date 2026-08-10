@@ -2,7 +2,7 @@ namespace VaultShared.Frontmatter;
 
 /// <summary>
 /// The exception thrown when the frontmatter surface refuses a write. Integrity, hygiene, path
-/// exclusion and authority denial all refuse. Schema violations do not: they come back as data
+/// exclusion and authority denial all refuse. Schema violations do not, and come back as data
 /// (<see cref="Violation"/>), because throwing on any schema violation would refuse a sweeping fix
 /// pass on exactly the notes carrying pre-existing problems.
 ///
@@ -53,9 +53,8 @@ public sealed class FrontmatterRefusal : Exception
 
     /// <summary>
     /// Gets the key names the declaration recognizes, for a refusal over a key it does not, and
-    /// empty on every other refusal. It is what the caller picks a replacement from, which is why
-    /// it is separate from <see cref="Keys"/>: that names the key at fault, and this names the ones
-    /// that would have worked.
+    /// empty on every other refusal. It is what the caller picks a replacement from, and is separate
+    /// from <see cref="Keys"/>, which names the key at fault.
     ///
     /// The list is sorted ordinally, so it is the same on every call. It is the vault's own
     /// declared vocabulary rather than a set filtered against what this caller may write, so naming
@@ -65,7 +64,7 @@ public sealed class FrontmatterRefusal : Exception
 
     /// <summary>
     /// Gets where in the caller's own text the failure is, and null where the refusal locates no
-    /// point in any text. Only a supplied block that will not parse carries one: the text is the
+    /// point in any text. Only a supplied block that will not parse carries one. The text is the
     /// caller's, so the position describes what it sent and discloses nothing about the vault.
     /// </summary>
     public ParsePosition? Position { get; }
@@ -161,8 +160,8 @@ public enum RefusalReason
     /// frontmatter, so it is a caller error rather than a defect in the note.</summary>
     SuppliedBlockInvalid,
 
-    /// <summary>The note is under a dot segment. Distinct from an authorization denial: the tooling
-    /// does not own the file, and no grant changes that.</summary>
+    /// <summary>The note is under a dot segment. Distinct from an authorization denial, because the
+    /// tooling does not own the file and no grant changes that.</summary>
     PathExcluded,
 
     /// <summary>Caller text carried a control character. Refused rather than stripped.</summary>
@@ -192,8 +191,7 @@ public enum RefusalReason
     AmbiguousIdentity,
 
     /// <summary>A removal would clear entries of a variant that does not declare itself removable
-    /// wholesale. It is its own reason because the remedy is to name entries one at a time, which
-    /// is nothing like the remedy for an identity that matched nothing.</summary>
+    /// wholesale. The remedy is to name entries one at a time.</summary>
     WholesaleRemovalRefused,
 
     /// <summary>The caller does not hold the union of op classes the outcome required. The refusal

@@ -3,7 +3,7 @@ using VaultShared.Scope;
 namespace VaultShared.Frontmatter;
 
 /// <summary>
-/// Applies every write that interprets frontmatter. This is the only entry point: a consumer
+/// Applies every write that interprets frontmatter. This is the only entry point. A consumer
 /// calling the primitives around it would bypass the authority diff, the fence guard, the
 /// excluded-path refusal and text hygiene, all of which belong to this path rather than to the
 /// primitives.
@@ -155,11 +155,12 @@ public static class FrontmatterWrite
     // ---- The exclusion refusal ----
 
     /// <summary>
-    /// Refuses a note under a dot segment. The rule is in code rather than declared: nothing under
-    /// a dot directory is reachable by this tool set at all. It is distinct from an authorization
-    /// denial, because exclusion means the tooling does not own the file and no grant changes that.
+    /// Refuses a note under a dot segment. The rule is in code rather than declared, because nothing
+    /// under a dot directory is reachable by this tool set at all. It is distinct from an
+    /// authorization denial, because exclusion means the tooling does not own the file and no grant
+    /// changes that.
     /// </summary>
-    /// <param name="relativePath">The note's vault-relative path. Mandatory: its only uses are this
+    /// <param name="relativePath">The note's vault-relative path. Mandatory. Its only uses are this
     /// refusal and matching path policy, so an absent path would read as permission on exactly the
     /// files those protect.</param>
     /// <exception cref="ArgumentException">The path is missing, which is an upstream defect rather
@@ -394,12 +395,11 @@ public static class FrontmatterWrite
                     if (OperationText.IsEmpty(field.Name))
                         throw FrontmatterRefusal.At(RefusalReason.ValueRefused, index, add.Key, "The entry has an unnamed field.");
                     // Every field's value is tested for emptiness, not only a required one's, where
-                    // empty means null, empty, or whitespace only. It is hygiene over caller text
-                    // applied where an operation is decoded, exactly like the control-character
-                    // refusal beside it. The asymmetry that follows is accepted: a note may already
-                    // hold an entry with an empty optional field and validate clean, while an
-                    // operation adding that same entry is refused. Refusing is the safe direction,
-                    // since an entry with no identity cannot be named by a later removal.
+                    // empty means null, empty, or whitespace only. The asymmetry that follows is
+                    // accepted: a note may already hold an entry with an empty optional field and
+                    // validate clean, while an operation adding that same entry is refused. Refusing
+                    // is the safe direction, since an entry with no identity cannot be named by a
+                    // later removal.
                     if (OperationText.IsEmpty(field.Value))
                         throw FrontmatterRefusal.At(
                             RefusalReason.ValueRefused, index, add.Key, $"The field \"{field.Name}\" has no value.");
@@ -438,9 +438,6 @@ public static class FrontmatterWrite
                     ?? throw FrontmatterRefusal.At(
                         RefusalReason.ValueRefused, index, remove.Key,
                         $"\"{remove.Key}\" declares no variant named \"{named.Name}\".");
-                // Whether a removal may clear a whole variant is declared per variant: entries a
-                // person authored are dropped one at a time, while entries the tooling owns and
-                // rewrites can usefully be cleared wholesale.
                 if (!variant.RemovableWholesale)
                     throw FrontmatterRefusal.At(
                         RefusalReason.WholesaleRemovalRefused, index, remove.Key,
@@ -808,7 +805,7 @@ public static class FrontmatterWrite
 /// hand in a synthetic vocabulary and the same code serves both front-ends.
 /// </summary>
 /// <param name="Content">The note as stored. Empty for a note being composed.</param>
-/// <param name="RelativePath">The note's vault-relative path. Mandatory: its only uses are the
+/// <param name="RelativePath">The note's vault-relative path. Mandatory. Its only uses are the
 /// exclusion refusal and matching path policy, and an absent path would read as permission on
 /// exactly the files those protect.</param>
 /// <param name="Registry">The vault's loaded declaration. A caller without one has no write to make
@@ -835,11 +832,7 @@ public sealed record WriteRequest(
     public IReadOnlyList<FrontmatterOperation> Operations { get; } = Operations ?? [];
 }
 
-/// <summary>
-/// Describes what a write turned out to be: the composed content, its frontmatter and body, the
-/// violation list, which operations applied, whether each part changed, which keys changed, and
-/// what write authority the outcome required.
-/// </summary>
+/// <summary>Describes what a write turned out to be.</summary>
 /// <param name="Content">The composed note. Byte-identical to what the caller sent where nothing
 /// changed.</param>
 /// <param name="Split">The frontmatter and body of <paramref name="Content"/>, from the one
@@ -868,13 +861,10 @@ public sealed record WriteOutcome(
     IReadOnlySet<string> AssertedAuthority);
 
 /// <summary>
-/// Asserts the authority a write turned out to require. One member and one job, so the write path
-/// holds what asserts rather than what a vault is.
-///
-/// The write path asserts here rather than returning the requirement for a caller to assert.
-/// Returning it would make the assertion optional at every call site. The per-call access object
-/// implements this, which is how the assertion reaches this path without a vault type entering the
-/// namespace.
+/// Asserts the authority a write turned out to require. The write path asserts here rather than
+/// returning the requirement for a caller to assert, because returning it would make the assertion
+/// optional at every call site. The per-call access object implements this, which is how the
+/// assertion reaches this path without a vault type entering the namespace.
 /// </summary>
 public interface IKeyAuthority
 {

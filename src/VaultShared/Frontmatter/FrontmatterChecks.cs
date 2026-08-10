@@ -209,7 +209,7 @@ internal static class FrontmatterChecks
 
         // A required field is satisfied by text rather than by presence. A value that is null,
         // empty, or whitespace only is empty, so a required field written with nothing under it is
-        // reported exactly as an absent one: an entry whose identity field is empty has no identity
+        // reported exactly as an absent one. An entry whose identity field is empty has no identity
         // to address, and nothing can then name it for removal.
         foreach (var (name, field) in variant.Fields)
         {

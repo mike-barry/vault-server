@@ -9,7 +9,8 @@ namespace VaultShared.Frontmatter;
 /// implements its own trimming. The emptiness test is applied separately, in the write path's
 /// validate phase (<see cref="OperationText.IsEmpty"/>), which knows which operation to name in a
 /// refusal. Case-insensitivity is a property of the comparisons rather than a rewrite of the
-/// caller's text: lowercasing a key would destroy the spelling a write is supposed to preserve.
+/// caller's text, since lowercasing a key would destroy the spelling a write is supposed to
+/// preserve.
 /// </summary>
 public abstract record FrontmatterOperation
 {
@@ -109,8 +110,8 @@ public sealed record EntryFieldValue(string Name, string Value)
 }
 
 /// <summary>
-/// Represents what a removal addresses. Entries are addressed by declared identity, never by index:
-/// an index names a different entry the moment an earlier operation shifts the list, while an
+/// Represents what a removal addresses. Entries are addressed by declared identity, never by index.
+/// An index names a different entry the moment an earlier operation shifts the list, while an
 /// identity verifies itself.
 /// </summary>
 public abstract record EntryTarget
@@ -127,8 +128,7 @@ public abstract record EntryTarget
     }
 
     /// <summary>Every entry of a named variant, with no target value. Refused unless that variant
-    /// declares itself removable wholesale: entries a person authored are dropped one at a time,
-    /// while entries the tooling owns and rewrites can usefully be cleared in one go.</summary>
+    /// declares itself removable wholesale.</summary>
     /// <param name="Name">The variant to clear.</param>
     public sealed record Variant(string Name) : EntryTarget
     {
@@ -192,8 +192,8 @@ public static class OperationText
     /// <returns>True when the text carries a control character other than CR or LF.</returns>
     /// <remarks>
     /// Line terminators are the one exception, because the emitter handles them. Quotes are not
-    /// control characters and are not in scope. A tab is refused with the rest: it is not a line
-    /// terminator, and YAML cannot carry one as indentation at all.
+    /// control characters and are not in scope. A tab is refused with the rest, since it is not a
+    /// line terminator and YAML cannot carry one as indentation at all.
     /// </remarks>
     public static bool HasControlCharacter(string text) =>
         text.Any(c => char.IsControl(c) && c is not ('\n' or '\r'));

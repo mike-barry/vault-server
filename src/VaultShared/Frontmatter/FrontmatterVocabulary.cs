@@ -6,9 +6,9 @@ namespace VaultShared.Frontmatter;
 /// <see cref="FrontmatterRegistry"/> instance the write path holds, so there is no second copy to
 /// drift.
 ///
-/// This type advertises and does not enforce. Generating it is a read of the registry and asserts
-/// nothing, which keeps the write path the sole enforcement point: a payload satisfying everything
-/// advertised here can still be refused there. Constraints with no clean client-facing expression -
+/// This type advertises and does not enforce. The write path is the sole enforcement point, and a
+/// payload satisfying everything advertised here can still be refused there. Constraints with no
+/// clean client-facing expression -
 /// an exclusive group, an identity, whether a variant clears wholesale - are carried in
 /// <see cref="EntryBranch.Description"/> rather than dropped or reshaped into something a client
 /// would read as enforceable.
@@ -17,21 +17,19 @@ namespace VaultShared.Frontmatter;
 /// envelope carry it to a client belongs to the tool vocabulary, because this layer must not know
 /// which front-end is asking.
 /// </summary>
-/// <param name="Keys">Every declared key, so a client can name one. No front-end projects this: the
+/// <param name="Keys">Every declared key, so a client can name one. No front-end projects this. The
 /// advertised <c>edit</c> schema is built from <paramref name="Branches"/> alone, and a refusal that
 /// names the declared keys reads them from the declaration itself, because the write path is the
-/// enforcement point and must not depend on an advertising projection. The member is kept because
-/// advertising the key set is this projection's job, and a consumer that needs it should not have to
-/// re-derive it from the enforcement path.</param>
+/// enforcement point and must not depend on an advertising projection.</param>
 /// <param name="Branches">One branch per entry variant across every block-list key. Empty where no
-/// declaration is loaded, which is how a failed load reaches a client: <c>edit</c> stays advertised
-/// with its ordinary argument surface and its variant branches simply absent.</param>
+/// declaration is loaded, so a failed load reaches a client as <c>edit</c> still advertised with its
+/// ordinary argument surface and its variant branches simply absent.</param>
 public sealed record FrontmatterVocabulary(
     IReadOnlyList<KeyAdvertisement> Keys,
     IReadOnlyList<EntryBranch> Branches)
 {
-    /// <summary>Gets what a vault with no usable declaration advertises: nothing to say about keys
-    /// or entries.</summary>
+    /// <summary>Gets the projection a vault with no usable declaration advertises, holding no keys
+    /// and no entry branches.</summary>
     public static FrontmatterVocabulary None { get; } = new([], []);
 
     /// <summary>Returns the projection of a vault's declaration state.</summary>
@@ -87,8 +85,8 @@ public sealed record FrontmatterVocabulary(
             [
                 .. variant.Fields.Select(f => new SchemaField(
                     f.Key,
-                    // The discriminating field is pinned: a branch is selected by its presence, so a
-                    // client that sets it has chosen this variant and every other requirement of it.
+                    // A branch is selected by the discriminating field's presence, so a client that
+                    // sets it has chosen this variant and every other requirement of it.
                     f.Value.Required || string.Equals(f.Key, variant.DiscriminatedBy, StringComparison.OrdinalIgnoreCase),
                     Value(f.Value.Value),
                     f.Value.Note))
@@ -172,9 +170,9 @@ public sealed record EntryBranch(
 public sealed record SchemaField(string Name, bool Required, SchemaValue Value, string? Description);
 
 /// <summary>Represents a value's advertised shape.</summary>
-/// <param name="Type">The JSON type name, which is always <c>string</c> here: the parse leaves
-/// every scalar as the text that was written, so a value that is a date or a number in a client's
-/// eyes is a string in the note.</param>
+/// <param name="Type">The JSON type name, always <c>string</c>. The parse leaves every scalar as the
+/// text that was written, so a value that is a date or a number in a client's eyes is a string in
+/// the note.</param>
 /// <param name="Enum">The permitted values, where the constraint is an enumeration, and null
 /// otherwise.</param>
 /// <param name="Description">What the constraint wanted, in the words a violation would use.</param>
