@@ -75,9 +75,9 @@ public sealed class BearerGrantMiddlewareTests : IClassFixture<BearerGrantMiddle
     }
 
     /// <summary>
-    /// Verifies that a missing Authorization header is treated as a blank token: it falls back to
-    /// minimum access rather than 401, and the principal token hash the elevation tool reads is
-    /// still stored on the request.
+    /// Verifies that a missing Authorization header is treated as a blank token, falling back to
+    /// minimum access rather than 401, with the principal token hash the elevation tool reads still
+    /// stored on the request.
     /// </summary>
     [Fact]
     public async Task MissingAuthorizationHeader_FloorsToMinimumAccess()
@@ -181,7 +181,7 @@ public sealed class BearerGrantMiddlewareTests : IClassFixture<BearerGrantMiddle
 
     /// <summary>
     /// Verifies that the gate admits a call naming a vault the grant covers. This case needs a
-    /// real tool name: an unknown name also yields HTTP 200 with a tool error, so asserting only
+    /// real tool name. An unknown name also yields HTTP 200 with a tool error, so asserting only
     /// that the call was not refused would pass for any name. <c>read</c> takes a vault argument
     /// and this grant covers <c>personal</c>, so the call reaches the tool, which returns its own
     /// <c>path_not_found</c> error over HTTP 200.

@@ -11,9 +11,9 @@ namespace VaultMcpServer.Tests;
 /// configured location the native tools ignored would show up as a search that succeeded.
 /// </summary>
 /// <remarks>
-/// A missing engine is recorded as degraded rather than fatal, so the server keeps serving: the cases
-/// here assert that it still lists tools, still reads a note, and reports the condition through
-/// <c>health_check</c>, while <c>glob</c> and <c>grep</c> refuse with a code no caller retries.
+/// A missing engine is recorded as degraded rather than fatal, so the server keeps serving. It still
+/// lists tools, still reads a note, and reports the condition through <c>health_check</c>, while
+/// <c>glob</c> and <c>grep</c> refuse with a code no caller retries.
 /// </remarks>
 [Collection("Program host tests")]
 public sealed class SearchEngineWiringDispatchTests(SearchEngineWiringDispatchTests.Fixture fixture)
@@ -65,10 +65,10 @@ public sealed class SearchEngineWiringDispatchTests(SearchEngineWiringDispatchTe
     }
 
     /// <summary>
-    /// The defect this case exists for is a host that computes an engine location and then hands the
-    /// tools nothing, falling back to whatever <c>rg</c> on <c>PATH</c> resolves to. A machine with
-    /// ripgrep installed answers such a search successfully, which is why the assertion is on the
-    /// refusal rather than on the configuration.
+    /// Verifies that a search runs the configured engine, asserting the refusal rather than the
+    /// configuration. A host that computed an engine location and then handed the tools nothing
+    /// would fall back to whatever <c>rg</c> on <c>PATH</c> resolves to, which a machine with
+    /// ripgrep installed answers successfully.
     /// </summary>
     [Theory]
     [InlineData("glob", """{"pattern":"**"}""")]

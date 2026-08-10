@@ -22,8 +22,7 @@ namespace VaultMcpServer.Tests;
 /// an extra path in an enumeration, which a containment assertion would not catch.
 ///
 /// The fixture runs against a temp copy of the committed <c>test-vault/</c> under both isolation
-/// guards, because one test writes: the floor must not narrow the grant's own write reach, and only
-/// a write that lands shows that.
+/// guards, because one test writes.
 /// </remarks>
 [Collection("Program host tests")]
 public sealed class ScopeFloorDispatchTests(ScopeFloorDispatchTests.Fixture fixture) : IClassFixture<ScopeFloorDispatchTests.Fixture>

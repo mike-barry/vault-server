@@ -201,7 +201,7 @@ public sealed class MutationDispatchTests(MutationDispatchTests.Fixture fixture)
 
         Assert.False(File.Exists(fixture.In("Projects/Widget/Tasks.md")));
         Assert.True(File.Exists(fixture.In("Projects/Widget/Task-Board.md")));
-        // The repair reached disk rather than only being reported: no link still names the old path.
+        // The repair reached disk rather than only being reported.
         Assert.DoesNotContain(
             "[[Widget/Tasks]]",
             await File.ReadAllTextAsync(fixture.In("Projects/Widget/Widget.md")),
@@ -391,7 +391,7 @@ public sealed class MutationDispatchTests(MutationDispatchTests.Fixture fixture)
         }
 
         /// <summary>
-        /// Writes the notes the link-resolution tests need: no two notes in the committed vault
+        /// Writes the notes the link-resolution tests need. No two notes in the committed vault
         /// share a basename, so those tests seed their own.
         /// </summary>
         /// <remarks>

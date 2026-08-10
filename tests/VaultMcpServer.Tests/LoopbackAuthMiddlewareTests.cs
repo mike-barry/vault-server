@@ -141,8 +141,8 @@ public sealed class LoopbackAuthMiddlewareTests : IClassFixture<TestVaultFixture
     [Fact]
     public async Task NullRemoteIp_UnknownToken_IsDeniedNotFloored()
     {
-        // A null RemoteIpAddress is treated as non-loopback (fail closed): no floor, so an
-        // unrecognized token is a 401 rather than the minimum-access grant.
+        // A null RemoteIpAddress is treated as non-loopback, so with no floor an unrecognized token
+        // is a 401 rather than the minimum-access grant.
         var (status, body, grant) = await RunAsync(BuildStore(TimeProvider.System), remoteIp: null, "not-a-real-token");
 
         Assert.Equal(StatusCodes.Status401Unauthorized, status);

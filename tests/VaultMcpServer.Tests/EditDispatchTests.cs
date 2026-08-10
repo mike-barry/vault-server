@@ -107,11 +107,6 @@ public sealed class EditDispatchTests(EditDispatchTests.Fixture fixture) : IClas
     /// <c>vault</c> argument targets. This fixture's default vault names the committed
     /// declaration, so the branches are that file's variants.
     /// </summary>
-    /// <remarks>
-    /// The case where no declaration is configured is covered by
-    /// <c>NativeToolSchemaDispatchTests</c>, whose fixture pins that <c>entry</c> then arrives
-    /// unconstrained.
-    /// </remarks>
     [Fact]
     public async Task ToolsList_EditsEntryCarriesTheDefaultVaultsVariantBranches()
     {
@@ -278,7 +273,7 @@ public sealed class EditDispatchTests(EditDispatchTests.Fixture fixture) : IClas
         Assert.True(isError, text);
         Assert.Equal("content_changed", Code(text));
         using var doc = JsonDocument.Parse(text);
-        // No payload: returning the current hash would let a caller retry into content it never read.
+        // No payload. Returning the current hash would let a caller retry into content it never read.
         Assert.False(doc.RootElement.TryGetProperty("data", out _));
     }
 
@@ -306,9 +301,8 @@ public sealed class EditDispatchTests(EditDispatchTests.Fixture fixture) : IClas
     }
 
     /// <summary>
-    /// Verifies that a hash sent with a frontmatter operation guards it, which is the capability a
-    /// read-modify-write of one key needs: the same call against the note's current hash is admitted,
-    /// and against a hash the file no longer matches it is refused with nothing written.
+    /// Verifies that a hash sent with a frontmatter operation guards it, so a call against a hash
+    /// the file no longer matches is refused with nothing written.
     /// </summary>
     [Fact]
     public async Task AFrontmatterOperationAgainstAStaleHash_ArrivesAsContentChanged()
@@ -325,10 +319,8 @@ public sealed class EditDispatchTests(EditDispatchTests.Fixture fixture) : IClas
     }
 
     /// <summary>
-    /// Verifies the admitting direction of the same guard: a frontmatter operation carrying the note's
-    /// current hash is allowed through and lands on disk. This is the chaining the hash exists for -
-    /// read, decide, write back against what was read - and without it only the refusing direction is
-    /// covered, which a guard that refused every hash would also satisfy.
+    /// Verifies the admitting direction of the same guard. A frontmatter operation carrying the
+    /// note's current hash is allowed through and lands on disk.
     /// </summary>
     /// <remarks>
     /// The hash is taken from a read immediately before the call rather than from a constant, because
@@ -362,8 +354,8 @@ public sealed class EditDispatchTests(EditDispatchTests.Fixture fixture) : IClas
         public const string AgenticToken = "test-edit-agentic-token";
         public const string ReadToken = "test-edit-read-token";
 
-        /// <summary>The vault this fixture writes to: a per-fixture copy of the committed
-        /// test-vault, so a mutating case never reaches the committed one.</summary>
+        /// <summary>The per-fixture copy of the committed test-vault this fixture writes to, so a
+        /// mutating case never reaches the committed one.</summary>
         private readonly string _vaultRoot;
 
         public string NotePath => Path.Combine(_vaultRoot, "Inbox", "Note-Loose-Thought.md");
@@ -401,8 +393,7 @@ public sealed class EditDispatchTests(EditDispatchTests.Fixture fixture) : IClas
             var toolsDir = Path.Combine(TempDir, "tools");
             Directory.CreateDirectory(toolsDir);
 
-            // VAULT_MCP_VAULTS_JSON is set because AssertMutationSandboxed requires it: an unset
-            // value is one of the misfires that guard exists to catch.
+            // VAULT_MCP_VAULTS_JSON is set because AssertMutationSandboxed requires it.
             ConfigureEnvironment(vaultsPath, grantsPath, toolsDirectory: toolsDir, vaultMcpVaultsJsonPath: vaultsPath);
         }
 

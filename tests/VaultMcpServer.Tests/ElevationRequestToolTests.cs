@@ -101,7 +101,7 @@ public sealed class ElevationRequestToolTests(TestVaultFixture fixture) : IClass
         var result = Elevate(tool, store, CallerToken, Args(new { grant = "elevated" }));
 
         Assert.True(IsError(result));
-        // Deliberately the same code as the opt-in denial above: a caller cannot distinguish "not
+        // Deliberately the same code as the opt-in denial above. A caller cannot distinguish "not
         // allowed to ask" from "asked and refused".
         Assert.Equal("authority_required", Code(result));
         Assert.Contains("denied", Text(result));
@@ -175,7 +175,7 @@ public sealed class ElevationRequestToolTests(TestVaultFixture fixture) : IClass
         Assert.Equal("rate_limited", Code(third));
         Assert.Equal("2", Data(third)!["limit_per_minute"]);
 
-        // The window resets: after it elapses, a request is allowed through to the approver again.
+        // The window resets, so a request is allowed through to the approver again.
         timeProvider.Now = timeProvider.Now.AddMinutes(2);
         var afterWindow = Elevate(tool, store, CallerToken, Args(new { grant = "elevated" }));
         Assert.Equal("authority_required", Code(afterWindow));
@@ -203,15 +203,15 @@ public sealed class ElevationRequestToolTests(TestVaultFixture fixture) : IClass
         Assert.Equal("not_found", Code(firstProbe));
         Assert.Equal("not_found", Code(secondProbe));
 
-        // Those not_found responses consumed the budget: a request for a target that really exists
-        // is now throttled, which is only possible if the throttle ran first.
+        // Those not_found responses consumed the budget, so a request for a target that really
+        // exists is now throttled.
         var afterExhaustion = Elevate(tool, store, CallerToken, Args(new { grant = "elevated" }));
         Assert.True(IsError(afterExhaustion));
         Assert.Equal("rate_limited", Code(afterExhaustion));
         Assert.Equal("2", Data(afterExhaustion)!["limit_per_minute"]);
 
-        // Enumeration stops with the budget: a further unknown target answers rate_limited rather
-        // than not_found, so the probe rate is capped at MaxRequestsPerMinute.
+        // A further unknown target answers rate_limited rather than not_found, so the probe rate is
+        // capped at MaxRequestsPerMinute.
         var throttledProbe = Elevate(tool, store, CallerToken, Args(new { grant = "does-not-exist-3" }));
         Assert.Equal("rate_limited", Code(throttledProbe));
         // No target-existence datum leaks past the throttle - only the caller's configured limit.
@@ -262,7 +262,7 @@ public sealed class ElevationRequestToolTests(TestVaultFixture fixture) : IClass
         var result = Elevate(tool, store, CallerToken, Args(new { scope_roots = new[] { "no-such-vault/Projects" }, op_class = new[] { "content:read" } }));
 
         Assert.True(IsError(result));
-        // Naming the vault here discloses nothing new: the configured vault set is already
+        // Naming the vault here discloses nothing new. The configured vault set is already
         // readable by any grant through health_check.
         Assert.Equal("unknown_vault", Code(result));
         Assert.Equal("no-such-vault", Data(result)!["vault"]);

@@ -180,9 +180,8 @@ public sealed class MintTokenToolTests(TestVaultFixture fixture) : IClassFixture
         var result = Mint(store, Arguments(["test"], ["content:write"]), "scoped-token");
 
         Assert.True(result.IsError);
-        // authority_required rather than invalid_argument: minting can only attenuate, so a request
-        // beyond the caller's authority is refused rather than narrowed, and the caller's remedy is
-        // elevation rather than a different argument.
+        // Minting can only attenuate, so a request beyond the caller's authority is refused rather
+        // than narrowed.
         Assert.Equal("authority_required", result.Code);
         var text = result.ErrorText;
         Assert.Contains("op_class", text);
@@ -226,8 +225,8 @@ public sealed class MintTokenToolTests(TestVaultFixture fixture) : IClassFixture
         var result = Mint(store, Arguments(["scratch"], ["content:read"]), "scoped-token");
 
         Assert.True(result.IsError);
-        // out_of_scope is the same code the dispatcher's vault-membership denial uses: one code per
-        // condition, whichever layer refused.
+        // out_of_scope is the same code the dispatcher's vault-membership denial uses, so the
+        // condition carries one code whichever layer refused.
         Assert.Equal("out_of_scope", result.Code);
         var text = result.ErrorText;
         Assert.Contains("scope_roots", text);

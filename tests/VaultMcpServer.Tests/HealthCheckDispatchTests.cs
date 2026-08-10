@@ -198,7 +198,7 @@ public sealed class HealthCheckDispatchTests : IClassFixture<HealthCheckDispatch
                 #>
                 param()
                 """);
-            // A second, differently broken script: the .SCHEMA side-car body is not valid JSON. It
+            // A second, differently broken script, whose .SCHEMA side-car body is not valid JSON. It
             // fails through the same loader path as broken.ps1, with no separate reporting.
             File.WriteAllText(Path.Combine(toolsDir, "schema_broken.ps1"), """
                 <#

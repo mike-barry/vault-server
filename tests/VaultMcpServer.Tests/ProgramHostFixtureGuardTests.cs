@@ -34,7 +34,7 @@ public sealed class ProgramHostFixtureGuardTests
         using var fixture = new ProbeFixture();
         var goodPath = Path.Combine(fixture.TempDirForTest, "vaults.json");
 
-        // No exception expected: this is what a correctly configured fixture looks like.
+        // A correctly configured fixture, so the probe must not throw.
         fixture.Probe(goodPath, goodPath);
     }
 
@@ -42,7 +42,7 @@ public sealed class ProgramHostFixtureGuardTests
     public void AssertUnderTempDir_HostConfigPathOutsideTempDir_Throws()
     {
         using var fixture = new ProbeFixture();
-        // The case the guard exists to catch: the path resolving to the repo's committed
+        // The case the guard exists to catch, where the path resolves to the repo's committed
         // vaults.json instead of the fixture's temp copy.
         var realVaultsJson = Path.Combine(TestVaultFixture.RepoRoot, "vaults.json");
         var goodPath = Path.Combine(fixture.TempDirForTest, "vaults.json");

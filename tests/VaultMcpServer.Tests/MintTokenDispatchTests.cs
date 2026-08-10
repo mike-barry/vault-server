@@ -182,9 +182,7 @@ public sealed class MintTokenDispatchTests : IClassFixture<MintTokenDispatchTest
 
         var mintedToken = minted.RootElement.GetProperty("token").GetString();
 
-        // MintTokenTool's own unit tests assert against Grant.ScopeRoots that "Projects/Foo" never
-        // scopes the "test" vault or vice versa. Here the check is that the split survives the
-        // round trip and the response does not mix the two vaults' roots.
+        // The split survives the round trip, so the response does not mix the two vaults' roots.
         var scopeRoots = minted.RootElement.GetProperty("scope_roots").EnumerateArray().Select(v => v.GetString()).ToList();
         Assert.Equal(["personal/Projects/Foo", "test/Areas/Bar"], scopeRoots);
     }

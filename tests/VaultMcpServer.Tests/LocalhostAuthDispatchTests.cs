@@ -80,8 +80,8 @@ public sealed class LocalhostAuthDispatchTests : IClassFixture<LocalhostAuthDisp
         Assert.Equal(HttpStatusCode.OK, status);
         Assert.False(result!.Value.TryGetProperty("isError", out var isError) && isError.GetBoolean());
 
-        // A minted token in the answer, not just the absence of an error: the selector has to have
-        // reached the admin grant for the tool to have anything to return.
+        // A minted token in the answer, not just the absence of an error. Only the selector reaching
+        // the admin grant gives the tool anything to return.
         using var minted = JsonDocument.Parse(
             result.Value.GetProperty("content").EnumerateArray().First().GetProperty("text").GetString()!);
         Assert.False(string.IsNullOrEmpty(minted.RootElement.GetProperty("token").GetString()));
@@ -113,7 +113,7 @@ public sealed class LocalhostAuthDispatchTests : IClassFixture<LocalhostAuthDisp
         Assert.Equal(HttpStatusCode.OK, status);
         Assert.True(result!.Value.GetProperty("isError").GetBoolean());
 
-        // The op-class floor is what refuses, not a malformed call: the floor holds no op classes,
+        // The op-class floor is what refuses, not a malformed call. The floor holds no op classes,
         // so mint_token's declared grants:manage requirement is unmet.
         using var refusal = JsonDocument.Parse(
             result.Value.GetProperty("content").EnumerateArray().First().GetProperty("text").GetString()!);
@@ -121,9 +121,8 @@ public sealed class LocalhostAuthDispatchTests : IClassFixture<LocalhostAuthDisp
     }
 
     /// <summary>
-    /// Verifies that a floored caller naming a vault is refused, and that the transport carries the
-    /// refusal rather than answering it: naming a vault in the arguments does not turn the request
-    /// into a status code, so a caller meets one coded refusal shape whichever authority it lacks.
+    /// Verifies that a floored caller naming a vault is refused and that the transport carries the
+    /// refusal as a coded envelope rather than as a status code.
     /// </summary>
     [Fact]
     public async Task MinimumFloor_VaultNamingToolIsRefusedInACodedEnvelope()
