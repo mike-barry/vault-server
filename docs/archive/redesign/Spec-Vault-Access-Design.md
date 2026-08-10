@@ -1,5 +1,7 @@
 # Vault Access Design
 
+> **Archived 2026-08-09. Not to be modified.** This document is a historical record of the vault access layer redesign. It describes what was specified and designed, not what the code does now. Where it and the code disagree, the code is right.
+
 Forward specification for the vault access layer and the tool layer above it: what they own, what they guarantee, and which semantics are load-bearing and why. Written to be built from directly - it describes what must be true, not what any prior implementation did.
 
 Target: C# throughout, with two front-ends over one core - the MCP server and a CLI application that invokes each tool directly.

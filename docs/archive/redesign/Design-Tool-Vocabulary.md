@@ -1,5 +1,7 @@
 # Tool Vocabulary
 
+> **Archived 2026-08-09. Not to be modified.** This document is a historical record of the vault access layer redesign. It describes what was specified and designed, not what the code does now. Where it and the code disagree, the code is right.
+
 ## What This Answers
 
 - [[Spec-Tool-Capabilities.md#The Argument Surface]] - one record per tool as binder and schema source, the structured argument, the snake_case rule, and the refusal of an unrecognized enumerated value, met by [[#Argument Records]] and [[#Argument Rules]].

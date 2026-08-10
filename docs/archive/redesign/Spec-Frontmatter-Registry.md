@@ -1,5 +1,7 @@
 # Spec Frontmatter Registry
 
+> **Archived 2026-08-09. Not to be modified.** This document is a historical record of the vault access layer redesign. It describes what was specified and designed, not what the code does now. Where it and the code disagree, the code is right.
+
 Forward specification for the declaration the tooling is authorized by: which frontmatter keys it recognizes, what their values must look like, and what authority writing each requires. Its companion, `Spec-Frontmatter-Substrate.md`, owns how a block is parsed, mutated, and emitted. The two meet at the single write path, which runs this layer's whole-block validation and its per-operation validation.
 
 The declaration is one file, and each consumer takes the sections that bind it: the key, namespace, and entry-schema sections bind every frontmatter writer, and a future non-markdown surface takes its own. One file because every key-level protection derives from it and they share a trust tier, a lifecycle, and a load cascade.

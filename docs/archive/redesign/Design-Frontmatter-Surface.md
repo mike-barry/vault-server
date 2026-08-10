@@ -1,5 +1,7 @@
 # Frontmatter Surface
 
+> **Archived 2026-08-09. Not to be modified.** This document is a historical record of the vault access layer redesign. It describes what was specified and designed, not what the code does now. Where it and the code disagree, the code is right.
+
 ## What This Answers
 
 - [[Spec-Frontmatter-Substrate.md#Where The Boundary Sits]] - the in-memory, per-note extent and the rule that no check reasons about content from location, met by [[#Two Halves, One Namespace]].

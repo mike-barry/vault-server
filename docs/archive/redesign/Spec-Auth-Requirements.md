@@ -1,5 +1,7 @@
 # Auth Requirements
 
+> **Archived 2026-08-09. Not to be modified.** This document is a historical record of the vault access layer redesign. It describes what was specified and designed, not what the code does now. Where it and the code disagree, the code is right.
+
 What the rebuilt vault access layer owes the authorization model, and what that model owes it back. **The model itself is retained code and is not specified here** - grants, tokens, bindings, scope primitives, minting, and elevation all survive the rewrite intact, and the source is the authority on how they work. Restating them in a doc would create a second source of truth that drifts, so this doc carries only the obligations across the seam.
 
 The companion `Spec-Vault-Access-Design.md` states the guarantees the layer owes its callers.

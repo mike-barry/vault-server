@@ -1,5 +1,7 @@
 # Front-End Projection
 
+> **Archived 2026-08-09. Not to be modified.** This document is a historical record of the vault access layer redesign. It describes what was specified and designed, not what the code does now. Where it and the code disagree, the code is right.
+
 ## What This Answers
 
 - [[Spec-Vault-Access-Design.md#The Front-End Boundary]] - one declaration projected into two front-ends, met by [[#The Declaration]] and [[#The Command Tree]]; results and errors transport-neutral, met by [[#Rendering]]; scope arriving as an explicit parameter, met by [[#What Each Front-End Supplies]]; the CLI's named grant, met by [[#The CLI's Grant]].

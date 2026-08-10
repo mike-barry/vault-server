@@ -1,6 +1,8 @@
 # Design Documents
 
-This directory holds the design for the vault access build. The specs in `../spec/` say what must be true; a design document says what shape this build takes to meet it. This file is the convention every document in the directory follows, so the set reads as one thing.
+> **Archived 2026-08-09. Not to be modified.** This document is a historical record of the vault access layer redesign. It describes what was specified and designed, not what the code does now. Where it and the code disagree, the code is right.
+
+This directory holds the design for the vault access build. The `Spec-*` documents alongside it say what must be true; a design document says what shape this build takes to meet it. This file is the convention every `Design-*` document beside it follows, so the set reads as one thing.
 
 A design document is not done until the operator has reviewed it and signed off.
 

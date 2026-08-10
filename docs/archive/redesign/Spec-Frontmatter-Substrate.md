@@ -1,5 +1,7 @@
 # Spec Frontmatter Substrate
 
+> **Archived 2026-08-09. Not to be modified.** This document is a historical record of the vault access layer redesign. It describes what was specified and designed, not what the code does now. Where it and the code disagree, the code is right.
+
 Forward specification for the frontmatter write surface: what a block is, how a note splits into frontmatter and body, what a mutation preserves, what operations must be expressible, and what the single write path guarantees. Its companion, `Spec-Frontmatter-Registry.md`, owns which keys and paths are allowed through.
 
 Several tools write frontmatter and all go through this surface. It is specified separately because a multi-consumer contract buried inside its first consumer is missed by the second.

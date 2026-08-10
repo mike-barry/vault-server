@@ -1,5 +1,7 @@
 # Core Access Layer
 
+> **Archived 2026-08-09. Not to be modified.** This document is a historical record of the vault access layer redesign. It describes what was specified and designed, not what the code does now. Where it and the code disagree, the code is right.
+
 ## What This Answers
 
 - [[Spec-Vault-Access-Design.md#Load-Bearing Semantics]] - out-of-scope paths unrepresentable rather than checked, met by [[#The Ladder Of Proofs]] and the single producer in [[#Producing An Admitted Path]]; containment decided textually, met by [[#Paths And Vaults]]; a search that cannot read a file failing the search, met by [[#Enumeration And Search]]; ranking that does not search, met by [[#Wikilinks]].

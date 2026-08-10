@@ -55,8 +55,6 @@ These live under `docs/conventions/`. Load one before doing the work it governs.
 
 There is no decision log and none is to be created. How a decision was reached is the commit message; what survives from it is its outcome, and an outcome with a code site is a comment there, written as a constraint rather than a story.
 
-`docs/spec/` and `docs/design/` are being retired. Treat them as historical rather than authoritative: where they and the code disagree the code is right, and neither is amended to match the other.
-
 On a question this repository cannot answer, stop that thread and raise it with the operator in session rather than deciding from judgment.
 
 ## Tasks

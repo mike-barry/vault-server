@@ -1,5 +1,7 @@
 # Access Layer Capabilities
 
+> **Archived 2026-08-09. Not to be modified.** This document is a historical record of the vault access layer redesign. It describes what was specified and designed, not what the code does now. Where it and the code disagree, the code is right.
+
 What the vault access layer must be able to do, and which of those behaviors are load-bearing. The companion `Spec-Vault-Access-Design.md` states the guarantees the layer owes its callers and the constraints it is built under; this doc states the operations that must exist for those guarantees to have anything to apply to.
 
 **One source per requirement.** Where a subject belongs to another spec or to source that can be read directly, this doc points at it rather than restating it; where the design spec already carries a requirement, it is cited rather than repeated.

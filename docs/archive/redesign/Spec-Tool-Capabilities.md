@@ -1,5 +1,7 @@
 # Tool Capabilities And Semantics
 
+> **Archived 2026-08-09. Not to be modified.** This document is a historical record of the vault access layer redesign. It describes what was specified and designed, not what the code does now. Where it and the code disagree, the code is right.
+
 Forward specification for the tool layer: what each tool must accomplish, and which of its behaviors are load-bearing rather than incidental. `Spec-Vault-Access-Design.md` fixes the guarantees the layer beneath owes and `Spec-Access-Layer-Capabilities.md` states the operations it must offer; this doc states what the tools do with them.
 
 **Capabilities and semantics only.** Argument names, result fields, error codes, and the shape of any envelope are designed in this build. A sentence here that could only be satisfied by one spelling has overreached.
