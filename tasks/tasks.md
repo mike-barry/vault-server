@@ -6,7 +6,7 @@ NEXT_TASK_ID: 015
 
 ## Active
 
-- [ ] [task-012](task-012-cut-over-to-vault-server.md) — Layer this build's history onto the canonical `vault-server` repository
+- [/] [task-012](task-012-cut-over-to-vault-server.md) — Layer this build's history onto the canonical `vault-server` repository
 
 ## Backlog
 
