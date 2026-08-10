@@ -16,10 +16,10 @@ Run this after [task-009](task-009-windows-only.md) and [task-010](task-010-conf
 
 ## Acceptance criteria
 
-- [ ] The whole repository has been swept per `docs/guides/Comment-Sweep.md`.
-- [ ] No comment under `src/` or `tests/` cites a document other than one under `docs/reference/`, by name or by section, and every permitted citation is a bare `Ref-<Subject>.md` filename supplementing a comment that already stands on its own.
-- [ ] `GenerateDocumentationFile` was enabled on the three test projects, the build's reported doc-reference errors were fixed, and the project files were reverted afterwards.
-- [ ] `dotnet build --no-incremental` clean, `dotnet test` green.
+- [x] The whole repository has been swept per `docs/guides/Comment-Sweep.md`.
+- [x] No comment under `src/` or `tests/` cites a document other than one under `docs/reference/`, by name or by section, and every permitted citation is a bare `Ref-<Subject>.md` filename supplementing a comment that already stands on its own.
+- [x] `GenerateDocumentationFile` was enabled on the three test projects, the build's reported doc-reference errors were fixed, and the project files were reverted afterwards.
+- [x] `dotnet build --no-incremental` clean, `dotnet test` green.
 
 ## Notes
 
@@ -32,5 +32,19 @@ Run this after [task-009](task-009-windows-only.md) and [task-010](task-010-conf
 **`Code-Comments.md`'s roster of four protected comments was deleted, not amended.** Enumerating sites protects only what existed when the list was written and implies everything absent from it is fair game. The replacement is a property the sweep can recognize anywhere: a comment recording a measured or agreed fact is not shortened by anyone who cannot repeat the measurement, and it identifies itself by saying what was measured, what against, and what changing it breaks. The roster's `Vault.LockName` entry also carried a false claim - that a separate process reimplements the derivation, where the comment itself says only that `VaultWatcher` is the second holder of the lock - and deleting it removed that too.
 
 **Rescuing the design documents' `What This Closes` entries is in scope, and runs in Pass 1.** Those sections record the decisions the specifications left open, and an entry with a code site is already constraint-shaped, which is the form a comment is meant to take. Freezing them without a pass over them leaves reasoning a later reader cannot reach, since a frozen document may not be cited. Pass 1 is the only pass whose workers may read those documents, so deferring the rescue means reading them a second time. `docs/guides/Comment-Sweep.md` carries this as part of the procedure.
+
+### What the sweep found
+
+**Pass 1 had almost nothing to inline.** No comment under `src/` or `tests/` cited a document, by name or in prose, and neither did the project files or the PowerShell scripts. `WikilinkRanking`'s remark was the whole of the pass: 40 lines down to 11.
+
+**The design documents' `What This Closes` sections needed no rescue.** Roughly ninety entries across the four documents and the README. Most are `Rejected: <alternative>` clauses, which record how a decision was reached and belong to the commit message rather than to a comment. Every constraint checked against the code was already carried by a comment. Two facts are stated there and only implied here - that the validator's shape makes a note carrying no frontmatter incapable of being a violation, and that `delete` never reads the note it removes to classify authority, where `DeleteTool` gives only the positive form. Both follow from what is written. Neither was changed.
+
+**Pass 2 ran as twelve disjoint areas.** Net 365 comment lines removed across 161 files. Rule 8 candidates fell from 484 to 243; what remains is enumerations, `Windows:` breadcrumbs, and colons inside code literals. The largest reductions came from deleting duplicates rather than tightening prose - the frontmatter surface carried one account in three places, and both front-ends restated the refusal envelope's shape that `ToolRefusalEnvelope` owns.
+
+**Three false claims were confirmed and fixed.** `VaultLockNameTests` said `VaultWatcher` reimplements the lock-name derivation in its own code; it holds no derivation at all. `WikilinkOccurrence`'s summary said the record is two extents into the text; it carries three, the third being the display alias that `HasAlias` and `AliasIn` read. A rewrite in `GrantStoreBindingTests` had reduced a trailing comment to a statement that reads as contradicting the assertion beside it.
+
+**One suspected false claim did not hold.** `CliHealthState` says an invocation that reaches a tool reports `IsFatallyDegraded` as false. The two loaders that run after the last `Fail` guard record only `Degraded`, never `Fatal`, so the claim is accurate.
+
+**Pass 3 found nothing.** Documentation generation on the three test projects reported zero warnings. The check was proved to have teeth first, with a deliberately unresolvable `cref` that raised `CS1574` as expected. The project files were reverted, so no commit came out of this pass.
 
 **Pass 2 gains a second report category: a comment describing behavior whose site is outside the worker's area.** The documentation strategy requires one site to own a cross-file concern and the participants to restate nothing, and a worker partitioned by directory cannot tell an owner from a restater. Ownership is decided by an arbiter pass after Pass 2, over the collected reports. Refusal rendering, scope enforcement, and the lock derivation are the concerns most likely to surface.
