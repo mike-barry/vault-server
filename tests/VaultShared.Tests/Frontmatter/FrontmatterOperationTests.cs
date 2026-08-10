@@ -62,10 +62,9 @@ public sealed class FrontmatterOperationTests
             "\"doc.notes\" is declared a block list, and a flat scalar operation would replace the list with a string.",
             declared.Message);
 
-        // The declaration is not the only thing that can hold a block: a key declared a scalar can
-        // still have acquired a list in one note, by hand or by an earlier bad write. Only the note's
-        // own shape refuses that, and the messages are asserted because both refusals carry the same
-        // reason and only one of them is the list this check protects.
+        // A key declared a scalar can still hold a block in one note, by hand or by an earlier bad
+        // write, and only the note's own shape refuses that. The messages are asserted because both
+        // refusals carry the same reason.
         var byTheNote = Refused(
             Note("doc.title:\n  - one\n  - two"),
             new FrontmatterOperation.SetScalar("doc.title", "Widget"));
@@ -132,7 +131,6 @@ public sealed class FrontmatterOperationTests
     [Fact]
     public void RemoveField_IsRefusedWholeWhereOneEntryIsNotClearableWholesale()
     {
-        // Refused rather than applied in part: the clearable entries stay put.
         var refusal = Refused(
             Note("doc.notes:\n  - routed: skill-a\n  - pinned: keep this"),
             new FrontmatterOperation.RemoveField("doc.notes"));
@@ -145,10 +143,10 @@ public sealed class FrontmatterOperationTests
     }
 
     /// <summary>
-    /// Checks that removing a key the declaration calls a scalar, which this note nonetheless gives a
-    /// block, is refused. Nothing declares what those entries are, so nothing declares them clearable,
-    /// and dropping the key would discard a list no schema was ever consulted about. The message is
-    /// asserted because the other wholesale refusal carries the same reason and a different remedy.
+    /// Checks that removing a key the declaration calls a scalar, which this note gives a block, is
+    /// refused. Nothing declares those entries clearable, so dropping the key would discard a list no
+    /// schema was consulted about. The message is asserted because the other wholesale refusal
+    /// carries the same reason and a different remedy.
     /// </summary>
     [Fact]
     public void RemoveField_AgainstAScalarKeyThatTheNoteGivesABlockIsRefused()
@@ -215,7 +213,7 @@ public sealed class FrontmatterOperationTests
     [Fact]
     public void AddEntry_AVariantWithNoIdentityAppendsEveryTime()
     {
-        // A bare hint declares no identity, so there is nothing to match on and each add appends.
+        // A bare hint declares no identity, so there is nothing to match on.
         var outcome = Apply(
             Note("doc.notes:\n  - first hint"),
             new FrontmatterOperation.AddEntry("doc.notes", new EntryPayload.Scalar("second hint"), null));
@@ -250,8 +248,7 @@ public sealed class FrontmatterOperationTests
     /// <summary>
     /// Checks that an add whose own identity already matches several entries is refused rather than
     /// treated as the duplicate no-op. The no-op is safe only where exactly one entry answers to the
-    /// identity; with two, no single entry is the one the caller meant to be there already, and
-    /// appending a third would deepen the ambiguity instead of reporting it.
+    /// identity.
     /// </summary>
     [Fact]
     public void AddEntry_AnIdentityAlreadyMatchingSeveralEntriesIsRefused()

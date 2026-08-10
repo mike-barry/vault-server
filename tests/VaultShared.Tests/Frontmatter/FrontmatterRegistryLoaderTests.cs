@@ -11,7 +11,7 @@ namespace VaultShared.Tests;
 internal static class SyntheticDeclaration
 {
     /// <summary>
-    /// A well-formed declaration covering every part of the format: both key shapes, a namespace
+    /// Provides a well-formed declaration covering every part of the format: both key shapes, a namespace
     /// rule, two keys sharing one entry schema, a scalar variant beside two discriminated ones, an
     /// exclusive group, both identity comparisons, and a wholesale-removable variant. It also
     /// contains comments and a trailing comma, which the loader accepts.

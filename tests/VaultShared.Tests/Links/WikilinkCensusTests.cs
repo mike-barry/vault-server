@@ -4,7 +4,7 @@ using VaultShared.Links;
 namespace VaultShared.Tests.Links;
 
 /// <summary>
-/// Verifies the census a removal runs: every surviving link into the set being removed is reported
+/// Verifies the census a removal runs. Every surviving link into the set being removed is reported
 /// one occurrence at a time and nothing is rewritten. A removal cannot repair links the way a move
 /// can, because deleting one of two same-named notes leaves bare links resolving to the survivor
 /// and the right fix is the caller's to choose.
@@ -108,7 +108,7 @@ public sealed class WikilinkCensusTests : IDisposable
     /// order the measurement recorded them.
     /// </summary>
     /// <remarks>
-    /// The census is what these tests resolve through: a target is reported exactly when it opens
+    /// The census is what these tests resolve through. A target is reported exactly when it opens
     /// the file being removed, so removing one of the three <c>Delta</c> files names every spelling
     /// that opens it and, by omission, every spelling that opens nothing.
     /// </remarks>

@@ -147,7 +147,6 @@ public sealed class FrontmatterAuthorityTests
     [Fact]
     public void AnOperationAimedAtAnInnocuousKeyIsClassifiedByWhatItChanged()
     {
-        // Classification uses the keys the write changed, not the key the operation named.
         var authority = new StubAuthority();
         var refusal = Assert.Throws<FrontmatterRefusal>(() => Apply(
             authority, Note("agent.instructions:\n  - routed: skill-a"),

@@ -31,8 +31,7 @@ public sealed class FrontmatterComposerTests
     [Fact]
     public void AnEmptyTreeEmitsNoFence()
     {
-        // A removal that empties the block drops the fence with it, and no note is left holding an
-        // empty fence pair.
+        // A removal that empties the block drops the fence with it.
         Assert.Equal("Body text.\n", FrontmatterComposer.Compose(FrontmatterTree.Empty(), "Body text.\n"));
         Assert.Equal(string.Empty, FrontmatterComposer.Emit(FrontmatterTree.Empty()));
     }
@@ -132,8 +131,8 @@ public sealed class FrontmatterComposerTests
     [Fact]
     public void ADateShapedScalarComesBackAsTheTextThatWasWritten()
     {
-        // A boolean spelling is text in the same way a date shape is: the node layer carries what
-        // was written, so nothing decodes `no` to false or quotes it to keep it a string.
+        // The node layer carries what was written, so nothing decodes `no` to false or quotes it to
+        // keep it a string.
         Assert.Equal(
             "created: 2024-01-31\nstamped: 2024-01-31T09:30:00Z\nflag: no\nother: yes\n",
             FrontmatterComposer.Emit(Parsed("created: 2024-01-31\nstamped: 2024-01-31T09:30:00Z\nflag: no\nother: yes")));
@@ -175,9 +174,8 @@ public sealed class FrontmatterComposerTests
     [Fact]
     public void ComposingAnUntouchedTreeReproducesABlockThatWasAlreadyCanonical()
     {
-        // Composing guarantees meaning, not bytes. A block already in the emitter's own shape does
-        // come back byte-identical, so a write that changes nothing in a canonical block moves no
-        // byte.
+        // Composing guarantees meaning, not bytes. A block already in the emitter's own shape comes
+        // back byte-identical.
         const string content = "---\ntitle: Widget\ntags:\n  - a\n  - b\ncreated: 2024-01-31\n---\nBody text.\n";
         var split = NoteSplit.Of(content);
 
@@ -188,9 +186,7 @@ public sealed class FrontmatterComposerTests
     public void ComposingWhatAComposeProducedMovesNoFurtherByte()
     {
         // One pass over an arbitrarily quoted block lands in the emitter's own shape, and a second
-        // pass over that result has nothing left to change. A note that is composed again is
-        // therefore not rewritten, so composing is what settles the block rather than something
-        // that moves it a little further each time.
+        // pass over that result has nothing left to change.
         const string content =
             "---\ntitle: 'Widget'\nsummary: \"has: colon\"\nnote: >\n  one\n  two\ntags:\n- a\n- b\n---\nBody text.\n";
 

@@ -21,18 +21,18 @@ internal static class Synthetic
     internal const string OpenClass = "content:write";
     internal const string ElevatedClass = "agentic:write";
 
-    /// <summary>A scalar variant with no discriminator and therefore no identity.</summary>
+    /// <summary>Gets a scalar variant with no discriminator and therefore no identity.</summary>
     internal static EntryVariant Hint { get; } = new(
         "hint", null, new StringConstraint(), Fields(), [], [], StringComparison.Ordinal, RemovableWholesale: false);
 
-    /// <summary>A variant whose identity is matched case-sensitively and cannot be cleared
+    /// <summary>Gets a variant whose identity is matched case-sensitively and cannot be cleared
     /// wholesale.</summary>
     internal static EntryVariant Pinned { get; } = new(
         "pinned", "pinned", null,
         Fields(("pinned", true, new StringConstraint())),
         [], ["pinned"], StringComparison.Ordinal, RemovableWholesale: false);
 
-    /// <summary>A variant whose identity is matched case-insensitively and that may be cleared
+    /// <summary>Gets a variant whose identity is matched case-insensitively and that may be cleared
     /// wholesale.</summary>
     internal static EntryVariant Routed { get; } = new(
         "routed", "routed", null,
@@ -40,7 +40,7 @@ internal static class Synthetic
         [], ["routed"], StringComparison.OrdinalIgnoreCase, RemovableWholesale: true);
 
     /// <summary>
-    /// A variant with a required field that is not its discriminator, which separates the
+    /// Gets a variant with a required field that is not its discriminator, which separates the
     /// missing-required-field check from the no-matching-variant check.
     /// </summary>
     internal static EntryVariant Cited { get; } = new(
@@ -48,7 +48,7 @@ internal static class Synthetic
         Fields(("cited", true, new StringConstraint()), ("source", true, new StringConstraint())),
         [], ["cited"], StringComparison.Ordinal, RemovableWholesale: false);
 
-    /// <summary>A variant whose exclusive group is also its identity.</summary>
+    /// <summary>Gets a variant whose exclusive group is also its identity.</summary>
     internal static EntryVariant Link { get; } = new(
         "link", "label", null,
         Fields(("label", true, new StringConstraint()), ("link", false, new WikilinkConstraint()), ("folder", false, new StringConstraint())),
@@ -59,9 +59,9 @@ internal static class Synthetic
     internal static EntrySchema LinkSchema { get; } = new([Link]);
 
     /// <summary>
-    /// The declaration these tests run against. Two block-list keys share one schema instance, as
-    /// two keys naming the same schema would; one scalar key declares its own operation class, one
-    /// falls under a namespace that declares one, and the rest declare none.
+    /// Gets the declaration these tests run against. Two block-list keys share one schema instance;
+    /// one scalar key declares its own operation class, one falls under a namespace that declares
+    /// one, and the rest declare none.
     /// </summary>
     internal static FrontmatterRegistry Registry { get; } = new(
         new Dictionary<string, KeyDeclaration>(StringComparer.OrdinalIgnoreCase)

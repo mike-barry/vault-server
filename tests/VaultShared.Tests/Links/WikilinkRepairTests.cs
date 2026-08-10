@@ -65,10 +65,9 @@ public sealed class WikilinkRepairTests : IDisposable
     [Fact]
     public void ARelativeLinkToTheRelocatedNoteIsRepairedLikeAnyOther()
     {
-        // Before anchored targets were addressed at all, this link resolved to nothing, so the move
-        // left it dangling and no census would have reported it. It names the moved note, so it is
-        // a repair, and it is re-emitted in canonical form: the relative spelling is not preserved,
-        // exactly as a deliberately path-qualified one is not.
+        // The link names the moved note, so it is a repair. It is re-emitted in canonical form, so
+        // the relative spelling is not preserved, exactly as a deliberately path-qualified one is
+        // not.
         _vault
             .WithNote("Delta.md", "# The root copy\n")
             .WithNote("S/T/Delta.md", "# The one that moves\n")
@@ -201,9 +200,9 @@ public sealed class WikilinkRepairTests : IDisposable
     [Fact]
     public void AQualifiedBystanderIsNotSimplifiedWhenTheMoveRemovesTheAmbiguity()
     {
-        // Ambiguity ratchets one way. After the move the basename is unique again and the bare form
-        // would open the same note, but the link named something that did not move and its meaning
-        // did not change, so the pass leaves it alone rather than canonicalizing every link it sees.
+        // After the move the basename is unique again and the bare form would open the same note,
+        // but the link named something that did not move and its meaning did not change, so the
+        // pass leaves it alone rather than canonicalizing every link it sees.
         _vault
             .WithNote("A/Dupe.md", "# Moves away under a new name\n")
             .WithNote("B/Dupe.md", "# The one the link names, and it does not move\n")
@@ -466,7 +465,7 @@ public sealed class WikilinkRepairTests : IDisposable
     [Fact]
     public void AFileWhoseNameCarriesNoExtensionIsNamedByNothingAndDisplacesNoNote()
     {
-        // A file with no extension is reached by no target spelling at all: an extensionless target
+        // A file with no extension is reached by no target spelling at all. An extensionless target
         // names a note, and a target carrying an extension does not match a name that has none. The
         // bare link opens the note of that name from anywhere, including from beside the file, and
         // moving the folder holding the file changes nothing about it.

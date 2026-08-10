@@ -136,7 +136,7 @@ public sealed class WikilinkPinningTests : IDisposable
     {
         // A bare target spells the whole vault path of a root note, so a note created at the root
         // takes every bare link to its basename at once, from any distance. Ranking never comes
-        // into it: the nearby link is the one a distance-only rule leaves unpinned.
+        // into it. The nearby link is the one a distance-only rule leaves unpinned.
         _vault
             .WithNote("Zz/Deep/Dupe.md", "# The one they open now\n")
             .WithNote("Zz/Deep/Near.md", "See [[Dupe]].\n")

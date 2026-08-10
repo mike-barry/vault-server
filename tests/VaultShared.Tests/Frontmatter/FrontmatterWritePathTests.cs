@@ -122,7 +122,7 @@ public sealed class FrontmatterWritePathTests
     [Fact]
     public void ANoOp_ReturnsTheCallersContentByteIdentical()
     {
-        // The original string is returned, not a reserialization of it: the quoting and the comment
+        // The original string is returned, not a reserialization of it. The quoting and the comment
         // below would not survive one.
         var content = "---\ndoc.title: 'Widget'\n\n# a comment\n---\nBody text.\n";
 

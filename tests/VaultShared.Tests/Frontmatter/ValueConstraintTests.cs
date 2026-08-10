@@ -69,8 +69,6 @@ public sealed class ValueConstraintTests
     [Fact]
     public void AnUnsatisfiedResultNamesWhatTheConstraintWanted()
     {
-        // Each named kind can describe what it wanted. A raw-regex kind, which the format does not
-        // offer, could only report that something did not match.
         var result = new EnumerationConstraint(["open", "closed"]).Check("ajar");
 
         Assert.False(result.IsSatisfied);

@@ -176,9 +176,7 @@ public sealed class FrontmatterRefusalTests
     {
         // The hygiene screen runs ahead of the key's own value constraint and ahead of the lookup
         // that recognizes the key, so text carrying an escape sequence is reported as such rather
-        // than as a value in the wrong format or as a key nothing declares. A caller told to
-        // reformat a date, or handed the list of declared keys, resubmits the same control
-        // characters.
+        // than as a value in the wrong format or as a key nothing declares.
         var refusal = Refused(Body, [Set(key, value)]);
 
         Assert.Equal(RefusalReason.ControlCharacter, refusal.Reason);
@@ -202,12 +200,10 @@ public sealed class FrontmatterRefusalTests
     [Fact]
     public void ControlCharacter_ASuppliedBlocksEntriesAreScreenedAsItsScalarValuesAre()
     {
-        // A supplied block admits more caller text in one call than any other route into a note, and
-        // its block-list entries are where the text agents read lives. Both entry forms are
-        // screened: a field of a mapping entry, and the text of a bare scalar entry. Neither value
-        // here is one its own declared constraint would refuse, so what refuses is the hygiene
-        // screen. The escape is written as YAML's own \x1b so the file's bytes carry the escape
-        // sequence and the parser hands back the single control character it denotes.
+        // Both entry forms are screened: a field of a mapping entry, and the text of a bare scalar
+        // entry. Neither value here is one its own declared constraint would refuse, so what refuses
+        // is the hygiene screen. The escape is written as YAML's own \x1b so the file's bytes carry
+        // the escape sequence and the parser hands back the single control character it denotes.
         var field = Refused(
             string.Empty, suppliedBlock: "doc.notes:\n  - routed: \"skill\\x1b[31m-a\"", newBody: Body);
 
@@ -260,11 +256,10 @@ public sealed class FrontmatterRefusalTests
     [InlineData("agent.smuggled")]
     public void UnknownKey_AnUndeclaredKeyIsRefusedBeforeItsShapeMatters(string key)
     {
-        // Admission is the declared key map alone. A namespace rule sits beside the key
-        // declarations and reads like a second way to declare, but it only widens the authority a
+        // Admission is the declared key map alone. A namespace rule only widens the authority a
         // matching key requires, so a key under a declared prefix is as undeclared as one under no
         // prefix at all. The refusal lands under an authority holding every operation class, which
-        // is what shows the key was never admitted rather than merely unaffordable.
+        // shows the key was never admitted rather than merely unaffordable.
         var refusal = Refused(Body, [Set(key, "x")]);
 
         Assert.Equal(RefusalReason.UnknownKey, refusal.Reason);
@@ -286,9 +281,8 @@ public sealed class FrontmatterRefusalTests
     [Fact]
     public void UnknownKey_TheRefusalCarriesTheDeclaredKeyNamesSortedOrdinally()
     {
-        // A payload exists so the caller can lift a value into a corrected call, and the corrected
-        // call for an undeclared key is one naming a declared one. Both raise sites carry it, so a
-        // caller does not meet the same refusal with a payload one way and without it the other.
+        // Both raise sites carry the declared set, so a caller does not meet the same refusal with
+        // a payload one way and without it the other.
         string[] declared = [.. Synthetic.Registry.Keys.Keys.Order(StringComparer.Ordinal)];
 
         Assert.Equal(declared, Refused(Body, [Set("invented.key", "x")]).DeclaredKeys);
@@ -343,7 +337,6 @@ public sealed class FrontmatterRefusalTests
     [Fact]
     public void ValueRefused_AnEmptyAddressingValueIsRefusedOnBothSidesOfTheOperation()
     {
-        // The same emptiness check applies to both the add and the remove form.
         Assert.Equal(
             RefusalReason.ValueRefused,
             Refused(Body, [new FrontmatterOperation.AddEntry("doc.notes", new EntryPayload.Scalar("   "), null)]).Reason);
@@ -400,9 +393,9 @@ public sealed class FrontmatterRefusalTests
         Assert.Equal(
             RefusalReason.ShapeMismatch,
             Refused(Note("doc.notes:\n  - a hint"), [Set("doc.notes", "x")]).Reason);
-        // The note alone: doc.title is declared a scalar, so nothing in the declaration objects, and
-        // only the block this note gives the key does. The two cases above are both refused by the
-        // declaration, since doc.notes is declared a block list whatever any note holds.
+        // doc.title is declared a scalar, so nothing in the declaration objects and only the block
+        // this note gives the key does. The two cases above are both refused by the declaration,
+        // since doc.notes is declared a block list whatever any note holds.
         Assert.Equal(
             RefusalReason.ShapeMismatch,
             Refused(Note("doc.title:\n  - one\n  - two"), [Set("doc.title", "Widget")]).Reason);
