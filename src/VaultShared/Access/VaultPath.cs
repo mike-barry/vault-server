@@ -9,10 +9,10 @@ namespace VaultShared.Access;
 /// taking two paths can require them to agree.
 /// </summary>
 /// <remarks>
-/// Containment is decided textually and touches no filesystem. That keeps the check cheap,
-/// applicable to every path, and identical for a path that does not exist yet. This type asserts
-/// nothing about existence, about the name grammar, or about whether the path names a file or a
-/// folder; each operation checks what it needs where it needs it.
+/// Containment is decided textually and touches no filesystem, so it applies to a path that does
+/// not exist yet. This type asserts nothing about existence, about the name grammar, or about
+/// whether the path names a file or a folder; each operation checks what it needs where it needs
+/// it.
 ///
 /// Containment is not admission. This type says a path is inside its vault, and only
 /// <see cref="VaultAccess"/> turns one into a <see cref="ReadPath"/> or a <see cref="WritePath"/>,

@@ -70,7 +70,7 @@ public static class WikilinkRanking
     /// candidate two climbs away beats one a single climb away whose descent is longer.
     ///
     /// The comparison is a total order, so the sort is stable whatever order the candidates were
-    /// discovered in: the ordinal comparison of two distinct vault paths is never zero.
+    /// discovered in. The ordinal comparison of two distinct vault paths is never zero.
     /// </remarks>
     /// <param name="from">The note the link is written in.</param>
     /// <param name="a">The first candidate.</param>

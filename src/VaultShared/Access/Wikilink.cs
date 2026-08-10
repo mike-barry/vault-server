@@ -7,8 +7,8 @@ namespace VaultShared.Access;
 /// census silently under-reports.
 /// </summary>
 /// <remarks>
-/// It takes text and returns occurrences. No path goes in and none comes back: the consumer's own
-/// enumeration holds the path and is what carries it to ranking.
+/// It takes text and returns occurrences. No path goes in and none comes back. The consumer's own
+/// enumeration holds the path and carries it to ranking.
 /// </remarks>
 public static class Wikilink
 {
@@ -22,7 +22,7 @@ public static class Wikilink
     /// mean parsing the note, which every consumer here is built to avoid, and the scan runs over
     /// frontmatter as well as the body in any case. A wikilink inside a code fence is therefore an
     /// occurrence like any other: the census over-reports it, and a rename rewrites a name inside a
-    /// code sample. Both are visible when they happen, unlike the opposite error.
+    /// code sample.
     ///
     /// One link never crosses a line boundary, so a substitution can neither create nor move a
     /// frontmatter fence, and a link's inner text contains no bracket.
@@ -43,7 +43,7 @@ public static class Wikilink
             var end = Close(text, open + 2);
             if (end < 0)
             {
-                // No link opens here. Advance by one rather than two: the second bracket may be
+                // No link opens here. Advance by one rather than two. The second bracket may be
                 // the first of a link that does close, as in `[[[Name]]`, which is a stray bracket
                 // followed by a link.
                 at = open + 1;
@@ -93,7 +93,7 @@ public static class Wikilink
     /// outside it survives a substitution unchanged.
     ///
     /// The alias extent covers the display text after the first <c>|</c>, which may follow a
-    /// subpath, and runs to the closing delimiter: a second <c>|</c> is alias text rather than a
+    /// subpath, and runs to the closing delimiter. A second <c>|</c> is alias text rather than a
     /// further decoration. It is absent where the link carries no <c>|</c> and empty where it
     /// carries one with nothing after it.
     /// </remarks>
@@ -153,9 +153,10 @@ public static class Wikilink
 }
 
 /// <summary>
-/// Represents one link occurrence as two extents into the text it was recognized in: the whole
-/// link, and the target inside it. In <c>![[Notes/Old-Name|Alias]]</c> the first covers the whole
-/// link and the second covers <c>Notes/Old-Name</c>.
+/// Represents one link occurrence as extents into the text it was recognized in: the whole link,
+/// the target inside it, and the display alias where the link carries one. In
+/// <c>![[Notes/Old-Name|Alias]]</c> they cover the whole link, <c>Notes/Old-Name</c>, and
+/// <c>Alias</c>.
 /// </summary>
 /// <remarks>
 /// A consumer replaces a target by writing over its extent, so it never parses the note, re-emits

@@ -17,7 +17,7 @@ namespace VaultShared.Access;
 /// whole and the text before it is a character suffix of the candidate's folder path. So
 /// <c>Redesign/Spec-Tool-Capabilities</c> names
 /// <c>Projects/Vault-MCP-Server/Inbox/Redesign/Spec-Tool-Capabilities</c>, and so does
-/// <c>sign/Spec-Tool-Capabilities</c>: the suffix is measured in characters, so it may cut a folder
+/// <c>sign/Spec-Tool-Capabilities</c>. The suffix is measured in characters, so it may cut a folder
 /// name in half. Only the leading component can be cut, because only it sits at the start of the
 /// suffix. The final component is never partial, so <c>Capabilities</c> alone names nothing. This is
 /// Obsidian's observed behaviour rather than a rule of this build's own.
@@ -54,14 +54,14 @@ public static class WikilinkTarget
     ///
     /// Every other target is already measured from the vault root and is returned exactly as
     /// written, with no normalization at all. That is what keeps <c>S/../Delta</c> and
-    /// <c>..Delta</c> naming nothing: only a leading component decides an anchor, and interior
+    /// <c>..Delta</c> naming nothing. Only a leading component decides an anchor, and interior
     /// dot-segments are ordinary characters that no file's path contains.
     ///
     /// Climbing past the vault root is ignored rather than refused, so <c>../../../../Delta</c>
     /// written two folders deep still names the root's <c>Delta</c>. An empty component anywhere but
     /// the leading anchor names nothing, which is what makes <c>//Delta</c>, <c>./Delta/</c> and
     /// <c>./</c> unresolved. A target made only of dot-segments, such as <c>.</c>, <c>..</c> or
-    /// <c>../..</c>, also names nothing: the walk has to consume an ordinary component for the
+    /// <c>../..</c>, also names nothing. The walk has to consume an ordinary component for the
     /// target to name a file, so an anchor's own folder path is never an address.
     ///
     /// Every case above is Obsidian's observed behaviour, measured in a note at <c>S/T/</c> with
@@ -121,7 +121,7 @@ public static class WikilinkTarget
     /// <c>./</c> or <c>../</c> as anything but ordinary characters that no path contains.
     ///
     /// The comparison is case-insensitive throughout, matching this layer's path equality and the
-    /// scope semantics behind it: two spellings name one file, and a link whose case drifted from
+    /// scope semantics behind it. Two spellings name one file, and a link whose case drifted from
     /// the file's still opens it in the editor.
     ///
     /// The target may omit the extension. The editor writes a note's target without <c>.md</c> and

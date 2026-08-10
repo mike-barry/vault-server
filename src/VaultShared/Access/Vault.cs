@@ -11,9 +11,8 @@ namespace VaultShared.Access;
 /// and the only thing that can produce a <see cref="VaultPath"/>.
 /// </summary>
 /// <remarks>
-/// The root is represented by this type rather than by a path with no segments. Such a path would
-/// be admitted under every scope, and avoiding it is why <see cref="ScopePath.Normalize"/> can
-/// refuse to normalize the root without a carve-out here.
+/// The root is represented by this type rather than by a path with no segments, which would be
+/// admitted under every scope.
 /// </remarks>
 /// <param name="Name">The vault's name, as configuration spells it.</param>
 /// <param name="Root">The absolute path of the vault's root directory, which exists.</param>
@@ -22,9 +21,7 @@ public sealed record Vault(string Name, string Root, PathPolicy Policy)
 {
     /// <summary>
     /// Resolves a vault name against configuration, returning a usable vault or one of two
-    /// failures. It returns rather than throws, and the two failures are separate cases rather than
-    /// one message, so a name nobody configured (a caller error) is told from a configured vault
-    /// that is not usable right now (operational, and worth retrying).
+    /// failures.
     /// </summary>
     /// <param name="config">The loaded vault configuration.</param>
     /// <param name="name">
@@ -51,7 +48,7 @@ public sealed record Vault(string Name, string Root, PathPolicy Policy)
     /// Nothing here acquires it.
     /// </summary>
     /// <remarks>
-    /// Do not change this derivation. It is a cross-process contract: every process that takes the
+    /// Do not change this derivation. It is a cross-process contract. Every process that takes the
     /// write lock over a vault has to arrive at the same name from the same root directory, or two
     /// of them hold different locks over the same files and neither sees the other. The
     /// <c>VaultWatcher</c> process is the second holder this exists for.

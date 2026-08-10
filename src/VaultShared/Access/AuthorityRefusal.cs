@@ -1,8 +1,8 @@
 namespace VaultShared.Access;
 
 /// <summary>
-/// The exception <see cref="VaultAccess.AssertKey"/> throws when the caller's grant does not hold a
-/// capability key the work turned out to need.
+/// Represents the exception <see cref="VaultAccess.AssertKey"/> throws when the caller's grant does
+/// not hold a capability key the work turned out to need.
 /// </summary>
 /// <remarks>
 /// It carries the required op class and nothing about the grant. What the caller asked for may be

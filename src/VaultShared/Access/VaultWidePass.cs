@@ -8,13 +8,11 @@ namespace VaultShared.Access;
 /// must reach notes the grant can neither read nor write.
 /// </summary>
 /// <remarks>
-/// Being a separate object is the whole of the mechanism. Reach it only through
-/// <see cref="VaultAccess.BypassingScope"/>, so that bypassing scope reads as a deliberate act at
-/// the call site and every site doing it can be found with one search. Do not expose these
-/// operations on <see cref="VaultAccess"/> itself.
+/// Reach it only through <see cref="VaultAccess.BypassingScope"/>, so that bypassing scope reads as
+/// a deliberate act at the call site. Do not expose these operations on
+/// <see cref="VaultAccess"/> itself.
 ///
 /// Its operations take a <see cref="VaultPath"/>, which is proof of containment and nothing more.
-/// That is all this pass has and all it needs.
 ///
 /// This pass reaches notes the caller's own grant cannot. What may then be reported out of one of
 /// them is the calling tool's to decide, and nothing here decides it.
@@ -56,10 +54,9 @@ public sealed class VaultWidePass
     /// non-note files under it, so an embed naming one of those files has to be re-emitted with the
     /// rest of the repair, and the pass cannot see such a file through note enumeration.
     ///
-    /// A caller asks both domains rather than taking the notes out of this one. They are separate
-    /// questions - which files a folder rename carries, and which notes the pass reads and rewrites -
-    /// and a caller that confused them would try to read and rewrite every attachment in the vault as
-    /// though it were a note.
+    /// A caller asks both domains rather than taking the notes out of this one. A caller that
+    /// confused them would try to read and rewrite every attachment in the vault as though it were
+    /// a note.
     /// </remarks>
     /// <returns>The files, or a search failure.</returns>
     public SearchOutcome<VaultPath> EnumerateFiles() =>

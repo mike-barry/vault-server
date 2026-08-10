@@ -11,8 +11,7 @@ namespace VaultShared.Access;
 /// </summary>
 /// <remarks>
 /// The location must be passed in. This layer never reads it from an environment variable, a
-/// configuration file, or any other ambient source, for the same reason it never reads scope from
-/// one.
+/// configuration file, or any other ambient source.
 /// </remarks>
 /// <param name="Executable">
 /// The engine's location, or null to find it on <c>PATH</c>. Null is what a host that configures no
@@ -31,11 +30,11 @@ public sealed record SearchEngine(string? Executable = null)
     /// <remarks>
     /// Starting the engine in the vault directory is what makes every path it emits vault-relative.
     /// Reading both streams to completion is what makes "this search could not read a file"
-    /// decidable; streaming results would not be.
+    /// decidable.
     ///
-    /// The call is synchronous on purpose. A mutating tool invocation above holds a thread-affine
-    /// mutex across the whole call, so nothing below it may suspend. Neither front-end installs a
-    /// synchronization context, so blocking here cannot deadlock.
+    /// The call is synchronous. A mutating tool invocation above holds a thread-affine mutex across
+    /// the whole call, so nothing below it may suspend. Neither front-end installs a synchronization
+    /// context, so blocking here cannot deadlock.
     /// </remarks>
     /// <param name="workingDirectory">The directory to start the engine in, always the vault root.</param>
     /// <param name="arguments">The engine's command-line arguments.</param>

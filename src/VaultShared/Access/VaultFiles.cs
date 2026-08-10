@@ -10,19 +10,17 @@ namespace VaultShared.Access;
 /// </summary>
 /// <remarks>
 /// Moving and removing each have a file form and a folder form, because a path does not say which
-/// it names and neither form may guess. Inspecting the target to choose would be the kind of
-/// preliminary check every primitive here avoids.
+/// it names and neither form may guess.
 ///
 /// A primitive decides its own refusals from the attempt rather than from a check run first, so no
 /// window opens between the two in which another writer changes the answer. The two move probes
-/// (<see cref="PreflightMoveFile"/>, <see cref="PreflightMoveFolder"/>) are the exception, and they
-/// replace nothing: they report what a move would refuse, for a caller that has work to do before
-/// the move and must not do it for a move that cannot happen. The move still decides.
+/// (<see cref="PreflightMoveFile"/>, <see cref="PreflightMoveFolder"/>) report what a move would
+/// refuse, for a caller that has work to do before the move. The move still decides.
 ///
-/// The class is static and holds nothing. A primitive's authority is the type of the path it is
-/// handed - <see cref="ReadPath"/> to read, <see cref="WritePath"/> to write, create, move, or
-/// remove - so there is no per-call state to carry. The scope check happened where those proofs
-/// were produced, and no operation here can be reached without one.
+/// A primitive's authority is the type of the path it is handed - <see cref="ReadPath"/> to read,
+/// <see cref="WritePath"/> to write, create, move, or remove - so there is no per-call state to
+/// carry. The scope check happened where those proofs were produced, and no operation here can be
+/// reached without one.
 ///
 /// Nothing here acquires the write mutex. The shared execute path holds it around a whole tool
 /// invocation, so a primitive called outside a tool runs with no lock held.
@@ -42,9 +40,8 @@ public static class VaultFiles
     /// every other failure the platform raises is <see cref="ReadOutcome.Failed"/>.
     /// </summary>
     /// <remarks>
-    /// The bytes are read once and both results derive from them: the decoded text, and the digest
-    /// the staleness guard uses. Hashing a second read could describe different bytes from the
-    /// ones the returned text was decoded from.
+    /// The bytes are read once, so the digest describes exactly the bytes the returned text was
+    /// decoded from.
     /// </remarks>
     /// <param name="path">The note to read.</param>
     /// <returns>The content and its digest, or a classified failure.</returns>
@@ -80,7 +77,7 @@ public static class VaultFiles
         var target = path.Path;
         try
         {
-            // Truncate rather than Create: only this mode refuses a target that is not already
+            // Truncate rather than Create. Only this mode refuses a target that is not already
             // there, which is what keeps replacing and creating different operations.
             using var stream = new FileStream(target.Absolute, FileMode.Truncate, FileAccess.Write, FileShare.None);
             return new WriteOutcome.Written(Emit(stream, content));
@@ -201,11 +198,9 @@ public static class VaultFiles
     /// <remarks>
     /// This is the only code that can create that file. Nothing else in the build can create a
     /// dot-prefixed path at all: <see cref="VaultAccess.ForWrite"/> refuses one and
-    /// <see cref="Create"/> refuses the name. Both refusals are correct for text a caller supplied,
-    /// and the placeholder is not caller text, so it has a member of its own instead of either
-    /// refusal being weakened. Keep the child path composed here rather than passed in - that is
-    /// what makes it true by construction that a caller can ask for a placeholder but cannot name
-    /// one.
+    /// <see cref="Create"/> refuses the name. Keep the child path composed here rather than passed
+    /// in, which is what makes it true by construction that a caller can ask for a placeholder but
+    /// cannot name one.
     ///
     /// The folder's own write proof carries admission for everything under it, because scope roots
     /// are whole-segment prefixes.
@@ -309,9 +304,8 @@ public static class VaultFiles
     /// </summary>
     /// <remarks>
     /// This is one filesystem operation and never a walk. The contents keep their names and their
-    /// positions relative to the folder, so nothing under it has to be named, created or removed.
-    /// That is what keeps a relocation from having a half-moved state of its own, and what keeps
-    /// this primitive from creating the folders a per-file relocation would need on the far side.
+    /// positions relative to the folder, so nothing under it has to be named, created or removed,
+    /// and a relocation has no half-moved state of its own.
     /// <see cref="RemoveEmptyFolder"/> obeys the same rule against walking a tree.
     ///
     /// The destination's own name is the one segment this call creates, and is checked against the
@@ -410,8 +404,7 @@ public static class VaultFiles
     /// </summary>
     /// <remarks>
     /// A folder operand has no content to read, so a probe is the only thing that establishes it
-    /// exists. A file at the same path answers false: an extensionless file is not a folder, and no
-    /// folder operation can act on one.
+    /// exists. A file at the same path answers false. An extensionless file is not a folder.
     /// </remarks>
     /// <param name="path">The folder to look for.</param>
     /// <returns><see langword="true"/> when a directory is there; otherwise <see langword="false"/>.</returns>
@@ -428,10 +421,7 @@ public static class VaultFiles
     /// move itself and its answer is the authoritative one, because anything read here can stop
     /// being true before the move runs. This exists for a caller that must do other work before the
     /// move - a preview that writes nothing, or a mutation that rewrites other files first - so that
-    /// the refusal arrives before that work instead of after it. Both are needed: without this, such
-    /// a caller reports success for a move that cannot happen or leaves earlier writes behind a
-    /// refusal; without the check in the move, the answer would come from state read a moment
-    /// earlier.
+    /// the refusal arrives before that work instead of after it.
     /// </para>
     /// <para>
     /// The destination is not an occupant when it names the source under another spelling, which is
@@ -467,9 +457,8 @@ public static class VaultFiles
     /// </para>
     /// <para>
     /// A folder that is not there is reported as well, and ahead of every reason about the
-    /// destination: both can be true of one call, and a caller whose operand is missing has to fix
-    /// that before anything about where it was going matters. A folder move reads no content, so
-    /// there is nothing else to establish that the operand exists.
+    /// destination. A folder move reads no content, so there is nothing else to establish that the
+    /// operand exists.
     /// </para>
     /// </remarks>
     /// <param name="source">The folder that would move.</param>
@@ -507,7 +496,7 @@ public static class VaultFiles
     }
 
     /// <summary>
-    /// Removes one file. The refusal comes from the attempt: the open fails when nothing is there,
+    /// Removes one file. The refusal comes from the attempt. The open fails when nothing is there,
     /// and the entry is unlinked as the handle closes, so no check stands between the two.
     /// </summary>
     /// <param name="path">The file to remove.</param>
@@ -612,7 +601,7 @@ public static class VaultFiles
 
     /// <summary>
     /// Returns the digest a write of this content would store, without storing it. A caller holding
-    /// both a read's hash and a composed result can compare the two: they are equal exactly when
+    /// both a read's hash and a composed result can compare the two. They are equal exactly when
     /// the write would change nothing.
     /// </summary>
     /// <param name="content">The text a write would store.</param>

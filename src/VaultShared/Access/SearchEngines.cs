@@ -8,12 +8,6 @@ namespace VaultShared.Access;
 /// fallback, the base a relative path resolves against, and the existence check are decided once and
 /// cannot drift between front-ends.
 /// </summary>
-/// <remarks>
-/// This does not weaken the rule that the access layer never discovers the engine's location for
-/// itself. The caller supplies the configured text and the directory to resolve it against; nothing
-/// here reads an environment variable, a configuration file, or any other ambient source. What is
-/// per-host is where the value comes from, and that is the argument.
-/// </remarks>
 public static class SearchEngines
 {
     /// <summary>The subsystem name recorded with a problem, so an operator sees which load found it.</summary>
@@ -30,15 +24,12 @@ public static class SearchEngines
     /// <param name="configDirectory">
     /// The directory a relative <paramref name="configured"/> is resolved against, which is the
     /// directory the host's own configuration lives in. Resolving against the process's working
-    /// directory instead would give a different engine per invocation of a command-line front-end,
-    /// which is run from wherever an operator happens to be.
+    /// directory would give a different engine per invocation of a command-line front-end.
     /// </param>
     /// <param name="sink">
     /// Where a configured location that is not there is recorded, as
-    /// <see cref="ProblemSeverity.Degraded"/>. Fatal would take down a host whose reads, writes,
-    /// moves and removals are all still correct, since only search and enumeration go through the
-    /// engine, and recording it here names the mistyped path at startup rather than leaving an
-    /// operator to infer it from the first search that refuses.
+    /// <see cref="ProblemSeverity.Degraded"/> rather than fatal, since only search and enumeration
+    /// go through the engine.
     /// </param>
     /// <returns>
     /// The engine to hand to the access layer. A configured location that is not there is still
@@ -51,7 +42,7 @@ public static class SearchEngines
             return SearchEngine.OnPath;
 
         // Only an explicitly configured location is checked. Absence means the engine is found on
-        // PATH, and probing PATH for it is the platform's job at launch, not this method's.
+        // PATH, which the platform does at launch.
         var path = Path.GetFullPath(Path.Combine(configDirectory, declared));
         if (!File.Exists(path))
         {

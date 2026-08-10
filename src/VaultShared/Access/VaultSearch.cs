@@ -17,7 +17,7 @@ internal static class VaultSearch
     /// The arguments every invocation carries. Each is required. <c>--no-config</c>, or the engine
     /// takes options from a file named by an environment variable, which is ambient state nothing
     /// here may read. <c>--hidden</c>, because the engine's hidden-file skipping is not the dot
-    /// rule: hidden on Windows is a file attribute, which a dot-prefixed directory does not carry,
+    /// rule. Hidden on Windows is a file attribute, which a dot-prefixed directory does not carry,
     /// so leaving it off would drop dot entries the file census must see while still admitting
     /// hidden ones. <c>--no-ignore</c>, because a gitignored file is still on disk and can still be
     /// destroyed, so no ignore-file behaviour is inherited.
@@ -56,7 +56,7 @@ internal static class VaultSearch
         return Read(run, vault, output => Paths(vault, Split(output, trailing: false), admit));
     }
 
-    /// <summary>Returns each matching line with its location: the richest granularity.</summary>
+    /// <summary>Returns each matching line with its location.</summary>
     /// <param name="vault">The vault to search.</param>
     /// <param name="engine">The engine to run.</param>
     /// <param name="regex">The engine's regex syntax.</param>
@@ -76,9 +76,9 @@ internal static class VaultSearch
     }
 
     /// <summary>
-    /// Returns the files containing a match. It is its own invocation rather than the line
-    /// granularity with the lines dropped, so a caller wanting a file list does not pay to
-    /// materialize every match.
+    /// Returns the files containing a match, as its own invocation rather than the line granularity
+    /// with the lines dropped, so a caller wanting a file list does not pay to materialize every
+    /// match.
     /// </summary>
     /// <inheritdoc cref="Lines" path="/param"/>
     /// <returns>The matching files, or a search failure.</returns>
@@ -91,8 +91,7 @@ internal static class VaultSearch
     }
 
     /// <summary>
-    /// Returns how many lines matched in each file, again as its own invocation for the same reason
-    /// as <see cref="Containing"/>.
+    /// Returns how many lines matched in each file, again as its own invocation.
     /// </summary>
     /// <inheritdoc cref="Lines" path="/param"/>
     /// <returns>The per-file counts, or a search failure.</returns>
@@ -134,22 +133,18 @@ internal static class VaultSearch
     /// rather than from message text wherever possible.
     /// </summary>
     /// <remarks>
-    /// A run that never started is its own outcome rather than a general failure, because no retry of
-    /// the identical call can start an executable that is not there.
-    ///
     /// The engine refuses a malformed glob or regex before it walks anything, so such a run
-    /// produces no output at all. Every other exit tells us it ran: it either completed (0 or 1) or
+    /// produces no output at all. Every other exit means it ran: it either completed (0 or 1) or
     /// completed and also reported a problem (2, with the output it had already produced). That is
     /// the only discriminator between a caller's bad pattern and a failure during the search.
     ///
-    /// It is why the search granularities ask the engine for a completion marker they do not
+    /// The search granularities therefore ask the engine for a completion marker they do not
     /// otherwise need. The JSON summary event and the <c>--stats</c> block are printed even when
     /// the run also failed, so "produced no output" cannot be confused with "matched nothing". Do
     /// not drop those flags.
     ///
-    /// Anything on the error stream fails the whole call. A search that cannot read a file must not
-    /// answer with the files it could read, because that turns a permissions problem into a wrong
-    /// answer the caller cannot tell from a correct one.
+    /// Anything on the error stream fails the whole call, rather than answering with the files the
+    /// run could read.
     /// </remarks>
     /// <typeparam name="TResult">What one result is.</typeparam>
     /// <param name="run">The completed run.</param>
@@ -249,7 +244,7 @@ internal static class VaultSearch
     /// <summary>
     /// Parses the count output, which is <c>path\0count</c> per file, one per line, with the
     /// statistics block after the last of them. Reading it as a stream of NUL-separated fields
-    /// keeps every path intact: a count and the next path share a chunk and are split at the
+    /// keeps every path intact. A count and the next path share a chunk and are split at the
     /// newline between them.
     /// </summary>
     /// <param name="vault">The vault that was searched.</param>

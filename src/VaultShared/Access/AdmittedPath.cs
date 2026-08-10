@@ -6,10 +6,9 @@ namespace VaultShared.Access;
 /// roots.
 /// </summary>
 /// <remarks>
-/// Every read primitive takes one of these, so the authority it requires is part of its signature
-/// rather than a check it has to remember. Only <see cref="VaultAccess"/> and
-/// <see cref="VaultWidePass"/> construct one. Do not add another producer: each one is a place the
-/// scope check can be skipped without saying so.
+/// Every read primitive takes one of these, so the authority it requires is part of its signature.
+/// Only <see cref="VaultAccess"/> and <see cref="VaultWidePass"/> construct one. Do not add another
+/// producer. Each one is a place the scope check can be skipped without saying so.
 /// </remarks>
 public sealed record ReadPath
 {
@@ -29,8 +28,8 @@ public sealed record ReadPath
 /// bypass.
 /// </summary>
 /// <remarks>
-/// <see cref="AsRead"/> converts a write proof to a read proof. There is no conversion the other
-/// way, so no expression can hand a merely-readable path to a write.
+/// There is no conversion the other way, so no expression can hand a merely-readable path to a
+/// write.
 /// </remarks>
 public sealed record WritePath
 {

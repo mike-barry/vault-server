@@ -6,9 +6,6 @@ namespace VaultShared.Access;
 /// every nested record has handled every case.
 /// </summary>
 /// <remarks>
-/// One type serves both surfaces because both distinguish the same outcomes, and because an
-/// enumeration carrying a pattern is itself a search over names and paths.
-///
 /// An empty <see cref="Results"/> is the correct answer to a well-formed question that matched
 /// nothing. It is not a failure, so a caller never has to read an error message to find out whether
 /// anything went wrong.
@@ -57,8 +54,7 @@ public abstract record SearchOutcome<TResult>
     /// <summary>
     /// The engine could not be started at all: it is not where the host said it was, or the platform
     /// refused to launch it. It is separate from <see cref="Failed"/> because repeating the identical
-    /// call cannot change the answer, while a run that started and failed may succeed on a retry, and
-    /// a caller decides whether to retry from which of the two it got.
+    /// call cannot change the answer, while a run that started and failed may succeed on a retry.
     /// </summary>
     /// <param name="Reason">
     /// Why the launch failed, as the platform reported it. It names the executable the host
@@ -67,7 +63,7 @@ public abstract record SearchOutcome<TResult>
     public sealed record EngineUnavailable(string Reason) : SearchOutcome<TResult>;
 }
 
-/// <summary>Represents one matching line and where it is: the richest search granularity.</summary>
+/// <summary>Represents one matching line and where it is.</summary>
 /// <param name="Path">The note the line is in. Vault-relative, and quotable back into a later call.</param>
 /// <param name="LineNumber">The line's position in the file, one-based, as the engine counts.</param>
 /// <param name="Text">The line's text without its terminator.</param>

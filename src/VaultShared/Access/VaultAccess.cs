@@ -9,15 +9,12 @@ namespace VaultShared.Access;
 /// holding the caller's authority is all it does.
 /// </summary>
 /// <remarks>
-/// No member here takes a scope argument, and none may be added: a caller-supplied scope would be a
-/// forged grant, and the strongest defence is that no such argument exists. The constructor takes
-/// the whole grant rather than a bare scope because this layer needs two things from it - path
-/// admission from the grant's scope in this vault, and the mid-operation key assertion from the
-/// same grant's op classes.
+/// No member here takes a scope argument, and none may be added. A caller-supplied scope would be a
+/// forged grant.
 ///
 /// Both enumeration surfaces and all three search granularities are members here rather than free
 /// functions, so their results are filtered against the effective read scope without each caller
-/// having to remember to. Filtering is silent: a list returns the in-scope subset and does not say
+/// having to remember to. Filtering is silent. A list returns the in-scope subset and does not say
 /// what was withheld.
 /// </remarks>
 public sealed class VaultAccess : IKeyAuthority
@@ -115,8 +112,7 @@ public sealed class VaultAccess : IKeyAuthority
 
     /// <summary>
     /// Returns every file in the vault whatever its extension, or those matching a glob. This backs
-    /// whole-vault passes that must not miss a non-markdown file, where omitting one silently is a
-    /// wrong answer rather than a narrower one.
+    /// whole-vault passes that must not miss a non-markdown file.
     /// </summary>
     /// <inheritdoc cref="EnumerateNotes" path="/param"/>
     /// <returns>The matching files, in scope, or a search failure.</returns>
@@ -146,7 +142,7 @@ public sealed class VaultAccess : IKeyAuthority
 
     /// <summary>
     /// Searches note content by regex and returns how many lines matched in each note that has a
-    /// match. It is a separate operation for the same reason <see cref="SearchFiles"/> is.
+    /// match.
     /// </summary>
     /// <inheritdoc cref="SearchLines" path="/param"/>
     /// <returns>The per-note counts, in scope, or a search failure.</returns>
@@ -187,19 +183,16 @@ public sealed class VaultAccess : IKeyAuthority
     /// Admits a path this layer produced itself, given a write proof for a folder that contains it.
     /// </summary>
     /// <remarks>
-    /// This widens nothing. Scope roots are whole-segment prefixes, so everything under an admitted
-    /// folder is admitted by the same root. The containment relation is checked here rather than
-    /// assumed, and a path that is not under the folder is a defect at the call site rather than a
-    /// scope answer.
+    /// Scope roots are whole-segment prefixes, so everything under an admitted folder is admitted by
+    /// the same root. The containment relation is checked here rather than assumed, and a path that
+    /// is not under the folder is a defect at the call site rather than a scope answer.
     ///
-    /// It exists for the one operation whose targets are derived rather than named: a recursive
+    /// It exists for the one operation whose targets are derived rather than named. A recursive
     /// removal works from a plan the file census produced, and those entries include the
     /// dot-prefixed paths a caller may not name.
     ///
-    /// Keep this a member of this type, for the same reason <see cref="BypassingScope"/> is one.
-    /// Producing an admitted path anywhere else is how the scope check gets skipped without saying
-    /// so, and every site doing something unusual with admission should be findable with one
-    /// search.
+    /// Keep this a member of this type. Producing an admitted path anywhere else is how the scope
+    /// check gets skipped without saying so.
     /// </remarks>
     /// <param name="folder">A write proof for the folder, or for the path itself.</param>
     /// <param name="contained">The path to admit, which must be the folder or beneath it.</param>
@@ -222,8 +215,7 @@ public sealed class VaultAccess : IKeyAuthority
 
     /// <summary>
     /// Returns an object offering unscoped enumerate, read and write over the whole vault. It is
-    /// named for what it does rather than for what it is used for, so that bypassing scope reads as
-    /// a deliberate act at the call site and every site doing it can be found with one search.
+    /// named for what it does, so that bypassing scope reads as a deliberate act at the call site.
     /// </summary>
     /// <remarks>
     /// Wikilink maintenance is the only work that needs it; see <see cref="VaultWidePass"/>. The
