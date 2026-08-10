@@ -46,13 +46,13 @@ The patched file names both vaults. `primary` points at `C:/Repos/vault-primary`
 ## Acceptance criteria
 
 - [x] The whole sequence was rehearsed on a branch in a clone before any of it was done for real.
-- [ ] `vault-server` has a baseline commit, every non-root commit of this repo replayed onto it, and a cutover commit.
-- [ ] The resulting tree equals this repo's tree, with `CLAUDE.md` and `vaults.json` as described above, plus the configuration that survived from the canonical repo. **Anything else in a diff against this repo means a commit resolved wrongly.**
-- [ ] `docs/` in `vault-server` is identical to `docs/` here, with conventions, reference, guides and `archive/redesign/` all present and unchanged.
-- [ ] `CLAUDE.md` in `vault-server` is this repo's copy, and names nothing that does not exist there.
-- [ ] `powershell/` is absent from `vault-server`, and `tools/` holds only `.gitkeep`.
-- [ ] `vaults.json` in `vault-server` names the real vault and validates against the path policy and frontmatter registry this build implements. The server starts against it.
-- [ ] `dotnet build --no-incremental` clean and `dotnet test` green in `vault-server` after the cutover commit.
+- [x] `vault-server` has a baseline commit, every non-root commit of this repo replayed onto it, and a cutover commit.
+- [x] The resulting tree equals this repo's tree, with `CLAUDE.md` and `vaults.json` as described above, plus the configuration that survived from the canonical repo. **Anything else in a diff against this repo means a commit resolved wrongly.**
+- [x] `docs/` in `vault-server` is identical to `docs/` here, with conventions, reference, guides and `archive/redesign/` all present and unchanged.
+- [x] `CLAUDE.md` in `vault-server` is this repo's copy, and names nothing that does not exist there.
+- [x] `powershell/` is absent from `vault-server`, and `tools/` holds only `.gitkeep`.
+- [x] `vaults.json` in `vault-server` names the real vault and validates against the path policy and frontmatter registry this build implements. The server starts against it.
+- [x] `dotnet build --no-incremental` clean and `dotnet test` green in `vault-server` after the cutover commit.
 
 ## Notes
 
@@ -74,3 +74,15 @@ Rehearsed in a clone of `vault-server` on a branch, with all three moves carried
 - **The read-floor warning during rehearsal is an artifact of the clone's location.** `vaults.json` names `C:/Repos/vault-server/test-vault` while the clone sits elsewhere, so the always-readable folder resolves to nothing. The folder ships in the replayed tree, so it resolves at the real location. This is the absolute-path fragility `task-003-vaults-json-absolute-paths.md` describes.
 
 **The `.claude/settings.json` grant answers itself.** The root commit sets `additionalDirectories` to empty and nothing later re-adds it, so the replay drops the `C:\Repos\vault-primary` grant on its own. Restoring it, if it is wanted, is a deliberate act rather than an oversight to avoid.
+
+### The real run
+
+Done on `vault-redesign-cutover` in `vault-server`, branched from `master`. 185 commits replayed with no conflict, 187 on top of `master` counting the baseline and the cutover commit. `master` is untouched and still equal to `origin/master`, and nothing is pushed.
+
+The tree differs from this repository's by `.mcp.json` and `vaults.json` and nothing else, which is the criterion. `docs/` is identical file-for-file, `CLAUDE.md` is identical and names no path absent there, `powershell/` is gone and `tools/` holds only its `.gitkeep`. The build is clean at 0 warnings and all 1571 tests pass.
+
+**The configuration was verified running, not only loading.** `health_check` reports both vaults configured with `primary` as the default and no fatal problem, and the host starts with the always-readable root applied, the tools watcher attached, and the full ten-tool surface projecting over MCP. Read-only calls against both vaults return through the layer.
+
+**One degraded problem survives, and it predates the cutover.** `grants.json` is untracked local configuration, and its `read-only` grant declares an empty `scopeRoots` list for each vault. This build requires `["*"]` as the only spelling of whole-vault access, so that grant is skipped entirely and only `admin` loads. The file was written for the server this build replaces. Fixing it is an edit to live authorization configuration and is the operator's.
+
+**The host resolves its configuration relative to the content root, and the sanctioned launchers set that to `src/VaultMcpServer`.** `appsettings.json` names `../../vaults.json`, so the paths only resolve when the process starts in the project directory, which `run.ps1` and the VS Code launch configuration both do. Started any other way the host looks two levels above the repository, finds nothing, and comes up fatally degraded while still binding its port. This is unchanged by the cutover and is worth knowing before diagnosing a start that looks broken.
