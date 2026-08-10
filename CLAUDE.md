@@ -1,14 +1,13 @@
-# CLAUDE.md - Vault MCP Server
+# CLAUDE.md - Vault Access Rewrite Build
 
-## Vault Corpus Reference
+This repository is a from-scratch build of the vault access layer, its tool layer, and two front-ends over them, specified entirely by the documents in `spec/`.
 
-This project's authoritative design/structure docs live in the vault repo's corpus, not here:
+**Read `spec/Brief-Vault-Access-Build.md` first.** It is the single entry point: what is being built, which documents specify it, which code is retained and already correct, and which constraints are deliberate. Everything else in `spec/` is reached through it.
 
-- `C:\Repos\vault-primary\Projects\Vault-MCP-Server\Corpus\Server-Structure.md` - repo layout, host composition, chokepoint, auth/grants, tool dispatch
-- `C:\Repos\vault-primary\Projects\Vault-MCP-Server\Corpus\Testing.md` - test suites, shared case files, fixture conventions
-- `C:\Repos\vault-primary\Projects\Vault-MCP-Server\Corpus\Dev-Setup.md` - dev environment prereqs
-- `C:\Repos\vault-primary\Projects\Vault-MCP-Server\Inbox\Plan-Vault-MCP-Server-Implement.md` - implementation log/checklist (historical, not authoritative)
+## Constraints
 
-A dev session rooted in this repo has read access to `C:\Repos\vault-primary` via the `permissions.additionalDirectories` grant in `.claude/settings.json`.
-
-**Read the relevant corpus doc above before making any structural change to this repo** - it reflects current state; don't re-derive or guess at design decisions already documented there.
+- **This repo has no access to the knowledge vault, and must not seek one.** The as-built documentation of the system being replaced is deliberately out of reach. Do not look for it, do not ask for excerpts of it, and do not reconstruct it from memory of another session. A redesign grounded in documentation of the old system inherits the old system's shape, which is the one outcome this build exists to avoid.
+- **Most of this repo is retained code and is already correct.** Authentication and authorization, the scope primitives, health, logging, configuration loading, host wiring, and the script-loading framework all carry forward. Read them, call them, and do not reimplement or refactor them. The brief lists what is retained and what was deleted.
+- **The deleted implementation is not recoverable, by design.** Git history was restarted. There is nothing to check the specifications against, which is what makes them the specification rather than a summary.
+- **Gaps escalate; they are not resolved locally.** On a question the specs cannot answer, stop that thread and raise it with the operator rather than deciding from judgment. Only an agreed escalation is written to `spec/Questions.md`, and the answer returns as an amended spec. Clear the entry once the answer is incorporated into both the specs and the code.
+- **Record architectural decisions in `spec/Decisions.md` as they land**, with the alternative rejected and why. Nothing outside this repo observed the build, so an unrecorded decision is one nobody can review.

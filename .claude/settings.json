@@ -1,7 +1,5 @@
 {
   "permissions": {
-    "additionalDirectories": [
-      "C:/Repos/vault-primary"
-    ]
+    "additionalDirectories": []
   }
 }
