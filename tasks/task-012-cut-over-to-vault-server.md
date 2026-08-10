@@ -4,7 +4,7 @@
 
 ## Context
 
-The risky one. Do it last, after [task-009](task-009-windows-only.md), [task-010](task-010-conformance-audit.md) and [task-011](task-011-comment-sweep.md), because every one of them changes the tree this task's acceptance test compares against.
+The risky one. Do it last, after `task-009-windows-only.md`, `task-010-conformance-audit.md` and `task-011-comment-sweep.md`, because every one of them changes the tree this task's acceptance test compares against.
 
 The commits are **layered onto** the canonical repo rather than replacing its files, so that repo keeps its identity, its remote, and its history.
 
@@ -45,7 +45,7 @@ Most of this repo's `CLAUDE.md` already describes the code rather than the build
 
 **Open, and to be settled before this task is worked. Each answer changes the task:**
 
-- **Whether the specification and design are kept at all.** They hold the reasoning behind the build - including facts established by measurement that cannot be re-derived - but only until [task-010](task-010-conformance-audit.md) migrates what is load-bearing to the code sites that depend on it. What remains after that is provenance, not reference: correct as of one commit and drifting from then on. The case for keeping it is that deleting is irreversible and storing it costs nothing; the case against is that an unmaintained document in the present tense reads as authority to whoever finds it next.
+- **Whether the specification and design are kept at all.** They hold the reasoning behind the build - including facts established by measurement that cannot be re-derived - but only until `task-010-conformance-audit.md` migrates what is load-bearing to the code sites that depend on it. What remains after that is provenance, not reference: correct as of one commit and drifting from then on. The case for keeping it is that deleting is irreversible and storing it costs nothing; the case against is that an unmaintained document in the present tense reads as authority to whoever finds it next.
 - **If kept, how the archive is marked, and where the marking goes.** The documents state requirements in the present tense and read as live. A note on the repository as a whole and a header on every document are different bets about who gets confused and when. Whether this repository's own `CLAUDE.md` says anything about their status is part of the same question.
-- **When they stop being authoritative.** They must stay live through [task-009](task-009-windows-only.md), task-010 and [task-011](task-011-comment-sweep.md), each of which may amend one. Cutover is the obvious moment for that to end, but nothing has fixed it.
+- **When they stop being authoritative.** They must stay live through `task-009-windows-only.md`, `task-010-conformance-audit.md` and `task-011-comment-sweep.md`, each of which may amend one. Cutover is the obvious moment for that to end, but nothing has fixed it.
 - **Whether `docs/guides/Comment-Sweep.md` travels.** It is procedure for a pass rather than a standard, so it sits in neither category this task decides. It is filed under `docs/guides/` for that reason, which names the category without answering the question.

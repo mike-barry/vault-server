@@ -61,7 +61,7 @@ A breadcrumb given to a site beyond these four is recorded in Notes, with the re
 
 ## Notes
 
-**Run this before [task-010](task-010-conformance-audit.md).** If the specs state Windows while the code still branches, the conformance audit raises a finding per branch and the same decision is triaged many times over. It also belongs before [task-011](task-011-comment-sweep.md), so a hedging comment is rewritten once rather than swept and then deleted.
+**Run this before `task-010-conformance-audit.md`.** If the specs state Windows while the code still branches, the conformance audit raises a finding per branch and the same decision is triaged many times over. It also belongs before `task-011-comment-sweep.md`, so a hedging comment is rewritten once rather than swept and then deleted.
 
 The test-suite audit gated a Windows-only path case. That gate is one of the things this task removes, and is a place to start looking.
 

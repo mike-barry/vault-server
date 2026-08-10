@@ -61,6 +61,14 @@ Two markers, and only two:
 
 **An agent never writes `[x]`.** The user may. An `[x]` found in the index means the user considers that item finished, so raise it: recommend archiving it if it has a task file, or deleting the line if it is inline, and wait for an answer.
 
+## Naming a task
+
+A task is named by its bare filename — `task-011-comment-sweep.md` — never by a path.
+
+`tasks.md` is the one file that links. Its checklist lines carry a markdown link whose target is that bare filename, which is what makes the index navigable. Those links never break, because archiving an item deletes its line in the same edit that moves its file.
+
+Everywhere else — in a task file, archived or not, and in prose anywhere — the filename is written in backticks and is not a link. A link written outside the index breaks the moment the task it names is archived, and it breaks silently, since nothing here checks that a link resolves. Writing `archive/` or `../` into the target is worse still. It is a claim about where the file sits today, and archiving is exactly the thing that falsifies it.
+
 ## Lifecycle
 
 An item may be captured as a bare checklist line in any section, or start life with a task file. The one hard rule:

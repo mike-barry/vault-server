@@ -130,7 +130,7 @@ In a comment on the composer, and nowhere else. It is the one place audit lines 
 
 ### History
 
-Carried over from `docs/Sidequests.md` (approved 2026-08-03) and tracked in parallel by `docs/Plan.md`; both files were retired. [task-013](archive/task-013-refusal-outcomes-in-the-audit-trail.md) was folded in on 2026-08-09 and archived.
+Carried over from `docs/Sidequests.md` (approved 2026-08-03) and tracked in parallel by `docs/Plan.md`; both files were retired. `task-013-refusal-outcomes-in-the-audit-trail.md` was folded in on 2026-08-09 and archived.
 
 **A superseded determination.** On 2026-08-09 the operator determined that *the trail is for reconstruction* - it answers what an agent did to the vault, not what a caller was denied - chosen over security review and over server debugging. That framing produced this task's previous shape: a terminal line per dispatched call, a redaction switch defaulting to today's behaviour, and seven open questions.
 
@@ -168,4 +168,4 @@ The requirement is agreed; the mechanism is not. Proposed:
 
 ### Deferred
 
-A completion invocation should produce no audit line. Nothing to decide until shell completion exists; [task-002](task-002-cli-shell-completion.md) is in Sidequests and may never happen, so this cannot wait on it.
+A completion invocation should produce no audit line. Nothing to decide until shell completion exists; `task-002-cli-shell-completion.md` is in Sidequests and may never happen, so this cannot wait on it.

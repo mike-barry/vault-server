@@ -4,9 +4,9 @@
 
 ## Context
 
-This is the last chance to check that the three descriptions of this system agree. At cutover ([task-012](task-012-cut-over-to-vault-server.md)) the specification and design stop travelling with the code, because they are not to be maintained: the implementation goes on changing elsewhere and nothing checks them against it again. A disagreement left here is therefore permanent and silent — the record describes a system that was never built, and nobody reading either end can check.
+This is the last chance to check that the three descriptions of this system agree. At cutover (`task-012-cut-over-to-vault-server.md`) the specification and design stop travelling with the code, because they are not to be maintained: the implementation goes on changing elsewhere and nothing checks them against it again. A disagreement left here is therefore permanent and silent — the record describes a system that was never built, and nobody reading either end can check.
 
-**The documents are kept.** How they are frozen and marked as archived is still to be settled and is not decided here ([task-012](task-012-cut-over-to-vault-server.md), Notes); this task is what makes them worth freezing. Everything below assumes they survive as the originating record of the build, accurate as of the commit this task ends on.
+**The documents are kept.** How they are frozen and marked as archived is still to be settled and is not decided here (`task-012-cut-over-to-vault-server.md`, Notes); this task is what makes them worth freezing. Everything below assumes they survive as the originating record of the build, accurate as of the commit this task ends on.
 
 **The code is the source of truth from here on.** The specification and the design were the authority while the system was being built; they are now a description of a system that exists, and where the two disagree the document is the thing that moves. That inverts the usual direction of a conformance pass and is the single most important thing about this one.
 
@@ -65,7 +65,7 @@ Treat a disagreement as a misread of the specification until the code proves oth
 
 ## Notes
 
-[task-009](archive/task-009-windows-only.md) is done, so the specs and the code agree that Windows is the platform. A leftover platform branch is a code finding, not a document one.
+`task-009-windows-only.md` is done, so the specs and the code agree that Windows is the platform. A leftover platform branch is a code finding, not a document one.
 
 **The independent pass over each document is complete.** One agent per document read it whole against the code, and every candidate finding went to a second agent instructed to refute it. 81 candidates: 37 confirmed, 9 confirmed with a corrected description, 35 struck as misreadings. The struck ones are worth knowing about as a group - most were one sentence read without the paragraph that qualifies it, or a rule about the editor's behaviour read as a rule about every code path. The full per-document reports, including candidates each pass rejected before reporting, are the `audit-*.md` files in this session's scratchpad.
 
@@ -73,4 +73,4 @@ Six findings are held for the operator in `docs/Audit-Code-Findings.md` rather t
 
 **The eleven quarantined pointers are resolved and the file is deleted.** Six the audit had already found on its own, which is the useful measure of its coverage: the `.`/`..` resolution, the wikilink extents, `write_failed`, the `out_of_scope` payload, `--args`, and the `--output json` shapes. Two became findings for the operator - `.`/`..` and the HTTP 403 that pre-empts the coded refusal. Three were struck: the move destination grammar is broader at the layer than the spec's rule but unreachable through the only caller, which holds destinations to the operand's own kind; `NewBody` is normalized by both callers before it reaches the write path; and the front-end parity tests are where `CLAUDE.md` says, with the shared contract in `VaultShared.Tests` and each transport suite asserting its own half.
 
-One pointer resolved into a `CLAUDE.md` gap rather than a code or spec one: `MintTokenTool` and `ElevationRequestTool` are compiled tools living in `VaultMcpServer`, which the Layout section does not mention. They belong there - both need a client session the CLI has no concept of, so the CLI would not duplicate them - but the section reads as though the front-end projects carry no tools. `CLAUDE.md` is reconciled in [task-012](task-012-cut-over-to-vault-server.md) and was left alone here.
+One pointer resolved into a `CLAUDE.md` gap rather than a code or spec one: `MintTokenTool` and `ElevationRequestTool` are compiled tools living in `VaultMcpServer`, which the Layout section does not mention. They belong there - both need a client session the CLI has no concept of, so the CLI would not duplicate them - but the section reads as though the front-end projects carry no tools. `CLAUDE.md` is reconciled in `task-012-cut-over-to-vault-server.md` and was left alone here.

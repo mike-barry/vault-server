@@ -4,7 +4,7 @@
 
 ## Context
 
-Run this after [task-009](task-009-windows-only.md) and [task-010](task-010-conformance-audit.md), so it covers every code change those made. Sweeping before them means sweeping twice: a comment rewritten now and then deleted or contradicted by a later finding was wasted work, and a hedge those tasks remove would be polished on the way out.
+Run this after `task-009-windows-only.md` and `task-010-conformance-audit.md`, so it covers every code change those made. Sweeping before them means sweeping twice: a comment rewritten now and then deleted or contradicted by a later finding was wasted work, and a hedge those tasks remove would be polished on the way out.
 
 `docs/guides/Comment-Sweep.md` has the procedure for a sweep over the whole repository against the standard. It is the authority on how the pass runs.
 
@@ -12,7 +12,7 @@ Run this after [task-009](task-009-windows-only.md) and [task-010](task-010-conf
 
 `CS1573` already holds parameter completeness on the three `src/` projects at build time, so a documented member missing a parameter is not what this pass is looking for. What it is looking for is the standard's substance: a summary that opens with a verb phrase and says plainly what the thing does, and a comment that stands on its own — leaning on no compressed idiom and no fact stated elsewhere, so a reader who has opened nothing but the file in front of them understands it on first read.
 
-**A comment referencing a document under `docs/` is a defect this pass fixes**, not a pointer to preserve. The specification and design travel at cutover ([task-012](task-012-cut-over-to-vault-server.md)) as frozen historical records, which makes citing them worse rather than better. A reference to a file nobody can open fails loudly and the reader falls back on the code; a reference to a frozen file resolves, and tells the reader something the code has since changed with nothing marking it stale. `docs/conventions/Documentation-Strategy.md` carries the rule as a convention rather than a one-off. A comment cites no document except one under `docs/reference/`, and a fact worth keeping is stated in the comment itself, including what it was measured or agreed against and what changing it breaks.
+**A comment referencing a document under `docs/` is a defect this pass fixes**, not a pointer to preserve. The specification and design travel at cutover (`task-012-cut-over-to-vault-server.md`) as frozen historical records, which makes citing them worse rather than better. A reference to a file nobody can open fails loudly and the reader falls back on the code; a reference to a frozen file resolves, and tells the reader something the code has since changed with nothing marking it stale. `docs/conventions/Documentation-Strategy.md` carries the rule as a convention rather than a one-off. A comment cites no document except one under `docs/reference/`, and a fact worth keeping is stated in the comment itself, including what it was measured or agreed against and what changing it breaks.
 
 ## Acceptance criteria
 

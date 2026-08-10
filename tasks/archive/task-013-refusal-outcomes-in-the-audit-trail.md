@@ -1,6 +1,6 @@
 # task-013: Whether a refused call is recorded, and where
 
-**Folded into [task-004](../task-004-logging-standard.md) on 2026-08-09 and archived.** The determination this task existed to reach was made and is recorded below. Carrying it out belongs to task-004, which absorbed it along with this task's findings; nothing here is outstanding, and nothing else should be worked from this file.
+**Folded into `task-004-logging-standard.md` on 2026-08-09 and archived.** The determination this task existed to reach was made and is recorded below. Carrying it out belongs to task-004, which absorbed it along with this task's findings; nothing here is outstanding, and nothing else should be worked from this file.
 
 > **Superseded, 2026-08-09.** Later the same day the operator withdrew the reconstruction determination this file records and reframed task-004 around the three reasons to log - diagnostics, security, and troubleshooting - which have opposed requirements on whether a record may be switched off, how long it is kept, and whether it may carry vault content. Reconstruction survives as the security purpose of three rather than as the whole question. What still holds below: the merge reasoning, that the middleware cannot see a tool outcome, and the notes. What does not: that a refusal is recorded only as a consequence of a terminal line, and the redaction switch task-004 was then carrying. Task-004 was renamed to `task-004-logging-standard.md` in the same change; the links to it below have been repointed, and nothing else in this file was edited.
 
@@ -28,11 +28,11 @@ The call sites and the e2e finding - the log-hygiene probe pins less than it app
 
 - [x] The determination is made and written down, with the reasoning that produced it.
 - [ ] Whatever the determination requires is carried out. **Not done here** - carrying it out is task-004's, by the merge below.
-- [x] A recommendation on whether this and [task-004](../task-004-logging-standard.md) are one piece of work, put to the operator rather than acted on. Recommended as one piece of work; the operator agreed and directed the fold.
+- [x] A recommendation on whether this and `task-004-logging-standard.md` are one piece of work, put to the operator rather than acted on. Recommended as one piece of work; the operator agreed and directed the fold.
 - [x] `dotnet build --no-incremental` clean and `dotnet test` green, if anything changed. No code changed under this task.
 
 ## Notes
 
-Raised during [task-010](task-010-conformance-audit.md), when removing the transport-level vault gate removed the only site that logged a refusal outcome.
+Raised during `task-010-conformance-audit.md`, when removing the transport-level vault gate removed the only site that logged a refusal outcome.
 
 The one refusal outcome still logged anywhere is `result=rejected-non-loopback` at `src/VaultMcpServer/Auth/BearerGrantMiddleware.cs:116`, for a non-loopback request that fails authentication. That is a transport-level decision the middleware does make and can see, and the determination above does not disturb it.
