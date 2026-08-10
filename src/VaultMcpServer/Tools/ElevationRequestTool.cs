@@ -25,7 +25,7 @@ public sealed record ElevationOptions(int DefaultTtlMinutes = 15, int MaxRequest
 /// it itself.
 ///
 /// <see cref="Validate"/> returns null for the same reason as
-/// <see cref="MintTokenArguments.Validate"/>: the form-selection rule blames no single argument,
+/// <see cref="MintTokenArguments.Validate"/>. The form-selection rule blames no single argument,
 /// so it cannot be expressed as an <see cref="ArgumentFault"/> without inventing an offender, and
 /// every other rule here needs the op-class registry, the vault configuration, or the caller's own
 /// grant.
@@ -72,8 +72,7 @@ public sealed record ElevationRequestArguments(
 /// <para>
 /// An invocation verifies that the caller may request elevation, applies the per-principal rate
 /// limit, resolves the requested grant, asks the configured <see cref="IElevationApprover"/>, and
-/// on approval rebinds with a TTL. On a machine whose default binding is already broad this is
-/// off the daily path; it matters where the default binding is minimal.
+/// on approval rebinds with a TTL.
 /// </para>
 /// <para>
 /// Both authority denials - the missing <c>canRequestElevation</c> opt-in and the approver's
@@ -92,8 +91,7 @@ public sealed record ElevationRequestArguments(
 /// </para>
 /// <para>
 /// The invocation blocks while the approver decides. The tool surface is synchronous because a
-/// mutex hold cannot cross a suspension point; this tool takes no lock, so the whole cost of that
-/// design falls here.
+/// mutex hold cannot cross a suspension point, and this tool takes no lock.
 /// </para>
 /// </remarks>
 /// <param name="grantStore">Resolves the target grant and performs the rebind.</param>
@@ -171,8 +169,8 @@ public sealed class ElevationRequestTool(
 
         var request = new ElevationRequest(grant.Id, grant, requestedGrantId, requestedGrant, ttlMinutes, args.SessionContext);
         var decision = approver.ReviewAsync(request, CancellationToken.None).GetAwaiter().GetResult();
-        // The same code as the opt-in denial above: both mean the caller does not have this
-        // authority, and neither is fixable by changing the arguments. There is no data, because
+        // The same code as the opt-in denial above, because both mean the caller does not have
+        // this authority and neither is fixable by changing the arguments. There is no data, because
         // the approver's reason is prose in the message and the minted target's id is
         // server-generated.
         if (!decision.Approved)
@@ -310,9 +308,9 @@ public sealed class ElevationRequestTool(
     }
 
     /// <summary>
-    /// Reads the <c>ttl</c> argument. This is a range check, not a type check: binding already
-    /// refused anything that is not an integer, but the schema cannot say that the integer must
-    /// be positive.
+    /// Reads the <c>ttl</c> argument. This is a range check rather than a type check. Binding
+    /// already refused anything that is not an integer, and the schema cannot say that the
+    /// integer must be positive.
     /// </summary>
     /// <param name="args">The call's arguments.</param>
     /// <returns>The requested lifetime in minutes, or the configured default when <c>ttl</c> was

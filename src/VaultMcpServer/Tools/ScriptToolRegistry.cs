@@ -5,11 +5,9 @@ namespace VaultMcpServer.Tools;
 
 /// <summary>
 /// Holds the current set of script tools, loaded from the tools directory at construction.
-/// <see cref="Refresh"/> re-scans the folder, and is what the tools directory watcher calls to
-/// pick up added, changed, or removed scripts without a restart. The initial load and every
-/// refresh record per-script validation problems into the replaceable
-/// <see cref="ScriptToolLoader.HealthSource"/> set, so the recorded problems always describe the
-/// folder's current state.
+/// <see cref="Refresh"/> re-scans the folder, which is how the tools directory watcher picks up
+/// added, changed, or removed scripts without a restart. Each scan replaces the recorded
+/// per-script validation problems, so they always describe the folder's current state.
 /// </summary>
 /// <param name="toolsDir">The directory scanned for <c>.ps1</c> tool scripts.</param>
 /// <param name="opClassRegistry">Validates the op class each script declares.</param>

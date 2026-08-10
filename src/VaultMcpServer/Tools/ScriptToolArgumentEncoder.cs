@@ -19,14 +19,7 @@ namespace VaultMcpServer.Tools;
 /// Only a value that arrives structured is serialized. An argument that arrives as a JSON string
 /// passes through verbatim whatever its parameter's schema says, because otherwise a caller
 /// sending an already-encoded payload against an array-typed schema would have it encoded a
-/// second time and the script would parse a JSON string where it expected an array. Everything
-/// else - a parameter with no side-car, or one whose side-car declares <c>type: "string"</c> -
-/// takes the plain conversion path.
-/// </para>
-/// <para>
-/// This is a separate helper rather than part of <see cref="ScriptToolDispatcher"/> because the
-/// same rule applies to a computed remedy payload naming another tool, which is serialized here
-/// against that tool's own parameters.
+/// second time and the script would parse a JSON string where it expected an array.
 /// </para>
 /// </remarks>
 public static class ScriptToolArgumentEncoder

@@ -8,12 +8,9 @@ namespace VaultMcpServer.Tools;
 /// </summary>
 /// <remarks>
 /// A side-car schema is stored as a detached <see cref="JsonElement"/>, a
-/// <see cref="JsonElement.Clone"/> of a parsed document's root, rather than as a string or a
-/// <c>JsonNode</c>. A string would re-serialize as a JSON string and double-encode the schema
-/// into the tool listing, whereas a <see cref="JsonElement"/> is the same representation
-/// <see cref="ScriptTool.BuildInputSchema"/> returns and round-trips verbatim through
-/// <c>SerializeToElement</c>. Keeping it structured is also what lets
-/// <see cref="EncodesStructuredArgument"/> read the encoding signal off it without re-parsing.
+/// <see cref="JsonElement.Clone"/> of a parsed document's root. Held as a string it would
+/// re-serialize as a JSON string and double-encode the schema into the tool listing, whereas a
+/// <see cref="JsonElement"/> round-trips verbatim through <c>SerializeToElement</c>.
 /// </remarks>
 /// <param name="Name">The parameter's name, as written in the <c>param()</c> block.</param>
 /// <param name="JsonType">The JSON Schema type derived from the parameter's .NET static type.</param>
@@ -25,8 +22,8 @@ namespace VaultMcpServer.Tools;
 /// block in the script's comment-based help, or null when it declares none. When present it
 /// replaces the whole derived property node in <see cref="ScriptTool.BuildInputSchema"/>, so
 /// <paramref name="JsonType"/>, <paramref name="Description"/>, and
-/// <paramref name="AllowedValues"/> do not describe the advertised shape, although they are
-/// still carried because they remain true of the <c>param()</c> block.</param>
+/// <paramref name="AllowedValues"/> then describe the <c>param()</c> block rather than the
+/// advertised shape.</param>
 public sealed record ScriptToolParameter(
     string Name,
     string JsonType,
@@ -43,14 +40,9 @@ public sealed record ScriptToolParameter(
     /// means to receive as JSON text and parse itself, so the host hands it text.
     /// </summary>
     /// <remarks>
-    /// Both conditions matter. A parameter with no side-car declares no shape, so it is left
-    /// alone, and a side-car declaring <c>type: "string"</c> is the script asking for a plain
-    /// string, so it is left alone too. A parameter whose .NET type is not <c>string</c> - a
-    /// <c>[string[]]</c>, say - already binds a real array through the splat, so encoding it
-    /// would break the binding rather than enable it.
-    ///
-    /// The value is derived from this record's own fields rather than kept in a per-tool table,
-    /// so any consumer holding a parameter can read it directly.
+    /// A parameter whose .NET type is not <c>string</c> - a <c>[string[]]</c>, say - already
+    /// binds a real array through the splat, so encoding it would break the binding rather than
+    /// enable it.
     /// </remarks>
     public bool EncodesStructuredArgument =>
         string.Equals(JsonType, "string", StringComparison.Ordinal)
@@ -66,8 +58,8 @@ public sealed record ScriptToolParameter(
     /// <list type="bullet">
     /// <item><description>A string, such as <c>"type": "array"</c>. Any name other than
     /// <c>"string"</c> counts. Scalar names such as <c>"integer"</c> and <c>"boolean"</c> count
-    /// too, which is harmless: <see cref="ScriptToolArgumentEncoder"/> only encodes an argument
-    /// that arrives as an array or an object, so a number or a boolean passes through
+    /// too. <see cref="ScriptToolArgumentEncoder"/> only encodes an argument that arrives as an
+    /// array or an object, so a number or a boolean passes through
     /// regardless.</description></item>
     /// <item><description>An array of strings, such as <c>"type": ["array", "null"]</c>. The
     /// union counts if any member is a non-string type. <c>"null"</c> does not count, because
@@ -137,8 +129,7 @@ public sealed record ScriptTool(string Name, string Description, string OpClass,
             // It is a keyword of the parent object schema rather than of a property node, so a
             // side-car that replaces the property node cannot express it; and the PowerShell
             // binder enforces mandatoriness itself, so letting a hand-written side-car
-            // contradict it would advertise a contract the script will refuse. The side-car
-            // governs the shape of the value, the param() block governs whether it is required.
+            // contradict it would advertise a contract the script will refuse.
             if (p.Required)
                 required.Add(p.Name);
         }
@@ -163,9 +154,8 @@ public sealed record ScriptTool(string Name, string Description, string OpClass,
     private static Dictionary<string, object> DerivedProperty(ScriptToolParameter p)
     {
         var property = new Dictionary<string, object> { ["type"] = p.JsonType, ["description"] = p.Description };
-        // An unconstrained parameter carries no `enum` key at all, rather than an empty or null
-        // one. On an array parameter the set constrains each element, so it goes under `items`;
-        // at the property level it would require the array itself to equal a member.
+        // On an array parameter the set constrains each element, so it goes under `items`; at
+        // the property level it would require the array itself to equal a member.
         if (p.AllowedValues is { Count: > 0 })
         {
             if (p.JsonType == "array")

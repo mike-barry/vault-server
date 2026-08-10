@@ -35,15 +35,14 @@ namespace VaultMcpServer.Tools;
 /// invalid <c>.NOTES</c> op class, an undocumented parameter, or a malformed or misnamed
 /// <c>.SCHEMA</c> - loads zero tools from that file and is reported as a Degraded problem, while
 /// the rest of the folder loads normally. A bad <c>.SCHEMA</c> is never quietly replaced by the
-/// derived type: that would re-advertise the parameter as a bare <c>{type: "string"}</c> and,
+/// derived type. That would re-advertise the parameter as a bare <c>{type: "string"}</c> and,
 /// because side-car presence is also the argument-encoding signal, strip its encoding, so a typo
 /// would degrade the tool instead of breaking it visibly.
 /// </para>
 /// <para>
 /// This runs on every scan, at startup and on each refresh the watcher triggers, so problems are
-/// recorded through <c>ServerHealthState.ReplaceDegraded</c> under
-/// <see cref="HealthSource"/>. Each scan replaces the previous scan's set, so a fixed script
-/// stops appearing as a problem and a newly-broken one appears.
+/// recorded through <c>ServerHealthState.ReplaceDegraded</c> under <see cref="HealthSource"/>,
+/// where each scan replaces the previous scan's set.
 /// </para>
 /// </remarks>
 public static partial class ScriptToolLoader
@@ -81,11 +80,8 @@ public static partial class ScriptToolLoader
     /// declares.</param>
     /// <param name="healthState">
     /// Receives this scan's per-script problem set through
-    /// <c>ServerHealthState.ReplaceDegraded</c>, replaced wholesale on every call
-    /// including with an empty set when every script is clean, so a previous scan's problems do
-    /// not outlive the scripts that caused them. It has no default, like the other loaders'
-    /// equivalent parameter, because a throwaway default instance would discard the recorded
-    /// problems.
+    /// <c>ServerHealthState.ReplaceDegraded</c>, including an empty set when every script is
+    /// clean, so a previous scan's problems do not outlive the scripts that caused them.
     /// </param>
     /// <returns>The tools loaded from the folder, ordered by file name.</returns>
     public static IReadOnlyList<ScriptTool> Load(string toolsDir, OpClassRegistry opClassRegistry, ServerHealthState healthState)
@@ -97,10 +93,9 @@ public static partial class ScriptToolLoader
         {
             foreach (var path in Directory.EnumerateFiles(toolsDir, "*.ps1", SearchOption.TopDirectoryOnly).OrderBy(p => p, StringComparer.OrdinalIgnoreCase))
             {
-                // A script that fails validation loads zero tools while the rest of the folder
-                // loads normally. IOException is caught because an editor can hold the file
-                // locked mid-save; the save completing fires another watcher event, and that
-                // re-scan picks the script up and clears the transient problem.
+                // IOException is caught because an editor can hold the file locked mid-save. The
+                // save completing fires another watcher event, and that re-scan picks the script
+                // up and clears the transient problem.
                 try
                 {
                     tools.Add(LoadOne(path, opClassRegistry));
@@ -250,9 +245,8 @@ public static partial class ScriptToolLoader
                 case "PARAMETER" when arg.Length > 0:
                     parameters[arg] = text;
                     break;
-                // Recorded even with an empty arg, unlike PARAMETER, which is guarded above.
-                // LoadOne refuses a nameless block; see the comment there for why it is not
-                // dropped.
+                // Recorded even with an empty arg, unlike PARAMETER, so that LoadOne can refuse a
+                // nameless block rather than silently drop it.
                 case "SCHEMA":
                     schemas[arg] = text;
                     break;

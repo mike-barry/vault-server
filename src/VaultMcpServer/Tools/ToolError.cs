@@ -12,10 +12,9 @@ namespace VaultMcpServer.Tools;
 /// null - belongs to <see cref="ToolRefusalEnvelope"/>, because both front-ends emit it. Only the
 /// MCP wrapping is here.
 ///
-/// The wrapping keeps every refusal identical in shape, so a caller can branch on <c>code</c>
-/// whichever layer refused. A tool script's own refusal reaches the client as the JSON string it
-/// threw, surfaced verbatim by <see cref="ScriptToolDispatcher"/>, and a refusal made before any
-/// script runs must look the same.
+/// A tool script's own refusal reaches the client as the JSON string it threw, surfaced verbatim
+/// by <see cref="ScriptToolDispatcher"/>, so a refusal made before any script runs is wrapped the
+/// same way and a caller can branch on <c>code</c> whichever layer refused.
 /// </remarks>
 public static class ToolError
 {

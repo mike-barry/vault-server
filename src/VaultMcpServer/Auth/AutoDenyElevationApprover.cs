@@ -5,10 +5,9 @@ using VaultShared.Auth;
 namespace VaultMcpServer.Auth;
 
 /// <summary>
-/// Represents the default <see cref="IElevationApprover"/>, which denies every request and logs
-/// it. This is the safe posture when no out-of-band approval provider is configured: a session
-/// cannot escalate just because nothing was wired up to say no. The log line records the grant
-/// ids and TTL of the attempt, never a token.
+/// Denies every elevation request and logs it. This is the default
+/// <see cref="IElevationApprover"/>, so a server with no out-of-band approval provider configured
+/// fails closed. The log line records the grant ids and TTL of the attempt, never a token.
 /// </summary>
 /// <remarks>
 /// This type is constructed before <c>builder.Build()</c>, when no <see cref="ILogger"/> can be

@@ -23,13 +23,11 @@ public sealed record DegradedProblem(string Detail, string? SubjectPath = null);
 /// <remarks>
 /// <para>
 /// There are two backing collections, one per problem lifetime. Startup-load problems
-/// (<see cref="RecordFatal"/>, <see cref="RecordDegraded"/>) go into an append-only queue:
-/// vaults.json, op-classes.json, and grants.json load exactly once per process, so their
-/// problems never need to be retracted. Sources that re-scan at runtime - today only the
-/// script-tool loader - use the keyed, replaceable per-source sets of
-/// <c>ReplaceDegraded</c>, so a fixed script stops appearing as a problem and a
-/// newly-broken one appears. A replaceable set is always Degraded, so it can never affect
-/// <see cref="IsFatallyDegraded"/>.
+/// (<see cref="RecordFatal"/>, <see cref="RecordDegraded"/>) go into an append-only queue,
+/// because vaults.json, op-classes.json, and grants.json load exactly once per process and
+/// their problems never need to be retracted. Sources that re-scan at runtime - today only the
+/// script-tool loader - use the keyed, replaceable per-source sets of <c>ReplaceDegraded</c>, so
+/// a fixed script stops appearing as a problem and a newly-broken one appears.
 /// </para>
 /// <para>
 /// <see cref="Problems"/> is the combined view across both, and is what the <c>health_check</c>
@@ -40,11 +38,6 @@ public sealed record DegradedProblem(string Detail, string? SubjectPath = null);
 /// <para>
 /// Both collections are thread-safe, because problems are recorded both from the startup
 /// thread, before the DI container exists, and from the tools directory watcher's thread.
-/// </para>
-/// <para>
-/// Problems recorded before the host is built are flushed to the logger once by
-/// <c>Program.cs</c>. Problems recorded after <see cref="AttachLogger"/> has run are logged as
-/// they are recorded, so no second flush pass is needed.
 /// </para>
 /// </remarks>
 /// <param name="timeProvider">Supplies the timestamp on each recorded problem. Defaults to
@@ -60,9 +53,8 @@ public sealed class ServerHealthState(TimeProvider? timeProvider = null) : IConf
 
     /// <summary>
     /// Gets a value indicating whether at least one <see cref="ProblemSeverity.Fatal"/> problem
-    /// has been recorded. The count is read with <c>Volatile.Read</c> so a
-    /// concurrent <see cref="RecordFatal"/> on another thread is observed without a lock.
-    /// Replaceable per-source sets never contribute, because they are always Degraded.
+    /// has been recorded. Replaceable per-source sets never contribute, because they are always
+    /// Degraded.
     /// </summary>
     public bool IsFatallyDegraded => Volatile.Read(ref _fatalCount) > 0;
 

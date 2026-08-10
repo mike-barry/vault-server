@@ -63,7 +63,7 @@ public sealed class ScriptToolRunner : IDisposable
     /// <remarks>
     /// The target script is wrapped rather than invoked directly so the host can inject the
     /// calling grant's scope roots and op classes as global variables first, in the same
-    /// runspace and pipeline. Keep this as one script block: adding a second top-level command
+    /// runspace and pipeline. Keep this as one script block. Adding a second top-level command
     /// through <c>AddStatement()</c> against a pooled runspace crashes the SDK's background
     /// invocation worker with a NullReferenceException.
     ///
@@ -119,7 +119,7 @@ public sealed class ScriptToolRunner : IDisposable
     /// unscoped everywhere, and a vault absent from the map is unscoped for that vault (see
     /// <see cref="VaultShared.Auth.Grant.ScopeRoots"/>). This is injected as the global runspace variable
     /// <c>VaultMcpScopeRoots</c>, a hashtable keyed by vault name, rather than passed as a script
-    /// parameter: a tool script's <c>param()</c> block is its MCP input schema verbatim, so a
+    /// parameter. A tool script's <c>param()</c> block is its MCP input schema verbatim, so a
     /// client-controllable "ScopeRoots" argument would let a caller override its own grant's
     /// scope. This side only guarantees that the value is out of reach of the parameter surface;
     /// enforcing the roots against the paths it touches is the script's own job.
@@ -131,8 +131,7 @@ public sealed class ScriptToolRunner : IDisposable
     /// already admitted the call by. It is not a script parameter for the same reason as
     /// <paramref name="scopeRoots"/>. Null, the default, leaves the global unset, so an
     /// in-script assertion degrades open as it does under a standalone <c>pwsh -File</c> run. An
-    /// empty non-null set is different: it is injected as an empty array, which denies every
-    /// asserted class.
+    /// empty non-null set is injected as an empty array, which denies every asserted class.
     /// </param>
     /// <returns>The script's output, error text, and error flag.</returns>
     public async Task<ScriptToolExecution> InvokeAsync(string scriptPath, IReadOnlyDictionary<string, object?> parameters, CancellationToken cancellationToken, IReadOnlyDictionary<string, VaultScope>? scopeRoots = null, IReadOnlySet<string>? opClasses = null)
@@ -155,10 +154,9 @@ public sealed class ScriptToolRunner : IDisposable
                 scopeRootsTable[vault] = scope is VaultScope.RootedScope rooted ? rooted.Roots.ToArray() : [];
         }
 
-        // A script depends on the difference between null and empty: a null set binds the
-        // wrapper's [string[]] parameter to $null, meaning no injected context at all, while an
-        // empty set binds an empty array, which denies every asserted class. ToArray() on an
-        // empty set yields an empty array, not null.
+        // A null set binds the wrapper's [string[]] parameter to $null, meaning no injected
+        // context at all, while an empty set binds an empty array, which denies every asserted
+        // class. ToArray() on an empty set yields an empty array, not null.
         var opClassesArray = opClasses?.ToArray();
 
         ps.AddScript(WrapperScript)

@@ -34,10 +34,9 @@ namespace VaultMcpServer.Auth;
 /// <para>
 /// Authentication is all this decides. Whether the grant reaches the vault a call targets is
 /// answered further in, where the call's arguments are bound and its vault resolved, and arrives
-/// as a coded <c>out_of_scope</c> refusal. Deciding it here would answer that one condition in
-/// two shapes: a caller may leave the vault argument out and take the configured default, which
-/// a body peek cannot see, so only a caller that spelled the argument would meet the refusal
-/// this middleware could raise.
+/// as a coded <c>out_of_scope</c> refusal. A body peek cannot see a caller that omitted the vault
+/// argument and took the configured default, so deciding it here would refuse only the callers
+/// that spelled the argument.
 /// </para>
 /// <para>
 /// Before any of that, <see cref="ServerHealthState.IsFatallyDegraded"/> short-circuits every
@@ -111,8 +110,7 @@ public sealed class BearerGrantMiddleware(RequestDelegate next, GrantStore grant
             var authenticated = grantStore.Authenticate(token);
             if (authenticated is null)
             {
-                // The failure reason is diagnostic only: it goes in the log line and never in the
-                // response body.
+                // The failure reason goes in the log line and never in the response body.
                 logger.LogWarning(
                     "Audit: grant=(none) remoteIp={RemoteIp} reason={Reason} result=rejected-non-loopback",
                     remoteIp, grantStore.GetAuthFailureReason(token));

@@ -57,14 +57,14 @@ public sealed record MintTokenArguments(
 /// 60.
 /// </para>
 /// <para>
-/// Minting can only attenuate: every requested dimension must be within the caller's own
+/// Minting can only attenuate, so every requested dimension must be within the caller's own
 /// currently-bound grant, including any active elevation binding. Op classes must be a subset of
 /// the caller's; every vault implied by <c>scope_roots</c> must be one the caller can access;
 /// each requested scope root must fall within one of the caller's own scope roots for that vault,
 /// where a caller unscoped in a vault permits anything there; and the minted grant's expiry is
 /// capped at the caller's own remaining lifetime, with a caller that never expires imposing no
 /// cap (see <see cref="GrantStore.Mint"/>'s <c>maxExpiresAtUtc</c> parameter). This covers
-/// <c>grants:manage</c> itself with no special case: a minted grant may carry it only if the
+/// <c>grants:manage</c> itself with no special case, so a minted grant may carry it only if the
 /// caller does. A violation raises a <see cref="ToolRefusal"/> coded
 /// <c>authority_required</c> for the op-class dimension and <c>out_of_scope</c> for the vault and
 /// scope-root dimensions, whose message names the dimension and the caller's actual bound
@@ -84,7 +84,7 @@ public sealed record MintTokenArguments(
 /// <see cref="Auth.BearerGrantMiddleware"/>'s vault-scope check enforces - is derived from it,
 /// while the remainder is grouped per vault into <see cref="Grant.ScopeRoots"/> for the
 /// folder-prefix containment check. A whole-vault entry produces
-/// <see cref="VaultScope.Unscoped"/> for that vault, never an empty root set: an empty or blank
+/// <see cref="VaultScope.Unscoped"/> for that vault, never an empty root set. An empty or blank
 /// scope-root string is malformed input, and <see cref="VaultScope"/> cannot construct an empty
 /// set, so neither can become a "matches everything" sentinel.
 /// </para>
@@ -157,7 +157,7 @@ public sealed class MintTokenTool(GrantStore grantStore, OpClassRegistry opClass
     /// <summary>
     /// Validates every requested dimension against the caller's own currently-bound grant,
     /// raising a refusal that names the first violated dimension and the caller's actual bound
-    /// authority. The TTL is not checked here: <see cref="GrantStore.Mint"/> caps it rather than
+    /// authority. The TTL is not checked here. <see cref="GrantStore.Mint"/> caps it rather than
     /// rejecting it, because capping needs the store's own clock to stay consistent with the rest
     /// of expiry handling.
     /// </summary>
@@ -255,8 +255,8 @@ public sealed class MintTokenTool(GrantStore grantStore, OpClassRegistry opClass
         {
             var vaultName = root.Split('/', 2)[0];
             // A vault skipped at config load, because its root was missing on disk, is
-            // configured but cannot be minted against: minting targets the vault now, unlike a
-            // grants.json row, which stays valid while the vault is broken. The two
+            // configured but cannot be minted against, because minting targets the vault now,
+            // unlike a grants.json row, which stays valid while the vault is broken. The two
             // vault-resolution codes are chosen by which config map holds the name, never by
             // message text.
             if (vaultConfig.SkippedVaults.ContainsKey(vaultName))
@@ -290,8 +290,7 @@ public sealed class MintTokenTool(GrantStore grantStore, OpClassRegistry opClass
     ///
     /// When one call names both a whole vault and a subtree of it, the whole-vault entry wins and
     /// the subtree entry is dropped as redundant, leaving that vault unscoped. Entries for
-    /// different vaults never affect each other: <c>"primary/Projects/Foo"</c> and
-    /// <c>"test/Areas/Bar"</c> produce two separate single-root scopes, one per vault.
+    /// different vaults never affect each other.
     /// </remarks>
     /// <param name="scopeRoots">The requested scope roots.</param>
     /// <returns>The scope for each named vault.</returns>
@@ -311,12 +310,10 @@ public sealed class MintTokenTool(GrantStore grantStore, OpClassRegistry opClass
                 byVault[vaultName] = subtrees;
             }
 
-            // A subtree remainder is canonicalized the same way GrantStore.Load canonicalizes a
-            // file-loaded grant's scope roots, so a minted grant can never carry a rooted
-            // ("primary//x"), escaping ("primary/../x"), or empty ("primary/") scope root, which
-            // would otherwise fail closed with a confusing error on some later, unrelated call.
             // An entry with no subtree, or one that normalizes to the vault root such as a
-            // trailing slash, is a whole-vault grant.
+            // trailing slash, is a whole-vault grant. Every other remainder is canonicalized, so
+            // a minted grant can never carry a rooted ("primary//x"), escaping ("primary/../x"),
+            // or empty ("primary/") scope root.
             if (parts.Length > 1 && !string.IsNullOrWhiteSpace(parts[1]))
             {
                 string canonical;
@@ -363,9 +360,9 @@ public sealed class MintTokenTool(GrantStore grantStore, OpClassRegistry opClass
         var opClasses = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         foreach (var value in values)
         {
-            // invalid_argument rather than authority_required: the name is not in the registry
-            // at all, so no elevation could satisfy it. Whether the caller holds a real class is
-            // the separate attenuation check.
+            // invalid_argument rather than authority_required, because the name is not in the
+            // registry at all and no elevation could satisfy it. Whether the caller holds a real
+            // class is the separate attenuation check.
             var canonical = opClassRegistry.Canonicalize(value)
                 ?? throw new ToolRefusal(ToolCodes.InvalidArgument, $"\"op_class\" entry \"{value}\" is not a known op class.", new { argument = "op_class", opClass = value });
             opClasses.Add(canonical);
@@ -374,9 +371,9 @@ public sealed class MintTokenTool(GrantStore grantStore, OpClassRegistry opClass
     }
 
     /// <summary>
-    /// Reads the <c>ttl</c> argument. This is a range check, not a type check: binding already
-    /// refused anything that is not an integer, but JSON Schema cannot say that the integer must
-    /// be positive.
+    /// Reads the <c>ttl</c> argument. This is a range check rather than a type check. Binding
+    /// already refused anything that is not an integer, and JSON Schema cannot say that the
+    /// integer must be positive.
     /// </summary>
     /// <param name="args">The call's arguments.</param>
     /// <returns>The requested lifetime in minutes, or the default when <c>ttl</c> was

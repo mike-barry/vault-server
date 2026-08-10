@@ -31,10 +31,8 @@ namespace VaultMcpServer.Tools;
 /// surfaces.
 /// </para>
 /// <para>
-/// <see cref="BearerGrantMiddleware"/> only authenticates the caller and scopes the vault; the
-/// grant it attached to <c>HttpContext.Items</c> is what both branches authorize against. Every
-/// denial reaching a client has the same <c>{code, message, data?}</c> shape a tool script's own
-/// error carries, so a caller can branch on <c>code</c> whichever layer refused.
+/// <see cref="BearerGrantMiddleware"/> only authenticates the caller; the grant it attached to
+/// <c>HttpContext.Items</c> is what both branches authorize against.
 /// </para>
 /// </remarks>
 /// <param name="registry">Supplies the current script tools.</param>
@@ -94,8 +92,8 @@ public sealed class ScriptToolDispatcher(ScriptToolRegistry registry, ToolRegist
         // A script that fails to load produces no ScriptTool instance, so there is nothing to
         // mark as broken. Instead one listing entry is synthesized per current script-tool
         // problem, so a broken script still appears in tools/list rather than vanishing from
-        // it. Vault problems are not reflected here: a script tool never declares a fixed vault,
-        // taking one as a call-time argument instead, so a vault problem cannot be attributed to
+        // it. Vault problems are not reflected here, because a script tool never declares a fixed
+        // vault and takes one as a call-time argument, so a vault problem cannot be attributed to
         // a particular tool.
         var brokenScriptTools = healthState.Problems
             .Where(p => p.Source == ScriptToolLoader.HealthSource && p.SubjectPath is not null)
@@ -144,10 +142,9 @@ public sealed class ScriptToolDispatcher(ScriptToolRegistry registry, ToolRegist
         if (ToolExecution.FloorRefusal(name, new Floor.Class(tool.OpClass), grant) is { } floorDenial)
             return ToolError.Result(floorDenial);
 
-        // The vault-membership check, made against the same deserialized arguments the runner will
-        // use. Nothing above this decides it: the transport authenticates and does not answer
-        // whether a grant reaches a vault, so a call that omits the vault argument and takes the
-        // default is checked here on the same terms as one that names it.
+        // The vault-membership check, made against the same deserialized arguments the runner
+        // will use. Nothing above this decides it, so a call that omits the vault argument and
+        // takes the default is checked here on the same terms as one that names it.
         //
         // This is the script surface's copy of the check the execute path makes on a declared
         // tool's arguments type. A param() block offers nothing to mark, so a script's vault
@@ -167,10 +164,7 @@ public sealed class ScriptToolDispatcher(ScriptToolRegistry registry, ToolRegist
                     new { tool = name, vault = effectiveVault });
         }
 
-        // Argument-name validation, and the last of the dispatcher's checks before the runner.
-        // Every client-supplied name must match one of the tool's advertised parameters, matched
-        // case-insensitively because that is how PowerShell's binder matches; a stricter check
-        // would refuse a name the binder would have bound.
+        // Argument-name validation, the dispatcher's last check before the runner.
         //
         // Do not reorder this. It runs after the grant, op-class, and vault-membership checks so
         // a caller holding no authority over the tool gets the authorization denial, and a
@@ -183,8 +177,7 @@ public sealed class ScriptToolDispatcher(ScriptToolRegistry registry, ToolRegist
         // client on every tool; they are unadvertised names like any other and are refused here,
         // so a tool's param() block stays its entire client-facing argument surface.
         //
-        // Names only. Type and value validation stay in-script, where the tools already do them
-        // and the refusal already carries a code.
+        // Names only. Type and value validation stay in-script.
         if (UnadvertisedArgumentName(tool, context.Params?.Arguments) is { } unknownArgument)
             return ToolError.Result(
                 ToolCodes.InvalidArgument,
@@ -208,8 +201,7 @@ public sealed class ScriptToolDispatcher(ScriptToolRegistry registry, ToolRegist
     /// Builds the refusal for a call that arrived with no grant on <c>HttpContext.Items</c>,
     /// meaning the request did not pass through <see cref="BearerGrantMiddleware"/>, which always
     /// attaches one even if only the minimum-access floor. It uses the same code as an op-class
-    /// shortfall, because the effect is the same - the call holds no authority - and a caller
-    /// should not have to tell the two apart to route the failure.
+    /// shortfall, because in both the call holds no authority.
     /// </summary>
     /// <param name="toolName">The tool the call named.</param>
     /// <returns>An <c>authority_required</c> refusal result.</returns>

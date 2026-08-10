@@ -69,11 +69,9 @@ public sealed class ScriptToolsWatcher : IDisposable
         }
         catch (Exception ex)
         {
-            // Per-script validation problems do not throw: ScriptToolLoader skips the script
-            // and records the problem into ServerHealthState's replaceable ScriptTools set,
-            // which also logs it. This catch covers anything unexpected, such as an IO failure
-            // enumerating the folder, and keeps the previously loaded tool set rather than
-            // crashing the watcher.
+            // Per-script validation problems do not throw. ScriptToolLoader skips the script and
+            // records the problem instead, so this catch covers only something unexpected, such
+            // as an IO failure enumerating the folder.
             _logger.LogWarning(ex, "Failed to refresh script tools after a tools directory change; keeping the previous tool set.");
         }
     }

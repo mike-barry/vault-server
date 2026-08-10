@@ -5,13 +5,9 @@ namespace VaultMcpServer.Logging;
 /// vault-mcp-server-20260718-093015123.log) under a gitignored logs directory.
 /// </summary>
 /// <remarks>
-/// Program.cs registers this with <c>ILoggingBuilder.AddProvider</c>, so it takes part in the
-/// normal ASP.NET Core logging pipeline like the built-in console provider. Category and level
-/// filtering, including appsettings.json's "Logging" section, is applied by the framework's
-/// <c>LoggerFactory</c> before a message reaches this provider, so there is no level handling
-/// here. The implementation is a single <see cref="System.IO.StreamWriter"/> behind one lock,
-/// with no per-request buffering, no rotation beyond one file per process, and no external
-/// logging packages.
+/// Category and level filtering, including appsettings.json's "Logging" section, is applied by
+/// the framework's <c>LoggerFactory</c> before a message reaches this provider, so there is no
+/// level handling here.
 /// </remarks>
 public sealed class FileLoggerProvider : ILoggerProvider
 {
@@ -25,10 +21,9 @@ public sealed class FileLoggerProvider : ILoggerProvider
     public FileLoggerProvider(string logDirectory)
     {
         Directory.CreateDirectory(logDirectory);
-        // The file name carries milliseconds so that two server starts within the same second
-        // do not produce the same name and collide on FileMode.Create. The test suite starts
-        // several WebApplicationFactory<Program> fixtures in quick succession, each of which
-        // constructs its own provider.
+        // The file name carries milliseconds so that two server starts within the same second do
+        // not collide on FileMode.Create. The test suite starts several server fixtures in quick
+        // succession, each constructing its own provider.
         var fileName = $"vault-mcp-server-{DateTimeOffset.Now:yyyyMMdd-HHmmssfff}.log";
         var stream = new FileStream(Path.Combine(logDirectory, fileName), FileMode.Create, FileAccess.Write, FileShare.Read);
         _writer = new StreamWriter(stream) { AutoFlush = true };
