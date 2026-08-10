@@ -27,9 +27,11 @@ Every tracked document travels, in four categories:
 
 The archive move already landed here, in commit `59bf027`, so it replays like any other commit and the cutover conjures nothing. That commit flattened both sets into one directory, renamed the design set's `README.md` to `Design-Documents-Convention.md` so a bare `README.md` could not be mistaken for the archive directory's own front matter, fixed the one relative path that flattening broke, and gave every document a disclaimer naming the date it was archived and stating it is not to be modified.
 
-### `CLAUDE.md` is replaced, not reconciled
+### `CLAUDE.md` needs no step of its own
 
-This repo's copy replaces the canonical one wholesale. There is nothing to merge. `vault-server`'s `CLAUDE.md` is only a pointer to an external corpus under `C:\Repos\vault-primary\Projects\Vault-MCP-Server\Corpus\`, declared authoritative and mandatory reading before any structural change, and after the baseline commit all of it — `Server-Structure.md`, `Testing.md`, `Dev-Setup.md` — describes a repo that no longer exists.
+This repo's copy replaces the canonical one wholesale, and there is nothing to merge. `vault-server`'s `CLAUDE.md` is only a pointer to an external corpus under `C:\Repos\vault-primary\Projects\Vault-MCP-Server\Corpus\`, declared authoritative and mandatory reading before any structural change, and after the baseline commit all of it — `Server-Structure.md`, `Testing.md`, `Dev-Setup.md` — describes a repo that no longer exists.
+
+The rehearsal showed the replacement needs no action at cutover. The baseline sets `CLAUDE.md` to the root commit's version like every other tracked path, and the replay then applies every later edit to it, so it arrives as this repo's copy on its own.
 
 Whether that corpus is updated or retired is a separate question, in a repository this task does not touch.
 
@@ -41,7 +43,7 @@ So the baseline aligns it to this repo's root commit like any other tracked path
 
 ## Acceptance criteria
 
-- [ ] The whole sequence was rehearsed on a branch in a clone before any of it was done for real.
+- [x] The whole sequence was rehearsed on a branch in a clone before any of it was done for real.
 - [ ] `vault-server` has a baseline commit, every non-root commit of this repo replayed onto it, and a cutover commit.
 - [ ] The resulting tree equals this repo's tree, with `CLAUDE.md` and `vaults.json` as described above, plus the configuration that survived from the canonical repo. **Anything else in a diff against this repo means a commit resolved wrongly.**
 - [ ] `docs/` in `vault-server` is identical to `docs/` here, with conventions, reference, guides and `archive/redesign/` all present and unchanged.
@@ -54,7 +56,19 @@ So the baseline aligns it to this repo's root commit like any other tracked path
 
 **Keep this repository afterwards.** It is the only intact record of the build and the thing to diff against if the replay is later found to be wrong.
 
-**Check during rehearsal:**
+### What the rehearsal found
 
-- **The `.claude/settings.json` grant.** The canonical `CLAUDE.md` documents a `permissions.additionalDirectories` grant giving a session rooted in `vault-server` read access to `C:\Repos\vault-primary`. Replacing `CLAUDE.md` leaves that grant in place but undocumented. Decide whether it goes with the corpus reference or stays.
-- **Where the conflicts cluster.** 178 commits replay, and one of them scoped this repo to the test vault. Expect configuration to conflict rather than `src/`.
+Rehearsed in a clone of `vault-server` on a branch, with all three moves carried out.
+
+**The baseline is much smaller than expected.** Canonical `HEAD` and this repo's root commit differ by 11 added paths and 54 deleted ones, and only two shared paths differ in content — `CLAUDE.md` and `.claude/settings.json`. Everything under `src/`, `tests/` and `test-vault/` already aligns by name and by content. Of the 54 deletions, 53 are the PowerShell module and tool scripts and the 54th is `.mcp.json`, which must be kept rather than deleted.
+
+**The replay is conflict-free.** All 182 non-root commits applied with no conflict, which follows from the baseline making the tree exactly the root tree. `rerere` was enabled to carry resolutions into the real run and cached nothing, because there was nothing to cache. The commit count is 182 rather than the 178 this file first recorded.
+
+**The tree matched before the cutover commit.** The replayed tree equalled this repo's tree exactly, with `.mcp.json` as the only addition.
+
+**`vaults.json` is the only hand-patch, and it needs one decision.** Two things came out of testing it.
+
+- **The primary vault must name a frontmatter registry.** A vault naming none records a `Degraded` problem, and `CommittedDeclarationTests` asserts that the shipped configuration records none, so an entry carrying only `path` fails `dotnet test`. Pointing it at the repo's `frontmatter-registry.json` takes the suite to 1570 green. Whether the real vault should share the test vault's declaration or get its own is the open decision, and it is the only thing still blocking the real run.
+- **The read-floor warning during rehearsal is an artifact of the clone's location.** `vaults.json` names `C:/Repos/vault-server/test-vault` while the clone sits elsewhere, so the always-readable folder resolves to nothing. The folder ships in the replayed tree, so it resolves at the real location. This is the absolute-path fragility `task-003-vaults-json-absolute-paths.md` describes.
+
+**The `.claude/settings.json` grant answers itself.** The root commit sets `additionalDirectories` to empty and nothing later re-adds it, so the replay drops the `C:\Repos\vault-primary` grant on its own. Restoring it, if it is wanted, is a deliberate act rather than an oversight to avoid.
