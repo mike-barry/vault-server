@@ -28,6 +28,12 @@ The test: someone who has read nothing else understands it on first read. An
 idiom fails that test silently - it reads as confident prose and only breaks
 when someone who was not here tries to use it.
 
+One citation is permitted: a document in `docs/reference/`, named by bare
+filename in backticks, as in `Ref-Obsidian-Link-Behavior.md`. It supplements the
+comment and never replaces it - the comment still states in full what its own
+site depends on, and the reference carries the whole rule and the conditions a
+measurement holds under. Nothing else may be cited.
+
 ### 3. Justify only what the code cannot show
 
 Keep a "why" where a maintainer would otherwise break something: a cross-process
@@ -76,6 +82,20 @@ Only where the next line is genuinely non-obvious. An inline comment that
 restates the code is noise; one carrying a real reason stays. Banner comments
 are fine and carry no numbering, which would index something outside the file.
 
+### 8. A colon introduces a list, not a reason
+
+A colon may introduce an enumeration of what was just named. It may not stand in
+for "because", "so", or "and". Where it welds a claim to its justification, that
+is two sentences and the connective belongs in the text.
+
+> **No:** `Routing is decided before authority: a call naming a vault nobody configured is told so, rather than being refused for a scope that could never have admitted it.`
+> **Yes:** `Routing is decided before authority. A call naming a vault nobody configured is told so, rather than being refused for a scope that could never have admitted it.`
+
+> **Fine:** `Represents the result of resolving a path the caller named: the admitted proof, an unknown vault, or a path outside the scope.`
+
+A `Windows:` breadcrumb is not a prose colon and is unaffected, and neither is a
+colon inside a code literal such as `<c>isError: true</c>`.
+
 ## What is not yours to edit
 
 **String literals are wire contract.** Tool `Description` strings, refusal
@@ -86,26 +106,22 @@ class doc say the same thing, the class doc is the copy that shrinks.
 **Test method names are documentation.** They are not rewritten, however long or
 oddly phrased. The same goes for test data and assertion strings.
 
-## Facts that live only in comments
+## Facts the code cannot re-derive
 
-The specification and design documents this build was written from are archived
-at cutover and are unreachable afterwards. Four comments are therefore the only
-surviving record of something that cannot be re-derived from the code. Do not
-compress them:
+Some comments record something established outside the code - a measurement,
+another application's observed behavior, a dependency's contract, an agreement.
+The code cannot be read to recover one of these, so anyone shortening it is
+guessing at what the writer verified.
 
-- `FrontmatterComposer` - the four YamlDotNet emitter settings, the round-trip
-  measurement behind them, and what changing one costs.
-- `FrontmatterTree` - why the representation model's node layer is used and its
-  object serializer is not.
-- `WikilinkRanking` - the observed Obsidian resolution rule, the editor settings
-  it holds under, and that resolution is measured by following a link rather than
-  by reading the autocomplete popup, which orders candidates differently.
-- `Vault.LockName` - the mutex name derivation, and that a separate process
-  reimplements it.
+**A comment recording a measured or agreed fact is not shortened by anyone who
+cannot repeat the measurement.** It is long because the fact is.
 
-When a comment records something measured or agreed, it says what was measured,
-what against, and what changing it breaks. That is what makes it usable by
-someone who cannot repeat the measurement.
+Such a comment says what was measured, what against, and what changing it
+breaks. That is what makes it usable by someone who cannot repeat the
+measurement, and it is also how it is recognized: there is no list of protected
+comments, and starting one is not the answer. `docs/conventions/Documentation-Strategy.md`
+carries the rule, and the test for when a fact of this kind belongs in a
+`docs/reference/` document rather than in the comment.
 
 It does not carry the date it was measured on. A date is chronology, which rule 6
 keeps out, and it earns no exception here: nothing in this repository can check it,
@@ -115,5 +131,5 @@ fixture, the version - and how to establish it again.
 
 ## Related
 
-- `docs/misc/Comment-Sweep.md` - how to run a sweep over the whole repository
+- `docs/guides/Comment-Sweep.md` - how to run a sweep over the whole repository
   against this standard.

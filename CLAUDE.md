@@ -9,7 +9,7 @@ One access layer owning all vault I/O, with containment and scope enforced by co
 - **`VaultShared`** - the access layer and the tool layer. A plain `Microsoft.NET.Sdk` library.
 - **`VaultMcpServer`** - the MCP front-end: host wiring, HTTP auth, MCP registration and schema projection, and the script-loading framework.
 - **`VaultCli`** - the CLI front-end, compiled to `vault.exe`.
-- **`VaultWatcher`** - a stub, and the third consumer of shared. It derives the mutex lock's identity from the same code rather than a re-implemented convention, which is why that derivation lives in shared, reachable by a consumer that is not a front-end.
+- **`VaultWatcher`** - a stub for an application that is not built yet, and is intentional rather than dead code.
 
 Two references `VaultShared` must never take:
 
@@ -38,7 +38,7 @@ Both are expected clean: 0 warnings, 0 errors, and 1570 tests passing.
 
 ## Reference documents
 
-These live under `docs/conventions/`. Load one before doing the work it governs. Each exists because the wrong answer looks reasonable to someone who has not read it. What you load never gets cited in the code: a comment references no document, so a fact worth keeping is stated in the comment itself, including what it was measured or agreed against and what changing it breaks.
+These live under `docs/conventions/`. Load one before doing the work it governs. Each exists because the wrong answer looks reasonable to someone who has not read it. What you load never gets cited in the code. A comment cites no document except one under `docs/reference/`, so a fact worth keeping is stated in the comment itself, including what it was measured or agreed against and what changing it breaks.
 
 | Document | Load it before |
 | --- | --- |
@@ -49,7 +49,9 @@ These live under `docs/conventions/`. Load one before doing the work it governs.
 
 ## Documentation
 
-**Code comments are the primary description of this system.** `docs/conventions/Documentation-Strategy.md` carries the rule for the facts a comment cannot hold, and `docs/reference/` holds facts about things outside this repository, named `Ref-<Subject>.md`.
+**Code comments are the primary description of this system.** `docs/conventions/Documentation-Strategy.md` carries the rule for the facts a comment cannot hold, `docs/reference/` holds facts about things outside this repository, named `Ref-<Subject>.md`, and `docs/guides/` holds the procedure for an undertaking that happens too rarely to be a convention.
+
+**Only the operator adds or changes a document under `docs/reference/`**, and that holds whether or not the strategy has been read. It is the only kind of document a comment may cite, nothing here can check what one says, and no change to this code can make one wrong - so an agent has no trigger for editing one. Describe the fact and wait.
 
 There is no decision log and none is to be created. How a decision was reached is the commit message; what survives from it is its outcome, and an outcome with a code site is a comment there, written as a constraint rather than a story.
 
