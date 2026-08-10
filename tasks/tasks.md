@@ -8,10 +8,10 @@ NEXT_TASK_ID: 015
 
 - [ ] [task-011](task-011-comment-sweep.md) — Sweep every comment against the standard, and fix the test projects' dangling doc references
 - [ ] [task-012](task-012-cut-over-to-vault-server.md) — Layer this build's history onto the canonical `vault-server` repository
-- [ ] [task-004](task-004-audit-surface.md) — Record each call's outcome in the audit trail, add a content-redaction flag, and give the CLI an audit log
 
 ## Backlog
 
+- [ ] [task-004](task-004-logging-standard.md) — Standardize logging on two records, written as content-free JSON lines to rotated, retained files
 - [ ] [task-005](task-005-tasks-instructions-as-skill.md) — Promote the task instructions into a skill
 - [ ] [task-014](task-014-commit-standards.md) — Write the commit message standard, now that the message carries why a change was made
 
