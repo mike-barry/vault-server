@@ -1,8 +1,7 @@
 namespace VaultShared.Access;
 
 /// <summary>
-/// Represents the result of removing one entry. These records are the whole set. The constructor is
-/// private, so nothing outside this type can add another.
+/// Represents the result of removing one entry.
 /// </summary>
 /// <remarks>
 /// A removal runs against a plan built a moment earlier, so an entry that vanished in between is a

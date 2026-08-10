@@ -2,7 +2,7 @@ namespace VaultShared.Tools;
 
 /// <summary>
 /// Represents what a tool returns: either text a model reads directly, or structured data a caller
-/// branches on. The constructor is private, so nothing outside this type can add a third.
+/// branches on.
 /// </summary>
 /// <remarks>
 /// Neither case knows anything about a transport. Each front-end renders both, and a tool never

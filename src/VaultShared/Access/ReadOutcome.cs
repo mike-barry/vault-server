@@ -1,8 +1,7 @@
 namespace VaultShared.Access;
 
 /// <summary>
-/// Represents the result of reading a note: its content, or a classified failure. These records are
-/// the whole set. The constructor is private, so nothing outside this type can add another.
+/// Represents the result of reading a note: its content, or a classified failure.
 /// </summary>
 /// <remarks>
 /// "Nothing there" and "there, and the read failed" are separate cases so a caller does not have to
