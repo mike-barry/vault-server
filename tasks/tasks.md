@@ -6,7 +6,7 @@ NEXT_TASK_ID: 015
 
 ## Active
 
-- [ ] [task-011](task-011-comment-sweep.md) — Sweep every comment against the standard, and fix the test projects' dangling doc references
+- [/] [task-011](task-011-comment-sweep.md) — Sweep every comment against the standard, and fix the test projects' dangling doc references
 - [ ] [task-012](task-012-cut-over-to-vault-server.md) — Layer this build's history onto the canonical `vault-server` repository
 
 ## Backlog

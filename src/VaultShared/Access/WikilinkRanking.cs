@@ -5,49 +5,23 @@ namespace VaultShared.Access;
 /// candidates it is handed, finds none itself, and touches no filesystem.
 /// </summary>
 /// <remarks>
-/// The rule is not a design choice. It is Obsidian's observed behaviour, and the vault's existing
+/// The rule is Obsidian's observed behaviour rather than a design choice, and the vault's existing
 /// content already depends on it. It holds for Obsidian configured with <i>New link format =
-/// shortest path when possible</i> and <i>Automatically update internal links = on</i>. Re-measure
-/// the editor before changing it, because changing it changes which note existing links open. The
-/// rule is confined to <see cref="Compare"/>, which is all a re-measurement would need to change.
+/// shortest path when possible</i> and <i>Automatically update internal links = on</i>. Changing it
+/// changes which note existing links open, so re-measure the editor first. The rule is confined to
+/// <see cref="Compare"/>, which is all a re-measurement would need to change.
 ///
-/// The rule is stated in full below, so that someone who cannot repeat the measurement can still
-/// implement it. What each candidate is judged on is the relative target a link written in the
-/// linking note would need in order to reach it, and three steps decide the order, in sequence.
+/// Measure by following a link. The editor's autocomplete popup orders a duplicated basename by a
+/// comparator of its own, so its first entry is not necessarily the note the link opens and a
+/// measurement taken from it describes the popup rather than resolution.
 ///
-/// First the candidates split into two groups: those inside the folder subtree of the linking note
-/// and those outside it. A candidate is inside when reaching it needs no climb - that is, when the
-/// folders it shares with the linking note's own folder are all of them. Every inside candidate
-/// beats every outside one, whatever either costs to write, so a candidate three folders below the
-/// linking note beats one a single folder above it.
-///
-/// Second, within a group, the shorter relative spelling wins, counted in characters. A climb out
-/// of one folder is the three characters of <c>../</c>. The rest is the candidate's path segments
-/// below the folders it shares with the linking note, joined with <c>/</c>, the filename and its
-/// extension included. So the score is three per climb plus the length of that descent, and a
-/// candidate two folders down under short names beats one a single folder down under a long one.
-///
-/// Third, an exact tie in both steps is broken by ordinal comparison of the two candidates'
-/// vault-relative paths. That comparison is case-sensitive, unlike the folder comparison that
-/// decides the shared prefix.
-///
-/// This is only the editor's second resolution tier. A target that names a whole vault path is
-/// taken by the file at that path and never reaches ranking at all, which is why a note at the
-/// vault root holds every bare link to its basename. That tier is applied before these candidates
-/// are gathered.
-///
-/// The editor's autocomplete suggestion popup orders a duplicated basename by a different
-/// comparator, and its first entry is not necessarily the note the link opens once accepted. A
-/// measurement taken from the popup therefore describes the popup rather than resolution and cannot
-/// be used to check this rule. Measure by following a link.
+/// <c>Ref-Obsidian-Link-Behavior.md</c> carries the whole rule and the conditions it holds under.
 /// </remarks>
 public static class WikilinkRanking
 {
     /// <summary>
     /// Returns the candidates in the order the editor resolves them, nearest first. This is the
-    /// order a click on the link follows. The editor's autocomplete popup uses a different
-    /// comparator and lists a duplicated basename in an order of its own, so what the popup shows
-    /// cannot be read as a preview of which note the link opens.
+    /// order a click on the link follows.
     /// </summary>
     /// <param name="linkingNote">The note the link is written in. Distance is measured from it.</param>
     /// <param name="candidates">The same-named notes to rank.</param>
