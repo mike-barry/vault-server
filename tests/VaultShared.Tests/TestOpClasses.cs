@@ -7,9 +7,8 @@ namespace VaultShared.Tests;
 /// hand to a loader that validates op-class names.
 /// </summary>
 /// <remarks>
-/// Use the committed file rather than a synthetic registry. A synthetic registry would always
-/// contain whatever names the test needed, so it could never fail when the repository drops an
-/// op class.
+/// A synthetic registry would always contain whatever names a test needed, so it could never fail
+/// when the repository drops an op class.
 /// </remarks>
 internal static class TestOpClasses
 {

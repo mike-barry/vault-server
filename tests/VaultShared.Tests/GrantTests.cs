@@ -24,8 +24,8 @@ public sealed class GrantTests
 
     /// <summary>
     /// The op-class gate compares without regard to case whatever comparer built the set it was
-    /// given. Every producer chooses a case-insensitive one today, so a set built with the ordinal
-    /// default is what a new producer would most easily introduce, and the gate must not turn on it.
+    /// given. The set here uses the ordinal default, which is what a new producer would most
+    /// easily introduce, and the gate must not turn on it.
     /// </summary>
     [Theory]
     [InlineData("content:write")]
@@ -45,9 +45,8 @@ public sealed class GrantTests
 
     /// <summary>
     /// The vault gate compares without regard to case whatever comparer built the set, and agrees
-    /// with <c>ScopeIn</c>, which reads its own map the same way. The two answer one question between
-    /// them, so a grant that reaches a vault must not deny it under another spelling while holding a
-    /// scope entry for it.
+    /// with <c>ScopeIn</c>, which reads its own map the same way. A grant that reaches a vault must
+    /// not deny it under another spelling while holding a scope entry for it.
     /// </summary>
     [Theory]
     [InlineData("test")]

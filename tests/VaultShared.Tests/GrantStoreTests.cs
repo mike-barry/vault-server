@@ -183,9 +183,8 @@ public sealed class GrantStoreTests(TestVaultFixture fixture) : IClassFixture<Te
     public void Load_RowNamingASkippedVaultStillLoads()
     {
         // VaultConfig skips a vault whose root is missing on disk, but the vault is still
-        // configured, so a grant naming it stays valid. The broken root is the vault's problem
-        // rather than the grant's, and the grant works again after the root is restored and the
-        // server restarts, with no change to grants.json.
+        // configured, so a grant naming it stays valid. The grant works again after the root is
+        // restored and the server restarts, with no change to grants.json.
         var config = LoadConfigWithBrokenVault();
 
         var json = """{ "token-a": { "id": "admin", "opClasses": ["content:read"], "vaults": ["broken"], "ttl": "*", "scopeRoots": { "broken": ["*"] } } }""";
@@ -214,8 +213,7 @@ public sealed class GrantStoreTests(TestVaultFixture fixture) : IClassFixture<Te
         Assert.True(grant.CanAccessVault("broken"));
 
         // The scope wildcard expands over the same vault set, so the skipped vault gets its own
-        // unscoped entry instead of being left without one. That is what keeps the grant whole
-        // across a restart that fixes the root.
+        // unscoped entry instead of being left without one.
         Assert.Equal(VaultScope.Unscoped, grant.ScopeRoots["ok"]);
         Assert.Equal(VaultScope.Unscoped, grant.ScopeRoots["broken"]);
     }
@@ -334,8 +332,8 @@ public sealed class GrantStoreTests(TestVaultFixture fixture) : IClassFixture<Te
     [Fact]
     public void Load_NumericTtlAlreadyElapsedIsExpired()
     {
-        // A grant "loaded" 10 minutes ago with a 1-minute ttl expired 9 minutes ago -
-        // deterministic without depending on real elapsed wall-clock time in the test.
+        // A grant loaded 10 minutes ago with a 1-minute ttl is already expired, without the test
+        // depending on real elapsed wall-clock time.
         var loadedAt = DateTimeOffset.UtcNow.AddMinutes(-10);
         var json = """{ "token-a": { "id": "admin", "opClasses": ["content:read"], "vaults": ["test"], "ttl": 1, "scopeRoots": { "test": ["*"] } } }""";
         var store = GrantStore.Load(WriteGrants(json), OpClasses, _vaultConfig, new RecordingProblemSink(), new FixedTimeProvider(loadedAt));
@@ -348,10 +346,8 @@ public sealed class GrantStoreTests(TestVaultFixture fixture) : IClassFixture<Te
     [Fact]
     public void Authenticate_ExpiredTokenReturnsNull()
     {
-        // Load with a 1-minute ttl, then advance the store's own time source 10 minutes past
-        // load - simulating elapsed wall-clock time deterministically. Authenticate is the
-        // single source of truth for "is this grant currently usable", so an expired grant
-        // must be indistinguishable from an unknown one to this method.
+        // Authenticate is the single source of truth for whether a grant is currently usable, so
+        // an expired grant must be indistinguishable from an unknown one to this method.
         var timeProvider = new FixedTimeProvider(DateTimeOffset.UtcNow);
         var json = """{ "token-a": { "id": "admin", "opClasses": ["content:read"], "vaults": ["test"], "ttl": 1, "scopeRoots": { "test": ["*"] } } }""";
         var store = GrantStore.Load(WriteGrants(json), OpClasses, _vaultConfig, new RecordingProblemSink(), timeProvider);

@@ -79,7 +79,7 @@ public sealed class GrantStoreBindingTests(TestVaultFixture fixture) : IClassFix
 
         // The second "admin" (the named grant) is the duplicate and is skipped; the token row wins.
         // A duplicate id is a row-level failure, so the load degrades rather than failing the whole
-        // file - the surviving token row is still usable.
+        // file.
         Assert.False(sink.IsFatallyDegraded);
         Assert.Single(sink.Problems, p => p.Severity == ProblemSeverity.Degraded);
         Assert.NotNull(store.Authenticate("some-token"));
@@ -116,7 +116,7 @@ public sealed class GrantStoreBindingTests(TestVaultFixture fixture) : IClassFix
     [Fact]
     public void ResolveLocalhostGrant_SelectorWithNoDefaultConfigured_FloorsToMinimum()
     {
-        // DefaultGrantId absent => the selector is just another unrecognized token => minimum.
+        // With no DefaultGrantId configured, the selector is just another unrecognized token.
         var store = Load(CallerAndNamedTarget, localhostOptions: new LocalhostAuthOptions("the-selector"));
         Assert.Equal(GrantStore.MinimumGrant.Id, store.ResolveLocalhostGrant("the-selector").Id);
     }
@@ -156,7 +156,7 @@ public sealed class GrantStoreBindingTests(TestVaultFixture fixture) : IClassFix
         var grant = store.Authenticate("caller-token");
         Assert.NotNull(grant);
         Assert.Equal("elevated", grant.Id);
-        Assert.True(grant.Allows("content:write")); // the base "caller" grant is Read-only - proving the rebind took effect
+        Assert.True(grant.Allows("content:write")); // The base "caller" grant is read-only, so this passes only if the rebind took effect.
     }
 
     [Fact]

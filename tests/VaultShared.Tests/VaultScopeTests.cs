@@ -26,8 +26,7 @@ public sealed class VaultScopeTests
     }
 
     /// <summary>
-    /// Specifies what a scope case expects. An enum rather than a string, so a case cannot name an
-    /// outcome the theory does not handle.
+    /// Specifies what a scope case expects.
     /// </summary>
     public enum Outcome
     {

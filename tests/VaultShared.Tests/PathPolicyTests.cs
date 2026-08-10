@@ -10,8 +10,7 @@ namespace VaultShared.Tests;
 /// </summary>
 /// <remarks>
 /// <c>VaultAccess</c> composes the same two parts in production, once per call rather than once
-/// per path. Testing the pair directly means a change to the union fails here as well as in the
-/// access layer's own tests.
+/// per path.
 /// </remarks>
 internal static class ReadScopeExtensions
 {
@@ -131,7 +130,6 @@ public sealed class PathPolicyTests : IDisposable
 
         var config = Load(sink, $$"""[ {{entryJson}}, { "path": "{{Guides}}", "always_readable": true } ]""", Guides);
 
-        // The rest of the policy survives the bad entry, and the vault still loads.
         Assert.Equal<string[]>([Guides], [.. config.Vaults["test"].PathPolicy.AlwaysReadableRoots]);
         var problem = Assert.Single(Problems(sink));
         Assert.True(problem.Contains("dropped"), $"{why}: expected a drop to be reported, got: {problem}");
@@ -182,8 +180,7 @@ public sealed class PathPolicyTests : IDisposable
     [Fact]
     public void Load_MutationEntriesDoNotWidenTheReadFloor()
     {
-        // The two modifiers are independent: naming the op class a path's mutation requires says
-        // nothing about who may read it.
+        // Naming the op class a path's mutation requires says nothing about who may read it.
         var config = Load(new RecordingProblemSink(), """[ { "path": "Areas", "mutation_requires": "agentic:write" } ]""", "Areas");
 
         var policy = config.Vaults["test"].PathPolicy;
@@ -197,8 +194,7 @@ public sealed class PathPolicyTests : IDisposable
     {
         // Grants and the frontmatter declaration run the same check against the op-class registry.
         // An entry requiring an op class nothing defines can never be satisfied, so it protects
-        // nothing while appearing to. It is dropped rather than fatal, like every other malformed
-        // entry, so the rest of the policy still applies.
+        // nothing while appearing to.
         var sink = new RecordingProblemSink();
 
         var config = Load(sink, $$"""
@@ -266,8 +262,8 @@ public sealed class PathPolicyTests : IDisposable
     [Fact]
     public void Load_PolicyIsPerVaultAndAnotherVaultIsUnaffected()
     {
-        // A policy belongs to one vault. A vault that declares none has no policy checked against
-        // it and no problem reported for it.
+        // A policy belongs to one vault, and a vault that declares none has no policy checked
+        // against it.
         var sink = new RecordingProblemSink();
         var withGuides = Path.Combine(_tempDir, "primary");
         var without = Path.Combine(_tempDir, "scratch");

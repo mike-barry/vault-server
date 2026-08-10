@@ -31,8 +31,8 @@ public sealed class ScopePathTests
     [InlineData("./Projects/./Widget", new[] { "Projects", "Widget" })]
     [InlineData("./Projects/Widget/", new[] { "Projects", "Widget" })]
     [InlineData("Projects/Elsewhere/../Widget", new[] { "Projects", "Widget" })]
-    // Case is preserved, not folded: the comparison is case-insensitive, the segments are not
-    // rewritten, so a root keeps the spelling the operator configured.
+    // Case is preserved rather than folded. The comparison is case-insensitive, so a root keeps
+    // the spelling the operator configured.
     [InlineData("projects/WIDGET", new[] { "projects", "WIDGET" })]
     // One leading separator is dropped, in either spelling. Every path here is measured from the
     // vault root already, so the separator names the place the path was going to be read from.

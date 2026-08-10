@@ -5,10 +5,9 @@ namespace VaultShared.Tests;
 /// grants and assert op-class outcomes.
 /// </summary>
 /// <remarks>
-/// These constants belong to the test project because no production code references them.
 /// Op-class enforcement is string-based against the data-driven
-/// <see cref="VaultShared.Configuration.OpClassRegistry"/> loaded from op-classes.json, and a tool declares its op
-/// class as a string literal.
+/// <see cref="VaultShared.Configuration.OpClassRegistry"/> loaded from op-classes.json, and a tool
+/// declares its op class as a string literal, so no production code references these constants.
 /// </remarks>
 public static class OpClass
 {
