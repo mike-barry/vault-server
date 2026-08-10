@@ -235,9 +235,8 @@ public sealed class VaultFilesMoveTests : IDisposable
     }
 
     /// <summary>
-    /// Checks that the folder form refuses two paths from different vaults exactly as the file form
-    /// does. It is a defect in the calling layer rather than an answer a caller can be given, so it
-    /// throws, and the folder form has its own guard because neither form can reach the other's.
+    /// Checks that the folder form throws on two paths from different vaults, as the file form does.
+    /// It has its own guard because neither form can reach the other's.
     /// </summary>
     [Fact]
     public void MoveFolder_RefusesTwoPathsFromDifferentVaults()

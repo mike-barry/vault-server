@@ -52,7 +52,7 @@ public sealed class VaultEnumerationTests : IDisposable
     {
         // This surface backs operations where omitting a file gives a wrong answer rather than a
         // narrower one, such as reporting what a recursive removal destroys, so the whole set is
-        // asserted: a file missing from it is the failure this surface exists to prevent.
+        // asserted rather than a sample of it.
         Assert.Equal(
             [
                 "Inbox/Loose.md", "Notes/Alpha.md", "Notes/Data.txt", "Notes/Sub/Nested.md",
@@ -202,9 +202,9 @@ public sealed class VaultEnumerationTests : IDisposable
     }
 
     /// <summary>
-    /// An engine that is not where it was said to be is its own outcome rather than the general
-    /// operational failure, because no repetition of the identical call can start an executable that
-    /// is not there.
+    /// Checks that an engine which is not where it was said to be is its own outcome rather than the
+    /// general operational failure, because no repetition of the identical call can start an
+    /// executable that is not there.
     /// </summary>
     [Fact]
     public void AnEngineThatCannotBeRunIsItsOwnOutcomeRatherThanAGeneralFailure()

@@ -49,7 +49,7 @@ public sealed class VaultWidePassTests : IDisposable
     {
         // The set is exact, so it also pins what the pass leaves out. Notes/Data.txt is absent
         // because this surface answers notes rather than every file. .obsidian/Copy.md is absent
-        // because the pass drops its scope check and keeps the dot rule: no path under a dot
+        // because the pass drops its scope check and keeps the dot rule. No path under a dot
         // directory is reachable by the tool set at all.
         Assert.Equal(
             ["Archive/Deep/Beta.md", "Notes/Alpha.md", "Projects/Widget.md"],

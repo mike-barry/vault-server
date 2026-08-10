@@ -6,7 +6,7 @@ namespace VaultShared.Tests;
 /// Tests <c>VaultFiles.RemoveFile</c> and <c>VaultFiles.RemoveEmptyFolder</c>.
 /// </summary>
 /// <remarks>
-/// A path does not say whether it names a file or a folder, so neither operation guesses: each
+/// A path does not say whether it names a file or a folder, so neither operation guesses. Each
 /// removes only what it expects and fails on the other. Both refuse from the attempt rather than
 /// from a check run first, and neither walks a tree. A caller removing a tree holds the validated
 /// plan and drives it entry by entry.

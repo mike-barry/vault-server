@@ -59,7 +59,7 @@ public sealed class WikilinkRankingTests
     public void ADeeperCandidateOutranksTheVaultRootCopy()
     {
         // Descending costs characters, but no amount of it moves a candidate out of the winning
-        // group: the copy a folder below the linking note needs no climb and the root copy needs
+        // group. The copy a folder below the linking note needs no climb and the root copy needs
         // three, so ranking alone hands the link to the subtree copy. The root copy nonetheless
         // keeps every bare link to its basename, because a bare target spells that copy's whole
         // vault path and the path tier takes it before these candidates are ever gathered.
@@ -71,7 +71,7 @@ public sealed class WikilinkRankingTests
     [Fact]
     public void TheLinkingFilesOwnFolderBeatsASubfolderOfIt()
     {
-        // Both candidates are inside the subtree, so the shorter spelling wins: "Dupe.md" is seven
+        // Both candidates are inside the subtree, so the shorter spelling wins. "Dupe.md" is seven
         // characters against "Aaa/Dupe.md" at eleven. The subfolder is named to sort ahead of the
         // basename, which is what the ordinal comparison would seize on if the spelling were not
         // measured first.

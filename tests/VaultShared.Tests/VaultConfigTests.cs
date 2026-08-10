@@ -62,8 +62,8 @@ public sealed class VaultConfigLoadTests : IDisposable
     [Fact]
     public void Load_NonexistentRoot_SkipsThatVaultNotTheFile()
     {
-        // Two configured vaults, one with a missing root. The load is not fatal: the broken vault
-        // is skipped with a degraded problem recorded, and the healthy vault keeps working.
+        // Two configured vaults, one with a missing root. The broken vault is skipped with a
+        // degraded problem recorded, and the healthy vault keeps working.
         var path = WriteConfig($$"""{ "default_vault": "a", "vaults": { "a": {{JsonVault(_tempDir)}}, "b": {{JsonVault(Path.Combine(_tempDir, "no-such-dir"))}} } }""");
         var sink = new RecordingProblemSink();
         var config = VaultConfigLoader.Load(path, TestOpClasses.Repo, sink);

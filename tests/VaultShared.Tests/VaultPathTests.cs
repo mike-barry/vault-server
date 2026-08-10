@@ -8,8 +8,8 @@ namespace VaultShared.Tests;
 /// compare.
 /// </summary>
 /// <remarks>
-/// Every test runs against a vault root that does not exist, which is deliberate. Containment is
-/// decided textually and touches no filesystem.
+/// Every test runs against a vault root that does not exist. Containment is decided textually and
+/// touches no filesystem.
 /// </remarks>
 public sealed class VaultPathTests
 {

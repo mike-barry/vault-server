@@ -40,8 +40,8 @@ public sealed class SearchEngineConfigurationTests : IDisposable
     }
 
     /// <summary>
-    /// An absent setting and an empty one both mean the engine is found on <c>PATH</c>, and neither is
-    /// a problem worth recording. A host that configures nothing is in its shipped state.
+    /// Checks that an absent setting and an empty one both mean the engine is found on <c>PATH</c>,
+    /// with no problem recorded.
     /// </summary>
     [Theory]
     [InlineData(null)]
@@ -58,9 +58,9 @@ public sealed class SearchEngineConfigurationTests : IDisposable
     }
 
     /// <summary>
-    /// A relative location resolves against the directory the caller supplied, never the process's
-    /// working directory, so the engine a command-line front-end runs does not depend on where the
-    /// operator happened to be standing.
+    /// Checks that a relative location resolves against the directory the caller supplied, never the
+    /// process's working directory, so the engine a command-line front-end runs does not depend on
+    /// where it was started.
     /// </summary>
     [Fact]
     public void ARelativeLocationResolvesAgainstTheSuppliedBaseDirectory()
@@ -87,9 +87,9 @@ public sealed class SearchEngineConfigurationTests : IDisposable
     }
 
     /// <summary>
-    /// A configured executable that is not there is named once at startup, as degraded rather than
-    /// fatal: only search and enumeration go through the engine, so taking the host down would refuse
-    /// the reads, writes, moves and removals the failure does not touch.
+    /// Checks that a configured executable which is not there is named once at startup, as degraded
+    /// rather than fatal. Only search and enumeration go through the engine, so taking the host down
+    /// would refuse the reads, writes, moves and removals the failure does not touch.
     /// </summary>
     [Fact]
     public void AnExplicitLocationThatIsNotThereRecordsOneDegradedProblemAndDoesNotFailTheHost()
@@ -106,8 +106,8 @@ public sealed class SearchEngineConfigurationTests : IDisposable
     }
 
     /// <summary>
-    /// The configured location is still handed to the layer when it is not there, so search refuses
-    /// instead of silently running whatever executable <c>PATH</c> happens to offer under that name.
+    /// Checks that the configured location is still handed to the layer when it is not there, so
+    /// search refuses instead of running whatever executable <c>PATH</c> offers under that name.
     /// </summary>
     [Fact]
     public void AnExplicitLocationThatIsNotThereIsStillUsedRatherThanFallingBackToPath()

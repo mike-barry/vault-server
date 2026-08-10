@@ -231,9 +231,9 @@ public sealed class VaultFilesReadWriteTests : IDisposable
     }
 
     /// <summary>
-    /// A folder already at the target is reported as such rather than as a creation. The platform's
-    /// directory creation is idempotent, so without the probe the call would report making something
-    /// that was already there.
+    /// Checks that a folder already at the target is reported as such rather than as a creation.
+    /// The platform's directory creation is idempotent, so without the probe the call would report
+    /// making something that was already there.
     /// </summary>
     [Fact]
     public void CreateFolder_ReportsAnOccupiedTargetRatherThanACreationThatDidNotHappen()
@@ -246,9 +246,8 @@ public sealed class VaultFilesReadWriteTests : IDisposable
     }
 
     /// <summary>
-    /// A file occupying the folder's path takes the name just as a folder does, so it is the same
-    /// occupied-target answer rather than an operational failure the caller has to read a message to
-    /// understand.
+    /// Checks that a file occupying the folder's path gives the same occupied-target answer a folder
+    /// there does, rather than an operational failure. It takes the name just as a folder does.
     /// </summary>
     [Fact]
     public void CreateFolder_OverAFileIsAnOccupiedTargetToo()

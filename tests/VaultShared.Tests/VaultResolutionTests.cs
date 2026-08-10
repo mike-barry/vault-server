@@ -119,9 +119,8 @@ public sealed class VaultResolutionStateTests : IDisposable
 /// Tests how <c>Vault.LockName</c> is derived.
 /// </summary>
 /// <remarks>
-/// The mutex name is a cross-process contract with the separate <c>VaultWatcher</c> process, which
-/// reimplements the derivation in its own code. Changing the derivation here without changing it
-/// there leaves the two processes taking different locks over the same files.
+/// The mutex name is a cross-process contract, so these tests pin every step of the derivation.
+/// <c>Vault.LockName</c> carries what the contract is and what changing it breaks.
 /// </remarks>
 public sealed class VaultLockNameTests
 {

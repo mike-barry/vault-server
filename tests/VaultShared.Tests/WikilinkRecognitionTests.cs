@@ -227,8 +227,8 @@ public sealed class WikilinkRecognitionTests
     }
 
     /// <summary>
-    /// Replaces every link target in the text, the way a consumer does: writing over each target
-    /// extent from last to first, so the earlier extents still describe the text they came from.
+    /// Replaces every link target in the text, writing over each target extent from last to first so
+    /// the earlier extents still describe the text they came from.
     /// </summary>
     /// <param name="text">The text to rewrite.</param>
     /// <param name="replacement">The target to write in place of each recognized one.</param>

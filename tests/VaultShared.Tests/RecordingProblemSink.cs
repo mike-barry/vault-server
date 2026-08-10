@@ -15,7 +15,7 @@ public sealed class RecordingProblemSink : IConfigProblemSink
 
     /// <summary>
     /// Gets a value indicating whether any <see cref="ProblemSeverity.Fatal"/> problem has been
-    /// recorded. This is the question a fail-closed caller asks after a load.
+    /// recorded.
     /// </summary>
     public bool IsFatallyDegraded => _problems.Any(p => p.Severity == ProblemSeverity.Fatal);
 

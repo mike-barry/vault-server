@@ -249,8 +249,8 @@ public sealed class VaultSearchTests : IDisposable
     }
 
     /// <summary>
-    /// An engine that is not where it was said to be is its own outcome at every granularity, so no
-    /// granularity reports a permanent condition as one a retry could clear.
+    /// Checks that an engine which is not where it was said to be is its own outcome at every
+    /// granularity, so no granularity reports a permanent condition as one a retry could clear.
     /// </summary>
     [Fact]
     public void AnEngineThatCannotBeRunIsItsOwnOutcomeRatherThanAGeneralFailure()
@@ -345,7 +345,7 @@ public sealed class VaultSearchTests : IDisposable
     /// <summary>
     /// Checks that a path the engine emitted which is not inside this vault fails the whole search at
     /// every granularity, naming the text that was emitted. Each granularity reads a different output
-    /// shape and so has its own check, and no granularity may answer with the paths it could parse:
+    /// shape and so has its own check. No granularity answers with the paths it could parse, because
     /// a result set that dropped one silently would be a wrong answer the caller cannot tell from a
     /// right one.
     /// </summary>
