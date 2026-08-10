@@ -52,7 +52,7 @@ public sealed class CliFixture : IDisposable
 
         // A registry path in vaults.json resolves against the directory holding vaults.json, which
         // here is the fixture root, so the committed registry is copied there under its own name.
-        File.Copy(Path.Combine(RepoRoot, "frontmatter-registry.json"), Path.Combine(Root, "frontmatter-registry.json"));
+        File.Copy(Path.Combine(RepoRoot, "test-vault-frontmatter-registry.json"), Path.Combine(Root, "test-vault-frontmatter-registry.json"));
 
         VaultsPath = Write("vaults.json", new
         {
@@ -62,7 +62,7 @@ public sealed class CliFixture : IDisposable
                 test = new
                 {
                     path = VaultPath.Replace('\\', '/'),
-                    frontmatter_registry = "frontmatter-registry.json",
+                    frontmatter_registry = "test-vault-frontmatter-registry.json",
                 },
             },
         });

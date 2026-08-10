@@ -369,8 +369,8 @@ public sealed class EditDispatchTests(EditDispatchTests.Fixture fixture) : IClas
             // vaults.json, because the path is resolved relative to that file. Copied rather than
             // referenced so the whole configuration a mutating call reads sits inside the sandbox.
             File.Copy(
-                Path.Combine(TestVaultFixture.RepoRoot, "frontmatter-registry.json"),
-                Path.Combine(TempDir, "frontmatter-registry.json"));
+                Path.Combine(TestVaultFixture.RepoRoot, "test-vault-frontmatter-registry.json"),
+                Path.Combine(TempDir, "test-vault-frontmatter-registry.json"));
 
             var vaultsPath = Path.Combine(TempDir, "vaults.json");
             File.WriteAllText(vaultsPath, JsonSerializer.Serialize(new
@@ -378,7 +378,7 @@ public sealed class EditDispatchTests(EditDispatchTests.Fixture fixture) : IClas
                 default_vault = "test",
                 vaults = new Dictionary<string, object>
                 {
-                    ["test"] = new { path = _vaultRoot.Replace('\\', '/'), frontmatter_registry = "frontmatter-registry.json" },
+                    ["test"] = new { path = _vaultRoot.Replace('\\', '/'), frontmatter_registry = "test-vault-frontmatter-registry.json" },
                 },
             }));
 

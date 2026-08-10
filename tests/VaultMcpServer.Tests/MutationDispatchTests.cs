@@ -358,8 +358,8 @@ public sealed class MutationDispatchTests(MutationDispatchTests.Fixture fixture)
             SeedDuplicateBasenames();
 
             File.Copy(
-                Path.Combine(TestVaultFixture.RepoRoot, "frontmatter-registry.json"),
-                Path.Combine(TempDir, "frontmatter-registry.json"));
+                Path.Combine(TestVaultFixture.RepoRoot, "test-vault-frontmatter-registry.json"),
+                Path.Combine(TempDir, "test-vault-frontmatter-registry.json"));
 
             var vaultsPath = Path.Combine(TempDir, "vaults.json");
             File.WriteAllText(vaultsPath, JsonSerializer.Serialize(new
@@ -367,7 +367,7 @@ public sealed class MutationDispatchTests(MutationDispatchTests.Fixture fixture)
                 default_vault = "test",
                 vaults = new Dictionary<string, object>
                 {
-                    ["test"] = new { path = _vaultRoot.Replace('\\', '/'), frontmatter_registry = "frontmatter-registry.json" },
+                    ["test"] = new { path = _vaultRoot.Replace('\\', '/'), frontmatter_registry = "test-vault-frontmatter-registry.json" },
                 },
             }));
 

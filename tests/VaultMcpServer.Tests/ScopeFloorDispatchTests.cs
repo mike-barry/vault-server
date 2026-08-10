@@ -273,8 +273,8 @@ public sealed class ScopeFloorDispatchTests(ScopeFloorDispatchTests.Fixture fixt
             CopyDirectory(Path.Combine(TestVaultFixture.RepoRoot, "test-vault"), _vaultRoot);
 
             File.Copy(
-                Path.Combine(TestVaultFixture.RepoRoot, "frontmatter-registry.json"),
-                Path.Combine(TempDir, "frontmatter-registry.json"));
+                Path.Combine(TestVaultFixture.RepoRoot, "test-vault-frontmatter-registry.json"),
+                Path.Combine(TempDir, "test-vault-frontmatter-registry.json"));
 
             var vaultsPath = Path.Combine(TempDir, "vaults.json");
             File.WriteAllText(vaultsPath, JsonSerializer.Serialize(new
@@ -285,7 +285,7 @@ public sealed class ScopeFloorDispatchTests(ScopeFloorDispatchTests.Fixture fixt
                     ["test"] = new
                     {
                         path = _vaultRoot.Replace('\\', '/'),
-                        frontmatter_registry = "frontmatter-registry.json",
+                        frontmatter_registry = "test-vault-frontmatter-registry.json",
 
                         // The same declaration the committed vaults.json carries, restated here so
                         // the whole configuration a call reads sits inside the sandbox.

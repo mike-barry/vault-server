@@ -3,7 +3,7 @@
   "vaults": {
     "test": {
       "path": "C:/Repos/vault-server-redesign/test-vault",
-      "frontmatter_registry": "frontmatter-registry.json",
+      "frontmatter_registry": "test-vault-frontmatter-registry.json",
       "path_policy": [
         { "path": "Resources/Vault/Guides", "always_readable": true }
       ]

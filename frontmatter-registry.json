@@ -1,49 +1,62 @@
 {
-  // The frontmatter declaration the "test" vault names, beside the grant and op-class
+  // The frontmatter declaration the "primary" vault names, beside the grant and op-class
   // configuration and outside the vault, at the same trust tier - a declaration inside the thing
   // it protects would be rewritable by the surface it exists to bound.
   //
-  // It is a fixture vocabulary, invented for the committed test-vault/ and describing nothing any
-  // real vault carries. What it exercises is the mechanism: a scalar key under a value constraint,
-  // a block list whose variants differ in identity, comparison and whether they clear wholesale,
-  // a bare-scalar entry, and a namespace that prices a whole prefix.
+  // This one describes a real vault, so it is not free to be tidy. The vault maintains its own
+  // account of the agentic layer in Frontmatter-Schema.md under its guides folder, written for the
+  // skills that author frontmatter there, and this file is that contract expressed as the positive
+  // registry the write path enforces. Where the two disagree the vault's note is right, because the
+  // skills follow it and this file only gates them. The sibling declaration for the committed test
+  // vault is an invented vocabulary and shares nothing with this one but its mechanisms.
   "version": 1,
 
   "namespaces": [
     {
       "prefix": "agent.",
       "write_requires": "agentic:write",
-      "note": "The agentic layer: keys here instruct an agent, so changing one is authoring behaviour rather than content. A key the map below does not list still falls under this."
+      "note": "The behavioural layer, where a key instructs an agent, so changing one is authoring behaviour rather than content. A key the map below does not list still falls under this."
+    },
+    {
+      "prefix": "nav.",
+      "write_requires": "agentic:write",
+      "note": "The navigation layer. It is priced with the behavioural layer rather than as content because rewriting where an agent is routed changes what it does, which is the same authority in a different spelling."
     }
   ],
 
   "keys": {
-    "doc.title": {
+    // The doc.* layer is the human-facing taxonomy rather than part of the agentic layer, so it
+    // carries no namespace and writing it costs ordinary content authority. It is declared because
+    // archiving writes doc.archived and note creation writes the other two, and an undeclared key
+    // is refused.
+    "doc.created": {
       "shape": "scalar",
-      "value": { "kind": "string" }
+      "value": { "kind": "date" },
+      "note": "The document's capture date."
+    },
+    "doc.archived": {
+      "shape": "scalar",
+      "value": { "kind": "date" },
+      "note": "The date the file arrived in the archive."
     },
     "doc.type": {
       "shape": "scalar",
-      "value": { "kind": "enum", "values": ["Note", "Plan", "Reference", "Guide", "Project"] },
-      "note": "The fixture's document kinds. An enumeration rather than free text, so a set that refuses a value has something to refuse."
+      "value": {
+        "kind": "enum",
+        "values": ["Meeting", "Chat", "Email", "Bug", "Plan", "Idea", "Note", "Research", "Reading", "Proposal", "Issue", "Corpus", "Mode"]
+      },
+      "note": "Every type the vault's notes currently carry. The first eleven are the vault's own table of known types, in its order; Corpus and Mode are in use without appearing there. A closed set is a deliberate narrowing, because the vault treats an unlisted type as unrecognized and confirms it with the user rather than refusing it, so a type invented after this line was written is refused here until it is added. Adding one is the whole fix, and the refusal is what makes the addition happen rather than a typo becoming a type."
     },
-    "doc.created": {
-      "shape": "scalar",
-      "value": { "kind": "date" }
-    },
-    "doc.owner": {
-      "shape": "scalar",
-      "value": { "kind": "charclass", "chars": "alnum-dash", "min": 1, "max": 40 }
-    },
+
     "nav.contents": {
       "shape": "block_list",
       "entry": "nav_entry",
-      "note": "A folder note's listing of what it contains."
+      "note": "A folder note's listing of the children it routes to."
     },
     "nav.see_also": {
       "shape": "block_list",
       "entry": "nav_entry",
-      "note": "Two keys naming one schema, so the loaded declaration holds one object and the advertised branch is one branch both keys accept."
+      "note": "Related notes outside the folder. Two keys naming one schema, so the loaded declaration holds one object and the advertised branch is one branch both keys accept."
     },
     "agent.instructions": {
       "shape": "block_list",
@@ -52,8 +65,9 @@
   },
 
   "entry_schemas": {
-    // Identity is the link, compared as the editor and the filesystem resolve one, and entries are
-    // named individually: a listing is authored, not generated, so nothing clears it in one go.
+    // Two variants distinguished by which target key they carry. A file entry names one note and a
+    // folder entry names a scope whose contents churn, which is why the folder form exists at all -
+    // enumerating an inbox would be a listing that goes stale on every capture.
     "nav_entry": {
       "variants": [
         {
@@ -67,42 +81,57 @@
           "identity": ["link"],
           "identity_match": "case-insensitive",
           "removable_wholesale": false
+        },
+        {
+          "name": "folder",
+          "discriminated_by": "folder",
+          "fields": {
+            "folder": { "required": true, "value": { "kind": "string" } },
+            "description": { "required": true, "value": { "kind": "string" } },
+            "load_when": { "required": false, "value": { "kind": "string" } }
+          },
+          "identity": ["folder"],
+          "identity_match": "case-insensitive",
+          "removable_wholesale": false,
+          "note": "The target is a vault-relative folder path rather than a wikilink, and is held as a string because no path syntax admits the separator. The vault writes the two forms differently on purpose, so that an entry's kind is legible without reading its fields."
         }
       ]
     },
 
-    // Three shapes in one list: a bare line of prose, a tooling-owned directive that clears
-    // wholesale, and a human-authored one that does not.
+    // Three shapes in one list, and they differ in who may change them rather than in what they
+    // say. A bare line is the agent's own and may be revised freely; the other two are frozen, one
+    // because a human asked for it and one because a skill derives it.
     "directive_entry": {
       "variants": [
         {
           "name": "hint",
           "scalar": { "kind": "string" },
           "removable_wholesale": false,
-          "note": "A bare line. It declares no identity, so it is addressable by nothing and every add of one appends."
+          "note": "A revisable navigation or behaviour hint. It declares no identity, so it is addressable by nothing and every add of one appends."
+        },
+        {
+          "name": "pinned",
+          "discriminated_by": "pinned",
+          "fields": {
+            "pinned": { "required": true, "value": { "kind": "string" } }
+          },
+          "identity": ["pinned"],
+          "identity_match": "case-sensitive",
+          "removable_wholesale": false,
+          "note": "Human intent the user asked for, and every live one is a rule against putting a note's contents into an outbound message. It is never edited or dropped, so it is compared exactly and cannot be cleared as a variant. Losing one silently removes a confidentiality instruction from a note that still holds the material it protects."
         },
         {
           "name": "use_skill",
           "discriminated_by": "use_skill",
           "fields": {
             "use_skill": { "required": true, "value": { "kind": "charclass", "chars": "alnum-dash", "min": 1, "max": 60 } },
-            "when": { "required": false, "value": { "kind": "string" } }
+            "when": { "required": true, "value": { "kind": "string" } },
+            "note": { "required": false, "value": { "kind": "string" } }
           },
           "identity": ["use_skill"],
           "identity_match": "case-insensitive",
           "removable_wholesale": true,
-          "note": "Tooling owns and rewrites these, so clearing the variant in one go is the useful form."
-        },
-        {
-          "name": "rule",
-          "discriminated_by": "rule",
-          "fields": {
-            "rule": { "required": true, "value": { "kind": "string" } }
-          },
-          "identity": ["rule"],
-          "identity_match": "case-sensitive",
-          "removable_wholesale": false,
-          "note": "A line a human wrote, compared exactly and dropped one at a time."
+          "note": "A skill's directive on a file whose format that skill owns, frozen while the file is live. It clears as a variant because archiving strips every one of them in a single step - the routing only means something while the file can still be edited through the skill that placed it."
         }
       ]
     }

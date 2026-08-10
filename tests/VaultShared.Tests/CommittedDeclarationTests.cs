@@ -4,8 +4,8 @@ using VaultShared.Health;
 namespace VaultShared.Tests;
 
 /// <summary>
-/// Tests the frontmatter declaration that the committed <c>vaults.json</c> names for the fixture
-/// vault, loaded through the real loader against the repository's real op-class configuration.
+/// Tests the frontmatter declarations the repository ships, loaded through the real loader against
+/// the repository's real op-class configuration.
 /// </summary>
 /// <remarks>
 /// These are the only tests asserted against files the repository ships rather than against a
@@ -13,15 +13,24 @@ namespace VaultShared.Tests;
 /// every frontmatter write refusing. They check that the committed files load and stay wired up,
 /// not what the vocabulary contains; the behaviour of the write path is covered by
 /// <see cref="FrontmatterWritePathTests"/> against a declaration those tests own.
+/// <para>
+/// Two declarations ship. The fixture vault's is an invented vocabulary the committed
+/// <c>vaults.json</c> names, and the tests below that reach into a vocabulary reach into that one.
+/// The other describes a real vault this repository does not itself serve, so loading is the only
+/// thing that can be asserted about it here, and it is the only thing worth asserting.
+/// </para>
 /// </remarks>
 public sealed class CommittedDeclarationTests
 {
     private static string Path(string name) => System.IO.Path.Combine(TestVaultFixture.RepoRoot, name);
 
-    [Fact]
-    public void TheCommittedDeclarationLoadsClean()
+    /// <param name="file">The declaration's filename at the repository root.</param>
+    [Theory]
+    [InlineData("test-vault-frontmatter-registry.json")]
+    [InlineData("frontmatter-registry.json")]
+    public void ACommittedDeclarationLoadsClean(string file)
     {
-        var state = FrontmatterRegistryLoader.Load(Path("frontmatter-registry.json"), TestOpClasses.Repo);
+        var state = FrontmatterRegistryLoader.Load(Path(file), TestOpClasses.Repo);
 
         var loaded = Assert.IsType<RegistryState.Loaded>(state);
         Assert.NotEmpty(loaded.Registry.Keys);
@@ -67,7 +76,7 @@ public sealed class CommittedDeclarationTests
     public void ItsVariantsProjectIntoTheAdvertisedVocabulary()
     {
         var vocabulary = FrontmatterVocabulary.Of(
-            FrontmatterRegistryLoader.Load(Path("frontmatter-registry.json"), TestOpClasses.Repo));
+            FrontmatterRegistryLoader.Load(Path("test-vault-frontmatter-registry.json"), TestOpClasses.Repo));
 
         Assert.Contains(vocabulary.Keys, k => k.Key == "nav.contents");
         Assert.Contains(vocabulary.Branches, b => b.Variant == "use_skill" && b.Keys.Contains("agent.instructions"));
