@@ -10,8 +10,7 @@ namespace VaultCli.Tests;
 /// envelope with its machine-readable code.
 /// </summary>
 /// <remarks>
-/// The parity cases come from <see cref="FrontEndParity"/>, which the MCP server's suite asserts
-/// against as well, so the two front-ends are checked against the same expected bytes.
+/// The parity cases come from <see cref="FrontEndParity"/>.
 /// </remarks>
 public sealed class RenderingTests(CliFixture fixture) : IClassFixture<CliFixture>
 {
@@ -89,8 +88,7 @@ public sealed class RenderingTests(CliFixture fixture) : IClassFixture<CliFixtur
     }
 
     /// <summary>
-    /// The CLI's half of the parity contract. The MCP server's suite asserts the same expected
-    /// string of the text in an <c>isError</c> result.
+    /// The CLI's half of the parity contract.
     /// </summary>
     [Theory]
     [MemberData(nameof(RefusalNames))]

@@ -9,9 +9,8 @@ namespace VaultShared.Tools;
 /// <remarks>
 /// Nothing else acquires this lock - not the tools, not the access layer's write primitives - so a
 /// write primitive called outside a tool runs with no lock held. The lock name comes from
-/// <see cref="Vault.LockName"/>. That derivation is a cross-process contract shared with
-/// <c>VaultWatcher</c>. Changing it stops the two processes contending for the same mutex, silently.
-/// The hold is synchronous and stays on one thread, because a <see cref="Mutex"/> is thread-affine
+/// <see cref="Vault.LockName"/>, which carries what the derivation contracts with and what changing
+/// it breaks. The hold is synchronous and stays on one thread, because a <see cref="Mutex"/> is thread-affine
 /// and the hold must not cross an await.
 /// </remarks>
 public static class VaultWriteLock

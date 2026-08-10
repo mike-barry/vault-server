@@ -10,9 +10,8 @@ namespace VaultMcpServer.Tests;
 /// refusal arrives in the text of an <c>isError</c> result as exactly the bytes the contract names.
 /// </summary>
 /// <remarks>
-/// The CLI test suite asserts the same values against standard error, so the two front-ends are
-/// held to byte-identical refusals. Rendering of successful results over this transport is covered
-/// by <c>VaultToolDispatchTests</c>, where a real call produces one.
+/// Rendering of successful results over this transport is covered by
+/// <c>VaultToolDispatchTests</c>, where a real call produces one.
 /// </remarks>
 public sealed class FrontEndParityTests
 {
