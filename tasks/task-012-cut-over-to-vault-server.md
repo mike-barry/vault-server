@@ -41,6 +41,8 @@ Both repos track it, and it is the one file where the replay and the real config
 
 So the baseline aligns it to this repo's root commit like any other tracked path, and the replay applies cleanly. After the replay it is patched by hand to carry the real vault's configuration, which is recoverable from `vault-server`'s history, expressed in the schema this build arrived at. Its pre-cutover content is not restored verbatim, because what has to survive is the information rather than the form it was written in.
 
+The patched file names both vaults. `primary` points at `C:/Repos/vault-primary` and names `frontmatter-registry.json`, and `test` points at the repository's own `test-vault` and names `test-vault-frontmatter-registry.json`. `primary` is the default vault, as it was before the cutover.
+
 ## Acceptance criteria
 
 - [x] The whole sequence was rehearsed on a branch in a clone before any of it was done for real.
@@ -68,7 +70,7 @@ Rehearsed in a clone of `vault-server` on a branch, with all three moves carried
 
 **`vaults.json` is the only hand-patch, and it needs one decision.** Two things came out of testing it.
 
-- **The primary vault must name a frontmatter registry.** A vault naming none records a `Degraded` problem, and `CommittedDeclarationTests` asserts that the shipped configuration records none, so an entry carrying only `path` fails `dotnet test`. Pointing it at the repo's `frontmatter-registry.json` takes the suite to 1570 green. Whether the real vault should share the test vault's declaration or get its own is the open decision, and it is the only thing still blocking the real run.
+- **The primary vault must name a frontmatter registry.** A vault naming none records a `Degraded` problem, and `CommittedDeclarationTests` asserts that the shipped configuration records none, so an entry carrying only `path` fails `dotnet test`. This is settled. The repository now ships two declarations — `frontmatter-registry.json` describes the real vault and `test-vault-frontmatter-registry.json` is the fixture vocabulary under a name that says so — and the cutover's `vaults.json` names one from each vault.
 - **The read-floor warning during rehearsal is an artifact of the clone's location.** `vaults.json` names `C:/Repos/vault-server/test-vault` while the clone sits elsewhere, so the always-readable folder resolves to nothing. The folder ships in the replayed tree, so it resolves at the real location. This is the absolute-path fragility `task-003-vaults-json-absolute-paths.md` describes.
 
 **The `.claude/settings.json` grant answers itself.** The root commit sets `additionalDirectories` to empty and nothing later re-adds it, so the replay drops the `C:\Repos\vault-primary` grant on its own. Restoring it, if it is wanted, is a deliberate act rather than an oversight to avoid.
