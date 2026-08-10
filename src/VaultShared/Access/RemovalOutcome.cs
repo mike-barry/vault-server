@@ -1,8 +1,8 @@
 namespace VaultShared.Access;
 
 /// <summary>
-/// Represents the result of removing one entry. The private constructor closes the hierarchy, so a
-/// caller that handles every nested record has handled every case.
+/// Represents the result of removing one entry. These records are the whole set. The constructor is
+/// private, so nothing outside this type can add another.
 /// </summary>
 /// <remarks>
 /// A removal runs against a plan built a moment earlier, so an entry that vanished in between is a

@@ -3,8 +3,8 @@ namespace VaultShared.Access;
 /// <summary>
 /// Represents the result of a write: replacing a note's content, creating a note, or creating a
 /// folder. One hierarchy covers all three because their refusals are the same; each operation
-/// documents which cases it can produce. The private constructor closes the hierarchy, so a caller
-/// that handles every nested record has handled every case.
+/// documents which cases it can produce. These records are the whole set. The constructor is
+/// private, so nothing outside this type can add another.
 /// </summary>
 /// <remarks>
 /// Every refusal here comes from the attempt itself rather than from a check made first. That

@@ -1,9 +1,8 @@
 namespace VaultShared.Access;
 
 /// <summary>
-/// Represents the result of reading a note: its content, or a classified failure. The private
-/// constructor closes the hierarchy, so a caller that handles every nested record has handled every
-/// case.
+/// Represents the result of reading a note: its content, or a classified failure. These records are
+/// the whole set. The constructor is private, so nothing outside this type can add another.
 /// </summary>
 /// <remarks>
 /// "Nothing there" and "there, and the read failed" are separate cases so a caller does not have to

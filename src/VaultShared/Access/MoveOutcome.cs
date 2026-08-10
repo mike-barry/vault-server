@@ -1,8 +1,8 @@
 namespace VaultShared.Access;
 
 /// <summary>
-/// Represents the result of moving one entry. The private constructor closes the hierarchy, so a
-/// caller that handles every nested record has handled every case.
+/// Represents the result of moving one entry. These records are the whole set. The constructor is
+/// private, so nothing outside this type can add another.
 /// </summary>
 /// <remarks>
 /// Only the relocation is here. Wikilink repair, the folder note's rename, protective pinning, and

@@ -2,8 +2,8 @@ namespace VaultShared.Access;
 
 /// <summary>
 /// Represents the result of resolving a path the caller named: the admitted proof, or one of three
-/// refusals. The private constructor closes the hierarchy, so a caller that handles every nested
-/// record has handled every case.
+/// refusals. These records are the whole set. The constructor is private, so nothing outside this
+/// type can add another.
 /// </summary>
 /// <remarks>
 /// A refusal carries only the path as the caller wrote it. It must never carry whether the target

@@ -2,8 +2,9 @@ namespace VaultShared.Scope;
 
 /// <summary>
 /// Represents one vault's path scope under a grant: either unscoped, meaning the whole vault, or a
-/// non-empty set of folder-prefix roots. The private constructor closes the hierarchy to those two,
-/// and <see cref="Of"/> refuses an empty sequence, so an empty root set cannot be constructed.
+/// non-empty set of folder-prefix roots. The constructor is private, so nothing outside this type
+/// can add a third, and <see cref="Of"/> refuses an empty sequence, so an empty root set cannot be
+/// constructed.
 /// </summary>
 /// <remarks>
 /// The empty set is refused so the widest possible grant is not what a dropped entry, a

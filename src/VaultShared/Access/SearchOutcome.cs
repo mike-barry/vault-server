@@ -2,8 +2,8 @@ namespace VaultShared.Access;
 
 /// <summary>
 /// Represents the result of an enumeration or a content search: a possibly empty list of results,
-/// or one of four failures. The private constructor closes the hierarchy, so a caller that handles
-/// every nested record has handled every case.
+/// or one of four failures. These records are the whole set. The constructor is private, so nothing
+/// outside this type can add another.
 /// </summary>
 /// <remarks>
 /// An empty <see cref="Results"/> is the correct answer to a well-formed question that matched
