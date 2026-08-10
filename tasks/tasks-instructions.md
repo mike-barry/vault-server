@@ -63,11 +63,13 @@ Two markers, and only two:
 
 ## Naming a task
 
-A task is named by its bare filename — `task-011-comment-sweep.md` — never by a path.
+A task is named by its bare filename — `task-011-comment-sweep.md` — never by a path. The shorthand `task-011` is acceptable wherever the slug adds nothing.
+
+Both forms take backticks. A task file's own title line is not a reference and takes none, so it stays `# task-011: Title` as the template below spells it.
 
 `tasks.md` is the one file that links. Its checklist lines carry a markdown link whose target is that bare filename, which is what makes the index navigable. Those links never break, because archiving an item deletes its line in the same edit that moves its file.
 
-Everywhere else — in a task file, archived or not, and in prose anywhere — the filename is written in backticks and is not a link. A link written outside the index breaks the moment the task it names is archived, and it breaks silently, since nothing here checks that a link resolves. Writing `archive/` or `../` into the target is worse still. It is a claim about where the file sits today, and archiving is exactly the thing that falsifies it.
+Everywhere else — in a task file, archived or not, and in prose anywhere — the name is written in backticks and is not a link. A link written outside the index breaks the moment the task it names is archived, and it breaks silently, since nothing here checks that a link resolves. Writing `archive/` or `../` into the target is worse still. It is a claim about where the file sits today, and archiving is exactly the thing that falsifies it.
 
 ## Lifecycle
 

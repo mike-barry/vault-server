@@ -23,7 +23,7 @@
 
 - Is a body required on every commit, or only where a change decides something? A mechanical rename under three paragraphs is its own kind of noise.
 - Does the `Co-Authored-By` trailer stay, and is it required or incidental?
-- How does a commit reference a task? The history names them in prose - `295109b` and `039db0b` both name task-013 - rather than in a trailer or a subject prefix.
+- How does a commit reference a task? The history names them in prose - `295109b` and `039db0b` both name `task-013` - rather than in a trailer or a subject prefix.
 - Does the standard say anything about commit granularity, or only about the message? The two are related: a commit spanning two unrelated threads cannot have a body that explains one thing.
 
 ## Notes

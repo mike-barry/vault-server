@@ -14,7 +14,7 @@ Not yet written - see Open questions.
 
 - How many shells ship? The entry says PowerShell is the one that matters but the directive is shell-neutral, and calls the choice worth making deliberately.
 - The entry ends by noting none of this is reachable until `vault.exe` is on `PATH`, which it is not, and that the CLI has no install story. Is the install story a prerequisite task, part of this one, or out of scope with completion landing unreachable?
-- A completion invocation should produce no audit or log line, which the entry says should be settled once together with the audit surface work in task-004. Which task owns that decision?
+- A completion invocation should produce no audit or log line, which the entry says should be settled once together with the audit surface work in `task-004`. Which task owns that decision?
 
 ## Notes
 
@@ -28,4 +28,4 @@ The entry as it stood in `docs/Sidequests.md`, verbatim:
 >
 > The fix is two small pieces that must agree. `ToolCommandTree` or the root-command construction in `VaultCliApp` gains the directive, and a profile script registers `Register-ArgumentCompleter -Native -CommandName vault` pointing back at `vault [suggest]`. Prefer writing that script ourselves over taking `dotnet-suggest`: the package's own documentation names that tool as the consumer of the directive, but it is a separately installed global tool, and the dependency set for this build is closed. What makes it less obvious than it looks: the completer is invoked on every keystroke that triggers it, so a `vault [suggest]` call must return without the work the host does at startup - if configuration loading, vault resolution or the watcher run on that path, completion pauses the prompt, and it must also stay silent rather than emit a failure line into the candidate list when a vault is unavailable. A completion invocation should also produce no audit or log line, which meets the entry above on the audit surface and should be settled once for both. And the registration is per-shell: PowerShell is the one that matters here, but the directive is shell-neutral and bash and zsh shims are the same script written twice, so the choice of how many to ship is worth making deliberately rather than discovering later. Finally, none of this is reachable until `vault.exe` is on `PATH`, which today it is not - the CLI has no install story at all, and completion is the first thing to want one.
 
-The entry's "the entry above on the audit surface" refers to what is now task-004.
+The entry's "the entry above on the audit surface" refers to what is now `task-004`.
