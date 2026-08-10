@@ -4,7 +4,7 @@ using VaultMcpServer.Tools;
 namespace VaultMcpServer.Tests;
 
 /// <summary>
-/// Covers how MCP wraps the refusal envelope: the JSON is the entire text block of an
+/// Covers how MCP wraps the refusal envelope. The JSON is the entire text block of an
 /// <c>isError</c> result, so nothing downstream has to strip a prose prefix to reach the code. A
 /// refusal the dispatcher makes and one a tool produces for itself must arrive identically, so a
 /// caller cannot tell which layer refused.
@@ -32,8 +32,6 @@ public sealed class ToolErrorTests
     [Fact]
     public void Result_IsAnErrorWhoseWholeTextContentIsTheErrorJson()
     {
-        // The JSON is the entire text block - the same thing a tool script's thrown error text is -
-        // so nothing downstream has to unwrap a prose prefix to reach the code.
         var result = ToolError.Result("not_found", "Unknown tool: \"nope\".", new { tool = "nope" });
 
         Assert.True(result.IsError);

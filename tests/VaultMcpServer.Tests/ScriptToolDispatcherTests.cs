@@ -97,7 +97,7 @@ public sealed class ScriptToolDispatcherTests : IClassFixture<ScriptToolDispatch
 
         // The whole schema node, not just the presence of the property. A listing that lost the
         // derived type, the help text or the mandatory marking on the way over the wire would
-        // still carry a "Name" key, so presence alone does not show the schema arrived intact.
+        // still carry a "Name" key.
         var inputSchema = greet.GetProperty("inputSchema");
         Assert.Equal("object", inputSchema.GetProperty("type").GetString());
         var nameProperty = inputSchema.GetProperty("properties").GetProperty("Name");
@@ -168,7 +168,7 @@ public sealed class ScriptToolDispatcherTests : IClassFixture<ScriptToolDispatch
     }
 
     /// <summary>
-    /// Verifies that the <c>tools/</c> file watcher is wired into the real host: a script written to
+    /// Verifies that the <c>tools/</c> file watcher is wired into the real host. A script written to
     /// disk after startup appears in <c>tools/list</c> without a restart, once the watcher's
     /// debounce window has elapsed.
     /// </summary>
@@ -375,9 +375,8 @@ public sealed class ScriptToolDispatcherTests : IClassFixture<ScriptToolDispatch
     {
         // Deliberately the same payload, character for character, that
         // ToolsCall_StructuredArrayForSideCarArrayParameter_ReachesTheScriptAsParseableJson sends
-        // in structured form and pins the arrival text of. Holding the two to one literal is what
-        // shows a caller may send either form and the script sees no difference; change one and
-        // the pair stops saying that.
+        // in structured form. Changing one and not the other stops the pair showing that a caller
+        // may send either form and the script sees no difference.
         const string encoded = """[{"name":"first"},{"name":"second"}]""";
         var report = await CallShapeAsync(new() { ["items"] = encoded });
 
@@ -395,7 +394,7 @@ public sealed class ScriptToolDispatcherTests : IClassFixture<ScriptToolDispatch
     /// <remarks>
     /// The value has to exceed 2^53. A whole-valued double binds to <c>[long]</c> without complaint
     /// and stringifies to the same text, so a small integer would pass even if the conversion
-    /// widened everything to double. 2^53+1 is the smallest value a double cannot hold exactly: the
+    /// widened everything to double. 2^53+1 is the smallest value a double cannot hold exactly. The
     /// script would receive 9007199254740992 for an argument the client sent as 9007199254740993.
     ///
     /// No current tool declares a numeric parameter, so this covers the contract

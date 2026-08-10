@@ -6,7 +6,7 @@ using VaultShared.Tools;
 namespace VaultMcpServer.Tests;
 
 /// <summary>
-/// Checks this front-end's half of the parity contract in <see cref="FrontEndParity"/>: every
+/// Checks this front-end's half of the parity contract in <see cref="FrontEndParity"/>. Every
 /// refusal arrives in the text of an <c>isError</c> result as exactly the bytes the contract names.
 /// </summary>
 /// <remarks>

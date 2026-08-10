@@ -86,10 +86,9 @@ public sealed class ScriptToolLoaderTests : IDisposable
         """;
 
     /// <summary>
-    /// A script exercising the <c>.SCHEMA</c> side-car. <c>frontmatter_ops</c> is a typed array of
-    /// objects, which a param() block can only derive as a bare <c>{type: "array"}</c>, so the
-    /// side-car carries a <c>oneOf</c> over the op vocabulary with <c>const</c> pinning each
-    /// branch's <c>op</c>.
+    /// Exercises the <c>.SCHEMA</c> side-car. A param() block can only derive
+    /// <c>frontmatter_ops</c> as a bare <c>{type: "array"}</c>, so the side-car carries a
+    /// <c>oneOf</c> over the op vocabulary with <c>const</c> pinning each branch's <c>op</c>.
     /// </summary>
     /// <remarks>
     /// The derived and authored contracts disagree on everything here - <c>.PARAMETER</c> text, JSON
@@ -326,8 +325,6 @@ public sealed class ScriptToolLoaderTests : IDisposable
     [Fact]
     public void Load_BrokenScript_SkipsOnlyThatScriptRestOfFolderLoads()
     {
-        // One broken script loads zero tools from that file and is recorded as a Degraded problem
-        // naming it, while every other script in the folder loads normally.
         WriteScript("good.ps1", ValidScript);
         WriteScript("broken.ps1", "param([string]$X)\nWrite-Output $X\n");
         var healthState = new ServerHealthState();
@@ -346,7 +343,6 @@ public sealed class ScriptToolLoaderTests : IDisposable
     [Fact]
     public void Load_ProblemsAreReplacedPerScan_BrokenThenFixedClears()
     {
-        // A script broken on one scan and fixed before the next must stop appearing as a problem.
         // The loader replaces its whole problem set on each scan rather than appending.
         var healthState = new ServerHealthState();
         WriteScript("tool.ps1", "param([string]$X)\nWrite-Output $X\n");
@@ -364,8 +360,6 @@ public sealed class ScriptToolLoaderTests : IDisposable
     [Fact]
     public void Load_ProblemsAreReplacedPerScan_OkThenBrokenAppears()
     {
-        // The other direction: a script valid on one scan that breaks before the next must appear
-        // as a problem on that next scan.
         var healthState = new ServerHealthState();
         WriteScript("tool.ps1", ValidScript);
 
@@ -414,13 +408,10 @@ public sealed class ScriptToolLoaderTests : IDisposable
 
         var schema = tool.BuildInputSchema();
         Assert.Equal("object", schema.GetProperty("type").GetString());
-        // The property set is exactly the param() block's parameters: a schema is the tool's whole
-        // advertised argument surface, so an extra property is as wrong as a missing one. Compared
-        // as a set, because the names come from a Dictionary whose enumeration order is not part
-        // of its contract, and JSON object member order carries no meaning either.
-        // The count is what makes the three containment checks below an exact set: JSON object
-        // member names cannot repeat, so three names present out of three is all three and no
-        // others.
+        // Compared as a set, because the names come from a Dictionary whose enumeration order is
+        // not part of its contract, and JSON object member order carries no meaning either. The
+        // count is what makes the three containment checks below exact, since JSON object member
+        // names cannot repeat.
         var properties = schema.GetProperty("properties").EnumerateObject().Select(p => p.Name).ToList();
         Assert.Equal(3, properties.Count);
         Assert.Contains("From", properties);
@@ -483,8 +474,8 @@ public sealed class ScriptToolLoaderTests : IDisposable
         Assert.Empty(healthState.Problems);
 
         var ops = Assert.Single(tool.Parameters, p => p.Name == "frontmatter_ops");
-        // The param() block's own facts are still carried. They stay true about the script, and the
-        // encoding signal needs both: the side-car says non-string while the .NET type is string.
+        // The param() block's own facts are still carried. The encoding signal needs both - the
+        // side-car saying non-string while the .NET type is string.
         Assert.Equal("string", ops.JsonType);
         Assert.NotNull(ops.Schema);
 
@@ -514,10 +505,8 @@ public sealed class ScriptToolLoaderTests : IDisposable
     [Fact]
     public void Load_SideCarSchema_LeavesEveryOtherParameterDerived()
     {
-        // A side-car states one parameter's node and leaves the others alone: `path` sits in the
-        // same script and derives from its param() declaration as it would with no side-car
-        // present. What this adds over BuildInputSchema_MatchesJsonSchemaShape and the ValidateSet
-        // tests is that Schema is null on a parameter with no side-car of its own.
+        // A side-car states one parameter's node and leaves the others alone. `path` derives from
+        // its param() declaration as it would with no side-car present, and its Schema is null.
         WriteScript("edit_fm.ps1", SideCarSchemaScript);
         var tool = Assert.Single(ScriptToolLoader.Load(_tempDir, OpClasses, new ServerHealthState()));
 
@@ -534,8 +523,7 @@ public sealed class ScriptToolLoaderTests : IDisposable
     {
         // `required` is a keyword of the parent object schema rather than of a property node, so a
         // side-car that replaces the node cannot express it. It stays driven by the param() block,
-        // which is what the PowerShell binder enforces: frontmatter_ops is optional there and so
-        // optional here.
+        // which is what the PowerShell binder enforces.
         WriteScript("edit_fm.ps1", SideCarSchemaScript);
         var tool = Assert.Single(ScriptToolLoader.Load(_tempDir, OpClasses, new ServerHealthState()));
 
@@ -620,7 +608,7 @@ public sealed class ScriptToolLoaderTests : IDisposable
     public void Load_SideCarSchemaNamingNoDeclaredParameter_SkipsScript()
     {
         // Refused like a parameter carrying no .PARAMETER entry. A misspelled name is otherwise
-        // indistinguishable from an absent side-car: the parameter re-derives through MapJsonType
+        // indistinguishable from an absent side-car. The parameter re-derives through MapJsonType
         // and loses its encoding, with nothing left to signal that anything went wrong.
         WriteScript("bad.ps1", """
             <#
@@ -645,7 +633,7 @@ public sealed class ScriptToolLoaderTests : IDisposable
     {
         // .PARAMETER stays mandatory for every parameter, side-car or not. A side-car carries its
         // own description, but that describes the wire shape rather than the parameter, so the
-        // help entry is still required. The refusal is the ordinary .PARAMETER one.
+        // help entry is still required.
         WriteScript("bad.ps1", """
             <#
             .SYNOPSIS

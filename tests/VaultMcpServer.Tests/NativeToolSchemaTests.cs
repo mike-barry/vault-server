@@ -79,9 +79,9 @@ public static class NativeToolSchemas
         { "type": "object", "properties": {}, "additionalProperties": false }
         """;
 
-    // The vault tools follow. These pins guard the same thing the three above do: the argument
-    // record is the only statement of the surface, and a member renamed, reordered, made required
-    // or dropped from an enumeration is a change every caller sees.
+    // The vault tools follow. The argument record is the only statement of the surface, and a
+    // member renamed, reordered, made required or dropped from an enumeration is a change every
+    // caller sees.
 
     public const string Read = """
         {
@@ -480,8 +480,8 @@ public sealed class NativeToolSchemaTests(TestVaultFixture fixture) : IClassFixt
     [Theory]
     [InlineData("mint_token")]
     [InlineData("request_elevation")]
-    // glob rather than read or grep: those two declare real non-null defaults, which are not what
-    // this checks, and the pinned literals above already state them exactly.
+    // glob rather than read or grep. Those two declare real non-null defaults, which the pinned
+    // literals above already state exactly.
     [InlineData("glob")]
     public void InputSchema_CarriesNoNullUnionsOrNullDefaults(string toolName)
     {

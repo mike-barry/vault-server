@@ -140,8 +140,8 @@ public sealed class ScriptToolArgumentEncoderTests
     [InlineData("42")]
     [InlineData("-7")]
     [InlineData("0")]
-    // The boundaries of what TryGetInt64 accepts, and why the distinction matters: past 2^53 a
-    // double cannot represent consecutive integers, so widening would silently lose data.
+    // The boundaries of what TryGetInt64 accepts. Past 2^53 a double cannot represent consecutive
+    // integers, so widening would silently lose data.
     [InlineData("9007199254740993")]
     [InlineData("9223372036854775807")]
     [InlineData("-9223372036854775808")]
@@ -152,7 +152,7 @@ public sealed class ScriptToolArgumentEncoderTests
     }
 
     /// <summary>
-    /// Verifies the other arm of the same branch: a number <c>TryGetInt64</c> refuses still converts
+    /// Verifies the other arm of the same branch. A number <c>TryGetInt64</c> refuses still converts
     /// to <c>double</c>, so the conversion accepts everything it did.
     /// </summary>
     /// <param name="json">The JSON number to convert.</param>

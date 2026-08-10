@@ -227,7 +227,7 @@ public sealed class NativeToolSchemaDispatchTests(NativeToolSchemaDispatchTests.
     /// coded refusal naming it.
     /// </summary>
     /// <remarks>
-    /// The failure this catches is silent: an optional argument declared without a C# default is
+    /// The failure this catches is silent. An optional argument declared without a C# default is
     /// advertised as required while the tool still substitutes a default and never refuses, so the
     /// schema promises a constraint nothing enforces.
     ///

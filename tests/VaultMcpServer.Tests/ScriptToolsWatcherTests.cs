@@ -89,9 +89,8 @@ public sealed class ScriptToolsWatcherTests : IDisposable
     [Fact]
     public async Task BreakingThenFixingScript_ReplacesTheRecordedProblemSetAtRuntime()
     {
-        // Through the watcher: a script broken by an edit shows up as a Degraded ScriptTools
-        // problem after the re-scan it triggers, while the rest of the folder keeps its tools, and
-        // fixing it clears the problem on the next re-scan. This is what health_check reports on.
+        // The same rule as at the loader level, driven through the re-scan an edit triggers. This
+        // is what health_check reports on.
         var scriptPath = Path.Combine(_tempDir, "greet.ps1");
         await File.WriteAllTextAsync(scriptPath, ValidScript);
         await File.WriteAllTextAsync(Path.Combine(_tempDir, "other.ps1"), ValidScript);
