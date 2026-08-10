@@ -156,7 +156,7 @@ public sealed class ToolExecutionTests : IDisposable
     /// A member no argument record declares is refused rather than dropped, so a misspelled argument
     /// name cannot silently turn a guarded call into an unguarded one. The refusal names the member,
     /// and the message says the tool does not take it, which is a different remedy from correcting a
-    /// value: the caller removes the argument.
+    /// value.
     /// </summary>
     /// <param name="arguments">The argument record type the synthetic tool declares.</param>
     [Theory]
@@ -381,8 +381,8 @@ public sealed class ToolExecutionTests : IDisposable
     }
 
     /// <summary>Reports whether a named mutex can be acquired right now, from a thread that releases
-    /// it immediately. It has to be another thread: a <see cref="Mutex"/> is re-entrant for the
-    /// thread that owns it, and the question is whether anyone else could get in.</summary>
+    /// it immediately. It has to be another thread, because a <see cref="Mutex"/> is re-entrant for
+    /// the thread that owns it.</summary>
     /// <param name="lockName">The name of the mutex to try.</param>
     /// <returns>True if the mutex was acquired; otherwise false.</returns>
     private static bool TryAcquireFromAnotherThread(string lockName)

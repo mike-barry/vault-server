@@ -78,7 +78,7 @@ public sealed class ReadToolTests : IDisposable
     }
 
     /// <summary>A note with no frontmatter block is handled by the shared note split rather than by
-    /// this tool: its frontmatter is empty text and its body is the whole note.</summary>
+    /// this tool. Its frontmatter is empty text and its body is the whole note.</summary>
     [Fact]
     public void ANoteWithNoBlock_AnswersFrontmatterWithEmptyTextAndBodyWithTheWholeNote()
     {
@@ -199,7 +199,7 @@ public sealed class ReadToolTests : IDisposable
         var refusal = VaultToolHarness.Refusal(new ReadTool(), ReadTool.Declaration, scoped, new { path = "Inbox/Loose.md" });
 
         Assert.Equal(ToolCodes.OutOfScope, refusal.Code);
-        // No data: the only remedy is a wider grant, so there is no corrected call to suggest.
+        // The only remedy is a wider grant, so there is no corrected call to suggest.
         Assert.Null(VaultToolHarness.Data(refusal));
         // The refusal must not reveal whether the note exists.
         Assert.DoesNotContain("Loose", ToolRefusalEnvelope.Json(refusal).Replace("Inbox/Loose.md", "", StringComparison.Ordinal), StringComparison.Ordinal);

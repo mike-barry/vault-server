@@ -116,11 +116,10 @@ public sealed class DeleteToolTests : IDisposable
     }
 
     /// <summary>
-    /// The same holds for a folder, which nothing else in the tool establishes: path admission
-    /// reads no filesystem and a folder holding no file is invisible to the census. A folder that
-    /// is not there would otherwise preview as clean and empty - the same shape as a real one - and
-    /// refuse only once the caller authorized the removal. An extensionless file is not a folder
-    /// and answers the same way.
+    /// A missing folder is refused too. Path admission reads no filesystem and a folder holding no
+    /// file is invisible to the census, so a folder that is not there would otherwise preview as
+    /// clean and empty and refuse only once the caller authorized the removal. An extensionless
+    /// file is not a folder and answers the same way.
     /// </summary>
     [Fact]
     public void AMissingFolderIsAFailureEvenInThePreview()
@@ -282,8 +281,7 @@ public sealed class DeleteToolTests : IDisposable
 
     /// <summary>The census covers every note in the vault rather than the part the caller's grant
     /// reaches. A link from a note the caller cannot see is exactly the one the caller cannot find
-    /// or fix on its own, so a report that stopped at the scope boundary would go quiet where the
-    /// truth matters most.</summary>
+    /// or fix on its own.</summary>
     [Fact]
     public void ReportsAWikilinkFromANoteOutsideTheCallersScope()
     {

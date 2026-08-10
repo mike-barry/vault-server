@@ -188,12 +188,11 @@ public sealed class CreateToolTests : IDisposable
     /// runs, so a creation that cannot land rewrites no bystander on its way to failing.
     /// </summary>
     /// <remarks>
-    /// Pins are written before the note is, and the order matters: interrupted after pinning,
-    /// existing links still name the target they always named, where interrupted after the note was
-    /// written, bare links have silently changed meaning. That ordering is not asserted anywhere.
-    /// The two writes are only distinguishable when one of them fails, and every refusal a creation
-    /// can decide is decided before both of them, so no arrangement reaches one write and not the
-    /// other without a seam existing only for a test.
+    /// Pins are written before the note is, and the order matters. Interrupted after pinning,
+    /// existing links still name the target they always named; interrupted after the note was
+    /// written, bare links have silently changed meaning. The ordering is not asserted anywhere,
+    /// because the two writes are only distinguishable when one of them fails and every refusal a
+    /// creation can decide is decided before both.
     /// </remarks>
     [Fact]
     public void AnOccupiedTargetIsRefusedBeforeAnyBystanderIsPinned()
@@ -255,8 +254,7 @@ public sealed class CreateToolTests : IDisposable
     }
 
     /// <summary>
-    /// A folder already at the target is refused, exactly as an occupied note path is. The tool's
-    /// declaration promises an occupied target is refused, and it holds for both kinds.
+    /// A folder already at the target is refused, exactly as an occupied note path is.
     /// </summary>
     [Fact]
     public void AnOccupiedFolderTargetIsRefusedRatherThanReportedAsACreation()
@@ -350,8 +348,8 @@ public sealed class CreateToolTests : IDisposable
         Assert.Equal("Inbox/Thought.md", VaultToolHarness.Data(refusal)!["suggested"]);
     }
 
-    /// <summary>The same rule in reverse: a folder path carries no extension, so a folder-kind call
-    /// on a path ending in <c>.md</c> is a kind mismatch.</summary>
+    /// <summary>A folder path carries no extension, so a folder-kind call on a path ending in
+    /// <c>.md</c> is a kind mismatch.</summary>
     [Fact]
     public void AFolderKindCallOnANotePathIsTheKindRefusal()
     {

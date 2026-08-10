@@ -75,8 +75,8 @@ public sealed class EditToolTests : IDisposable
 
     // ---- The declaration ----
 
-    /// <summary>The declaration asks for a write floor. It is not the whole of the authority an
-    /// edit needs: the write path asserts more depending on which keys the edit changed.</summary>
+    /// <summary>The declaration asks for a write floor. The write path asserts more authority
+    /// depending on which keys the edit changed.</summary>
     [Fact]
     public void DeclaresAWriteFloorAndMutates()
     {
@@ -168,8 +168,8 @@ public sealed class EditToolTests : IDisposable
         });
 
         var text = _vault.TextOf("Inbox/Loose.md");
-        // Both sides of the placement: an entry that landed at the head of the list would also come
-        // before the one it names, and that is an append to the front rather than an anchored add.
+        // Both sides of the placement are checked. An entry that landed at the head of the list
+        // would also come before the one it names, and that is an append rather than an anchored add.
         Assert.True(
             text.IndexOf("first", StringComparison.Ordinal)
                 < text.IndexOf("wedged", StringComparison.Ordinal)
@@ -215,8 +215,8 @@ public sealed class EditToolTests : IDisposable
     {
         var result = Edit(new { path = "Projects/Widget/Widget.md", body = new { find = "Body text.", replace = "Different text." } });
 
-        // The whole note rather than the replacement alone: the matched text has to be gone, and a
-        // substitution that appended its replacement instead of substituting would still contain it.
+        // The whole note is compared rather than the replacement alone. A substitution that appended
+        // its replacement instead of substituting would still contain the matched text.
         Assert.Equal(
             "---\ndoc.title: Widget\ndoc.type: note\n---\n# Widget\n\nDifferent text.\n",
             _vault.TextOf("Projects/Widget/Widget.md"));
@@ -313,8 +313,8 @@ public sealed class EditToolTests : IDisposable
 
     /// <summary>The hash guards the window the write lock cannot cover, between the caller's read
     /// and its write, during which an editor or a person may change the file. The refusal carries
-    /// no data on purpose: returning the current hash would let a caller retry with it and
-    /// overwrite content it never read, so the only recovery is to read the note again.</summary>
+    /// no data. Returning the current hash would let a caller retry with it and overwrite content
+    /// it never read, so the only recovery is to read the note again.</summary>
     [Fact]
     public void AWholesaleReplacementAgainstAStaleHash_IsRefusedWithNoPayload()
     {
@@ -328,10 +328,8 @@ public sealed class EditToolTests : IDisposable
         Assert.Equal("# Somebody else got here first\n", _vault.TextOf("Inbox/Loose.md"));
     }
 
-    /// <summary>An edit that carries a hash and replaces nothing wholesale is still guarded by it.
-    /// This is how a caller performs a read-modify-write of one key: it reads the note, works out the
-    /// new value from what it read, and sends the hash so that the write lands only if the note is
-    /// still the one it read.</summary>
+    /// <summary>An edit that carries a hash and replaces nothing wholesale is still guarded by it,
+    /// which is how a caller performs a read-modify-write of one key.</summary>
     [Fact]
     public void AFrontmatterOperationAgainstTheCurrentHash_IsAdmitted()
     {
@@ -347,8 +345,7 @@ public sealed class EditToolTests : IDisposable
     }
 
     /// <summary>The same edit against a hash the file no longer matches is refused, and the note is
-    /// left exactly as the other writer left it. Without the hash the operation would have applied on
-    /// top of content the caller never read, which is the outcome the guard exists to prevent.</summary>
+    /// left exactly as the other writer left it.</summary>
     [Fact]
     public void AFrontmatterOperationAgainstAStaleHash_IsRefusedAndWritesNothing()
     {
@@ -558,7 +555,7 @@ public sealed class EditToolTests : IDisposable
     /// <summary>
     /// A nested mapping and a block list are both a block, and only a block list holds entries. A
     /// declared block-list key holding a mapping is refused for its shape rather than resolving to
-    /// no entries: an add would otherwise reach the tree and fail as an uncoded internal error, and
+    /// no entries. An add would otherwise reach the tree and fail as an uncoded internal error, and
     /// a field removal would find no entry objecting to a wholesale clear and delete the mapping
     /// while reporting success.
     /// </summary>

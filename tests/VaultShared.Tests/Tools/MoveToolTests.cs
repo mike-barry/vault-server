@@ -7,8 +7,7 @@ namespace VaultShared.Tests.Tools;
 /// <summary>
 /// Tests the <c>move</c> tool against a real directory tree: the note and folder forms, the
 /// refusals decided before anything is written, the repair-before-move order, the preview gate, the
-/// post-move paths every member reports, and the two kinds of path policy rule a relocation is
-/// priced by.
+/// post-move paths the result reports, and the path policy rules a relocation is priced by.
 /// </summary>
 public sealed class MoveToolTests : IDisposable
 {
@@ -108,9 +107,8 @@ public sealed class MoveToolTests : IDisposable
             result.ContentHash);
     }
 
-    /// <summary>Links that named the moved note are repaired to follow it. Repaired and pinned links
-    /// are reported separately: a repair follows the moved note, a pin protects an unrelated
-    /// link.</summary>
+    /// <summary>Links that named the moved note are repaired to follow it, and repaired and pinned
+    /// links are reported separately.</summary>
     [Fact]
     public void RepairsLinksThatNamedTheMovedNote()
     {
@@ -126,10 +124,9 @@ public sealed class MoveToolTests : IDisposable
     }
 
     /// <summary>
-    /// The repair runs over the whole vault rather than the caller's scoped view. A link in a note
-    /// the grant admits neither for reading nor for writing still follows the moved note, because a
-    /// link left naming a path nothing is at is broken for every reader of the vault, not only for
-    /// the caller that moved it.
+    /// The repair runs over the whole vault rather than the caller's scoped view. A link left
+    /// naming a path nothing is at is broken for every reader of the vault, not only for the
+    /// caller that moved it.
     /// </summary>
     [Fact]
     public void TheRepairFollowsTheMovedNoteIntoANoteOutsideTheCallersScope()
@@ -164,7 +161,7 @@ public sealed class MoveToolTests : IDisposable
 
         var result = Move(vault, new { path = "Inbox/Draft.md", destination = "Inbox/Guide.md", apply = true });
 
-        // A pin never redirects: the link still opens the note it opened before the move.
+        // A pin never redirects. The link still opens the note it opened before the move.
         Assert.Empty(result.RepairedLinks);
         Assert.Equal(["Inbox/Note.md:3 Guide -> Reference/Guide"], Rendered(result.PinnedLinks!));
         Assert.Contains("[[Reference/Guide]]", vault.TextOf("Inbox/Note.md"));
@@ -193,8 +190,7 @@ public sealed class MoveToolTests : IDisposable
 
     /// <summary>
     /// A preview refuses an occupied destination as well, because a preview runs the same validation
-    /// a real call does. A preview that reported success for a move its own applied call cannot make
-    /// is worse than no preview.
+    /// a real call does.
     /// </summary>
     [Fact]
     public void APreviewRefusesAnOccupiedDestination()
@@ -233,8 +229,7 @@ public sealed class MoveToolTests : IDisposable
 
     /// <summary>
     /// A repair pass that fails on the first note it writes leaves the vault as it was, so the
-    /// refusal is a plain write failure rather than a partial mutation. A caller told a mutation was
-    /// partial goes looking for state to repair, and here there is none.
+    /// refusal is a plain write failure rather than a partial mutation.
     /// </summary>
     [Fact]
     public void ARepairThatWritesNothingIsAPlainWriteFailure()
@@ -398,7 +393,7 @@ public sealed class MoveToolTests : IDisposable
 
     /// <summary>
     /// An embed of an attachment the moved folder carries is repaired like any other link, and the
-    /// attachment itself is not reported among the moved notes: the directory rename carries it
+    /// attachment itself is not reported among the moved notes. The directory rename carries it
     /// under a name that does not change.
     /// </summary>
     [Fact]
@@ -418,8 +413,8 @@ public sealed class MoveToolTests : IDisposable
 
     /// <summary>
     /// A folder cannot be moved inside itself. The refusal is decidable from the two paths alone, so
-    /// it is raised before the repair pass writes anything: the directory rename would fail, and the
-    /// recovery a failure prints - re-run the identical move - could never succeed.
+    /// it is raised before the repair pass writes anything. The directory rename would fail, and
+    /// the recovery a failure prints - re-run the identical move - could never succeed.
     /// </summary>
     [Fact]
     public void AFolderMovedBeneathItselfIsRefusedBeforeAnyLinkIsRepaired()
@@ -490,8 +485,7 @@ public sealed class MoveToolTests : IDisposable
         Assert.Equal("Archive/Guide.md", VaultToolHarness.Data(refusal)!["suggested"]);
     }
 
-    /// <summary>The same rule in reverse: a folder never lands at a path carrying the markdown
-    /// extension.</summary>
+    /// <summary>A folder never lands at a path carrying the markdown extension.</summary>
     [Fact]
     public void AFolderDestinationCarryingTheExtensionIsTheKindRefusal()
     {
@@ -531,7 +525,7 @@ public sealed class MoveToolTests : IDisposable
             Move(granted, new { path = "Reference/Guide.md", destination = "Archive/Guide.md" }).AssertedAuthority);
     }
 
-    /// <summary>A structural rule applies where a move changes what a note is: renaming a note to
+    /// <summary>A structural rule applies where a move changes what a note is. Renaming a note to
     /// match its containing folder makes it that folder's folder note.</summary>
     [Fact]
     public void AStructuralRuleContributesWhereANoteBecomesAFolderNote()
@@ -548,7 +542,7 @@ public sealed class MoveToolTests : IDisposable
             Refusal(acquiring, new { path = "Reference/Guide.md", destination = "Archive/Gizmo/Gizmo.md" }).Code);
     }
 
-    /// <summary>The rule adds nothing where the status does not change: a folder note carried along
+    /// <summary>The rule adds nothing where the status does not change. A folder note carried along
     /// by its own folder's rename is still a folder note afterwards.</summary>
     [Fact]
     public void AFolderNoteCarriedByItsFoldersRenameContributesNothing()

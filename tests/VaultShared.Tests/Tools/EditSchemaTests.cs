@@ -9,8 +9,8 @@ namespace VaultShared.Tests.Tools;
 /// enters it.
 ///
 /// Every part of the schema except the entry branches is derived from the <see cref="EditArguments"/>
-/// record. The entry branches vary per vault, because the frontmatter declaration does. The schema
-/// only advertises: a payload that satisfies it can still be refused by the write path.
+/// record. The entry branches vary per vault, because the frontmatter declaration does. A payload
+/// that satisfies the schema can still be refused by the write path.
 /// </summary>
 public sealed class EditSchemaTests
 {

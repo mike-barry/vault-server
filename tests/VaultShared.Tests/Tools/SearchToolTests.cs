@@ -59,7 +59,7 @@ public sealed class SearchToolTests : IDisposable
     /// <summary>
     /// The pattern reaches the caller's own notes at every depth beneath it. The markdown
     /// restriction is applied to the engine's results and must never be appended to the caller's
-    /// pattern: appending <c>.md</c> to <c>Projects/**</c> turns the recursive wildcard into a
+    /// pattern. Appending <c>.md</c> to <c>Projects/**</c> turns the recursive wildcard into a
     /// single <c>*</c>, and both notes asserted here are nested one level deeper than that reaches.
     /// </summary>
     [Fact]
@@ -73,9 +73,9 @@ public sealed class SearchToolTests : IDisposable
     /// <summary>
     /// Enumeration covers markdown notes only. No tool here operates on an attachment, so one is
     /// never listed, and a path under a dot directory is outside the perimeter every tool works
-    /// within. The whole answer to a pattern matching everything is asserted, because "only" is the
-    /// property: a result set that grew to include either the attachment or the note under
-    /// <c>.obsidian</c> is the failure this is looking for.
+    /// within. The whole answer to a pattern matching everything is asserted, because a result set
+    /// that grew to include either the attachment or the note under <c>.obsidian</c> is the failure
+    /// this is looking for.
     /// </summary>
     [Fact]
     public void Glob_AnswersTheMarkdownDomainOnly()
@@ -115,8 +115,8 @@ public sealed class SearchToolTests : IDisposable
             Lines(Grep(_vault, new { pattern = "needle", path_glob = "Widget.md" })));
     }
 
-    /// <summary>The answer is the whole set, so it also states what content search does not reach:
-    /// the attachment and the note under the dot directory both carry the pattern and neither is
+    /// <summary>The answer is the whole set, so it also states what content search does not reach.
+    /// The attachment and the note under the dot directory both carry the pattern and neither is
     /// listed.</summary>
     [Fact]
     public void Grep_Files_AnswersOnePathPerLine()
