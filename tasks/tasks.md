@@ -11,6 +11,9 @@ NEXT_TASK_ID: 015
 - [ ] [task-004](task-004-logging-standard.md) — Standardize logging on two records, written as content-free JSON lines to rotated, retained files
 - [ ] [task-005](task-005-tasks-instructions-as-skill.md) — Promote the task instructions into a skill
 - [ ] [task-014](task-014-commit-standards.md) — Write the commit message standard, now that the message carries why a change was made
+- [ ] Recover the deleted powershell tool primitives for sync and lint to harvest for the new spec
+- [ ] Evaluate whether delete should leave behind a [[Original-Note|Deleted-Note]] instead of leaving bad wikilinks; leaning yess
+- [ ] Re-evaluate whether `UseAppHost=false` is still warranted for the MCP server; it was done due to Smart App Control blocking the newly built server but it still did it with the DLL; disabling SAC wasn't a one-way valve as the agent originally stated
 
 ## Sidequests
 
