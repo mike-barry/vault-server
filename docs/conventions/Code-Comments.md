@@ -1,22 +1,30 @@
 # Code Comments
 
-The comment standard for this repository's C# code, in `src/` and `tests/` alike.
-Load this before writing or modifying a comment.
+The standard for every comment in this repository, whatever file holds it: C# in
+`src/` and `tests/`, PowerShell, JSON with comments, project files, and scripts.
+
+A rule naming a C# construct applies wherever the language has one and is inert
+where it does not. Only "Document every parameter" is C# alone, because nothing
+else here is enforced by a compiler.
+
+`.claude/prompting/Prose-Style.md` governs how a sentence is worded, in a comment
+as much as anywhere else, and every session has it loaded already. This document
+decides what a comment says and whether it is there at all.
 
 Comments are written in the register of MSDN and BCL documentation: simple,
-clear, concise, complete. The reader to write for is a .NET developer who has
-opened nothing but the file in front of them.
+clear, concise, complete. The reader to write for is a developer who has opened
+nothing but the file in front of them.
 
 ## The rules
 
-### 1. A summary opens with a verb phrase
+### A summary opens with a verb phrase
 
 One or two plain sentences, active voice, saying what the thing does.
 
 > **No:** `What a removal turned out to be, or would be.`
 > **Yes:** `Represents the result of a delete operation or its preview.`
 
-### 2. A comment stands on its own
+### A comment stands on its own
 
 It never leans on a document, on another file, or on an idiom the reader has to
 have met before. Whatever it depends on is said in it.
@@ -29,32 +37,47 @@ idiom fails that test silently - it reads as confident prose and only breaks
 when someone who was not here tries to use it.
 
 One citation is permitted: a document in `docs/reference/`, named by bare
-filename in backticks, as in `Ref-Obsidian-Link-Behavior.md`. It supplements the
-comment and never replaces it - the comment still states in full what its own
-site depends on, and the reference carries the whole rule and the conditions a
-measurement holds under. Nothing else may be cited.
+filename in backticks, as in `Ref-Obsidian-Link-Behavior.md`. Never a path,
+because a path is a fact about layout that moving the file falsifies. It
+supplements the comment and never replaces it - the comment still states in full
+what its own site depends on, and the reference carries the whole rule and the
+conditions a measurement holds under.
 
-### 3. Justify only what the code cannot show
+The exception is the same property running in both directions. A document
+qualifies for `docs/reference/` because no change here can falsify it, and that
+is what makes citing it safe, since the citation cannot be broken by an edit to
+the code beside it. A citation to anything else can, which is why there is no
+second exception. Not to a specification, a design, a guide, or a convention,
+and not to a document that has been archived or frozen. A frozen document is the
+worst of them, because it resolves, and answers.
+
+### Justify only what the code cannot show
 
 Keep a "why" where a maintainer would otherwise break something: a cross-process
 contract, a deliberate asymmetry, a non-obvious refusal, a settled decision
-someone would be tempted to "fix". One sentence, stated as fact rather than
-argued. A longer caution goes in `<remarks>`, written calmly.
-
-> **No:** `Checked over the set rather than inside the comparison, so a candidate from another vault - a layer defect rather than a ranking answer, the posture VaultAccess.Admits takes - surfaces as itself instead of as whatever the sort wraps it in.`
-> **Yes:** `Checked here rather than inside the comparison, so the exception surfaces as itself instead of wrapped in whatever the sort throws.`
+someone would be tempted to "fix". A longer caution goes in `<remarks>`, written
+calmly.
 
 Everything else needs no defence. Most members only need describing.
 
-### 4. No thesis paragraphs
+### The chokepoint owns a concern that spans files
 
-No bolded claims, no manifesto structure, no rhetorical parallelism. Emphasis is
-almost never needed.
+The one thing comments handle badly is behavior with no single site. Either
+every file describes it and the copies diverge, or none does.
 
-> **No:** `**Authorization precedes argument feedback.** The floor is checked before arguments are bound, so a caller holding no authority over a tool cannot use a malformed call to probe the argument surface of one it may not run. It costs nothing, since the lock is later than both.`
-> **Yes:** `The floor is checked before arguments are bound, so a caller with no authority over a tool cannot use a malformed call to probe the argument surface of a tool it may not run.`
+Where a concern passes through one place - the class every caller routes
+through, the seam both sides share - that place carries the whole description,
+says that it is the only site, and says what breaks if a second one appears. The
+participants carry nothing and restate nothing.
 
-### 5. Document every parameter
+> `ToolRefusalEnvelope` lists the refusal types both front-ends recognize, and
+> says that listing them in each front-end's rendering path instead would let
+> one front-end crash where the other returned an envelope, for the same call.
+
+Where a concern genuinely has no chokepoint, that is a finding about the design
+rather than a documentation problem.
+
+### Document every parameter
 
 A documented member carries a `<param>` for each of its parameters, plus
 `<returns>` and `<exception>` where they apply. Records document their
@@ -69,32 +92,24 @@ documentation at all is allowed; a member documented in part is not.
 The test projects deliberately do not generate documentation, so nothing there
 is enforced. Write it to the same standard anyway.
 
-### 6. Present tense, no chronology
+### Present tense, no chronology
 
 A comment says what is true now. No "previously", "no longer", "moved from",
 "this build", "as of this step". Git history holds the chronology. Where a
 change makes a comment describe a world that no longer exists, rewrite it in the
 same commit.
 
-### 7. Inline comments earn their place
+### Inline comments earn their place
 
 Only where the next line is genuinely non-obvious. An inline comment that
 restates the code is noise; one carrying a real reason stays. Banner comments
 are fine and carry no numbering, which would index something outside the file.
 
-### 8. A colon introduces a list, not a reason
+### Colons that are not prose
 
-A colon may introduce an enumeration of what was just named. It may not stand in
-for "because", "so", or "and". Where it welds a claim to its justification, that
-is two sentences and the connective belongs in the text.
-
-> **No:** `Routing is decided before authority: a call naming a vault nobody configured is told so, rather than being refused for a scope that could never have admitted it.`
-> **Yes:** `Routing is decided before authority. A call naming a vault nobody configured is told so, rather than being refused for a scope that could never have admitted it.`
-
-> **Fine:** `Represents the result of resolving a path the caller named: the admitted proof, an unknown vault, or a path outside the scope.`
-
-A `Windows:` breadcrumb is not a prose colon and is unaffected, and neither is a
-colon inside a code literal such as `<c>isError: true</c>`.
+`Prose-Style.md` keeps a colon from standing in for a reason. Two colons in code
+are not that colon. A `Windows:` breadcrumb is unaffected, and so is a colon
+inside a code literal such as `<c>isError: true</c>`.
 
 ## What is not yours to edit
 
@@ -119,15 +134,18 @@ cannot repeat the measurement.** It is long because the fact is.
 Such a comment says what was measured, what against, and what changing it
 breaks. That is what makes it usable by someone who cannot repeat the
 measurement, and it is also how it is recognized: there is no list of protected
-comments, and starting one is not the answer. `docs/conventions/Documentation-Strategy.md`
-carries the rule, and the test for when a fact of this kind belongs in a
-`docs/reference/` document rather than in the comment.
+comments, and starting one is not the answer. A roster protects what existed
+when it was written, implies that everything absent from it is fair game, and
+becomes a third copy of a fact that drifts from the two real ones.
 
-It does not carry the date it was measured on. A date is chronology, which rule 6
-keeps out, and it earns no exception here: nothing in this repository can check it,
-so it goes stale silently while reading as though it had been verified. What a
-reader needs instead is the condition the result holds under - the settings, the
-fixture, the version - and how to establish it again.
+`docs/conventions/Documentation-Strategy.md` carries the test for when a fact of
+this kind belongs in a `docs/reference/` document rather than in the comment.
+
+It does not carry the date it was measured on. A date is chronology, which the
+present-tense rule keeps out, and it earns no exception here: nothing in this
+repository can check it, so it goes stale silently while reading as though it
+had been verified. What a reader needs instead is the condition the result holds
+under - the settings, the fixture, the version - and how to establish it again.
 
 ## Related
 

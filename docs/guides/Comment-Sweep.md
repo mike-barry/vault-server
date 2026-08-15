@@ -70,9 +70,9 @@ arbiter verifies each report against the code and decides. Confirming one takes
 reading the code, which is why it is not the worker's call.
 
 **Workers report comments describing behavior sited outside their area.** The
-documentation strategy requires one site to own a cross-file concern, say that
-it is the only site, and say what breaks if a second appears, with the
-participants restating nothing. A worker partitioned by directory sees one
+comment standard requires one site to own a cross-file concern, say that it is
+the only site, and say what breaks if a second appears, with the participants
+restating nothing. A worker partitioned by directory sees one
 participant and cannot tell an owner from a restater, so left alone it polishes
 a duplicate into a better duplicate. Ownership is decided by an arbiter pass
 after Pass 2 completes, over the collected reports.
@@ -144,17 +144,12 @@ pointer die.
 
 ## What a sweep must not destroy
 
-A comment recording something established outside the code - a measurement,
-another application's observed behavior, a dependency's contract, an agreement -
-is not shortened by a sweep. Nobody sweeping can repeat the measurement, so
-cutting one is guesswork that reads afterwards as though it had been checked. A
-sweep optimising for concision is exactly the thing that would compress one into
-a sentence that reads better and cannot be acted on. Leave them long.
-
-Such a comment is recognizable without a list: it says what was measured, what
-against, and what changing it breaks. Take that shape as the signal, and do not
-maintain a roster of protected sites - one goes stale, and its absence reads as
-permission everywhere else.
+`Code-Comments.md` protects the comment that records something established
+outside the code, and says how to recognize one. A sweep is where that
+protection is most likely to fail, because a sweep optimising for concision is
+exactly the thing that would compress such a comment into a sentence that reads
+better and cannot be acted on. Nobody sweeping can repeat the measurement.
+Leave them long.
 
 The same caution applies to any comment stating a cross-process contract, an
 ordering that must not change, a check-then-act prohibition, or a rule about

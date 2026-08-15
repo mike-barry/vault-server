@@ -42,20 +42,40 @@ These live under `docs/conventions/`. Load one before doing the work it governs.
 
 | Document | Load it before |
 | --- | --- |
-| `Documentation-Strategy.md` | Creating a document, moving a fact out of the code, or deciding something needs writing down at all. It is the standard for where a fact goes. |
-| `Code-Comments.md` | Writing or modifying any comment. It is the standard for what a comment says and the register it says it in. |
+| `Documentation-Strategy.md` | Creating a document, or deciding something needs writing down at all. The table above says where a fact goes; this says whether it earns a document. |
+| `Code-Comments.md` | Writing or modifying any comment. It is the standard for what a comment says. The register it is said in is `.claude/prompting/Prose-Style.md`, which every session already has loaded. |
 | `Unit-Tests.md` | Adding or changing a test, in any of the three test projects. It also lists the fixtures, which are worth reaching for before building an arrangement by hand. |
 | `Cross-Platform.md` | Writing or changing anything that treats more than one operating system as possible: a branch on the OS, a second failure classification for another platform's exception, a test gated by or skipped on an OS, or a comment hedging about what another platform does. Also before adding a `Windows:` breadcrumb, which the document defines. |
 
 ## Documentation
 
-**Code comments are the primary description of this system.** `docs/conventions/Documentation-Strategy.md` carries the rule for the facts a comment cannot hold, `docs/reference/` holds facts about things outside this repository, named `Ref-<Subject>.md`, and `docs/guides/` holds the procedure for an undertaking that happens too rarely to be a convention.
+**Code comments are the primary description of this system.** Where a fact goes:
+
+| Home | Holds |
+| --- | --- |
+| `CLAUDE.md` | What the system is, the project layout, the chosen constraints, and where to look for the rest. |
+| `.claude/prompting/` | A rule an agent follows continuously, with no moment that would trigger loading it. Imported into every session. A rule kept here is stated here alone, and a convention sharing its subject points at it rather than restating it. |
+| `docs/conventions/` | How to do a kind of work. Loaded before doing it. |
+| `docs/guides/` | How to carry out one undertaking. Loaded before starting it. |
+| `docs/reference/` | Facts about things outside this repository, named `Ref-<Subject>.md`. |
+| `tasks/` | What to do next. |
+| Code comments | What the code does, and why it is the way it is. |
+| The commit message | How a change was reached. |
+
+`docs/conventions/Documentation-Strategy.md` decides whether a document should exist at all, and what may go in one.
 
 **Only the operator adds or changes a document under `docs/reference/`**, and that holds whether or not the strategy has been read. It is the only kind of document a comment may cite, nothing here can check what one says, and no change to this code can make one wrong - so an agent has no trigger for editing one. Describe the fact and wait.
 
 There is no decision log and none is to be created. How a decision was reached is the commit message; what survives from it is its outcome, and an outcome with a code site is a comment there, written as a constraint rather than a story.
 
 On a question this repository cannot answer, stop that thread and raise it with the operator in session rather than deciding from judgment.
+
+## Prompting
+
+`.claude/prompting/` holds prompt text imported into every session, and its own `CLAUDE.md` says what each file is and what importing it commits to. Nothing there rules on an artifact in this repository.
+
+@.claude/prompting/Response-Style.md
+@.claude/prompting/Prose-Style.md
 
 ## Tasks
 
