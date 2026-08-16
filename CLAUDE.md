@@ -25,9 +25,11 @@ dotnet build --no-incremental
 dotnet test
 ```
 
-Both are expected clean: 0 warnings, 0 errors, and 1570 tests passing.
+Both are expected clean: 0 warnings, 0 errors, and no failing or skipped tests.
 
 `CS1573` is an error on the three `src/` projects, so a documented member that leaves one of its parameters undocumented fails the build rather than passing quietly.
+
+`.\publish.ps1` stages the release build of `vault.exe` in the gitignored `bin/vault/`, which is where another repository calling the CLI should look for it. That copy reads this repository's `op-classes.json`, `vaults.json` and `grants.json` rather than copies of them, and it is a snapshot of the CLI's code that only the script refreshes.
 
 ## Constraints
 

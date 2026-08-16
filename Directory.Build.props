@@ -1,0 +1,12 @@
+<Project>
+
+  <PropertyGroup>
+    <!-- Ships the neutral (English) resources alone. Packages such as System.CommandLine carry
+         satellite assemblies for other languages, and each one lands as its own folder in every
+         build and publish output. Nothing here is localized and no other language is ever loaded,
+         so the folders are weight in the output and noise beside vault.exe. Widening this list is
+         what brings them back. -->
+    <SatelliteResourceLanguages>en</SatelliteResourceLanguages>
+  </PropertyGroup>
+
+</Project>

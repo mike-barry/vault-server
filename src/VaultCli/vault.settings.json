@@ -8,10 +8,10 @@
   // a missing value to authority.
   "GrantId": "admin",
 
-  // The same three files the server loads, named here so a CLI deployed away from the server can
-  // still find them. These point at the repository root from the build output directory,
-  // bin/<config>/<tfm>. A deployed CLI names them beside itself, which is what an unset setting
-  // already defaults to.
+  // The same three files the server loads, named here so a CLI run away from the server can still
+  // find them. These point at the repository root from the build output directory,
+  // bin/<config>/<tfm>. publish.ps1 installs vault.settings.deployed.json over this file, because
+  // bin\vault sits at a different distance from the repository root than the build output does.
   "OpClassesConfigPath": "../../../../../op-classes.json",
   "VaultsConfigPath": "../../../../../vaults.json",
   "GrantsConfigPath": "../../../../../grants.json",

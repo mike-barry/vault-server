@@ -1,0 +1,24 @@
+{
+  // The CLI's own configuration, installed beside vault.exe by publish.ps1 over the copy the build
+  // produces. Relative paths resolve against this file's own directory, never the working directory
+  // the CLI was run from.
+
+  // The named grant every invocation runs as, unless --grant overrides it. It is an ordinary
+  // token-less row in grants.json carrying "named": true - no id is special-cased in code, so
+  // re-pointing this default is one edit here. Absence fails the invocation. There is no path from
+  // a missing value to authority.
+  "GrantId": "admin",
+
+  // The same three files the server loads, named at their distance from bin\vault. The published
+  // CLI reads the repository's live configuration rather than a copy, so an edit to one of these
+  // three takes effect on the next invocation with no re-publish. A CLI packaged for another
+  // machine names them beside the executable instead, which is what an unset setting already
+  // defaults to.
+  "OpClassesConfigPath": "../../op-classes.json",
+  "VaultsConfigPath": "../../vaults.json",
+  "GrantsConfigPath": "../../grants.json",
+
+  // Where ripgrep is. Unset means rg as PATH resolves it. A path set here that is not on disk is
+  // reported by the health check and refuses glob and grep; every other tool keeps working.
+  "RipgrepPath": ""
+}
