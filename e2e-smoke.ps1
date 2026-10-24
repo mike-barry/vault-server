@@ -234,7 +234,7 @@ try {
     # already carries runs the whole path - the write floor, the lock, the vault's declaration, the
     # operations, the authority classification - and composes bytes identical to what is stored, so
     # nothing is written and this script's read-only posture holds. What it proves is that the
-    # declaration the committed vaults.json names actually loaded: with none, every one of these
+    # declaration vaults.json names actually loaded: with none, every one of these
     # refuses frontmatter_unavailable.
     Write-Host 'Probe: edit on vault "test" (the write path, over a note it leaves unchanged)'
     $note = 'Inbox/Note-Loose-Thought.md'
@@ -375,7 +375,7 @@ try {
         Check 'minted token cannot mint content:write (authority_required on the op_class dimension)' $false 'skipped: mint failed'
     }
 
-    # The read-class scope floor, against the path policy the committed vaults.json actually
+    # The read-class scope floor, against the path policy vaults.json actually
     # declares. The xUnit end-to-end coverage restates that declaration in its own sandbox config,
     # so what only a live run can show is that the shipped entry loads and takes effect. The narrow
     # grant is minted rather than configured, because grants.json is this machine's and cannot be

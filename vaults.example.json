@@ -2,11 +2,11 @@
   "default_vault": "primary",
   "vaults": {
     "primary": {
-      "path": "C:/Repos/vault-primary",
+      "path": "C:/path/to/your-vault",
       "frontmatter_registry": "frontmatter-registry.json"
     },
     "test": {
-      "path": "C:/Repos/vault-server/test-vault",
+      "path": "C:/path/to/vault-server/test-vault",
       "frontmatter_registry": "test-vault-frontmatter-registry.json",
       "path_policy": [
         { "path": "Resources/Vault/Guides", "always_readable": true }

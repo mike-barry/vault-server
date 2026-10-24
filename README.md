@@ -49,7 +49,7 @@ dotnet build
 dotnet test
 ```
 
-The server reads `vaults.json` (which vaults exist and where), `op-classes.json`, and `grants.json` (tokens and their grants; start from `grants.example.json`). `run.ps1` starts it on `http://localhost:5111/mcp`, bound to loopback only. `publish.ps1` builds `vault.exe` into `bin/vault/`.
+The server reads `vaults.json` (which vaults exist and where; start from `vaults.example.json`), `op-classes.json`, and `grants.json` (tokens and their grants; start from `grants.example.json`). `run.ps1` starts it on `http://localhost:5111/mcp`, bound to loopback only. `publish.ps1` builds `vault.exe` into `bin/vault/`.
 
 ## Related
 

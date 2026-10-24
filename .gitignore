@@ -6,6 +6,9 @@
 # vault-mcp secrets - real grant tokens, never committed
 grants.json
 
+# Machine-local vault paths; vaults.example.json carries the shape
+vaults.json
+
 # The release builds publish.ps1 stages for other repositories to call. The [Bb]in/ rule further
 # down already covers this folder; it is named here so the reason it is ignored is findable.
 /bin/
